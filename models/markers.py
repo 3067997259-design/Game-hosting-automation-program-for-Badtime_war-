@@ -220,6 +220,15 @@ class MarkerManager:
             return True
         return False
 
+    def set_engaged(self, player_a, player_b):
+        """建立双向面对面关系"""
+        self.add_relation(player_a, "ENGAGED_WITH", player_b)
+        self.add_relation(player_b, "ENGAGED_WITH", player_a)
+
+    def disengage(self, player_a, player_b):
+        """解除双向面对面关系（含隐身恢复）"""
+        self.on_engaged_broken(player_a, player_b)
+
     def describe_markers(self, player_id):
         """返回某玩家的标记描述字符串"""
         parts = []

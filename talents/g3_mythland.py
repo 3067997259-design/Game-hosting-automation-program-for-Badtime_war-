@@ -70,12 +70,15 @@ class Mythland(BaseTalent):
         others = self._get_same_location_targets(player)
         if others:
             names = ", ".join(o.name for o in others)
-            return (f"发动天赋：{self.name}"
-                    f"（拉自己+至多1人进入结界）"
-                    f"\n  同地点可选目标：{names}")
+            return {
+                "name": self.name,
+                "description": f"拉自己+至多1人进入结界。同地点可选目标：{names}"
+            }
         else:
-            return (f"发动天赋：{self.name}"
-                    f"（独自进入结界）")
+            return {
+                "name": self.name,
+                "description": "独自进入结界"
+            }
 
     def _get_same_location_targets(self, player):
         """获取同地点的其他存活玩家"""

@@ -92,6 +92,19 @@ class ActionTurnManager:
         if player.talent and player.is_awake:
             t0_option = player.talent.get_t0_option(player)
             if t0_option:
+                # ---- 防御性兼容：字符串→字典 ----
+                if isinstance(t0_option, str):
+                    t0_option = {
+                        "name": player.talent.name,
+                        "description": t0_option
+                    }
+                elif not isinstance(t0_option, dict):
+                    t0_option = {
+                        "name": player.talent.name,
+                        "description": str(t0_option)
+                    }
+                # ---- 兼容结束 ----
+
                 # 六爻额外回合中禁用六爻
                 if (player.talent.name == "六爻"
                         and hasattr(player, 'hexagram_extra_turn')

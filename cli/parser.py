@@ -23,16 +23,15 @@ def parse(raw_input, player_id):
         return {"action": "move", "destination": dest}
 
     # ---- 交互 ----
+    # ---- 交互 ----
     if cmd in ("interact", "交互", "i", "get", "拿", "学", "做", "买"):
         if len(parts) < 2:
             return None
         item = " ".join(parts[1:])
+        # 只做不会冲突的缩写，具体物品名保持原样传给地点处理
         shorthand = {
-            "凭证": "拿凭证", "钱": "拿凭证", "会员": "拿凭证",
-            "刀": "拿刀", "小刀": "拿刀",
-            "盾": "拿盾", "盾牌": "拿盾",
-            "通行证": "办理通行证", "办通行证": "办理通行证",
-            "导弹": "导弹控制权",
+            "通行证": "办理通行证",
+            "办通行证": "办理通行证",
         }
         item = shorthand.get(item, item)
         return {"action": "interact", "item": item}
