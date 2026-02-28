@@ -174,31 +174,39 @@ class AnchorVerifier:
         return best
 
     def _get_outermost_armor_attr(self, player):
-        """最外层护甲属性"""
-        if hasattr(player, 'armor') and hasattr(player.armor, 'get_outermost'):
-            outermost = player.armor.get_outermost()
-            if outermost:
-                return outermost.attribute
-        return None
+        """最外层护甲属性（外层护甲优先，按priority取最外）"""
+        if not hasattr(player, 'armor') or not player.armor:
+            return None
+        try:
+            from models.equipment import ArmorLayer
+
+            outer = player.armor.get_active(ArmorLayer.OUTER)
+            if not outer:
+                return None
+            outer.sort(key=lambda a: getattr(a, 'priority', 0), reverse=True)
+            return outer[0].attribute
+        except Exception:
+            return None
 
     def _total_effective_hp(self, player) -> float:
         """总有效HP = 血量 + 所有护甲HP"""
         total = player.hp
-        if hasattr(player, 'armor') and hasattr(player.armor, 'layers'):
-            for a in player.armor.layers:
-                if not a.is_broken:
-                    total += a.current_hp
+        if hasattr(player, 'armor') and player.armor and hasattr(player.armor, 'get_all_active'):
+            for a in player.armor.get_all_active():
+                total += a.current_hp
         return total
 
     def _find_armor_by_desc(self, player, description: str):
-        """根据描述找护甲"""
-        if not hasattr(player, 'armor'):
+        """根据描述找护甲（仅匹配未破碎护甲）"""
+        if not hasattr(player, 'armor') or not player.armor:
+            return None
+        if not hasattr(player.armor, 'get_all_active'):
             return None
         desc_lower = description.lower()
-        for a in player.armor.layers:
-            if not a.is_broken and (
-                a.name.lower() in desc_lower or
-                desc_lower in a.name.lower()
+        for a in player.armor.get_all_active():
+            if (
+                a.name.lower() in desc_lower
+                or desc_lower in a.name.lower()
             ):
                 return a
         return None

@@ -21,8 +21,8 @@ def quantize_damage(damage):
         return 0
     int_part = int(damage)
     frac_part = damage - int_part
-    if frac_part == 0:
-        return damage
+    if abs(frac_part) < 1e-9:
+        return float(int_part)
     return int_part + 0.5
 
 def _resolve_weaponless_damage(attacker, target, game_state, result,

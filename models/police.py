@@ -84,6 +84,9 @@ class PoliceData:
     """
 
     def __init__(self):
+        # 重置警察成员ID计数（避免同进程多局游戏累积）
+        PoliceTeam._next_member_id = 0
+
         # 警队列表（初始1支，每支3人）
         self.teams = [PoliceTeam("alpha", initial_size=3)]
 

@@ -287,6 +287,7 @@ class ActionTurnManager:
 
         target = self.state.get_player(target_id)
         if result.get("killed") and target:
+            player.kill_count += 1
             self.state.markers.on_player_death(target_id)
             display.show_death(target.name, f"被 {player.name} 的 {weapon_name} 击杀")
 

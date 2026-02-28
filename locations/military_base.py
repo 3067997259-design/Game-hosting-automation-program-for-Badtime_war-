@@ -87,14 +87,15 @@ def do_interact(player, item_name, game_state=None):
         return f"🚀 {player.name} 取得了导弹控制权！（第1步完成，接下来需要锁定目标→发射）"
 
     elif item_name == "雷达":
-        player.items.append(make_item("雷达"))
+        player.add_item(make_item("雷达"))
         player.has_detection = True
         return f"📡 {player.name} 获得了雷达并改造完成！获得探测能力。"
 
     elif item_name == "隐形涂层":
         player.is_invisible = True
         if game_state:
-            game_state.markers.add(player.player_id, "INVISIBLE")
+            game_state.markers.on_player_go_invisible(
+                player.player_id, list(game_state.players.values()))
         return f"🫥 {player.name} 使用了隐形涂层，进入隐身状态！"
 
     return "未知项目"

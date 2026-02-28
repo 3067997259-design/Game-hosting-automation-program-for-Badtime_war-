@@ -118,7 +118,8 @@ def _apply_learned_spell(player, spell_name, game_state):
     elif spell_name == "隐身术":
         player.is_invisible = True
         if game_state:
-            game_state.markers.add(player.player_id, "INVISIBLE")
+            game_state.markers.on_player_go_invisible(
+                player.player_id, list(game_state.players.values()))
         return f"✨ {player.name} 学会了隐身术！永久隐身。🫥"
 
     elif spell_name == "探测魔法":
