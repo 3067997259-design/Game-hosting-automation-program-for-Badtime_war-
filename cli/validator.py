@@ -21,7 +21,7 @@ def _is_stealth_blocked(player_id, game_state):
     if _is_stealth_blocked_by_hologram(player_id, game_state):
         return True
     # 结界
-    if game_state.active_barrier:
+    if hasattr(game_state, 'active_barrier') and game_state.active_barrier:
         if game_state.active_barrier.is_stealth_blocked_in_barrier(player_id):
             return True
     return False
@@ -35,19 +35,10 @@ def _check_hologram_lock_find(player, game_state):
             if not allowed:
                 return reason
     return None
-def _check_hologram_lock_find(player, game_state):
-    """检查玩家是否被全息影像禁止锁定/找到"""
-    for pid in game_state.player_order:
-        p = game_state.get_player(pid)
-        if p and p.talent and hasattr(p.talent, 'can_lock_or_find'):
-            allowed, reason = p.talent.can_lock_or_find(player.player_id)
-            if not allowed:
-                return reason
-    return None
 
 def _check_barrier_block(player, action_type, game_state):
     """检查结界是否禁止该行动"""
-    if not game_state.active_barrier:
+    if not hasattr(game_state, 'active_barrier') or not game_state.active_barrier:
         return None
     barrier = game_state.active_barrier
     if not barrier.is_in_barrier(player.player_id):
@@ -500,47 +491,3 @@ def _check_not_disabled(player, game_state):
     if game_state.markers.has(player.player_id, "PETRIFIED"):
         return False, "你处于石化状态"
     return True, ""
-
-
-def _check_barrier_block(player, action_type, game_state):
-    """检查结界是否禁止该行动"""
-    if not hasattr(game_state, 'active_barrier') or not game_state.active_barrier:
-        return None
-    barrier = game_state.active_barrier
-    if not barrier.is_in_barrier(player.player_id):
-        return None
-    blocked, reason = barrier.is_action_blocked(action_type)
-    if blocked:
-        return reason
-    return None
-
-
-def _is_stealth_blocked_by_hologram(player_id, game_state):
-    """检查全息影像是否破除目标的隐身"""
-    for pid in game_state.player_order:
-        p = game_state.get_player(pid)
-        if p and p.talent and hasattr(p.talent, 'is_stealth_blocked'):
-            if p.talent.is_stealth_blocked(player_id):
-                return True
-    return False
-
-
-def _is_stealth_blocked(player_id, game_state):
-    """检查隐身是否被任何效果破除（全息影像/结界）"""
-    if _is_stealth_blocked_by_hologram(player_id, game_state):
-        return True
-    if hasattr(game_state, 'active_barrier') and game_state.active_barrier:
-        if game_state.active_barrier.is_stealth_blocked_in_barrier(player_id):
-            return True
-    return False
-
-
-def _check_hologram_lock_find(player, game_state):
-    """检查玩家是否被全息影像禁止锁定/找到"""
-    for pid in game_state.player_order:
-        p = game_state.get_player(pid)
-        if p and p.talent and hasattr(p.talent, 'can_lock_or_find'):
-            allowed, reason = p.talent.can_lock_or_find(player.player_id)
-            if not allowed:
-                return reason
-    return None

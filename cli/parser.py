@@ -58,12 +58,6 @@ def parse(raw_input, player_id):
         attr_str = parts[4] if len(parts) >= 5 else None
         return {"action": "attack", "target": target, "weapon": weapon,
                 "layer": layer_str, "attr": attr_str}
-        target = parts[1]
-        weapon = parts[2]
-        layer_str = parts[3] if len(parts) >= 4 else None
-        attr_str = parts[4] if len(parts) >= 5 else None
-        return {"action": "attack", "target": target, "weapon": weapon,
-                "layer": layer_str, "attr": attr_str}
 
     # ---- 特殊操作 ----
     if cmd in ("special", "特殊", "sp", "操作"):

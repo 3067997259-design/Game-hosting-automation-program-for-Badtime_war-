@@ -75,10 +75,6 @@ def execute(player, target_id, weapon_name, game_state,
     for detail in result["details"]:
         lines.append(f"   {detail}")
 
-    # 击杀处理
-    if result["killed"]:
-        player.kill_count += 1
-        # Phase 4+: 检查免死/复活天赋
 
     game_state.log_event("attack", attacker=player.player_id,
                          target=target_id, weapon=weapon_name,

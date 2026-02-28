@@ -73,14 +73,15 @@ def do_interact(player, item_name, game_state=None):
         return f"{player.name} 购买了磨刀石。（再花1回合使用「特殊操作-磨刀」来升级小刀）"
 
     elif item_name == "隐身衣":
-        player.items.append(make_item("隐身衣"))
+        player.add_item(make_item("隐身衣"))
         player.is_invisible = True
         if game_state:
-            game_state.markers.add(player.player_id, "INVISIBLE")
+            game_state.markers.on_player_go_invisible(
+                player.player_id, list(game_state.players.values()))
         return f"{player.name} 穿上了隐身衣，进入隐身状态！🫥"
 
     elif item_name == "热成像仪":
-        player.items.append(make_item("热成像仪"))
+        player.add_item(make_item("热成像仪"))
         player.has_detection = True
         return f"{player.name} 获得了热成像仪，可以发现隐身目标！🔍"
 
@@ -93,7 +94,7 @@ def do_interact(player, item_name, game_state=None):
             return f"{player.name} 无法装备陶瓷护甲：{reason}"
 
     elif item_name == "防毒面具":
-        player.items.append(make_item("防毒面具"))
+        player.add_item(make_item("防毒面具"))
         return f"{player.name} 获得了防毒面具，免疫病毒！😷"
 
     return "未知项目"

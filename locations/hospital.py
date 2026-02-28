@@ -53,7 +53,7 @@ def do_interact(player, item_name, game_state=None):
         return f"{player.name} 在医院打工，获得1张购买凭证。当前：{player.vouchers}张"
 
     elif item_name == "防毒面具":
-        player.items.append(make_item("防毒面具"))
+        player.add_item(make_item("防毒面具"))
         return f"{player.name} 获得了防毒面具，免疫病毒！😷"
 
     elif item_name == "晶化皮肤手术":

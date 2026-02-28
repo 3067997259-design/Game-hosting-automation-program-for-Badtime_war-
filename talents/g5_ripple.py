@@ -11,8 +11,13 @@ import copy
 import random
 from talents.base_talent import BaseTalent
 from combat.damage_resolver import resolve_damage
-from engine.action_turn import ActionTurnManager
 from cli import display
+
+# 供测试/patch 使用；实际逻辑中应在需要处局部导入以避免循环引用
+try:
+    from engine.action_turn import ActionTurnManager  # noqa: F401
+except Exception:
+    ActionTurnManager = None
 
 
 class Ripple(BaseTalent):
@@ -412,7 +417,6 @@ class Ripple(BaseTalent):
         self._anchor_start_combat(player, target)
 
         return f"锚定命运已启动：{self.anchor_detail}"
-        return result
 
     # ---------- 获取/到达类简化启动 ----------
 
@@ -1024,7 +1028,7 @@ class Ripple(BaseTalent):
         display.show_info(f"🃏 {target.name} 获得一次立刻行动！")
 
         # 执行一次行动
-
+        from engine.action_turn import ActionTurnManager
         atm = ActionTurnManager(self.state)
         atm.execute_single_action(target)
 
@@ -1166,6 +1170,7 @@ class Ripple(BaseTalent):
                 continue
 
             old_hp = target.hp
+            result = None
 
             # 无视属性克制 = 直接扣血，不走护甲属性判定
             if dtype == "无视属性克制":
@@ -1190,14 +1195,20 @@ class Ripple(BaseTalent):
                 for detail in result.get("details", []):
                     lines.append(f"      {detail}")
 
-            # 死亡检查
-            if target.hp <= 0:
+            killed = result.get("killed") if result else (target.hp <= 0)
+            stunned = result.get("stunned") if result else (
+                target.hp <= 0.5 and not target.is_stunned)
+
+            if killed:
                 self.state.markers.on_player_death(target.player_id)
                 lines.append(f"   💀 {target.name} 被命运之诗击杀！")
                 display.show_death(target.name, "命运之诗")
-            elif target.hp <= 0.5 and not target.is_stunned:
-                target.is_stunned = True
-                self.state.markers.add(target.player_id, "STUNNED")
+            elif stunned:
+                # resolve_damage 已处理眩晕标记；无视属性克制分支需要手动处理
+                if not target.is_stunned:
+                    target.is_stunned = True
+                if not self.state.markers.has(target.player_id, "STUNNED"):
+                    self.state.markers.add(target.player_id, "STUNNED")
                 lines.append(f"   💫 {target.name} 进入眩晕！")
 
         result_msg = "\n".join(lines)

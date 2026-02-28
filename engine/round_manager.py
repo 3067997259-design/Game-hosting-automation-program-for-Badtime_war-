@@ -175,9 +175,12 @@ class RoundManager:
                 display.show_info(
                     f"📌 {actor.name} 的六爻额外行动回合已插入！")
 
-            # === 不良少年额外回合 ===
-            # 通过犯罪检测返回值处理
-            # （在_check_attack_crime中如果触发了extra_turn，也插入）
+            # === 犯罪触发的额外回合（不良少年等）===
+            if getattr(actor, 'crime_extra_turn', False):
+                actor.crime_extra_turn = False
+                action_queue.insert(i + 1, actor.player_id)
+                display.show_info(
+                    f"📌 {actor.name} 的额外行动回合已插入！")
 
             # 检查胜利
             if self.state.check_victory():
@@ -214,7 +217,7 @@ class RoundManager:
                                 if msg:
                                     display.show_info(msg)
                                 # 标记需要插入额外回合
-                                attacker.hexagram_extra_turn = True  # 复用标记
+                                attacker.crime_extra_turn = True
 
                     self.police_engine.check_and_record_crime(
                         attacker.player_id, "伤害玩家")
