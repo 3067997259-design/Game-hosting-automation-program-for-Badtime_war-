@@ -295,19 +295,19 @@ class Ripple(BaseTalent):
 
         # 1. 自动计算
         if self.anchor_type == "kill":
-            result = verify_anchor(self.gs, player, "kill", target=target)
+            result = verify_anchor(self.state, player, "kill", target=target)
         elif self.anchor_type == "break_armor":
             result = verify_anchor(
-                self.gs, player, "break_armor",
+                self.state, player, "break_armor",
                 target=target, armor_description=self.anchor_detail
             )
         elif self.anchor_type == "acquire":
             result = verify_anchor(
-                self.gs, player, "acquire", item_name=self.anchor_detail
+                self.state, player, "acquire", item_name=self.anchor_detail
             )
         elif self.anchor_type == "arrive":
             result = verify_anchor(
-                self.gs, player, "arrive", target_location=self.anchor_detail
+                self.state, player, "arrive", target_location=self.anchor_detail
             )
         else:
             display.show_info(f"❌ 未知锚定类型：{self.anchor_type}")
@@ -381,6 +381,37 @@ class Ripple(BaseTalent):
             f"\n   变数 = {self.anchor_variance}"
             f"\n   路径共 {len(self.anchor_path)} 步")
 
+        # ======== 以下是新增：实际启动锚定 ========
+
+        # 备份发动者状态
+        self.anchor_caster_backup = self._create_player_backup(player)
+
+        # 目标状态快照（用于"无变化-2"规则）
+        self.anchor_target_snapshot = {
+            'hp': target.hp,
+            'is_stunned': target.is_stunned,
+            'is_invisible': getattr(target, 'is_invisible', False),
+            'is_shocked': getattr(target, 'is_shocked', False),
+            'armor_summary': self._get_armor_summary(target),
+            'weapon_names': ([w.name for w in target.weapons]
+                            if hasattr(target, 'weapons') else []),
+            'money': getattr(target, 'money', 0),
+        }
+
+        # D6 公布一个路径步骤给被锚定者
+        if self.anchor_path:
+            d6 = random.randint(1, 6)
+            step_idx = min(d6 - 1, len(self.anchor_path) - 1)
+            self.anchor_revealed_step = self.anchor_path[step_idx]
+            display.show_info(
+                f"🎲 D6 = {d6} → 公布路径步骤：「{self.anchor_revealed_step}」")
+        else:
+            self.anchor_revealed_step = "（无路径）"
+
+        # 启动战斗类锚定监控
+        self._anchor_start_combat(player, target)
+
+        return f"锚定命运已启动：{self.anchor_detail}"
         return result
 
     # ---------- 获取/到达类简化启动 ----------
@@ -420,11 +451,7 @@ class Ripple(BaseTalent):
         self.anchor_destructive_count = 0
 
         # 通知目标
-        display.show_info(
-            f"\n⚠️ {target.name}，你已被锚定！"
-            f"\n   命定 = {self.anchor_fate}，变数 = {self.anchor_variance}"
-            f"\n   你需要在5轮内进行超过 {self.anchor_variance} 次破坏性行动来打破锚定。"
-            f"\n   公布的路径步骤：「{self.anchor_revealed_step}」")
+        display.show_info(self._format_anchor_start_msg(player, target))
 
     def _format_anchor_start_msg(self, player, target):
         lines = [

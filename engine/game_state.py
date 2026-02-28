@@ -3,6 +3,7 @@
 from models.markers import MarkerManager
 from models.police import PoliceData
 from models.virus import VirusSystem
+from engine.response_window import ResponseWindowManager
 
 
 class GameState:
@@ -40,7 +41,7 @@ class GameState:
         self.active_barrier = None  # 神代3结界引用
 
         # 响应窗口
-        self.response_window = None
+        self._response_window = ResponseWindowManager(self)
 
         # 事件日志
         self.event_log = []
@@ -83,3 +84,7 @@ class GameState:
             "type": event_type,
             **kwargs
         })
+
+    @property
+    def response_window(self):
+        return self._response_window

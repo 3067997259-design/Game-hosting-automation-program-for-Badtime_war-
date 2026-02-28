@@ -31,7 +31,7 @@ class AnchorVerifier:
     """
 
     def __init__(self, game_state):
-        self.gs = game_state
+        self.state = game_state
 
     # ================================================================
     #  公开接口
@@ -49,7 +49,7 @@ class AnchorVerifier:
             target_armor_desc=armor_description
         )
 
-    def verify_acquire(self, caster, item_name: str) -> AnchorVerification:
+    def verify_acquire(self, caster, item_name: Optional[str]) -> AnchorVerification:
         """获取类：不需要命数，5轮存活即成功"""
         return AnchorVerification(
             feasible=True, fate=0, variance=5,
@@ -96,6 +96,12 @@ class AnchorVerifier:
         if goal == "kill":
             hp_to_deplete = self._total_effective_hp(target)
         elif goal == "break_armor":
+            if target_armor_desc is None:
+                return AnchorVerification(
+                    feasible=False, fate=0, variance=0,
+                    path_description=[],
+                    reason="破坏护甲目标必须指定护甲描述",
+                )
             armor_piece = self._find_armor_by_desc(target, target_armor_desc)
             if armor_piece is None:
                 return AnchorVerification(
@@ -232,9 +238,9 @@ class AnchorVerifier:
 # ================================================================
 
 def verify_anchor(game_state, caster, anchor_type: str,
-                   target=None, item_name=None,
-                   target_location=None,
-                   armor_description=None) -> AnchorVerification:
+                   target=None, item_name: Optional[str]=None,
+                   target_location: Optional[str]=None,
+                   armor_description: Optional[str]=None) -> AnchorVerification:
     """
     一步验证锚定可行性
 
@@ -250,10 +256,22 @@ def verify_anchor(game_state, caster, anchor_type: str,
     if anchor_type == "kill":
         return v.verify_kill(caster, target)
     elif anchor_type == "break_armor":
+        if armor_description is None:
+            return AnchorVerification(
+                feasible=False, fate=0, variance=0,
+                path_description=[],
+                reason="破坏护甲类型必须指定护甲描述",
+            )
         return v.verify_break_armor(caster, target, armor_description)
     elif anchor_type == "acquire":
         return v.verify_acquire(caster, item_name)
     elif anchor_type == "arrive":
+        if target_location is None:
+            return AnchorVerification(
+                feasible=False, fate=0, variance=0,
+                path_description=[],
+                reason="到达类型必须指定目标位置",
+            )
         return v.verify_arrive(caster, target_location)
     else:
         return AnchorVerification(
