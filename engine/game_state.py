@@ -1,5 +1,4 @@
 """全局游戏状态（Phase 3 完整版）"""
-
 from models.markers import MarkerManager
 from models.police import PoliceData
 from models.virus import VirusSystem
@@ -27,7 +26,7 @@ class GameState:
 
         # 警察系统
         self.police = PoliceData()
-        self.police_engine = None   # 在 round_manager 初始化时注入
+        self.police_engine = None  # 在 round_manager 初始化时注入
 
         # 病毒系统
         self.virus = VirusSystem()
@@ -37,8 +36,8 @@ class GameState:
             "伤害玩家",
             "无凭证商店",
             "无凭证手术",
-        }
-        # Phase 4: 朝阳好市民会添加更多
+        }  # Phase 4: 朝阳好市民会添加更多
+
         self.active_barrier = None  # 神代3结界引用
 
         # 响应窗口
@@ -50,6 +49,26 @@ class GameState:
         # 游戏状态
         self.game_over = False
         self.winner = None
+
+        # ----------------------------------------------------------------
+        # 额外行动回调（由 RoundManager 在初始化时注入）
+        # 天赋层（如献诗「诡计」「纷争」）通过此回调触发立刻行动，
+        # 避免 talents/ 直接 import engine/action_turn.py 造成循环引用。
+        # 签名：_execute_extra_turn_cb(player) -> None
+        # ----------------------------------------------------------------
+        self._execute_extra_turn_cb = None
+
+    # ----------------------------------------------------------------
+    # 额外行动接口（供天赋层调用）
+    # ----------------------------------------------------------------
+    def execute_extra_turn(self, player):
+        """为指定玩家立刻执行一次额外行动回合。
+
+        由 RoundManager 在 __init__ 中注入具体实现；
+        若尚未注入（如单元测试环境），则静默跳过。
+        """
+        if self._execute_extra_turn_cb is not None:
+            self._execute_extra_turn_cb(player)
 
     def add_player(self, player):
         self.players[player.player_id] = player
@@ -63,12 +82,13 @@ class GameState:
         return [p for p in self.players.values() if p.is_alive()]
 
     def awake_alive_players(self):
-        return [p for p in self.players.values()
-                if p.is_alive() and p.is_awake]
+        return [p for p in self.players.values() if p.is_alive() and p.is_awake]
 
     def players_at_location(self, location):
-        return [p for p in self.players.values()
-                if p.is_alive() and p.location == location]
+        return [
+            p for p in self.players.values()
+            if p.is_alive() and p.location == location
+        ]
 
     def check_victory(self):
         alive = self.alive_players()
