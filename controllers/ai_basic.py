@@ -882,7 +882,7 @@ class BasicAIController(PlayerController):
 
         if loc == "魔法所":
             # 按优先级学习，跳过已有的
-            for spell in ["魔法弹幕", "远程魔法弹幕", "地震", "地动山摇","探测魔法"]:
+            for spell in ["魔法弹幕", "远程魔法弹幕", "地震", "地动山摇"]:#因为有bug，暂时禁止了AI学习探测魔法
                 if self._can_learn(player, spell):
                     cmds.append(f"interact {spell}")
                     break  # 一次只学一个
