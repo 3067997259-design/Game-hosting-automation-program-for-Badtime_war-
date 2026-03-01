@@ -21,11 +21,13 @@ import random
 #  常量：地点名、交互项目、克制关系
 # ════════════════════════════════════════════════════════
 
-LOCATIONS = ["home", "商店", "魔法所", "医院", "军事基地", "警察局"]
+# FIX #6: "home" 改为 "家"，与游戏内实际地点字符串保持一致
+LOCATIONS = ["家", "商店", "魔法所", "医院", "军事基地", "警察局"]
 
 # 各地点可交互的项目（用于生成 interact 命令）
+# FIX #6: LOCATION_ITEMS key 同步修正为 "家"
 LOCATION_ITEMS = {
-    "home": ["凭证", "小刀", "盾牌"],
+    "家": ["凭证", "小刀", "盾牌"],
     "商店": ["打工", "小刀", "磨刀石", "隐身衣", "热成像仪", "陶瓷护甲", "防毒面具"],
     "魔法所": ["魔法护盾", "魔法弹幕", "远程魔法弹幕", "封闭",
               "地震", "地动山摇", "隐身术", "探测魔法"],
@@ -33,7 +35,7 @@ LOCATION_ITEMS = {
             "防毒面具", "释放病毒"],
     "军事基地": ["通行证", "AT力场", "电磁步枪", "导弹", "高斯步枪",
                "雷达", "隐形涂层"],
-    "警察局": [],  # 警察局的行动走 recruit/election/report 等专用命令
+    "警察局": [],
 }
 
 # 属性克制：attacker_attr → 能有效打的 armor_attr 集合
@@ -61,10 +63,9 @@ class BasicAIController(PlayerController):
         "陶瓷护甲": ("外层", "科技"),
         "魔法护盾": ("外层", "魔法"),
         "AT力场": ("外层", "科技"),
-        "晶化皮肤手术": ("内层", "普通"),   # 假设手术提供内层普通护甲
+        "晶化皮肤手术": ("内层", "普通"),
         "额外心脏手术": ("内层", "普通"),
         "不老泉手术": ("内层", "普通"),
-        # 可根据实际游戏扩展
     }
 
     def __init__(self, personality: str = "balanced"):
@@ -81,15 +82,15 @@ class BasicAIController(PlayerController):
         self.event_log: List[Dict] = []
 
         # ── 内部记忆 ──
-        self._threat_scores: Dict[str, float] = {}   # 玩家名 → 威胁分
-        self._been_attacked_by: set = set()           # 打过我的人
+        self._threat_scores: Dict[str, float] = {}
+        self._been_attacked_by: set = set()
         self._my_kills: int = 0
-        self._consecutive_forfeits: int = 0           # 连续放弃计数（防摆烂）
+        self._consecutive_forfeits: int = 0
         self._last_action: Optional[str] = None
-        self._develop_plan: List[str] = []            # 当前发育计划缓存
-        self._attempt_index: int = 0                  # 当前 get_command 重试时的候选索引
-        self.player_name: Optional[str] = None        # 当前玩家名，用于事件比较
-        self._my_id: Optional[str] = None              # 当前玩家ID（备用）
+        self._develop_plan: List[str] = []
+        self._attempt_index: int = 0
+        self.player_name: Optional[str] = None
+        self._my_id: Optional[str] = None
 
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command
@@ -128,6 +129,7 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
     #  接口实现：choose
     # ════════════════════════════════════════════════════════
+
     def choose(
         self,
         prompt: str,
@@ -135,33 +137,27 @@ class BasicAIController(PlayerController):
         context: Optional[Dict] = None
     ) -> str:
         situation = (context or {}).get("situation", "")
-        # ---- 猜拳 ----
         if situation in ("hexagram_my_choice", "hexagram_opp_choice", "mythland_rps"):
             return random.choice(options)
-        # ---- 结界选目标 ----
         if situation == "mythland_pick_target":
             player_opts = [o for o in options if o != "不拉人"]
             if player_opts:
                 return max(player_opts, key=lambda name: self._threat_scores.get(name, 0))
             return "不拉人"
-        # ---- 石化 ----
         if situation == "petrified":
             for opt in options:
                 if "解除" in opt:
                     return opt
             return options[0]
-        # ---- 一刀缭断 ----
         if situation == "oneslash_pick_weapon":
             return options[0]
         if situation == "oneslash_pick_target":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
-        # ---- 天赋T0 ----
         if situation == "talent_t0":
             for opt in options:
                 if "发动" in opt:
                     return opt
             return options[0]
-        # ---- 加入警察 ----
         if situation in ("recruit_pick_1", "recruit_pick_2"):
             priority = ["盾牌", "凭证", "警棍"]
             if self.personality == "aggressive":
@@ -170,7 +166,6 @@ class BasicAIController(PlayerController):
                 if preferred in options:
                     return preferred
             return options[0]
-        # ---- 六爻 ----
         if situation == "hexagram_thunder_target":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
         if situation == "hexagram_pick_armor":
@@ -181,7 +176,6 @@ class BasicAIController(PlayerController):
             return options[0]
         if situation == "hexagram_pick_opponent":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
-        # ---- 涟漪 ----
         if situation == "ripple_choose_method":
             for opt in options:
                 if "锚定" in opt:
@@ -230,7 +224,6 @@ class BasicAIController(PlayerController):
                 if "天雷" in opt:
                     return opt
             return options[0]
-        # ---- 默认 ----
         return options[0]
 
     # ════════════════════════════════════════════════════════
@@ -258,12 +251,14 @@ class BasicAIController(PlayerController):
         if not context:
             return False
         situation = context.get("phase", "")
+        # FIX #4: 原 return True 死代码导致所有响应窗口都发动。
+        # 现在只在明确匹配天赋条件时才返回 True，其余一律 False。
         if situation == "response_window":
             talent_name = context.get("talent_name", "")
             action_type = context.get("action_type", "")
             if talent_name == "你给路打油" and action_type in ("attack", "special"):
                 return True
-            return True
+            return False
         return False
 
     # ════════════════════════════════════════════════════════
@@ -283,6 +278,10 @@ class BasicAIController(PlayerController):
             killer = event.get("killer", "")
             if killer:
                 self._threat_scores[killer] = self._threat_scores.get(killer, 0) + 30
+            # FIX #9: 死亡玩家从威胁评分表中移除，避免残留评分影响后续目标选择
+            dead_player = event.get("target", "")
+            if dead_player and dead_player in self._threat_scores:
+                del self._threat_scores[dead_player]
 
     # ════════════════════════════════════════════════════════
     #  核心：候选命令生成
@@ -350,9 +349,13 @@ class BasicAIController(PlayerController):
         return False
 
     def _needs_virus_cure(self, player, state) -> bool:
+        # FIX #10: 原来只检查 virus.is_active，病毒激活但自身未感染也会触发应急。
+        # 修复：增加 HP 阈值判断，只有低血量时才将病毒视为紧急威胁，避免高血量无谓跑路。
         if not state.virus.is_active:
             return False
         if self._has_virus_immunity(player):
+            return False
+        if player.hp > 1.5:
             return False
         return True
 
@@ -381,7 +384,8 @@ class BasicAIController(PlayerController):
             safe_loc = self._find_safest_location(player, state)
             if safe_loc and safe_loc != loc:
                 cmds.append(f"move {safe_loc}")
-        if loc == "home" and "interact" in available:
+        # FIX #6: "home" 改为 "家"
+        if loc == "家" and "interact" in available:
             if self._can_take_item(player, "盾牌"):
                 cmds.append("interact 盾牌")
         if "interact" in available and loc in LOCATION_ITEMS:
@@ -459,21 +463,24 @@ class BasicAIController(PlayerController):
         has_credential = self._has_credential(player)
         has_outer_armor = self._count_outer_armor(player) > 0
         has_good_weapon = self._best_weapon_damage(player) >= 1.0
-        has_detection = getattr(player, 'has_detection', False)
+        # FIX #12: 改用 _has_detection() 方法遍历 items，不依赖可能未同步的 player.has_detection 字段
+        has_detection = self._has_detection(player)
         has_inner_armor = self._count_inner_armor(player) > 0
-        has_military_pass = getattr(player, 'has_military_pass', False)  # 新增
+        has_military_pass = getattr(player, 'has_military_pass', False)
         print(f"  📊 [{player.name}] has_credential={has_credential} has_outer={has_outer_armor} "
               f"has_weapon={has_good_weapon}(dmg={self._best_weapon_damage(player)}) "
               f"has_detect={has_detection} has_inner={has_inner_armor} "
-              f"has_pass={has_military_pass}")  # 加上pass日志
+              f"has_pass={has_military_pass}")
         plan: list = []
 
+        # FIX #2: 删除 loc == f"home_{player.player_id}" 这个永远不成立的分支
+        # FIX #6: 所有 "home" 改为 "家"
         def is_at(location_name):
-            return loc == location_name or loc == f"home_{player.player_id}"
+            return loc == location_name
 
         # ══════ 阶段1：拿凭证 ══════
         if not has_credential:
-            if is_at("home"):
+            if is_at("家"):
                 plan.append("interact 凭证")
             elif loc == "商店":
                 plan.append("interact 打工")
@@ -484,7 +491,7 @@ class BasicAIController(PlayerController):
 
         # ══════ 阶段2：拿护甲 ══════
         elif not has_outer_armor:
-            if is_at("home"):
+            if is_at("家"):
                 plan.append("interact 盾牌")
             if loc == "商店":
                 plan.append("interact 陶瓷护甲")
@@ -492,7 +499,8 @@ class BasicAIController(PlayerController):
                 plan.append("interact 魔法护盾")
             elif loc == "军事基地":
                 if not has_military_pass:
-                    plan.append("interact 办理通行证")
+                    # FIX #7: "办理通行证" 改为 "通行证"，与 LOCATION_ITEMS 保持一致
+                    plan.append("interact 通行证")
                 else:
                     plan.append("interact AT力场")
             else:
@@ -500,7 +508,7 @@ class BasicAIController(PlayerController):
 
         # ══════ 阶段3：拿武器 ══════
         elif not has_good_weapon:
-            if is_at("home"):
+            if is_at("家"):
                 if not self._has_weapon_named(player, "小刀"):
                     plan.append("interact 小刀")
                 else:
@@ -519,7 +527,8 @@ class BasicAIController(PlayerController):
                     plan.append("move 军事基地")
             elif loc == "军事基地":
                 if not has_military_pass:
-                    plan.append("interact 办理通行证")
+                    # FIX #7: 同步修正
+                    plan.append("interact 通行证")
                 elif not self._has_weapon_named(player, "高斯步枪"):
                     plan.append("interact 高斯步枪")
                 else:
@@ -541,7 +550,8 @@ class BasicAIController(PlayerController):
                     plan.append("move 军事基地")
             elif loc == "军事基地":
                 if not has_military_pass:
-                    plan.append("interact 办理通行证")
+                    # FIX #7: 同步修正
+                    plan.append("interact 通行证")
                 elif not self._has_item_named(player, "雷达"):
                     plan.append("interact 雷达")
                 else:
@@ -567,6 +577,7 @@ class BasicAIController(PlayerController):
             cmds.append("move 军事基地")
 
         return cmds
+
     # ════════════════════════════════════════════════════════
     #  辅助方法：威胁评估
     # ════════════════════════════════════════════════════════
@@ -633,17 +644,17 @@ class BasicAIController(PlayerController):
     def _best_weapon_damage(self, player) -> float:
         max_dmg = 0.5
         for w in getattr(player, 'weapons', []):
+            # FIX #1: 原来用 w.damage，实际字段名是 w.base_damage
             dmg = getattr(w, 'base_damage', 0)
             if isinstance(dmg, (int, float)) and dmg > max_dmg:
                 max_dmg = dmg
         return max_dmg
-    
-        # 类属性：前置条件
+
+    # 类属性：法术前置条件
     SPELL_PREREQUISITES = {
         "远程魔法弹幕": ["魔法弹幕"],
         "地动山摇": ["地震"],
         "地震": ["魔法弹幕"],
-        # 无前置
         "魔法弹幕": [],
         "探测魔法": [],
         "魔法护盾": [],
@@ -651,13 +662,10 @@ class BasicAIController(PlayerController):
 
     def _can_learn(self, player, spell_name: str) -> bool:
         """检查：没学过 + 满足前置"""
-        # 武器类法术
         if self._has_weapon_named(player, spell_name):
             return False
-        # 护甲类（魔法护盾）
         if spell_name == "魔法护盾":
-            return self._count_outer_armor(player) == 0  # 或更精确的检查
-        # 检查前置
+            return self._count_outer_armor(player) == 0
         prereqs = self.SPELL_PREREQUISITES.get(spell_name, [])
         for prereq in prereqs:
             if not self._has_weapon_named(player, prereq):
@@ -665,7 +673,7 @@ class BasicAIController(PlayerController):
         return True
 
     def _has_detection(self, player) -> bool:
-        """检查是否有任何探测能力"""
+        """检查是否有任何探测能力（遍历 items，不依赖 player.has_detection 字段）"""
         detect_items = {"热成像仪", "雷达", "探测魔法"}
         for item in getattr(player, 'items', []):
             name = getattr(item, 'name', '')
@@ -675,8 +683,9 @@ class BasicAIController(PlayerController):
             if isinstance(effect, dict) and effect.get('grant') == 'detect':
                 return True
         return False
+
     def _best_weapon_damage_of(self, target) -> float:
-        return self._best_weapon_damage(target)  # 复用同一套逻辑
+        return self._best_weapon_damage(target)
 
     def _pick_best_weapon_against(self, player, target):
         if not player.weapons:
@@ -684,14 +693,15 @@ class BasicAIController(PlayerController):
         best = None
         best_score = -1
         for w in player.weapons:
-            if not hasattr(w, 'damage') or not hasattr(w, 'damage_type'):
+            # FIX #1: 原来检查 hasattr(w, 'damage')，改为检查 base_damage
+            if not hasattr(w, 'base_damage') or not hasattr(w, 'damage_type'):
                 continue
             w_attr = getattr(w, 'damage_type', '普通')
-            effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
-            score = w.damage
+            # FIX #1: 原来用 w.damage 计算得分，改为 w.base_damage
+            score = w.base_damage
             if self._can_damage_any_armor(w_attr, target):
                 score += 5
-            score += w.damage * 10
+            score += w.base_damage * 10
             if score > best_score:
                 best_score = score
                 best = w
@@ -720,12 +730,10 @@ class BasicAIController(PlayerController):
                     return True
         return True
 
-    # ========== 增强的护甲检测 ==========
     def _target_has_armor_layer(self, target, layer_type: str, attribute: str) -> bool:
         if not hasattr(target, 'armor'):
             return False
         armor = target.armor
-        # 直接读 outer/inner 字典
         if layer_type == "外层" and hasattr(armor, 'outer') and isinstance(armor.outer, dict):
             for key, val in armor.outer.items():
                 if val is not None and attribute in str(key):
@@ -735,6 +743,7 @@ class BasicAIController(PlayerController):
                 if val is not None and attribute in str(key):
                     return True
         return False
+
     def _target_has_any_outer(self, target) -> bool:
         for attr in ["普通", "魔法", "科技"]:
             if self._target_has_armor_layer(target, "外层", attr):
@@ -746,7 +755,6 @@ class BasicAIController(PlayerController):
         if not hasattr(player, 'armor'):
             return False
         armor = player.armor
-        # 优先使用 get_all_active 获取所有未破损护甲层（根据提供的 Player 模型）
         if hasattr(armor, 'get_all_active') and callable(armor.get_all_active):
             active_pieces = armor.get_all_active()
             if isinstance(active_pieces, (list, tuple)):
@@ -754,7 +762,6 @@ class BasicAIController(PlayerController):
                     piece_name = getattr(piece, 'name', str(piece))
                     if piece_name == item_name:
                         return True
-        # 备选方案：尝试其他常见接口
         else:
             layers: list = []
             if hasattr(armor, 'get_all_layers') and callable(armor.get_all_layers):
@@ -790,19 +797,15 @@ class BasicAIController(PlayerController):
 
     def _can_take_item(self, player, item_name: str) -> bool:
         """判断玩家是否能够获取指定物品（考虑护甲层和物品重复）"""
-        # 优先检查同名护甲层
         if self._has_armor_by_name(player, item_name):
             return False
-        # 再检查护甲层属性
         if item_name in self._ARMOR_ITEM_MAP:
             layer_type, attr = self._ARMOR_ITEM_MAP[item_name]
             if self._target_has_armor_layer(player, layer_type, attr):
                 return False
-        # 检查物品列表
         if self._has_item(player, item_name):
             return False
         return True
-    # ====================================
 
     # ════════════════════════════════════════════════════════
     #  辅助方法：状态查询
@@ -839,6 +842,7 @@ class BasicAIController(PlayerController):
         if hasattr(armor, 'outer') and isinstance(armor.outer, dict):
             return sum(1 for v in armor.outer.values() if v is not None)
         return 0
+
     def _count_inner_armor(self, player) -> int:
         if not hasattr(player, 'armor'):
             return 0
@@ -846,7 +850,7 @@ class BasicAIController(PlayerController):
         if hasattr(armor, 'inner') and isinstance(armor.inner, dict):
             return sum(1 for v in armor.inner.values() if v is not None)
         return 0
-    
+
     def _count_outer_armor_of(self, target) -> int:
         return self._count_outer_armor(target)
 
@@ -854,11 +858,14 @@ class BasicAIController(PlayerController):
         return self._count_inner_armor(target)
 
     def _count_locked_by(self, player, state) -> int:
+        # FIX #5/#11: 遍历所有其他玩家，检查"谁 LOCKED_BY 了我"（即我被谁锁定）
+        # MarkerManager 实际关系名是 LOCKED_BY，原代码用 "LOCKED" 永远返回 0
         count = 0
-        if hasattr(state.markers, 'get_all_relations'):
-            relations = state.markers.get_all_relations(player.player_id)
-            for rel in relations:
-                if 'LOCKED' in str(rel).upper():
+        if hasattr(state.markers, 'has_relation'):
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                if state.markers.has_relation(pid, "LOCKED_BY", player.player_id):
                     count += 1
         elif hasattr(state.markers, 'count_locked_by'):
             count = state.markers.count_locked_by(player.player_id)
@@ -867,31 +874,35 @@ class BasicAIController(PlayerController):
     def _has_attack_prerequisite(self, player, target, state) -> bool:
         markers = state.markers
         if player.location == target.location:
-            if hasattr(markers, 'has_relation') and markers.has_relation(player.player_id, "ENGAGED_WITH", target.player_id):
+            if hasattr(markers, 'has_relation') and markers.has_relation(
+                    player.player_id, "ENGAGED_WITH", target.player_id):
                 return True
-        if hasattr(markers, 'has_relation') and markers.has_relation(player.player_id, "LOCKED", target.player_id):
-            has_detection = getattr(player, 'has_detection', False)
-            if hasattr(markers, 'is_visible_to') and markers.is_visible_to(target.player_id, player.player_id, has_detection):
+        # FIX #5: "LOCKED" 改为 "LOCKED_BY"（MarkerManager 实际关系名）
+        if hasattr(markers, 'has_relation') and markers.has_relation(
+                player.player_id, "LOCKED_BY", target.player_id):
+            has_detection = self._has_detection(player)
+            if hasattr(markers, 'is_visible_to') and markers.is_visible_to(
+                    target.player_id, player.player_id, has_detection):
                 return True
         return False
-
 
     def _extra_develop_commands(self, player, state):
         cmds = []
         loc = player.location
 
         if loc == "魔法所":
-            # 按优先级学习，跳过已有的
-            for spell in ["魔法弹幕", "远程魔法弹幕", "地震", "地动山摇"]:#因为有bug，暂时禁止了AI学习探测魔法
+            for spell in ["魔法弹幕", "远程魔法弹幕", "地震", "地动山摇"]:
+                # 注：探测魔法暂时禁止AI学习，因其存在已知交互 Bug（待排查后开放）
                 if self._can_learn(player, spell):
                     cmds.append(f"interact {spell}")
-                    break  # 一次只学一个
+                    break
             if not cmds:
                 cmds.append("move 军事基地")
 
         elif loc == "军事基地":
             if not getattr(player, 'has_military_pass', False):
-                cmds.append("interact 办理通行证")
+                # FIX #7: 同步修正为 "通行证"
+                cmds.append("interact 通行证")
             else:
                 for weapon in ["高斯步枪", "导弹控制权", "电磁步枪"]:
                     if not self._has_weapon_named(player, weapon):
@@ -909,7 +920,6 @@ class BasicAIController(PlayerController):
                 cmds.append("move 魔法所")
 
         elif loc == "医院":
-            # 内层护甲已有就离开
             cmds.append("move 魔法所")
 
         else:
@@ -935,16 +945,16 @@ class BasicAIController(PlayerController):
                 min_enemies = enemy_count
                 best_loc = loc
         return best_loc
-    
+
     def _political_commands(self, player, state, available) -> List[str]:
         cmds = []
-        loc = player.location.name if hasattr(player.location, 'name') else str(player.location)
+        # FIX #3: player.location 是纯字符串，不是对象，直接使用，删除 .name 访问
+        loc = player.location
 
         if "recruit" in available:
             cmds.append("recruit")
 
         if "report" in available:
-            # 必须在警察局才能举报
             if loc == "警察局":
                 target = self._pick_report_target(player, state)
                 if target:
@@ -962,7 +972,6 @@ class BasicAIController(PlayerController):
         for p in state.players.values():
             if p.player_id == player.player_id:
                 continue
-            # 只有看到犯罪行为才举报
             if getattr(p, 'crime_record', False) or getattr(p, 'wanted', False):
                 return p
-        return None  # 没人犯法就不举报
+        return None
