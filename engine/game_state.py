@@ -4,6 +4,7 @@ from models.markers import MarkerManager
 from models.police import PoliceData
 from models.virus import VirusSystem
 from engine.response_window import ResponseWindowManager
+from engine.events import EventType
 
 
 class GameState:
@@ -77,7 +78,17 @@ class GameState:
             return "nobody"
         return None
 
-    def log_event(self, event_type, **kwargs):
+    def log_event(self, event_type: "str | EventType", **kwargs):
+        """记录一条游戏事件。
+
+        Parameters
+        ----------
+        event_type : str | EventType
+            事件类型。推荐使用 EventType 枚举常量（如 EventType.ATTACK），
+            也接受裸字符串以保持向后兼容。
+        **kwargs :
+            事件附带的任意键值对数据。
+        """
         self.event_log.append({
             "round": self.current_round,
             "phase": self.current_phase,
