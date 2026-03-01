@@ -1,0 +1,355 @@
+"""伤害结算管线（Phase 4 完整版）：支持天赋参数"""
+
+from utils.attribute import Attribute, is_effective
+from models.equipment import ArmorLayer
+
+def _get_hologram_bonus(target, game_state):
+    """检查所有玩家天赋，看目标是否在全息影像中"""
+    if not game_state:
+        return 0
+    for pid in game_state.player_order:
+        p = game_state.get_player(pid)
+        if p and p.talent and hasattr(p.talent, 'get_bonus_damage'):
+            bonus = p.talent.get_bonus_damage(target.player_id)
+            if bonus > 0:
+                return bonus
+    return 0
+
+def quantize_damage(damage):
+    """伤害量化规则"""
+    if damage <= 0:
+        return 0
+    int_part = int(damage)
+    frac_part = damage - int_part
+    if abs(frac_part) < 1e-9:
+        return float(int_part)
+    return int_part + 0.5
+
+def _resolve_weaponless_damage(attacker, target, game_state, result,
+                                raw_damage, damage_attribute_str):
+    """
+    无武器伤害结算（命运之诗等外部伤害源）。
+    走护甲结算但不涉及武器天赋修正。
+    """
+    from utils.attribute import Attribute
+
+    # 属性映射
+    ATTR_MAP = {
+        "科技": Attribute.TECH,
+        "普通": Attribute.ORDINARY,
+        "魔法": Attribute.MAGIC,
+        "无视属性克制": None,
+    }
+    damage_attr = ATTR_MAP.get(damage_attribute_str)
+
+    raw = raw_damage
+    result["raw_damage"] = raw
+    result["details"].append(f"外部伤害源：{raw}（{damage_attribute_str}）")
+
+    # 量化
+    final_damage = quantize_damage(raw)
+    result["final_damage"] = final_damage
+    result["success"] = True
+    remaining = final_damage
+
+    # 护甲结算（仅有属性型伤害走护甲）
+    if damage_attr is not None:
+        armor_piece = _select_armor_target(target, None, None)
+        if armor_piece is not None:
+            # 克制判定
+            if not is_effective(damage_attr, armor_piece.attribute):
+                result["reason"] = (
+                    f"伤害属性「{damage_attribute_str}」"
+                    f"被护甲「{armor_piece.name}({armor_piece.attribute.value})」克制，无效！")
+                result["details"].append(result["reason"])
+                return result
+            result["details"].append(f"攻击目标护甲：{armor_piece}")
+            remaining = _apply_damage_to_armor(
+                target, armor_piece, remaining,
+                False, result
+            )
+
+    # 扣血
+    if remaining > 0:
+        if target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp'):
+            remaining = target.talent.receive_damage_to_temp_hp(remaining)
+        if remaining > 0:
+            result["hp_damage"] = remaining
+            target.hp = round(max(0, target.hp - remaining), 2)
+            result["details"].append(
+                f"生命受到 {remaining} 伤害 → HP: {target.hp}/{target.max_hp}")
+
+    result["target_hp"] = target.hp
+
+    # 死亡/眩晕判定
+    if target.hp <= 0:
+        prevented = _talent_death_check(target, attacker, game_state)
+        if prevented:
+            result["killed"] = False
+            result["target_hp"] = target.hp
+            result["details"].append(f"💫 死亡被天赋阻止！HP → {target.hp}")
+        else:
+            result["killed"] = True
+            result["details"].append(f"💀 {target.name} 被击杀！")
+            if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
+                attacker.talent.on_kill(attacker, target)
+            if target.talent and hasattr(target.talent, 'on_player_death_check'):
+                target.talent.on_player_death_check(target)
+
+    elif target.hp <= 0.5 and not target.is_stunned:
+        prevent = False
+        if target.talent and hasattr(target.talent, 'prevent_stun'):
+            prevent = target.talent.prevent_stun(target)
+        if not prevent:
+            result["stunned"] = True
+            target.is_stunned = True
+            if game_state:
+                game_state.markers.add(target.player_id, "STUNNED")
+            result["details"].append(f"💫 {target.name} 进入眩晕状态！")
+
+    return result
+
+
+def resolve_damage(attacker, target, weapon, game_state,
+                   target_layer=None, target_armor_attr=None,
+                   ignore_element=False, damage_multiplier=1.0,
+                   bonus_damage=0.0,
+                   ignore_counter=False,
+                   ignore_last_inner_absorb=False,
+                   raw_damage_override=None,
+                   damage_attribute_override=None):
+    """
+    完整伤害结算。
+    新增参数（Phase 4）：
+      ignore_counter: 无视属性克制（一刀缭断）
+      ignore_last_inner_absorb: 最后内层不吸收溢出（一刀缭断）
+    新增参数（Phase 5 涟漪）：
+      raw_damage_override: 无武器时的原始伤害值
+      damage_attribute_override: 无武器时的伤害属性（字符串）
+    """
+    result = {
+        "success": False,
+        "reason": "",
+        "raw_damage": 0,
+        "final_damage": 0,
+        "armor_hit": None,
+        "armor_broken": False,
+        "hp_damage": 0,
+        "target_hp": target.hp,
+        "stunned": False,
+        "killed": False,
+        "details": [],
+    }
+
+    # ======== 无武器模式（命运之诗等外部伤害源） ========
+    if weapon is None:
+        return _resolve_weaponless_damage(
+            attacker, target, game_state, result,
+            raw_damage_override or 1.0,
+            damage_attribute_override or "普通"
+        )
+
+    # ======== 以下为原有逻辑，完全不动 ========
+
+    # ---- 天赋：修改输出伤害 ----
+    if attacker and attacker.talent:
+        mod = attacker.talent.modify_outgoing_damage(attacker, target, weapon, weapon.get_effective_damage())
+        if mod:
+            if mod.get("damage_multiplier_override"):
+                damage_multiplier = mod["damage_multiplier_override"]
+            if mod.get("ignore_counter"):
+                ignore_counter = True
+            if mod.get("ignore_last_inner_absorb"):
+                ignore_last_inner_absorb = True
+            if "bonus_damage" in mod:
+                bonus_damage += mod["bonus_damage"]
+
+    # ---- 第1步：计算原始伤害 ----
+    raw = weapon.get_effective_damage()
+    raw = raw * damage_multiplier + bonus_damage
+    result["raw_damage"] = raw
+    result["details"].append(f"原始伤害：{raw}")
+    # ---- 血火受伤减免 ----
+    if target.talent and hasattr(target.talent, 'modify_incoming_damage'):
+        raw = target.talent.modify_incoming_damage(target, attacker, weapon, raw)
+
+    # ---- 全息影像：目标在影像内额外+0.5 ----
+    hologram_bonus = _get_hologram_bonus(target, game_state)
+    if hologram_bonus > 0:
+        raw += hologram_bonus
+        result["details"].append(f"👁️ 全息影像易伤：+{hologram_bonus}")
+        if raw != result["raw_damage"]:
+            result["details"].append(f"受伤减免后：{raw}")
+
+    # ---- 第2步：选择攻击目标层和属性 ----
+    armor_piece = _select_armor_target(target, target_layer, target_armor_attr)
+
+    # ---- 第3步：克制判定 ----
+    if armor_piece is not None:
+        if not ignore_counter and not ignore_element:
+            if not is_effective(weapon.attribute, armor_piece.attribute):
+                result["reason"] = (f"武器「{weapon.attribute.value}」"
+                                    f"被护甲「{armor_piece.name}({armor_piece.attribute.value})」克制，无效！")
+                result["details"].append(result["reason"])
+                return result
+        result["details"].append(f"攻击目标护甲：{armor_piece}")
+
+    # ---- 第4步：伤害量化 ----
+    final_damage = quantize_damage(raw)
+    result["final_damage"] = final_damage
+    result["details"].append(f"量化后伤害：{final_damage}")
+
+    # ---- 第5步：扣减护甲/生命 ----
+    remaining = final_damage
+    result["success"] = True
+
+    if armor_piece is not None:
+        remaining = _apply_damage_to_armor(
+            target, armor_piece, remaining,
+            ignore_last_inner_absorb, result
+        )
+
+    if remaining > 0:
+        # 愿负世临时HP缓冲
+        if target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp'):
+            remaining = target.talent.receive_damage_to_temp_hp(remaining)
+        if remaining > 0:
+            result["hp_damage"] = remaining
+            target.hp = round(max(0, target.hp - remaining), 2)
+            result["details"].append(
+                f"生命受到 {remaining} 伤害 → HP: {target.hp}/{target.max_hp}")
+
+    result["target_hp"] = target.hp
+
+    # ---- 第6步：眩晕/死亡判定 ----
+    if target.hp <= 0:
+        prevented = _talent_death_check(target, attacker, game_state)
+        if prevented:
+            result["killed"] = False
+            result["target_hp"] = target.hp
+            result["details"].append(f"💫 记忆令毁灭的骄阳愈发明亮，不会落下…… HP → {target.hp}")
+        else:
+            result["killed"] = True
+            result["details"].append(f"💀 {target.name} 被击杀！")
+            if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
+                attacker.talent.on_kill(attacker, target)
+            if target.talent and hasattr(target.talent, 'on_player_death_check'):
+                target.talent.on_player_death_check(target)
+
+    elif target.hp <= 0.5 and not target.is_stunned:
+        prevent = False
+        if target.talent and hasattr(target.talent, 'prevent_stun'):
+            prevent = target.talent.prevent_stun(target)
+        if not prevent:
+            result["stunned"] = True
+            target.is_stunned = True
+            if game_state:
+                game_state.markers.add(target.player_id, "STUNNED")
+            result["details"].append(f"💫 {target.name} 进入眩晕状态！")
+        else:
+            result["details"].append(f"🔥 {target.name} 从不因为孱弱的攻击而倒下！")
+
+    # ---- 愿负世：被攻击时积累神性 ----
+    if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
+        is_limited = False
+        if attacker.talent and hasattr(attacker.talent, 'uses_remaining'):
+            is_limited = True
+        target.talent.on_being_attacked(attacker, weapon, is_limited)
+
+    return result
+
+
+def resolve_area_damage(attacker, weapon, location, game_state,
+                        ignore_element=False, damage_multiplier=1.0,
+                        bonus_damage=0.0, exclude_self=True):
+    """范围伤害结算"""
+    results = []
+    targets = game_state.players_at_location(location)
+    for t in targets:
+        if exclude_self and t.player_id == attacker.player_id:
+            continue
+        if not t.is_alive():
+            continue
+        r = resolve_damage(
+            attacker, t, weapon, game_state,
+            ignore_element=ignore_element,
+            damage_multiplier=damage_multiplier,
+            bonus_damage=bonus_damage,
+        )
+        results.append({"target": t, "result": r})
+    return results
+
+
+def _select_armor_target(target, target_layer, target_armor_attr):
+    """选择被攻击的护甲"""
+    if target_layer is not None and target_armor_attr is not None:
+        piece = target.armor.get_piece(target_layer, target_armor_attr)
+        if piece:
+            return piece
+
+    # 自动选择：外层优先（盾牌priority最高）
+    outer = target.armor.get_active(ArmorLayer.OUTER)
+    if outer:
+        outer.sort(key=lambda a: a.priority, reverse=True)
+        return outer[0]
+    inner = target.armor.get_active(ArmorLayer.INNER)
+    if inner:
+        return inner[0]
+    return None
+
+
+def _apply_damage_to_armor(target, armor_piece, damage,
+                           ignore_last_inner_absorb, result):
+    """
+    将伤害施加到护甲上。
+    返回剩余伤害（溢出到生命的部分）。
+    """
+    result["armor_hit"] = armor_piece.name
+
+    if damage >= armor_piece.current_hp:
+        overflow = damage - armor_piece.current_hp
+        armor_piece.current_hp = 0
+        armor_piece.is_broken = True
+        result["armor_broken"] = True
+        result["details"].append(
+            f"护甲「{armor_piece.name}」被击破！溢出：{overflow}")
+
+        # 最后内层吸收溢出
+        is_last = target.armor.is_last_inner(armor_piece)
+        if is_last and not ignore_last_inner_absorb:
+            result["details"].append("最后内层护甲吸收所有溢出")
+            return 0
+        else:
+            return overflow
+    else:
+        armor_piece.current_hp -= damage
+        result["details"].append(
+            f"护甲「{armor_piece.name}」剩余 {armor_piece.current_hp}/{armor_piece.max_hp}")
+        return 0
+
+
+def _talent_death_check(target, attacker, game_state):
+    """
+    天赋死亡检查。
+    优先级：1. 免死效果 → 2. 复活效果（死者苏生）
+    返回 True 表示死亡被阻止。
+    """
+    # 1. 检查目标自己的天赋（如愿负世的自动触发）
+    if target.talent:
+        death_result = target.talent.on_death_check(target, attacker)
+        if death_result and death_result.get("prevent_death"):
+            target.hp = death_result.get("new_hp", 0.5)
+            return True
+
+    # 2. 检查其他玩家的天赋（如死者苏生挂载）
+    if game_state:
+        for pid in game_state.player_order:
+            p = game_state.get_player(pid)
+            if not p or not p.talent or p.player_id == target.player_id:
+                continue
+            death_result = p.talent.on_death_check(target, attacker)
+            if death_result and death_result.get("prevent_death"):
+                target.hp = death_result.get("new_hp", 0.5)
+                return True
+
+    return False
