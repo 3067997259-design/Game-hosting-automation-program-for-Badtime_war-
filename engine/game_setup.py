@@ -4,6 +4,7 @@ from models.player import Player
 from models.equipment import make_weapon
 from engine.game_state import GameState
 from engine.response_window import ResponseWindowManager
+from engine.debug_config import enable_debug, debug_info, debug_system
 from cli.display import show_banner, show_info
 
 from controllers.human import HumanController
@@ -76,6 +77,36 @@ AI_NAME_POOL = [
 def setup_game():
     show_banner()
     game_state = GameState()
+    # ════════════════════════════════════════════════════════
+    #  调试模式选择
+    # ════════════════════════════════════════════════════════
+    
+    print("\n  ─── 调试模式 ───")
+    print("    0. 正常模式（无调试输出）")
+    print("    1. 基本调试（AI关键决策）")
+    print("    2. 详细调试（AI详细过程）")
+    print("    3. 完整调试（所有调试信息）")
+    
+    while True:
+        debug_raw = input("  请选择调试模式（0/1/2/3，默认0）：").strip()
+        if debug_raw in ("", "0"):
+            debug_level = 0
+            break
+        elif debug_raw == "1":
+            debug_level = 1
+            break
+        elif debug_raw == "2":
+            debug_level = 2
+            break
+        elif debug_raw == "3":
+            debug_level = 3
+            break
+        print("  请输入 0~3。")
+    
+    if debug_level > 0:
+        enable_debug(debug_level)
+        debug_system(f"调试模式已启用，级别: {debug_level}")
+    
     # ════════════════════════════════════════════════════════
     #  第一步：选择游戏模式
     # ════════════════════════════════════════════════════════
@@ -446,37 +477,39 @@ def _ai_pick_talent(personality: str, available, taken: set):
     
     【调试增强】添加详细的选择过程日志，便于验证AI是否按倾向选择。
     """
+    # 导入调试函数
+    from engine.debug_config import debug_system, is_debug_enabled
+    
     # 获取该人格的偏好列表
     preference = AI_TALENT_PREFERENCE.get(personality,
                                            AI_TALENT_PREFERENCE["balanced"])
     
     # 调试信息：显示人格和偏好列表
-    debug = False  # 设置为True可开启详细调试信息
-    if debug:
-        print(f"  [DEBUG] AI人格: {personality}")
-        print(f"  [DEBUG] 偏好顺序: {preference}")
-        print(f"  [DEBUG] 已选天赋: {taken}")
-        print(f"  [DEBUG] 可用天赋: {[n for n, _, _, _ in available]}")
+    if is_debug_enabled():
+        debug_system(f"AI人格: {personality}")
+        debug_system(f"偏好顺序: {preference}")
+        debug_system(f"已选天赋: {taken}")
+        debug_system(f"可用天赋: {[n for n, _, _, _ in available]}")
     
     # 按照偏好顺序查找
     for talent_num in preference:
         if talent_num in taken:
-            if debug:
-                print(f"  [DEBUG] 天赋 {talent_num} 已被选，跳过")
+            if is_debug_enabled():
+                debug_system(f"天赋 {talent_num} 已被选，跳过")
             continue
         for n, name, cls, desc in available:
             if n == talent_num:
-                if debug:
-                    print(f"  [DEBUG] 根据偏好选择天赋 {talent_num}: {name}")
+                if is_debug_enabled():
+                    debug_system(f"根据偏好选择天赋 {talent_num}: {name}")
                 return (n, name, cls)
 
     # 偏好列表里的都被选走了 → 随机选一个
     if available:
         chosen = random.choice(available)
-        if debug:
-            print(f"  [DEBUG] 偏好天赋均不可用，随机选择: {chosen[0]}: {chosen[1]}")
+        if is_debug_enabled():
+            debug_system(f"偏好天赋均不可用，随机选择: {chosen[0]}: {chosen[1]}")
         return (chosen[0], chosen[1], chosen[2])
 
-    if debug:
-        print(f"  [DEBUG] 无可用天赋")
+    if is_debug_enabled():
+        debug_system(f"无可用天赋")
     return None
