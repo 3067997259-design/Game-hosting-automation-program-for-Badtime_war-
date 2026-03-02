@@ -196,7 +196,19 @@ class BasicAIController(PlayerController):
                     return opt
             return options[0]
         if situation == "resurrection_pick_target":
-            return options[0]
+            # 死者苏生：优先选择自己，否则选择威胁分数最低的目标（可能是友方）
+            # 过滤掉"取消"选项
+            valid_options = [opt for opt in options if opt != "取消"]
+            if not valid_options:
+                return options[0] if options else ""
+            
+            # 如果自己名字在选项中，优先选择自己
+            if self.player_name and self.player_name in valid_options:
+                return self.player_name
+            
+            # 否则选择威胁分数最低的目标
+            # 威胁分数越低，威胁越小（可能是友方或弱者）
+            return min(valid_options, key=lambda name: self._threat_scores.get(name, 0))
         if situation == "ripple_anchor_type":
             for opt in options:
                 if "击杀" in opt:
