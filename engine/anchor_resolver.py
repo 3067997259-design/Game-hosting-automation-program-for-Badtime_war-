@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Optional, List
 
 from utils.attribute import Attribute, is_effective
+from models.equipment import WeaponRange
 
 
 @dataclass
@@ -74,14 +75,9 @@ class AnchorVerifier:
                                  target_armor_desc=None) -> AnchorVerification:
         """
         模拟5回合无干扰，每回合做一件事：移动 或 攻击
+        现在考虑攻击前置条件：近战需要find，远程需要lock
         """
-        # 1. 需要移动吗？
-        if caster.location == target.location:
-            move_rounds = 0
-        else:
-            move_rounds = 1  # 任意→任意 = 1回合
-
-        # 2. 选最优武器
+        # 1. 选最优武器
         best_weapon = self._pick_best_weapon(caster, target)
         if best_weapon is None:
             return AnchorVerification(
@@ -92,7 +88,7 @@ class AnchorVerifier:
 
         damage_per_hit = best_weapon.base_damage
 
-        # 3. 算要打多少HP
+        # 2. 算要打多少HP
         if goal == "kill":
             hp_to_deplete = self._total_effective_hp(target)
         elif goal == "break_armor":
@@ -116,7 +112,7 @@ class AnchorVerifier:
                 path_description=[], reason=f"未知目标：{goal}",
             )
 
-        # 4. 攻击回合数
+        # 3. 攻击回合数
         if damage_per_hit <= 0:
             return AnchorVerification(
                 feasible=False, fate=0, variance=0,
@@ -125,8 +121,11 @@ class AnchorVerifier:
             )
         attack_rounds = math.ceil(hp_to_deplete / damage_per_hit)
 
+        # 4. 计算前置回合数（移动、find、lock）
+        prep_rounds = self._calculate_prep_rounds(caster, target, best_weapon)
+        
         # 5. 命数
-        fate = move_rounds + attack_rounds
+        fate = prep_rounds + attack_rounds
 
         # 6. 可行？
         if fate > 5:
@@ -134,7 +133,7 @@ class AnchorVerifier:
                 feasible=False, fate=fate, variance=5 - fate,
                 path_description=self._build_path_desc(
                     caster, target, best_weapon,
-                    move_rounds, attack_rounds, goal
+                    prep_rounds, attack_rounds, goal
                 ),
                 reason=f"命数{fate}超过5回合上限",
             )
@@ -147,10 +146,54 @@ class AnchorVerifier:
             variance=variance,
             path_description=self._build_path_desc(
                 caster, target, best_weapon,
-                move_rounds, attack_rounds, goal
+                prep_rounds, attack_rounds, goal
             ),
             reason="可行",
         )
+
+    def _calculate_prep_rounds(self, caster, target, weapon):
+        """计算前置回合数：移动、find、lock"""
+        prep_rounds = 0
+        
+        # 检查武器射程
+        weapon_range = getattr(weapon, 'weapon_range', None)
+        
+        # 移动回合：只有近战武器需要同位置
+        if weapon_range == WeaponRange.MELEE:
+            if caster.location != target.location:
+                prep_rounds += 1  # 移动回合
+            # 检查是否已有engaged关系
+            if not self._has_engaged(caster, target):
+                prep_rounds += 1  # find回合
+        elif weapon_range == WeaponRange.RANGED:
+            # 远程武器需要lock
+            if not self._has_locked(caster, target):
+                prep_rounds += 1  # lock回合
+            # 远程不需要移动（假设目标可见）
+        else:
+            # 范围武器或其他类型，默认不需要前置
+            pass
+            
+        return prep_rounds
+
+    def _has_engaged(self, caster, target):
+        """检查是否已有engaged关系"""
+        if not hasattr(self.state, 'markers'):
+            return False
+        markers = self.state.markers
+        if hasattr(markers, 'has_relation'):
+            return markers.has_relation(caster.player_id, "ENGAGED_WITH", target.player_id)
+        return False
+
+    def _has_locked(self, caster, target):
+        """检查是否已有locked关系"""
+        if not hasattr(self.state, 'markers'):
+            return False
+        markers = self.state.markers
+        if hasattr(markers, 'has_relation'):
+            # 检查目标是否被发动者锁定
+            return markers.has_relation(target.player_id, "LOCKED_BY", caster.player_id)
+        return False
 
     # ================================================================
     #  辅助
@@ -212,15 +255,31 @@ class AnchorVerifier:
         return None
 
     def _build_path_desc(self, caster, target, weapon,
-                          move_rounds, attack_rounds, goal) -> list:
+                          prep_rounds, attack_rounds, goal) -> list:
         """生成路径描述"""
         path = []
         round_num = 1
 
-        if move_rounds == 1:
+        # 前置回合描述
+        weapon_range = getattr(weapon, 'weapon_range', None)
+        
+        # 移动回合（仅近战需要）
+        if weapon_range == WeaponRange.MELEE and caster.location != target.location:
             path.append(
                 f"回合{round_num}：从 {caster.location} "
                 f"移动到 {target.location}"
+            )
+            round_num += 1
+        
+        # find/lock回合
+        if weapon_range == WeaponRange.MELEE and not self._has_engaged(caster, target):
+            path.append(
+                f"回合{round_num}：找到 {target.name}（建立面对面）"
+            )
+            round_num += 1
+        elif weapon_range == WeaponRange.RANGED and not self._has_locked(caster, target):
+            path.append(
+                f"回合{round_num}：锁定 {target.name}"
             )
             round_num += 1
 
