@@ -1,16 +1,11 @@
 """
-BasicAIController —— 基础AI控制器（完整策略版）
+BasicAIController —— 基础AI控制器（修复版）
 ═══════════════════════════════════════════════════
-决策框架：
-  1. 判断当前阶段（生存/发育/进攻/政治/应急）
-  2. 按阶段生成候选命令列表（优先级从高到低）
-  3. 候选命令交给 parse+validate 过滤，第一个合法的执行
-  4. choose/confirm 等选择也按场景评分
-
-设计原则：
-  - AI 只生产"命令字符串"，规则裁决全部由 parse→validate→execute 完成
-  - AI 不可能绕过规则作弊
-  - 不合法的候选会被主循环 retry，最终兜底 forfeit
+修复问题：
+1. AI在find后持续攻击而不是继续发育
+2. AI疯狂获取导弹控制权但不会使用
+3. 隐身目标探测问题
+4. 军事基地竞争问题
 """
 
 from typing import List, Optional, Dict, Any
@@ -93,6 +88,15 @@ class BasicAIController(PlayerController):
         self._combat_target = None  # 当前战斗目标
         self._in_combat = False  # 是否处于战斗状态
         self._last_combat_turn = -1  # 上次战斗的回合数
+        
+        # 导弹相关状态（新增）
+        self._missile_cooldown = 0  # 导弹冷却回合数
+        self._last_missile_turn = -1  # 上次使用导弹的回合
+        self._missile_attempt_failed = False  # 导弹尝试是否失败
+        
+        # 探测装备列表
+        self._detection_items = ["热成像仪", "雷达", "探测魔法"]
+
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command
     # ════════════════════════════════════════════════════════
@@ -287,10 +291,8 @@ class BasicAIController(PlayerController):
                 self._threat_scores[killer] = self._threat_scores.get(killer, 0) + 30
 
     # ════════════════════════════════════════════════════════
-    #  核心：候选命令生成
+    #  核心：候选命令生成（修复版）
     # ════════════════════════════════════════════════════════
-
-
 
     def _generate_candidates(self, player, state, available_actions: List[str]) -> List[str]:
         self._my_id = player.player_id
@@ -300,44 +302,59 @@ class BasicAIController(PlayerController):
         # 更新战斗状态
         self._update_combat_status(player, state)
         
+        # 更新导弹冷却
+        if self._missile_cooldown > 0:
+            self._missile_cooldown -= 1
+        
         candidates = []
         
         # 如果未起床，返回wake
         if not player.is_awake:
             return ["wake"]
         
-        # 战斗状态优先级最高（除了导弹攻击）
+        # ========== 修复1：战斗状态优先级最高 ==========
         if self._in_combat and self._combat_target:
-            # 检查是否需要导弹攻击（战斗中的远程攻击）
-            if self._needs_missile_in_combat(player, state, self._combat_target):
-                missile_cmds = self._missile_attack_commands(player, state, available_actions, self._combat_target)
+            print(f"🤖 [{player.name}] 处于战斗状态，目标: {self._combat_target.name}")
+            
+            # 检查是否应该继续战斗
+            if not self._should_continue_combat(player, self._combat_target):
+                print(f"🤖 [{player.name}] 需要撤退，退出战斗状态")
+                self._in_combat = False
+                self._combat_target = None
+            else:
+                # 生成战斗攻击命令
+                combat_cmds = self._combat_attack_commands(player, state, available_actions, self._combat_target)
+                if combat_cmds:
+                    print(f"🤖 [{player.name}] 战斗攻击命令: {combat_cmds}")
+                    # 战斗状态下，攻击优先级最高
+                    candidates.extend(combat_cmds)
+                    
+                    # 如果不在同一地点，优先移动而不是发育
+                    if player.location != self._combat_target.location:
+                        # 不在同一地点，添加移动命令
+                        if f"move {self._combat_target.location}" not in candidates:
+                            candidates.append(f"move {self._combat_target.location}")
+                    # 只添加一个紧急发育命令作为后备
+                    develop = self._develop_commands(player, state, available_actions)
+                    if develop and "interact" in develop[0]:
+                        candidates.append(develop[0])
+                    
+                    candidates.append("forfeit")
+                    return candidates
+        
+        # ========== 修复2：导弹攻击逻辑优化 ==========
+        # 检查导弹冷却
+        if self._missile_cooldown <= 0:
+            if self._needs_missile_attack(player, state):
+                print(f"🤖 [{player.name}] 需要导弹攻击")
+                missile_cmds = self._missile_attack_commands(player, state, available_actions)
                 if missile_cmds:
-                    return missile_cmds + ["forfeit"]
-        
-        # 生成战斗攻击命令
-        combat_cmds = self._combat_attack_commands(player, state, available_actions, self._combat_target)
-        if combat_cmds:
-            # 战斗状态下，攻击优先级高于发育
-            candidates.extend(combat_cmds)
-            # 只添加一个发育命令作为后备
-            develop = self._develop_commands(player, state, available_actions)
-            if develop:
-                candidates.append(develop[0])  # 只取第一个发育命令
-            candidates.append("forfeit")
-            return candidates
-        
-        # 检查是否需要导弹攻击（高优先级）
-        if self._needs_missile_attack(player, state):
-            print(f"🤖 [{player.name}] 需要导弹攻击")
-            missile_cmds = self._missile_attack_commands(player, state, available_actions)
-            if missile_cmds:
-                candidates.extend(missile_cmds)
-                print(f"🤖 [{player.name}] 导弹攻击候选：{missile_cmds}")
-                # 导弹攻击是紧急任务，如果有了就直接返回
-                candidates.append("forfeit")
-                seen = set()
-                deduped = [cmd for cmd in candidates if not (cmd in seen or seen.add(cmd))]
-                return deduped
+                    candidates.extend(missile_cmds)
+                    print(f"🤖 [{player.name}] 导弹攻击候选：{missile_cmds}")
+                    # 设置导弹冷却
+                    self._missile_cooldown = 3
+                    candidates.append("forfeit")
+                    return candidates
         
         if self._is_critical(player, state):
             print(f"🤖 [{player.name}] 进入极危模式")
@@ -470,17 +487,39 @@ class BasicAIController(PlayerController):
             # 进入或保持战斗状态
             self._in_combat = True
             self._combat_target = current_combat_target
-            
-            # 政治型玩家例外：挨打就跑
-            if self.personality == "political":
-                # 检查自己是否处于劣势
-                if self._is_at_disadvantage(player, current_combat_target):
-                    self._in_combat = False  # 退出战斗状态
-                    self._combat_target = None
+            print(f"🤖 [{player.name}] 与 {current_combat_target.name} 进入战斗状态")
         else:
             # 没有战斗关系，退出战斗状态
+            if self._in_combat:
+                print(f"🤖 [{player.name}] 退出战斗状态")
             self._in_combat = False
             self._combat_target = None
+
+    def _should_continue_combat(self, player, target):
+        """判断是否应该继续战斗"""
+        if not target or not target.is_alive():
+            return False
+        
+        # 政治型玩家：挨打就跑
+        if self.personality == "political":
+            # 检查自己是否处于劣势
+            if self._is_at_disadvantage(player, target):
+                return False
+            return True
+        
+        # 其他类型玩家：检查护甲和血量
+        my_armor_health = self._calculate_armor_health(player)
+        target_armor_health = self._calculate_armor_health(target)
+        
+        # 如果自己护甲严重不足（低于20%）且目标护甲还很多，考虑撤退
+        if my_armor_health < 0.2 and target_armor_health > 0.5:
+            return False
+        
+        # 如果自己血量很低，撤退
+        if player.hp < 0.3:
+            return False
+        
+        return True
 
     def _combat_attack_commands(self, player, state, available_actions, target):
         """生成战斗攻击命令"""
@@ -491,15 +530,14 @@ class BasicAIController(PlayerController):
         
         # 检查是否在同一地点
         if player.location != target.location:
-            # 不在同一地点，考虑移动或远程攻击
-            if self._has_ranged_weapon(player) and "attack" in available_actions:
-                # 尝试远程攻击
+            # 不在同一地点，优先移动到目标地点
+            if "move" in available_actions:
+                cmds.append(f"move {target.location}")
+            # 如果有远程武器，尝试远程攻击
+            elif self._has_ranged_weapon(player) and "attack" in available_actions:
                 attack_cmd = self._generate_attack_command(player, target, available_actions)
                 if attack_cmd:
                     cmds.append(attack_cmd)
-            else:
-                # 移动到目标地点
-                cmds.append(f"move {target.location}")
         elif "attack" in available_actions:
             # 在同一地点，直接攻击
             attack_cmd = self._generate_attack_command(player, target, available_actions)
@@ -735,6 +773,7 @@ class BasicAIController(PlayerController):
             cmds.append("move 军事基地")
 
         return cmds
+
     # ════════════════════════════════════════════════════════
     #  辅助方法：威胁评估
     # ════════════════════════════════════════════════════════
@@ -843,6 +882,7 @@ class BasicAIController(PlayerController):
             if isinstance(effect, dict) and effect.get('grant') == 'detect':
                 return True
         return False
+        
     def _best_weapon_damage_of(self, target) -> float:
         return self._best_weapon_damage(target)  # 复用同一套逻辑
 
@@ -903,6 +943,7 @@ class BasicAIController(PlayerController):
                 if val is not None and attribute in str(key):
                     return True
         return False
+        
     def _target_has_any_outer(self, target) -> bool:
         for attr in ["普通", "魔法", "科技"]:
             if self._target_has_armor_layer(target, "外层", attr):
@@ -970,6 +1011,7 @@ class BasicAIController(PlayerController):
         if self._has_item(player, item_name):
             return False
         return True
+
     # ====================================
 
     # ════════════════════════════════════════════════════════
@@ -1007,6 +1049,7 @@ class BasicAIController(PlayerController):
         if hasattr(armor, 'outer') and isinstance(armor.outer, dict):
             return sum(1 for v in armor.outer.values() if v is not None)
         return 0
+        
     def _count_inner_armor(self, player) -> int:
         if not hasattr(player, 'armor'):
             return 0
@@ -1047,14 +1090,32 @@ class BasicAIController(PlayerController):
     
         return False
 
-
     def _extra_develop_commands(self, player, state):
         cmds = []
         loc = player.location
 
+        # ========== 修复3：导弹控制权优化 ==========
+        # 只有在确实需要时才获取导弹控制权
+        has_missile_control = self._has_weapon_named(player, "导弹控制权")
+        
+        # 检查是否有高威胁远程目标
+        needs_missile_for_target = False
+        if not has_missile_control:
+            # 检查是否有值得用导弹攻击的目标
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if not target or not target.is_alive() or target.location == player.location:
+                    continue
+                threat_score = self._threat_scores.get(target.name, 0)
+                if threat_score > 70:  # 高威胁目标
+                    needs_missile_for_target = True
+                    break
+
         if loc == "魔法所":
             # 按优先级学习，跳过已有的
-            for spell in ["魔法弹幕", "远程魔法弹幕", "地震", "地动山摇"]:#因为有bug，暂时禁止了AI学习探测魔法
+            for spell in ["魔法弹幕", "远程魔法弹幕", "地震", "地动山摇"]:
                 if self._can_learn(player, spell):
                     cmds.append(f"interact {spell}")
                     break  # 一次只学一个
@@ -1065,7 +1126,12 @@ class BasicAIController(PlayerController):
             if not getattr(player, 'has_military_pass', False):
                 cmds.append("interact 办理通行证")
             else:
-                for weapon in ["高斯步枪", "导弹控制权", "电磁步枪"]:
+                # 只有在需要时才获取导弹控制权
+                weapon_priority = ["高斯步枪", "电磁步枪"]
+                if needs_missile_for_target:
+                    weapon_priority.insert(0, "导弹控制权")
+                
+                for weapon in weapon_priority:
                     if not self._has_weapon_named(player, weapon):
                         cmds.append(f"interact {weapon}")
                         break
@@ -1139,7 +1205,6 @@ class BasicAIController(PlayerController):
                 return p
         return None  # 没人犯法就不举报
     
-
     def _is_development_complete(self, player) -> bool:
         """根据AI人格判断发育是否完成"""
         # 基础能力检查
@@ -1169,6 +1234,8 @@ class BasicAIController(PlayerController):
             print(f"🤖 [{player.name}] 政治型，不需要发育完成")
             return False
 
+    # ========== 修复2：导弹攻击逻辑优化 ==========
+    
     def _needs_missile_attack(self, player, state):
         """判断是否需要使用导弹攻击（更严格的条件）"""
         # 如果已经在战斗状态，使用_needs_missile_in_combat
@@ -1197,24 +1264,23 @@ class BasicAIController(PlayerController):
             if target.location == player.location:
                 continue
             
-            # 检查目标是否隐身
+            # ========== 修复3：隐身探测优化 ==========
             is_invisible = getattr(target, 'is_invisible', False)
             if is_invisible:
                 # 检查自己是否有探测能力
-                has_detection = getattr(player, 'has_detection', False)
-                if not has_detection:
+                if not self._has_detection_capability(player):
                     continue  # 无法探测隐身目标
             
             # 计算威胁分数
             threat_score = self._threat_scores.get(target.name, 0)
             
-            # 提高威胁阈值到60，避免轻易使用导弹
-            if threat_score > 60 and threat_score > best_threat:
+            # 提高威胁阈值到80，避免轻易使用导弹
+            if threat_score > 80 and threat_score > best_threat:
                 best_threat = threat_score
                 best_target = target
         
         # 如果有高威胁远程目标，则需要导弹攻击
-        if best_target and best_threat > 60:
+        if best_target and best_threat > 80:
             print(f"🤖 [{player.name}] 检测到高威胁远程目标 {best_target.name}，威胁分数 {best_threat}")
             return True
         
@@ -1234,9 +1300,15 @@ class BasicAIController(PlayerController):
             return player.location == "军事基地"
         
         # 有导弹控制权，检查目标是否值得用导弹
-        # 目标威胁分数需要很高（>70）才使用导弹
+        # 目标威胁分数需要很高（>80）才使用导弹
         threat_score = self._threat_scores.get(combat_target.name, 0)
-        return threat_score > 70
+        
+        # 检查目标是否隐身
+        is_invisible = getattr(combat_target, 'is_invisible', False)
+        if is_invisible and not self._has_detection_capability(player):
+            return False  # 无法探测隐身目标
+            
+        return threat_score > 80
 
     def _missile_attack_commands(self, player, state, available_actions, specific_target=None):
         """生成导弹攻击命令序列"""
@@ -1259,22 +1331,21 @@ class BasicAIController(PlayerController):
         is_invisible = getattr(target, 'is_invisible', False)
         if is_invisible:
             # 检查自己是否有探测能力
-            has_detection = getattr(player, 'has_detection', False)
-            if not has_detection:
+            if not self._has_detection_capability(player):
                 print(f"🤖 [{player.name}] 目标隐身且无探测能力，无法使用导弹")
                 return cmds
         
         # 1. 如果没有导弹控制权，先获取
         if not has_missile_control:
             if player.location == "军事基地" and "interact" in available_actions:
-                # 检查是否已经有其他玩家在尝试获取导弹
-                # 避免多个AI同时尝试获取导弹
-                if not self._too_many_players_in_military_base(player, state):
+                # ========== 修复4：军事基地竞争优化 ==========
+                if not self._should_avoid_military_base(player, state):
                     cmds.append("interact 导弹控制权")
                     print(f"🤖 [{player.name}] 需要获取导弹控制权")
                 else:
                     print(f"🤖 [{player.name}] 太多玩家在军事基地，暂不获取导弹")
-                    return []
+                    # 去其他地方发育
+                    cmds.append("move 商店")
             else:
                 # 如果不在军事基地，先去军事基地
                 cmds.append("move 军事基地")
@@ -1318,8 +1389,8 @@ class BasicAIController(PlayerController):
         
         return cmds
 
-    def _too_many_players_in_military_base(self, player, state):
-        """检查军事基地是否玩家过多"""
+    def _should_avoid_military_base(self, player, state):
+        """判断是否应该避免去军事基地"""
         count = 0
         for pid in state.player_order:
             if pid == player.player_id:
@@ -1327,7 +1398,28 @@ class BasicAIController(PlayerController):
             other = state.get_player(pid)
             if other and other.is_alive() and other.location == "军事基地":
                 count += 1
-        return count >= 2  # 如果已经有2个或更多其他玩家在军事基地
+                # 如果有其他玩家在军事基地且他们有导弹控制权，避免竞争
+                if self._has_weapon_named(other, "导弹控制权"):
+                    return True
+        # 如果已经有2个或更多其他玩家在军事基地，避免竞争
+        return count >= 2
+
+    def _has_detection_capability(self, player):
+        """检查是否有探测能力（优化版）"""
+        # 检查探测物品
+        for item_name in self._detection_items:
+            if self._has_item_named(player, item_name):
+                return True
+        
+        # 检查探测魔法
+        if self._has_weapon_named(player, "探测魔法"):
+            return True
+        
+        # 检查玩家属性
+        if getattr(player, 'has_detection', False):
+            return True
+        
+        return False
     
     def _has_ranged_weapon(self, player):
         """检查是否有远程武器"""
@@ -1342,7 +1434,6 @@ class BasicAIController(PlayerController):
                     if keyword in weapon_name:
                         return True
         return False
-
 
     def _is_at_disadvantage(self, player, target):
         """判断是否处于劣势"""
@@ -1366,7 +1457,6 @@ class BasicAIController(PlayerController):
         
         return power
     
-
     def _generate_attack_command(self, player, target, available_actions):
         """生成攻击命令字符串"""
         # 选择最佳武器
@@ -1406,8 +1496,7 @@ class BasicAIController(PlayerController):
             is_invisible = getattr(target, 'is_invisible', False)
             if is_invisible:
                 # 检查是否有探测能力
-                has_detection = getattr(player, 'has_detection', False)
-                if not has_detection:
+                if not self._has_detection_capability(player):
                     continue  # 无法探测隐身目标
             
             # 计算威胁分数
