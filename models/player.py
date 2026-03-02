@@ -22,7 +22,10 @@ class ArmorSlots:
 
     def get_active(self, layer):
         d = self._get_layer_list(layer)
-        return [a for a in d if a is not None and not a.is_broken]
+        active = [a for a in d if a is not None and not a.is_broken]
+        # 按优先级降序排序，盾牌优先消耗
+        active.sort(key=lambda p: p.priority, reverse=True)
+        return active
 
     def has_any_outer_active(self):
         return len(self.get_active(ArmorLayer.OUTER)) > 0
@@ -60,6 +63,8 @@ class ArmorSlots:
         result = []
         result.extend(self.get_active(ArmorLayer.OUTER))
         result.extend(self.get_active(ArmorLayer.INNER))
+        # 按优先级降序排序，盾牌优先消耗
+        result.sort(key=lambda p: p.priority, reverse=True)
         return result
 
     def get_all_pieces(self):
