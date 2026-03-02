@@ -1186,7 +1186,7 @@ class BasicAIController(PlayerController):
         print(f"🤖 [{self.player_name}] 武器属性 {weapon_attr} 不能伤害目标的任何护甲")
         return False
 
-    # ========== 增强的护甲检测 ==========
+    # ========== 增强的护甲检测（更新版：支持新的ArmorSlots列表结构） ==========
     def _target_has_armor_layer(self, target, layer_type: str, attribute: str) -> bool:
         if not hasattr(target, 'armor'):
             return False
@@ -1194,21 +1194,19 @@ class BasicAIController(PlayerController):
         armor = target.armor
         print(f"🤖 [{self.player_name}] 检查目标 {target.name} 的 {layer_type} {attribute} 护甲")
         
-        if layer_type == "外层" and hasattr(armor, 'outer') and isinstance(armor.outer, dict):
-            for key, val in armor.outer.items():
-                if val is not None:
-                    key_str = str(key).lower()
-                    if attribute in key_str or (attribute == "普通" and "普通" in key_str):
-                        print(f"🤖 [{self.player_name}] 找到 {layer_type} {attribute} 护甲: {key}")
-                        return True
+        # 获取对应层的列表
+        layer_list = armor.outer if layer_type == "外层" else armor.inner
         
-        elif layer_type == "内层" and hasattr(armor, 'inner') and isinstance(armor.inner, dict):
-            for key, val in armor.inner.items():
-                if val is not None:
-                    key_str = str(key).lower()
-                    if attribute in key_str or (attribute == "普通" and "普通" in key_str):
-                        print(f"🤖 [{self.player_name}] 找到 {layer_type} {attribute} 护甲: {key}")
-                        return True
+        # 遍历列表中的护甲
+        for piece in layer_list:
+            if piece is not None and not piece.is_broken:
+                piece_attr = str(piece.attribute).lower()
+                target_attr = attribute.lower()
+                
+                # 检查属性匹配
+                if target_attr in piece_attr or (attribute == "普通" and "普通" in piece_attr):
+                    print(f"🤖 [{self.player_name}] 找到 {layer_type} {attribute} 护甲: {piece.name}")
+                    return True
         
         print(f"🤖 [{self.player_name}] 没有找到 {layer_type} {attribute} 护甲")
         return False
@@ -1224,39 +1222,14 @@ class BasicAIController(PlayerController):
         if not hasattr(player, 'armor'):
             return False
         armor = player.armor
-        # 优先使用 get_all_active 获取所有未破损护甲层
-        if hasattr(armor, 'get_all_active') and callable(armor.get_all_active):
-            active_pieces = armor.get_all_active()
-            if isinstance(active_pieces, (list, tuple)):
-                for piece in active_pieces:
-                    piece_name = getattr(piece, 'name', str(piece))
-                    if piece_name == item_name:
-                        return True
-        # 备选方案
-        else:
-            layers: list = []
-            if hasattr(armor, 'get_all_layers') and callable(armor.get_all_layers):
-                result = armor.get_all_layers()
-                if isinstance(result, (list, tuple)):
-                    layers = list(result)
-                elif isinstance(result, dict):
-                    layers = list(result.values())
-            elif hasattr(armor, 'layers') and isinstance(armor.layers, (list, dict)):
-                if isinstance(armor.layers, dict):
-                    layers = list(armor.layers.values())
-                else:
-                    layers = list(armor.layers)
-            elif hasattr(armor, 'outer') and hasattr(armor, 'inner'):
-                if isinstance(armor.outer, list):
-                    layers.extend(armor.outer)
-                if isinstance(armor.inner, list):
-                    layers.extend(armor.inner)
-            for layer in layers:
-                layer_name = getattr(layer, 'name', str(layer))
-                if item_name == layer_name:
+        
+        # 检查外层和内层
+        for piece in armor.outer + armor.inner:
+            if piece is not None and not piece.is_broken:
+                piece_name = getattr(piece, 'name', str(piece))
+                if piece_name == item_name:
                     return True
-                if hasattr(layer, 'item') and hasattr(layer.item, 'name') and layer.item.name == item_name:
-                    return True
+        
         return False
 
     def _has_item(self, player, item_name: str) -> bool:
@@ -1279,7 +1252,7 @@ class BasicAIController(PlayerController):
     # ====================================
 
     # ════════════════════════════════════════════════════════
-    #  辅助方法：状态查询
+    #  辅助方法：状态查询（更新版：支持新的ArmorSlots列表结构）
     # ════════════════════════════════════════════════════════
 
     def _has_credential(self, player) -> bool:
@@ -1307,19 +1280,31 @@ class BasicAIController(PlayerController):
         return False
 
     def _count_outer_armor(self, player) -> int:
+        """计算外层护甲数量（更新版：支持列表结构）"""
         if not hasattr(player, 'armor'):
             return 0
         armor = player.armor
+        
+        # 如果outer是字典（旧结构）
         if hasattr(armor, 'outer') and isinstance(armor.outer, dict):
             return sum(1 for v in armor.outer.values() if v is not None)
+        # 如果outer是列表（新结构）
+        elif hasattr(armor, 'outer') and isinstance(armor.outer, list):
+            return sum(1 for piece in armor.outer if piece is not None and not piece.is_broken)
         return 0
         
     def _count_inner_armor(self, player) -> int:
+        """计算内层护甲数量（更新版：支持列表结构）"""
         if not hasattr(player, 'armor'):
             return 0
         armor = player.armor
+        
+        # 如果inner是字典（旧结构）
         if hasattr(armor, 'inner') and isinstance(armor.inner, dict):
             return sum(1 for v in armor.inner.values() if v is not None)
+        # 如果inner是列表（新结构）
+        elif hasattr(armor, 'inner') and isinstance(armor.inner, list):
+            return sum(1 for piece in armor.inner if piece is not None and not piece.is_broken)
         return 0
     
     def _count_outer_armor_of(self, target) -> int:
@@ -1736,29 +1721,35 @@ class BasicAIController(PlayerController):
             total_pieces = 0
             active_pieces = 0
             
+            # 检查外层护甲
             if hasattr(armor, 'outer'):
-                outer_dict = armor.outer
-                if isinstance(outer_dict, dict):
-                    for key, val in outer_dict.items():
-                        total_pieces += 1
-                        if val is not None:
-                            if hasattr(val, 'durability'):
-                                if val.durability > 0:
-                                    active_pieces += 1
-                            else:
+                outer_list = armor.outer
+                if isinstance(outer_list, list):
+                    for piece in outer_list:
+                        if piece is not None:
+                            total_pieces += 1
+                            if not piece.is_broken:
                                 active_pieces += 1
+                elif isinstance(outer_list, dict):
+                    for key, val in outer_list.items():
+                        total_pieces += 1
+                        if val is not None and not val.is_broken:
+                            active_pieces += 1
             
+            # 检查内层护甲
             if hasattr(armor, 'inner'):
-                inner_dict = armor.inner
-                if isinstance(inner_dict, dict):
-                    for key, val in inner_dict.items():
-                        total_pieces += 1
-                        if val is not None:
-                            if hasattr(val, 'durability'):
-                                if val.durability > 0:
-                                    active_pieces += 1
-                            else:
+                inner_list = armor.inner
+                if isinstance(inner_list, list):
+                    for piece in inner_list:
+                        if piece is not None:
+                            total_pieces += 1
+                            if not piece.is_broken:
                                 active_pieces += 1
+                elif isinstance(inner_list, dict):
+                    for key, val in inner_list.items():
+                        total_pieces += 1
+                        if val is not None and not val.is_broken:
+                            active_pieces += 1
             
             if total_pieces == 0:
                 return 0.0
