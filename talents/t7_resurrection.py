@@ -96,6 +96,10 @@ class Resurrection(BaseTalent):
         dying_player.location = home_id
         dying_player.is_awake = True
 
+        # 清除所有markers关系（类似死亡清理，但玩家实际未死亡）
+        # 清除LOCKED_BY、ENGAGED_WITH等状态
+        self.state.markers.on_player_death(dying_player.player_id)
+
         display.show_info(
             f"🌟 死者苏生触发！{dying_player.name} 在家中重生！"
             f"\n   保留所有物品，无需起床。")
