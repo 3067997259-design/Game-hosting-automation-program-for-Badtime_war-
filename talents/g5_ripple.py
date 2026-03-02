@@ -58,6 +58,7 @@ class Ripple(BaseTalent):
         self.anchor_caster_backup = None
         self.anchor_target_snapshot = None
         self.anchor_revealed_step = None
+        self.was_paused_by_barrier = False  # 新增：记录是否被结界暂停
 
     # ================================================================
     #  辅助：判断是否有人类玩家（用于 DM 判定自动化）
@@ -532,11 +533,20 @@ class Ripple(BaseTalent):
         if not self.anchor_active:
             return
 
+        # 检查是否被结界暂停
         if self.is_anchor_paused():
+            self.was_paused_by_barrier = True
             display.show_info(
                 f"🌊⏸️ 锚定倒计时因幻想乡结界暂停"
                 f"（剩余{self.anchor_rounds_left}轮）")
             return
+        
+        # 如果之前被暂停，现在结界已结束，显示恢复信息
+        if self.was_paused_by_barrier:
+            display.show_info(
+                f"🌊▶️ 结界已结束，锚定监控恢复"
+                f"（剩余{self.anchor_rounds_left}轮）")
+            self.was_paused_by_barrier = False
 
         me = self._get_caster()
 
@@ -895,6 +905,7 @@ class Ripple(BaseTalent):
         self.anchor_caster_backup = None
         self.anchor_target_snapshot = None
         self.anchor_revealed_step = None
+        self.was_paused_by_barrier = False
 
     # ================================================================
     #  方式二：献诗增强
@@ -1208,6 +1219,23 @@ class Ripple(BaseTalent):
                 and self.state.active_barrier.active):
             return True
         return False
+
+    # ================================================================
+    #  结界结束钩子：当结界结束时调用此方法
+    # ================================================================
+
+    def on_barrier_end(self):
+        """当幻想乡结界结束时调用，确保锚定恢复监控"""
+        if not self.anchor_active:
+            return
+        
+        # 如果锚定之前被暂停，现在恢复监控
+        if self.was_paused_by_barrier:
+            display.show_info(
+                f"🌊▶️ 结界已结束，{self._get_caster().name} 的锚定监控恢复"
+                f"（剩余{self.anchor_rounds_left}轮）")
+            # 标记为不再暂停，下一轮 on_round_end 会正常处理
+            self.was_paused_by_barrier = False
 
     # ================================================================
     #  六爻献诗：自由选择效果

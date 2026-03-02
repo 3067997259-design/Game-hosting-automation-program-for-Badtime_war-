@@ -343,12 +343,33 @@ class Mythland(BaseTalent):
         ])
         display.show_info("\n".join(lines))
 
+        # ══ 修复：通知所有涟漪天赋结界已结束 ══
+        self._notify_ripple_barrier_end()
+        # ══ 修复结束 ══
+
         self.active = False
         self.barrier_players = []
         self.original_locations = {}
         self.barrier_round = 0
         self.barrier_location = None
         self.state.active_barrier = None
+
+    def _notify_ripple_barrier_end(self):
+        """通知所有涟漪天赋结界已结束"""
+        try:
+            # 导入涟漪类以进行类型检查
+            from talents.g5_ripple import Ripple
+            for pid in self.state.player_order:
+                p = self.state.get_player(pid)
+                if p and p.talent and isinstance(p.talent, Ripple):
+                    # 调用涟漪天赋的结界结束钩子
+                    p.talent.on_barrier_end()
+        except ImportError:
+            # 如果无法导入涟漪类，跳过通知
+            pass
+        except Exception as e:
+            # 避免通知失败导致结界结束崩溃
+            display.show_info(f"⚠️ 通知涟漪天赋结界结束时出错：{e}")
 
     # ============================================
     #  辅助方法
