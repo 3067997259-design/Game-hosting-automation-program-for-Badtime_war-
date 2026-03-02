@@ -486,12 +486,14 @@ class BasicAIController(PlayerController):
         """生成战斗攻击命令"""
         cmds = []
         
-        # 如果不在同一地点，需要移动或使用远程武器
+        if not target:
+            return cmds
+        
+        # 检查是否在同一地点
         if player.location != target.location:
-            # 检查是否有远程武器
-            has_ranged = self._has_ranged_weapon(player)
-            if has_ranged and "attack" in available_actions:
-                # 使用远程武器攻击
+            # 不在同一地点，考虑移动或远程攻击
+            if self._has_ranged_weapon(player) and "attack" in available_actions:
+                # 尝试远程攻击
                 attack_cmd = self._generate_attack_command(player, target, available_actions)
                 if attack_cmd:
                     cmds.append(attack_cmd)
@@ -503,6 +505,15 @@ class BasicAIController(PlayerController):
             attack_cmd = self._generate_attack_command(player, target, available_actions)
             if attack_cmd:
                 cmds.append(attack_cmd)
+        elif "find" in available_actions:
+            # 如果没有攻击选项，尝试find（如果需要）
+            markers = getattr(state, 'markers', None)
+            needs_find = True
+            if markers and hasattr(markers, 'has_relation'):
+                needs_find = not markers.has_relation(player.player_id, "ENGAGED_WITH", target.player_id)
+            
+            if needs_find:
+                cmds.append(f"find {target.name}")
         
         return cmds
 
@@ -1354,3 +1365,103 @@ class BasicAIController(PlayerController):
         power *= (1 + armor_health)
         
         return power
+    
+
+    def _generate_attack_command(self, player, target, available_actions):
+        """生成攻击命令字符串"""
+        # 选择最佳武器
+        weapon = self._pick_best_weapon_against(player, target)
+        if not weapon:
+            return None
+        
+        weapon_name = weapon.name
+        target_name = target.name
+        
+        # 选择攻击层和属性
+        layer_attr = self._pick_attack_layer(weapon, target)
+        if not layer_attr:
+            return None
+        
+        layer_str, attr_str = layer_attr
+        return f"attack {target_name} {weapon_name} {layer_str} {attr_str}"
+
+    def _find_best_missile_target(self, player, state):
+        """找到最佳的导弹攻击目标"""
+        best_target = None
+        best_threat = -1
+        
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            
+            target = state.get_player(pid)
+            if not target or not target.is_alive():
+                continue
+            
+            # 导弹最适合攻击不同地点的目标
+            if target.location == player.location:
+                continue
+            
+            # 检查目标是否隐身
+            is_invisible = getattr(target, 'is_invisible', False)
+            if is_invisible:
+                # 检查是否有探测能力
+                has_detection = getattr(player, 'has_detection', False)
+                if not has_detection:
+                    continue  # 无法探测隐身目标
+            
+            # 计算威胁分数
+            threat_score = self._threat_scores.get(target.name, 0)
+            
+            # 导弹攻击优先级：高威胁目标优先
+            if threat_score > best_threat:
+                best_threat = threat_score
+                best_target = target
+        
+        return best_target
+
+    def _calculate_armor_health(self, player):
+        """计算护甲健康度（0-1）"""
+        if not hasattr(player, 'armor'):
+            return 0.0
+        
+        try:
+            armor = player.armor
+            total_pieces = 0
+            active_pieces = 0
+            
+            # 检查外层护甲
+            if hasattr(armor, 'outer'):
+                outer_dict = armor.outer
+                if isinstance(outer_dict, dict):
+                    for key, val in outer_dict.items():
+                        total_pieces += 1
+                        if val is not None:
+                            # 检查耐久度
+                            if hasattr(val, 'durability'):
+                                if val.durability > 0:
+                                    active_pieces += 1
+                            else:
+                                # 如果没有耐久度属性，假设是完好的
+                                active_pieces += 1
+            
+            # 检查内层护甲
+            if hasattr(armor, 'inner'):
+                inner_dict = armor.inner
+                if isinstance(inner_dict, dict):
+                    for key, val in inner_dict.items():
+                        total_pieces += 1
+                        if val is not None:
+                            if hasattr(val, 'durability'):
+                                if val.durability > 0:
+                                    active_pieces += 1
+                            else:
+                                active_pieces += 1
+            
+            # 计算健康度
+            if total_pieces == 0:
+                return 0.0
+            return active_pieces / total_pieces
+        except Exception as e:
+            print(f"⚠️ 计算护甲健康度时出错: {e}")
+            return 0.0
