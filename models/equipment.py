@@ -106,7 +106,7 @@ def make_armor(name):
             "盾牌", Attribute.ORDINARY, ArmorLayer.OUTER, 1.0,
             priority=100, special_tags=["shield_priority"]),
         "陶瓷护甲": lambda: ArmorPiece(
-            "陶瓷护甲", Attribute.TECH, ArmorLayer.OUTER, 1.0,  # 修复：改为科技属性
+            "陶瓷护甲", Attribute.ORDINARY, ArmorLayer.OUTER, 1.0,  # 恢复为普通属性
             special_tags=["immune_electric"]),
         "魔法护盾": lambda: ArmorPiece(
             "魔法护盾", Attribute.MAGIC, ArmorLayer.OUTER, 1.0,
