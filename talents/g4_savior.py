@@ -76,8 +76,10 @@ class Savior(BaseTalent):
         """
         被攻击时调用（无论是否造成伤害）。
         由 damage_resolver 或 action_turn 在攻击结算后调用。
+        
+        【修复】救世主状态下不能再获得神性
         """
-        if self.spent:
+        if self.spent or self.is_savior:  # 添加 is_savior 检查
             return
         self.gain_divinity(1, f"被 {attacker.name} 攻击")
         if is_limited_talent:
@@ -86,8 +88,10 @@ class Savior(BaseTalent):
     def on_positive_talent_used(self, source_player, is_limited=False):
         """
         其他玩家对自己使用正面效果天赋时调用。
+        
+        【修复】救世主状态下不能再获得神性
         """
-        if self.spent:
+        if self.spent or self.is_savior:  # 添加 is_savior 检查
             return
         self.gain_divinity(1, f"{source_player.name} 使用了正面天赋")
         if is_limited:
