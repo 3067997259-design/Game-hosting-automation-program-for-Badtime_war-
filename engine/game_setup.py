@@ -320,7 +320,6 @@ def _ask_player_count(label: str, min_n: int, max_n: int):
         except ValueError:
             print("  请输入有效数字。")
 
-
 def _ask_ai_count(min_n: int, max_n: int):
     """询问AI人数，返回 (0, count)"""
     while True:
@@ -440,25 +439,44 @@ def _talent_selection(game_state, ai_players_info=None):
         is_ai = "🤖" if pid in ai_pids else "👤"
         print(f"    {is_ai} {p.name}: {t}")
 
-
 def _ai_pick_talent(personality: str, available, taken: set):
     """
     AI 根据人格偏好从可用天赋中选择。
     返回 (编号, 名称, 类) 或 None（不选）。
+    
+    【调试增强】添加详细的选择过程日志，便于验证AI是否按倾向选择。
     """
+    # 获取该人格的偏好列表
     preference = AI_TALENT_PREFERENCE.get(personality,
                                            AI_TALENT_PREFERENCE["balanced"])
-
+    
+    # 调试信息：显示人格和偏好列表
+    debug = False  # 设置为True可开启详细调试信息
+    if debug:
+        print(f"  [DEBUG] AI人格: {personality}")
+        print(f"  [DEBUG] 偏好顺序: {preference}")
+        print(f"  [DEBUG] 已选天赋: {taken}")
+        print(f"  [DEBUG] 可用天赋: {[n for n, _, _, _ in available]}")
+    
+    # 按照偏好顺序查找
     for talent_num in preference:
         if talent_num in taken:
+            if debug:
+                print(f"  [DEBUG] 天赋 {talent_num} 已被选，跳过")
             continue
         for n, name, cls, desc in available:
             if n == talent_num:
+                if debug:
+                    print(f"  [DEBUG] 根据偏好选择天赋 {talent_num}: {name}")
                 return (n, name, cls)
 
     # 偏好列表里的都被选走了 → 随机选一个
     if available:
         chosen = random.choice(available)
+        if debug:
+            print(f"  [DEBUG] 偏好天赋均不可用，随机选择: {chosen[0]}: {chosen[1]}")
         return (chosen[0], chosen[1], chosen[2])
 
+    if debug:
+        print(f"  [DEBUG] 无可用天赋")
     return None
