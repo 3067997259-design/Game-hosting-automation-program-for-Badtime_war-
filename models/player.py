@@ -10,45 +10,59 @@ from controllers.human import HumanController
 
 
 class ArmorSlots:
-    """护甲槽位管理 - 修改：支持同属性多个护甲，盾牌优先消耗"""
+    """护甲槽位管理（修改版：支持同属性多个护甲，只限制同名）"""
 
     def __init__(self):
         # 改为列表存储，每层最多3件护甲
         self.outer = []  # 存储ArmorPiece对象
-        self.inner = []
+        self.inner = []  # 存储ArmorPiece对象
 
     def _get_layer_list(self, layer):
         return self.outer if layer == ArmorLayer.OUTER else self.inner
 
     def get_active(self, layer):
         d = self._get_layer_list(layer)
-        active = [a for a in d if a is not None and not a.is_broken]
-        # 按优先级降序排序，盾牌优先消耗
-        active.sort(key=lambda p: p.priority, reverse=True)
-        return active
+        return [a for a in d if not a.is_broken]
 
     def has_any_outer_active(self):
         return len(self.get_active(ArmorLayer.OUTER)) > 0
 
     def get_piece(self, layer, attr):
-        """获取指定属性中优先级最高的未破碎护甲"""
-        active_pieces = self.get_active(layer)
-        matching = [a for a in active_pieces if a.attribute == attr]
-        if not matching:
-            return None
-        # 返回优先级最高的护甲（盾牌priority=100）
-        return max(matching, key=lambda p: p.priority)
+        """获取指定层和属性的护甲（返回优先级最高的活跃护甲）"""
+        active = self.get_active(layer)
+        # 按优先级降序排序
+        active.sort(key=lambda p: p.priority, reverse=True)
+        for piece in active:
+            if piece.attribute == attr:
+                return piece
+        return None
 
     def equip(self, piece):
         d = self._get_layer_list(piece.layer)
+        
+        # 检查是否有同名护甲
+        for existing_piece in d:
+            if not existing_piece.is_broken and existing_piece.name == piece.name:
+                return False, f"已有同名{piece.layer.value}护甲：{existing_piece.name}"
+        
+        # 检查层数限制（每层最多3件）
         active_count = len(self.get_active(piece.layer))
         if active_count >= 3:
             return False, f"{piece.layer.value}护甲已满3件"
+        
+        # 添加到列表
         d.append(piece)
         return True, "装备成功"
 
     def check_can_equip(self, piece):
         """非破坏性检查：是否能装备该护甲（不实际装备）"""
+        d = self._get_layer_list(piece.layer)
+        
+        # 检查是否有同名护甲
+        for existing_piece in d:
+            if not existing_piece.is_broken and existing_piece.name == piece.name:
+                return False, f"已有同名护甲"
+        
         active_count = len(self.get_active(piece.layer))
         if active_count >= 3:
             return False, f"该层已满"
@@ -63,8 +77,6 @@ class ArmorSlots:
         result = []
         result.extend(self.get_active(ArmorLayer.OUTER))
         result.extend(self.get_active(ArmorLayer.INNER))
-        # 按优先级降序排序，盾牌优先消耗
-        result.sort(key=lambda p: p.priority, reverse=True)
         return result
 
     def get_all_pieces(self):
