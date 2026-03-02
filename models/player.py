@@ -10,60 +10,58 @@ from controllers.human import HumanController
 
 
 class ArmorSlots:
-    """护甲槽位管理"""
+    """护甲槽位管理（修改版：支持同属性多个护甲，只限制同名）"""
 
     def __init__(self):
-        self.outer = {Attribute.ORDINARY: None, Attribute.MAGIC: None, Attribute.TECH: None}
-        self.inner = {Attribute.ORDINARY: None, Attribute.MAGIC: None, Attribute.TECH: None}
+        # 改为列表存储，每层最多3件护甲
+        self.outer = []  # 存储ArmorPiece对象
+        self.inner = []  # 存储ArmorPiece对象
 
-    def _get_layer_dict(self, layer):
+    def _get_layer_list(self, layer):
         return self.outer if layer == ArmorLayer.OUTER else self.inner
 
     def get_active(self, layer):
-        d = self._get_layer_dict(layer)
-        return [a for a in d.values() if a is not None and not a.is_broken]
+        d = self._get_layer_list(layer)
+        return [a for a in d if not a.is_broken]
 
     def has_any_outer_active(self):
         return len(self.get_active(ArmorLayer.OUTER)) > 0
 
     def get_piece(self, layer, attr):
-        d = self._get_layer_dict(layer)
-        piece = d.get(attr)
-        if piece and not piece.is_broken:
-            return piece
+        """获取指定层和属性的护甲（返回优先级最高的活跃护甲）"""
+        active = self.get_active(layer)
+        # 按优先级降序排序
+        active.sort(key=lambda p: p.priority, reverse=True)
+        for piece in active:
+            if piece.attribute == attr:
+                return piece
         return None
 
     def equip(self, piece):
-        d = self._get_layer_dict(piece.layer)
+        d = self._get_layer_list(piece.layer)
         
-        # 修改：检查是否有同名护甲（而不是同属性护甲）
-        for existing_piece in d.values():
-            if existing_piece is not None and not existing_piece.is_broken:
-                if existing_piece.name == piece.name:
-                    return False, f"已有同名{piece.layer.value}护甲：{existing_piece.name}"
+        # 检查是否有同名护甲
+        for existing_piece in d:
+            if not existing_piece.is_broken and existing_piece.name == piece.name:
+                return False, f"已有同名{piece.layer.value}护甲：{existing_piece.name}"
         
+        # 检查层数限制（每层最多3件）
         active_count = len(self.get_active(piece.layer))
         if active_count >= 3:
             return False, f"{piece.layer.value}护甲已满3件"
         
-        # 找到空槽位（属性槽位）
-        for attr in d:
-            if d[attr] is None or d[attr].is_broken:
-                d[attr] = piece
-                return True, "装备成功"
-        
-        # 如果没有空槽位（这应该不会发生，因为前面已经检查了active_count）
-        return False, f"{piece.layer.value}护甲已满"
+        # 添加到列表
+        d.append(piece)
+        return True, "装备成功"
 
     def check_can_equip(self, piece):
         """非破坏性检查：是否能装备该护甲（不实际装备）"""
-        d = self._get_layer_dict(piece.layer)
+        d = self._get_layer_list(piece.layer)
         
-        # 修改：检查是否有同名护甲
-        for existing_piece in d.values():
-            if existing_piece is not None and not existing_piece.is_broken:
-                if existing_piece.name == piece.name:
-                    return False, f"已有同名护甲"
+        # 检查是否有同名护甲
+        for existing_piece in d:
+            if not existing_piece.is_broken and existing_piece.name == piece.name:
+                return False, f"已有同名护甲"
         
         active_count = len(self.get_active(piece.layer))
         if active_count >= 3:
