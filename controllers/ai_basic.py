@@ -337,7 +337,7 @@ class BasicAIController(PlayerController):
                 # 生成战斗攻击命令（重点修复）
                 combat_cmds = self._combat_attack_commands(player, state, available_actions, self._combat_target)
                 if combat_cmds:
-                    debug_ai_attack_generation(player.name, f"战斗攻击命令: {combat_cmds}")
+                    debug_ai_attack_generation(player.name, "战斗攻击命令生成", str(combat_cmds))
                     # 战斗状态下，攻击优先级最高
                     candidates.extend(combat_cmds)
                     
@@ -408,7 +408,7 @@ class BasicAIController(PlayerController):
             kill_attack_cmds = self._attack_commands(player, state, available_actions)
             if kill_attack_cmds:
                 candidates.extend(kill_attack_cmds)
-                debug_ai_attack_generation(player.name, f"击杀攻击候选：{kill_attack_cmds}")
+                debug_ai_attack_generation(player.name, "击杀攻击命令生成", "击杀机会目标")
                 # 击杀机会优先级很高，直接返回
                 if kill_attack_cmds:
                     # 添加发育命令作为后备
@@ -475,7 +475,7 @@ class BasicAIController(PlayerController):
         # ========== 修复：常规攻击命令 ==========
         # 确保总是尝试生成攻击命令
         if "attack" in available_actions:
-            debug_ai_attack_generation(player.name, "生成常规进攻命令")
+            debug_ai_attack_generation(player.name, "常规进攻命令", "未指定目标")
             attack = self._attack_commands(player, state, available_actions)
             debug_ai_detailed(player.name, f"进攻候选：{attack}")
             # 避免重复添加相同的攻击命令
@@ -628,7 +628,7 @@ class BasicAIController(PlayerController):
             debug_warning(f"[{player.name}] 战斗攻击命令：目标无效")
             return cmds
         
-        debug_ai_attack_generation(player.name, f"生成针对 {target.name} 的战斗攻击命令")
+        debug_ai_attack_generation(player.name, "战斗攻击命令", target.name)
         
         # 检查攻击前提条件
         if not self._has_attack_prerequisite(player, target, state):
@@ -650,7 +650,7 @@ class BasicAIController(PlayerController):
                 attack_cmd = self._generate_attack_command(player, target, available_actions)
                 if attack_cmd:
                     cmds.append(attack_cmd)
-                    debug_ai_attack_generation(player.name, f"生成远程攻击命令: {attack_cmd}")
+                    debug_ai_attack_generation(player.name, "远程攻击命令生成", target.name)
                 else:
                     debug_ai_basic(player.name, "无法生成远程攻击命令")
                     # 无法远程攻击，移动到目标地点
@@ -671,7 +671,7 @@ class BasicAIController(PlayerController):
                 attack_cmd = self._generate_attack_command(player, target, available_actions)
                 if attack_cmd:
                     cmds.append(attack_cmd)
-                    debug_ai_attack_generation(player.name, f"生成攻击命令: {attack_cmd}")
+                    debug_ai_attack_generation(player.name, "近战攻击命令生成", target.name)
                 else:
                     debug_ai_basic(player.name, "无法生成攻击命令")
                     # 如果无法生成攻击命令，尝试find
@@ -880,7 +880,7 @@ class BasicAIController(PlayerController):
             return cmds
         
         target_name = target.name
-        debug_ai_attack_generation(player.name, f"攻击命令：选择目标 {target_name}")
+        debug_ai_attack_generation(player.name, "选择目标", target_name)
         
         # 选择最佳武器（重点修复）
         weapon = self._pick_best_weapon_against(player, target)
@@ -894,7 +894,7 @@ class BasicAIController(PlayerController):
                 return cmds
         
         weapon_name = weapon.name
-        debug_ai_attack_generation(player.name, f"攻击命令：选择武器 {weapon_name} 攻击 {target_name}")
+        debug_ai_attack_generation(player.name, weapon_name, target_name)
         
         # 生成攻击命令
         if "attack" in available:
@@ -903,7 +903,7 @@ class BasicAIController(PlayerController):
                 layer_str, attr_str = layer_attr
                 attack_cmd = f"attack {target_name} {weapon_name} {layer_str} {attr_str}"
                 cmds.append(attack_cmd)
-                debug_ai_attack_generation(player.name, f"生成攻击命令: {attack_cmd}")
+                debug_ai_attack_generation(player.name, "生成攻击命令", target_name)
             else:
                 # 如果无法确定攻击层，使用默认值
                 attack_cmd = f"attack {target_name} {weapon_name} 外层 普通"
@@ -1141,7 +1141,7 @@ class BasicAIController(PlayerController):
                 best_target = target
         
         if best_target:
-            debug_ai_attack_generation(player.name, f"选择最佳目标: {best_target.name}，分数: {best_score}")
+            debug_ai_attack_generation(player.name, "选择最佳目标", best_target.name)
         else:
             debug_ai_basic(player.name, "没有找到合适的目标")
         
@@ -1246,7 +1246,7 @@ class BasicAIController(PlayerController):
             debug_ai_basic(player.name, "没有武器")
             return None
         
-        debug_ai_attack_generation(player.name, f"选择武器攻击 {target.name}")
+        debug_ai_attack_generation(player.name, "选择武器攻击目标", target.name)
         
         best = None
         best_score = -1
@@ -1314,7 +1314,7 @@ class BasicAIController(PlayerController):
                 best = w
         
         if best:
-            debug_ai_attack_generation(player.name, f"选择武器: {getattr(best, 'name', '未知')}，分数: {best_score}")
+            debug_ai_attack_generation(player.name, "选择武器", getattr(best, 'name', '未知'))
         else:
             debug_ai_basic(player.name, "没有找到合适的武器")
         
