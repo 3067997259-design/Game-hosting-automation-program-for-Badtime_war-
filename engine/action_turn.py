@@ -41,7 +41,7 @@ class ActionTurnManager:
             self.state.markers.on_stun_recover(player.player_id)
             display.show_info(f"{player.name} 从眩晕中苏醒！HP恢复至 {player.hp}")
 
-        # ---- 天赋被动T0（如血火0.5血自愈）----
+        # ---- 天赋被动T0（如萤火0.5血自愈）----
         if player.talent and hasattr(player.talent, 'on_turn_start'):
             player.talent.on_turn_start(player)
 

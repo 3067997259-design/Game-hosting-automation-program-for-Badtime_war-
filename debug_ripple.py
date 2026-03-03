@@ -27,7 +27,7 @@ def quick_test():
 
     blood = BloodFire("p2", gs)
     p2.talent = blood
-    p2.talent_name = "血火"
+    p2.talent_name = "萤火"
     blood.on_register()
 
     # ---- 作弊：全员起床 ----

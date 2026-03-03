@@ -242,7 +242,7 @@ def resolve_damage(attacker, target, weapon, game_state,
     )
     result["details"].append(raw_damage_text.format(damage=raw))
     
-    # ---- 血火受伤减免 ----
+    # ---- 萤火受伤减免 ----
     if target.talent and hasattr(target.talent, 'modify_incoming_damage'):
         raw = target.talent.modify_incoming_damage(target, attacker, weapon, raw)
         if raw != result["raw_damage"]:

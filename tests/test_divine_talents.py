@@ -339,7 +339,7 @@ def test_group_1(T):
         gs, ps = make_test_env()
         bf = T['BloodFire']("p0", gs)
         ps[0].talent = bf
-        assert bf.name == "血火啊，燃烧前路"
+        assert bf.name == "萤火啊，燃烧前路"
         assert bf.kill_count == 0
 
     def test_construct_hologram():
@@ -1005,13 +1005,13 @@ def test_group_6(T):
 
 
 # ================================================================
-#  测试组7：血火
+#  测试组7：萤火
 # ================================================================
 
 def test_group_7(T):
     if 'BloodFire' not in T:
         return
-    print("\n🔥 测试组7：血火")
+    print("\n🔥 测试组7：萤火")
 
     def test_bloodfire_modify_outgoing():
         """输出伤害修正不崩溃"""
@@ -1153,7 +1153,7 @@ def test_group_10(T):
     print("\n🔗 测试组10：跨天赋交互")
 
     def test_ripple_anchor_caster_with_bloodfire():
-        """血火玩家在锚定期间被杀"""
+        """萤火玩家在锚定期间被杀"""
         if 'Ripple' not in T or 'BloodFire' not in T:
             return
         gs, ps = make_test_env()
@@ -1177,7 +1177,7 @@ def test_group_10(T):
         assert r.anchor_active == False
 
     def test_ripple_poem_to_bloodfire():
-        """献予纷争之诗（血火）"""
+        """献予纷争之诗（萤火）"""
         if 'Ripple' not in T or 'BloodFire' not in T:
             return
         gs, ps = make_test_env()
@@ -1240,8 +1240,8 @@ def test_group_10(T):
             desc = talent.describe_status()
             assert isinstance(desc, str), f"{cls_name}.describe_status 返回非字符串"
 
-    run_test("血火+锚定死亡", test_ripple_anchor_caster_with_bloodfire)
-    run_test("献诗→血火", test_ripple_poem_to_bloodfire)
+    run_test("萤火+锚定死亡", test_ripple_anchor_caster_with_bloodfire)
+    run_test("献诗→萤火", test_ripple_poem_to_bloodfire)
     run_test("结界暂停锚定", test_anchor_during_barrier_paused)
     run_test("死亡标记清理", test_marker_cleanup_on_death)
     run_test("所有describe_status", test_all_describe_status)
@@ -1539,7 +1539,7 @@ def test_group_12(T):
         assert isinstance(result, dict)
 
     def test_weaponless_with_bloodfire_incoming():
-        """无武器伤害不走血火受伤减免（weapon=None分支跳过）"""
+        """无武器伤害不走萤火受伤减免（weapon=None分支跳过）"""
         if 'BloodFire' not in T:
             return
         gs, ps = make_test_env()
@@ -1599,7 +1599,7 @@ def test_group_12(T):
     run_test("无攻击者", test_weaponless_no_attacker)
     run_test("无武器+锚定失败", test_weaponless_with_talent_death_check)
     run_test("无武器+愿负世临时HP", test_weaponless_with_bearworld_temp_hp)
-    run_test("无武器+血火减免", test_weaponless_with_bloodfire_incoming)
+    run_test("无武器+萤火减免", test_weaponless_with_bloodfire_incoming)
     run_test("武器击杀+锚定检查", test_normal_weapon_kill_triggers_anchor_check)
     run_test("四属性各一次", test_resolve_damage_all_four_types)
 
@@ -2006,7 +2006,7 @@ def main():
     test_group_4(T)     # 献诗
     test_group_5(T)     # 六爻
     test_group_6(T)     # 愿负世
-    test_group_7(T)     # 血火
+    test_group_7(T)     # 萤火
     test_group_8(T)     # 全息影像
     test_group_9(T)     # 幻想乡
     test_group_10(T)    # 跨天赋
