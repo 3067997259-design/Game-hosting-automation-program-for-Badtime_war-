@@ -124,7 +124,9 @@
         "「在电光火石间，世界为之静止」",
         "「只此一刀，便是永恒」"
       ],
-      "activate": "【原初天赋1：一刀缭断】{player_name}发动了绝命一击！"
+      "activate": "【原初天赋1：一刀缭断】{player_name}发动了绝命一击！",
+      "attack": "⚔️ 一刀缭断！{player_name} 用「{weapon_name}」斩向 {target_name}！",
+      "effect": "   （伤害×2 + 无视属性克制 + 无视最后内层吸收）"
     },
     
     "t2oiltheroad": {
