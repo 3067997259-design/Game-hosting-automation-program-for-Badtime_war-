@@ -1,497 +1,318 @@
 """
-提示管理系统
-═══════════════════════════════════════════════════
-集中管理游戏中的所有提示文本，支持玩家自定义修改和后期调试。
-
-设计目标：
-1. 集中存储所有游戏提示（文本字符串）
-2. 支持分类（UI、战斗、天赋、系统等）
-3. 允许配置（详细程度、颜色、格式等）
-4. 与调试系统整合
-5. 支持本地化（未来扩展）
-6. 允许玩家通过配置文件修改提示
+提示管理器 - 统一管理所有游戏文本输出
+支持分级提示、动态变量替换、外部配置文件
 """
 
 import json
 import os
-from typing import Any, Dict, List, Optional, Union
-from pathlib import Path
+from enum import IntEnum
+from typing import Dict, Any, List, Optional, Union
+from datetime import datetime
 
-# ============================================================================
-# 提示级别配置
-# ============================================================================
 
-class PromptLevel:
-    """提示级别定义"""
-    CRITICAL = 0    # 关键：死亡、胜利、致命错误
-    IMPORTANT = 1   # 重要：攻击结果、状态变更
-    NORMAL = 2      # 普通：移动、交互
-    DEBUG = 3       # 调试：AI决策、详细过程
-    VERBOSE = 4     # 详细：所有细节
-    
-    @classmethod
-    def get_name(cls, level: int) -> str:
-        """获取级别名称"""
-        names = {
-            cls.CRITICAL: "CRITICAL",
-            cls.IMPORTANT: "IMPORTANT", 
-            cls.NORMAL: "NORMAL",
-            cls.DEBUG: "DEBUG",
-            cls.VERBOSE: "VERBOSE"
-        }
-        return names.get(level, f"UNKNOWN({level})")
+class PromptLevel(IntEnum):
+    """提示级别枚举"""
+    CRITICAL = 0      # 死亡、胜利、致命错误（始终显示）
+    IMPORTANT = 1     # 攻击结果、状态变更
+    NORMAL = 2        # 移动、交互（默认级别）
+    DEBUG = 3         # AI决策、详细过程
+    VERBOSE = 4       # 所有细节
 
-# ============================================================================
-# 提示管理器
-# ============================================================================
 
 class PromptManager:
-    """
-    提示管理器单例类
-    
-    管理游戏中的所有提示文本，支持动态加载和格式化。
-    """
+    """提示管理器单例类"""
     
     _instance = None
-    _prompts: Dict[str, Any] = {}
-    _config: Dict[str, Any] = {
-        "verbosity": PromptLevel.NORMAL,  # 默认显示级别
-        "show_timestamps": False,         # 是否显示时间戳
-        "use_colors": True,               # 是否使用颜色
-        "language": "zh_CN",              # 语言设置
-        "show_full_lore": False,          # 是否显示完整叙事文案
-        "lore_display_level": PromptLevel.NORMAL,  # 叙事文案显示级别
-    }
     
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(PromptManager, cls).__new__(cls)
+            cls._instance._initialized = False
         return cls._instance
     
-    # ========================================================================
-    # 配置管理
-    # ========================================================================
-    
-    @classmethod
-    def load_config(cls, config_path: Optional[str] = None):
-        """
-        加载配置文件
+    def __init__(self):
+        if self._initialized:
+            return
+            
+        self.prompts: Dict[str, Any] = {}
+        self.config: Dict[str, Any] = {}
+        self.current_level = PromptLevel.NORMAL
+        self.debug_level = PromptLevel.DEBUG
         
-        Args:
-            config_path: 配置文件路径，如果为None则使用默认路径
-        """
-        if config_path is None:
-            config_path = "config/prompt_config.json"
-        
-        try:
-            if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    user_config = json.load(f)
-                cls._config.update(user_config)
-                print(f"📝 已加载提示配置文件: {config_path}")
-        except Exception as e:
-            print(f"⚠️  加载提示配置文件失败: {e}")
-    
-    @classmethod
-    def save_config(cls, config_path: Optional[str] = None):
-        """
-        保存配置文件
-        
-        Args:
-            config_path: 配置文件路径，如果为None则使用默认路径
-        """
-        if config_path is None:
-            config_path = "config/prompt_config.json"
-        
-        try:
-            os.makedirs(os.path.dirname(config_path), exist_ok=True)
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(cls._config, f, ensure_ascii=False, indent=2)
-            print(f"💾 已保存提示配置文件: {config_path}")
-        except Exception as e:
-            print(f"❌ 保存提示配置文件失败: {e}")
-    
-    @classmethod
-    def set_verbosity(cls, level: int):
-        """设置详细级别"""
-        cls._config["verbosity"] = max(PromptLevel.CRITICAL, min(PromptLevel.VERBOSE, level))
-    
-    @classmethod
-    def get_verbosity(cls) -> int:
-        """获取详细级别"""
-        return cls._config["verbosity"]
-    
-    @classmethod
-    def should_show(cls, level: int) -> bool:
-        """检查是否应该显示指定级别的提示"""
-        return level <= cls._config["verbosity"]
-    
-    # ========================================================================
-    # 提示加载与管理
-    # ========================================================================
-    
-    @classmethod
-    def load_prompts(cls, prompts_path: Optional[str] = None):
-        """
-        加载提示数据
-        
-        Args:
-            prompts_path: 提示文件路径，如果为None则使用默认路径
-        """
-        if prompts_path is None:
-            prompts_path = "data/prompts.json"
-        
-        try:
-            if os.path.exists(prompts_path):
-                with open(prompts_path, 'r', encoding='utf-8') as f:
-                    cls._prompts = json.load(f)
-                print(f"📚 已加载提示数据: {prompts_path}")
-            else:
-                print(f"⚠️  提示文件不存在: {prompts_path}")
-                cls._load_default_prompts()
-        except Exception as e:
-            print(f"❌ 加载提示数据失败: {e}")
-            cls._load_default_prompts()
-    
-    @classmethod
-    def _load_default_prompts(cls):
-        """加载默认提示（硬编码备份）"""
-        print("📝 使用默认提示数据")
-        # 这里可以硬编码一些关键的默认提示
-        cls._prompts = {
-            "error": {
-                "file_not_found": "文件不存在: {path}",
-                "load_failed": "加载失败: {error}",
-            },
-            "system": {
-                "game_start": "游戏开始！",
-                "game_end": "游戏结束！",
-            }
+        # 默认配置
+        self.default_config = {
+            "show_timestamps": False,
+            "use_colors": True,
+            "max_line_length": 80,
+            "default_level": "NORMAL",
+            "debug_level": "DEBUG",
+            "show_talent_lore": True,
+            "talent_lore_level": "IMPORTANT"
         }
+        
+        self._load_config()
+        self._load_prompts()
+        self._initialized = True
     
-    @classmethod
-    def reload_prompts(cls, prompts_path: Optional[str] = None):
-        """重新加载提示数据"""
-        cls._prompts.clear()
-        cls.load_prompts(prompts_path)
+    def _load_config(self):
+        """加载配置文件"""
+        config_paths = [
+            "config/prompt_config.json",
+            "prompt_config.json"
+        ]
+        
+        for path in config_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        self.config = {**self.default_config, **json.load(f)}
+                    
+                    # 转换级别字符串为枚举
+                    level_map = {
+                        "CRITICAL": PromptLevel.CRITICAL,
+                        "IMPORTANT": PromptLevel.IMPORTANT,
+                        "NORMAL": PromptLevel.NORMAL,
+                        "DEBUG": PromptLevel.DEBUG,
+                        "VERBOSE": PromptLevel.VERBOSE
+                    }
+                    
+                    self.current_level = level_map.get(
+                        self.config.get("default_level", "NORMAL"),
+                        PromptLevel.NORMAL
+                    )
+                    self.debug_level = level_map.get(
+                        self.config.get("debug_level", "DEBUG"),
+                        PromptLevel.DEBUG
+                    )
+                    
+                    print(f"[提示系统] 加载配置: {path}")
+                    return
+                except Exception as e:
+                    print(f"[提示系统] 配置加载失败 {path}: {e}")
+        
+        # 使用默认配置
+        self.config = self.default_config
+        print("[提示系统] 使用默认配置")
     
-    @classmethod
-    def save_prompts(cls, prompts_path: Optional[str] = None):
+    def _load_prompts(self):
+        """加载提示文本"""
+        prompt_paths = [
+            "data/prompts.json",
+            "prompts.json"
+        ]
+        
+        for path in prompt_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        self.prompts = json.load(f)
+                    print(f"[提示系统] 加载提示: {path} ({len(self.prompts)} categories)")
+                    return
+                except Exception as e:
+                    print(f"[提示系统] 提示加载失败 {path}: {e}")
+        
+        # 创建空结构
+        self.prompts = {}
+        print("[提示系统] 未找到提示文件，创建空结构")
+    
+    def reload(self):
+        """重新加载配置和提示"""
+        self._load_config()
+        self._load_prompts()
+    
+    def get_prompt(self, category: str, key: str, **kwargs) -> Any:
         """
-        保存提示数据（用于导出或备份）
+        获取提示文本，支持嵌套键和变量替换
         
         Args:
-            prompts_path: 提示文件路径，如果为None则使用默认路径
-        """
-        if prompts_path is None:
-            prompts_path = "data/prompts.json"
-        
-        try:
-            os.makedirs(os.path.dirname(prompts_path), exist_ok=True)
-            with open(prompts_path, 'w', encoding='utf-8') as f:
-                json.dump(cls._prompts, f, ensure_ascii=False, indent=2)
-            print(f"💾 已保存提示数据: {prompts_path}")
-        except Exception as e:
-            print(f"❌ 保存提示数据失败: {e}")
-    
-    # ========================================================================
-    # 提示获取与格式化
-    # ========================================================================
-    
-    @classmethod
-    def get_prompt(cls, category: str, key: str, default: Optional[str] = None, **kwargs) -> str:
-        """
-        获取格式化后的提示文本
-        
-        Args:
-            category: 提示类别，如 "ui", "combat", "talent"
-            key: 提示键名
-            default: 如果找不到提示时返回的默认值
-            **kwargs: 格式化参数
+            category: 类别，如 "ui", "combat", "talent"
+            key: 键路径，如 "attack.hit" 或 "g1mythfire.lore"
+            **kwargs: 替换变量，如 player_name="张三"
         
         Returns:
-            格式化后的提示文本
+            替换变量后的文本（字符串）或原始值
         """
         try:
-            # 尝试从嵌套结构中获取提示
-            category_parts = category.split('.')
-            value = cls._prompts
+            # 分割嵌套键
+            parts = key.split('.')
+            value = self.prompts.get(category, {})
             
-            for part in category_parts:
-                if isinstance(value, dict) and part in value:
-                    value = value[part]
+            for part in parts:
+                if isinstance(value, dict):
+                    value = value.get(part, {})
                 else:
-                    raise KeyError(f"Category part '{part}' not found")
+                    return f"[Missing: {category}.{key}]"
             
-            if key not in value:
-                raise KeyError(f"Key '{key}' not found in category '{category}'")
-            
-            template = value[key]
-            
-            # 格式化字符串
-            if kwargs:
+            # 如果最终是字符串，进行变量替换
+            if isinstance(value, str) and kwargs:
                 try:
-                    return template.format(**kwargs)
+                    return value.format(**kwargs)
                 except KeyError as e:
-                    return f"格式化错误: 缺少参数 {e}。原始文本: {template}"
-                except Exception as e:
-                    return f"格式化错误: {e}。原始文本: {template}"
-            else:
-                return template
+                    return f"[Format Error: {category}.{key} missing {e}]"
             
-        except (KeyError, AttributeError, TypeError):
-            if default is not None:
-                # 格式化默认值
-                try:
-                    return default.format(**kwargs) if kwargs else default
-                except Exception:
-                    return default
-            else:
-                return f"[Missing prompt: {category}.{key}]"
+            return value
+            
+        except Exception as e:
+            return f"[Error: {category}.{key} - {e}]"
     
-    @classmethod
-    def has_prompt(cls, category: str, key: str) -> bool:
-        """检查是否存在指定提示"""
-        try:
-            category_parts = category.split('.')
-            value = cls._prompts
-            
-            for part in category_parts:
-                if isinstance(value, dict) and part in value:
-                    value = value[part]
-                else:
-                    return False
-            
-            return key in value
-        except Exception:
-            return False
-    
-    @classmethod
-    def set_prompt(cls, category: str, key: str, value: str):
+    def show(self, category: str, key: str, level: PromptLevel = None, **kwargs):
         """
-        设置或更新提示
+        显示提示（如果级别足够）
         
         Args:
             category: 提示类别
-            key: 提示键名
-            value: 提示文本
+            key: 提示键
+            level: 提示级别（默认使用当前级别）
+            **kwargs: 替换变量
         """
-        category_parts = category.split('.')
-        target = cls._prompts
+        if level is None:
+            level = self.current_level
         
-        # 创建或遍历类别路径
-        for i, part in enumerate(category_parts):
-            if part not in target:
-                target[part] = {}
-            if i == len(category_parts) - 1:
-                target = target[part]
-            else:
-                target = target[part]
+        # 检查是否应该显示
+        if level > self.current_level and level != PromptLevel.CRITICAL:
+            return
         
-        # 设置提示
-        target[key] = value
+        text = self.get_prompt(category, key, **kwargs)
+        if text and not text.startswith("[") and not text.startswith("{"):
+            self._output(text, level)
     
-    @classmethod
-    def get_all_prompts(cls, category: Optional[str] = None) -> Dict[str, Any]:
+    def show_formatted(self, title: str, content: Union[str, List[str]], 
+                      level: PromptLevel = None, border_char: str = "═"):
         """
-        获取所有提示或指定类别的提示
+        显示带格式的提示
         
         Args:
-            category: 可选，指定类别
-        
-        Returns:
-            提示字典
+            title: 标题
+            content: 内容（字符串或字符串列表）
+            level: 提示级别
+            border_char: 边框字符
         """
-        if category is None:
-            return cls._prompts.copy()
+        if level is None:
+            level = self.current_level
         
-        try:
-            category_parts = category.split('.')
-            value = cls._prompts
-            
-            for part in category_parts:
-                if isinstance(value, dict) and part in value:
-                    value = value[part]
-                else:
-                    return {}
-            
-            if isinstance(value, dict):
-                return value.copy()
-            else:
-                return {}
-        except Exception:
-            return {}
+        if level > self.current_level and level != PromptLevel.CRITICAL:
+            return
+        
+        if isinstance(content, list):
+            content = "\n".join(content)
+        
+        # 创建边框
+        border = border_char * (len(title) + 4)
+        
+        # 输出
+        output = f"\n{border}\n  {title}\n{border}\n{content}\n{border}"
+        self._output(output, level)
     
-    # ========================================================================
-    # 天赋叙事文案显示
-    # ========================================================================
-    
-    @classmethod
-    def show_talent_lore(cls, talent_key: str, level: int = PromptLevel.NORMAL):
+    def show_talent_lore(self, talent_key: str, level: PromptLevel = None):
         """
         显示天赋的叙事文案
         
         Args:
-            talent_key: 天赋键名，如 "g1mythfire", "t1oneslash"
-            level: 显示级别
-        """
-        if not cls.should_show(level):
-            return
-        
-        # 获取叙事文案
-        lore = cls.get_prompt("talent", f"{talent_key}.lore", default=[])
-        
-        if not lore:
-            print(f"📖 天赋「{talent_key}」暂无叙事文案")
-            return
-        
-        # 显示格式化的叙事文案
-        print("═══════════════════════════════════════════════════════════════")
-        print(f"  📖 天赋叙事：{talent_key}")
-        print("═══════════════════════════════════════════════════════════════")
-        
-        for line in lore:
-            print(f"  {line}")
-        
-        print("═══════════════════════════════════════════════════════════════")
-    
-    @classmethod
-    def show_formatted_lore(cls, category: str, content: str, level: int = PromptLevel.NORMAL):
-        """
-        显示格式化的叙事内容
-        
-        Args:
-            category: 内容类别，如 "lore", "story"
-            content: 叙事内容文本
-            level: 显示级别
-        """
-        if not cls.should_show(level):
-            return
-        
-        print("═══════════════════════════════════════════════════════════════")
-        print(f"  📖 {category}")
-        print("═══════════════════════════════════════════════════════════════")
-        print(content)
-        print("═══════════════════════════════════════════════════════════════")
-    
-    # ========================================================================
-    # 便捷输出方法
-    # ========================================================================
-    
-    @classmethod
-    def show(cls, category: str, key: str, level: int = PromptLevel.NORMAL, 
-             prefix: Optional[str] = None, **kwargs):
-        """
-        显示提示（根据级别决定是否输出）
-        
-        Args:
-            category: 提示类别
-            key: 提示键名
+            talent_key: 天赋键，如 "g1mythfire"
             level: 提示级别
-            prefix: 可选前缀（如 "⚠️", "❌" 等）
-            **kwargs: 格式化参数
         """
-        if cls.should_show(level):
-            text = cls.get_prompt(category, key, **kwargs)
-            if prefix:
-                text = f"{prefix} {text}"
-            print(text)
+        if not self.config.get("show_talent_lore", True):
+            return
+        
+        if level is None:
+            level_str = self.config.get("talent_lore_level", "IMPORTANT")
+            level_map = {
+                "CRITICAL": PromptLevel.CRITICAL,
+                "IMPORTANT": PromptLevel.IMPORTANT,
+                "NORMAL": PromptLevel.NORMAL,
+                "DEBUG": PromptLevel.DEBUG,
+                "VERBOSE": PromptLevel.VERBOSE
+            }
+            level = level_map.get(level_str, PromptLevel.IMPORTANT)
+        
+        lore = self.get_prompt("talent", f"{talent_key}.lore")
+        if lore and isinstance(lore, list):
+            self.show_formatted(f"天赋叙事：{talent_key}", lore, level)
     
-    @classmethod
-    def show_critical(cls, category: str, key: str, **kwargs):
-        """显示关键提示"""
-        cls.show(category, key, PromptLevel.CRITICAL, "🚨", **kwargs)
+    def show_critical(self, category: str, key: str, **kwargs):
+        """显示关键提示（始终显示）"""
+        self.show(category, key, PromptLevel.CRITICAL, **kwargs)
     
-    @classmethod
-    def show_important(cls, category: str, key: str, **kwargs):
+    def show_important(self, category: str, key: str, **kwargs):
         """显示重要提示"""
-        cls.show(category, key, PromptLevel.IMPORTANT, "❗", **kwargs)
+        self.show(category, key, PromptLevel.IMPORTANT, **kwargs)
     
-    @classmethod
-    def show_normal(cls, category: str, key: str, **kwargs):
+    def show_normal(self, category: str, key: str, **kwargs):
         """显示普通提示"""
-        cls.show(category, key, PromptLevel.NORMAL, "", **kwargs)
+        self.show(category, key, PromptLevel.NORMAL, **kwargs)
     
-    @classmethod
-    def show_debug(cls, category: str, key: str, **kwargs):
+    def show_debug(self, category: str, key: str, **kwargs):
         """显示调试提示"""
-        cls.show(category, key, PromptLevel.DEBUG, "🔍", **kwargs)
+        self.show(category, key, PromptLevel.DEBUG, **kwargs)
     
-    @classmethod
-    def show_verbose(cls, category: str, key: str, **kwargs):
+    def show_verbose(self, category: str, key: str, **kwargs):
         """显示详细提示"""
-        cls.show(category, key, PromptLevel.VERBOSE, "📋", **kwargs)
+        self.show(category, key, PromptLevel.VERBOSE, **kwargs)
     
-    @classmethod
-    def show_error(cls, category: str, key: str, **kwargs):
-        """显示错误提示（总是显示）"""
-        text = cls.get_prompt(category, key, **kwargs)
-        print(f"❌ {text}")
+    def _output(self, text: str, level: PromptLevel):
+        """输出文本（可根据配置添加时间戳、颜色等）"""
+        if self.config.get("show_timestamps", False):
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            text = f"[{timestamp}] {text}"
+        
+        print(text)
     
-    @classmethod
-    def show_warning(cls, category: str, key: str, **kwargs):
-        """显示警告提示（总是显示）"""
-        text = cls.get_prompt(category, key, **kwargs)
-        print(f"⚠️  {text}")
+    def set_level(self, level: Union[PromptLevel, str]):
+        """设置当前提示级别"""
+        if isinstance(level, str):
+            level_map = {
+                "CRITICAL": PromptLevel.CRITICAL,
+                "IMPORTANT": PromptLevel.IMPORTANT,
+                "NORMAL": PromptLevel.NORMAL,
+                "DEBUG": PromptLevel.DEBUG,
+                "VERBOSE": PromptLevel.VERBOSE
+            }
+            level = level_map.get(level.upper(), PromptLevel.NORMAL)
+        
+        self.current_level = level
+        print(f"[提示系统] 级别设置为: {level.name}")
     
-    @classmethod
-    def show_info(cls, category: str, key: str, **kwargs):
-        """显示信息提示（总是显示）"""
-        text = cls.get_prompt(category, key, **kwargs)
-        print(f"ℹ️  {text}")
+    def get_level(self) -> PromptLevel:
+        """获取当前提示级别"""
+        return self.current_level
+    
+    def update_prompt(self, category: str, key: str, value: Any):
+        """更新提示（运行时修改）"""
+        parts = key.split('.')
+        target = self.prompts.setdefault(category, {})
+        
+        for part in parts[:-1]:
+            target = target.setdefault(part, {})
+        
+        target[parts[-1]] = value
+    
+    def save_prompts(self, path: str = "data/prompts.json"):
+        """保存提示到文件"""
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(self.prompts, f, ensure_ascii=False, indent=2)
+            print(f"[提示系统] 提示已保存: {path}")
+        except Exception as e:
+            print(f"[提示系统] 提示保存失败: {e}")
 
-# ============================================================================
-# 全局实例和便捷函数
-# ============================================================================
 
-# 全局提示管理器实例
+# 全局单例实例
 prompt_manager = PromptManager()
 
-# 便捷函数
-def get_prompt(category: str, key: str, **kwargs) -> str:
-    """便捷函数：获取提示"""
-    return prompt_manager.get_prompt(category, key, **kwargs)
-
-def show_prompt(category: str, key: str, level: int = PromptLevel.NORMAL, **kwargs):
-    """便捷函数：显示提示"""
-    prompt_manager.show(category, key, level, **kwargs)
-
-def show_critical(category: str, key: str, **kwargs):
-    """便捷函数：显示关键提示"""
-    prompt_manager.show_critical(category, key, **kwargs)
-
-def show_important(category: str, key: str, **kwargs):
-    """便捷函数：显示重要提示"""
-    prompt_manager.show_important(category, key, **kwargs)
-
-def show_normal(category: str, key: str, **kwargs):
-    """便捷函数：显示普通提示"""
+# 快捷函数
+def show_info(category: str, key: str, **kwargs):
+    """显示普通信息（兼容旧API）"""
     prompt_manager.show_normal(category, key, **kwargs)
 
-def show_debug(category: str, key: str, **kwargs):
-    """便捷函数：显示调试提示"""
-    prompt_manager.show_debug(category, key, **kwargs)
-
-def show_verbose(category: str, key: str, **kwargs):
-    """便捷函数：显示详细提示"""
-    prompt_manager.show_verbose(category, key, **kwargs)
+def show_warning(category: str, key: str, **kwargs):
+    """显示警告"""
+    prompt_manager.show_important(category, key, **kwargs)
 
 def show_error(category: str, key: str, **kwargs):
-    """便捷函数：显示错误提示"""
-    prompt_manager.show_error(category, key, **kwargs)
+    """显示错误"""
+    prompt_manager.show_critical(category, key, **kwargs)
 
-def show_warning(category: str, key: str, **kwargs):
-    """便捷函数：显示警告提示"""
-    prompt_manager.show_warning(category, key, **kwargs)
-
-def show_info(category: str, key: str, **kwargs):
-    """便捷函数：显示信息提示"""
-    prompt_manager.show_info(category, key, **kwargs)
-
-def show_talent_lore(talent_key: str, level: int = PromptLevel.NORMAL):
-    """便捷函数：显示天赋叙事文案"""
-    prompt_manager.show_talent_lore(talent_key, level)
-
-def show_formatted_lore(category: str, content: str, level: int = PromptLevel.NORMAL):
-    """便捷函数：显示格式化的叙事内容"""
-    prompt_manager.show_formatted_lore(category, content, level)
+def show_debug(category: str, key: str, **kwargs):
+    """显示调试信息"""
+    prompt_manager.show_debug(category, key, **kwargs)
