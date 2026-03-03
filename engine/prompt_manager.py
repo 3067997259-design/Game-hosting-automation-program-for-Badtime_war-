@@ -115,6 +115,15 @@ class PromptManager:
         self.prompts = {}
         print("[提示系统] 未找到提示文件，创建空结构")
     
+    # 公共方法，用于向后兼容
+    def load_prompts(self):
+        """公共方法：加载提示（向后兼容）"""
+        self._load_prompts()
+    
+    def load_config(self):
+        """公共方法：加载配置（向后兼容）"""
+        self._load_config()
+    
     def reload(self):
         """重新加载配置和提示"""
         self._load_config()
