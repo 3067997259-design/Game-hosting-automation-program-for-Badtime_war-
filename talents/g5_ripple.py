@@ -33,7 +33,7 @@ class Ripple(BaseTalent):
         "不良少年": "诡计",
         "六爻": "阴阳",
         "死者苏生": "彼岸",
-        "血火啊，燃烧前路": "纷争",
+        "火萤Ⅳ型-完全燃烧": "纷争",
         "请一直，注视着我": "追光",
         "愿负世，照拂黎明": "负世",
         "往世的涟漪": "命运",
@@ -1073,14 +1073,24 @@ class Ripple(BaseTalent):
                 f"\n   （不含扩展/天赋物品，不含抽象权能）")
 
     def _poem_strife(self, caster, target):
+        """纷争之诗：为火萤Ⅳ型-完全燃烧的持有者增强"""
         display.show_info(f"🔥 {target.name} 获得一次立刻行动！")
         from engine.action_turn import ActionTurnManager
         atm = ActionTurnManager(self.state)
         atm.execute_single_action(target)
-        target.talent.has_blazing_wish = True
-        return (f"🔥 {target.name} 完成立刻行动！"
-                f"\n   获得特殊物品「炽愿」"
-                f"（可抵扣1次debuff效果结算）")
+        
+        # 调用目标天赋的grant_ardent_wish方法
+        if hasattr(target.talent, 'grant_ardent_wish'):
+            target.talent.grant_ardent_wish()
+            return (f"🔥 {target.name} 完成立刻行动！"
+                    f"\n   获得特殊物品「炽愿」"
+                    f"（可抵扣1次debuff效果结算）")
+        else:
+            # 如果目标天赋没有grant_ardent_wish方法，尝试直接设置字段
+            target.talent.has_ardent_wish = True
+            return (f"🔥 {target.name} 完成立刻行动！"
+                    f"\n   获得特殊物品「炽愿」"
+                    f"（可抵扣1次debuff效果结算）")
 
     def _poem_light(self, target):
         talent = target.talent
