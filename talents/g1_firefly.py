@@ -15,9 +15,10 @@
     3. 没有任何护甲 → 跳过（不致死）
 """
 
-from talents.base_talent import BaseTalent
+from talents.base_talent import BaseTalent, PromptLevel
 from models.equipment import ArmorLayer
-from cli import display
+from engine.prompt_manager import prompt_manager
+from engine.debug_config import debug_ai
 
 
 class G1MythFire(BaseTalent):
@@ -77,15 +78,16 @@ class G1MythFire(BaseTalent):
         # debuff开始
         if not self.debuff_started:
             self.debuff_started = True
-            display.show_info(
-                f"\n🔥 {me.name} 的火萤debuff开始！"
-                f"（第{round_num}轮）")
+            prompt_manager.show("talent", "g1mythfire.debuff_start",
+                               player_name=me.name, round_num=round_num,
+                               level=PromptLevel.IMPORTANT)
 
         # 炽愿抵扣
         if self.has_ardent_wish:
             self.has_ardent_wish = False
-            display.show_info(
-                f"🔥 {me.name} 消耗「炽愿」抵扣本次debuff！")
+            prompt_manager.show("talent", "g1mythfire.ardent_wish_consume",
+                               player_name=me.name,
+                               level=PromptLevel.NORMAL)
             return
 
         # 执行debuff：扣护甲
@@ -117,9 +119,9 @@ class G1MythFire(BaseTalent):
         if outer_active:
             victim = outer_active[0]
             me.armor.remove_piece(victim)
-            display.show_info(
-                f"🔥 火萤debuff：摧毁 {me.name} 的外层护甲"
-                f"「{victim.name}」！")
+            prompt_manager.show("talent", "g1mythfire.debuff_outer",
+                               player_name=me.name, armor_name=victim.name,
+                               level=PromptLevel.NORMAL)
             return
 
         # 没有外层 → 扣内层
@@ -130,18 +132,20 @@ class G1MythFire(BaseTalent):
             victim.current_hp = max(0, victim.current_hp - 1.0)
             if victim.current_hp <= 0:
                 me.armor.remove_piece(victim)
-                display.show_info(
-                    f"🔥 火萤debuff：摧毁 {me.name} 的内层护甲"
-                    f"「{victim.name}」！")
+                prompt_manager.show("talent", "g1mythfire.debuff_inner_destroy",
+                                   player_name=me.name, armor_name=victim.name,
+                                   level=PromptLevel.NORMAL)
             else:
-                display.show_info(
-                    f"🔥 火萤debuff：{me.name} 的「{victim.name}」"
-                    f"护甲值 {old_hp} → {victim.current_hp}")
+                prompt_manager.show("talent", "g1mythfire.debuff_inner_damage",
+                                   player_name=me.name, armor_name=victim.name,
+                                   old_hp=old_hp, new_hp=victim.current_hp,
+                                   level=PromptLevel.NORMAL)
             return
 
         # 没有任何护甲 → 跳过
-        display.show_info(
-            f"🔥 火萤debuff：{me.name} 无护甲可扣，本次跳过。")
+        prompt_manager.show("talent", "g1mythfire.debuff_no_armor",
+                           player_name=me.name,
+                           level=PromptLevel.NORMAL)
 
     # ============================================
     #  T0：0.5血自动恢复
@@ -161,9 +165,10 @@ class G1MythFire(BaseTalent):
             if player.is_stunned:
                 player.is_stunned = False
                 self.state.markers.on_stun_recover(player.player_id)
-            display.show_info(
-                f"🔥 {player.name} 的火萤之力自动恢复！"
-                f"HP: {old_hp} → {player.hp}")
+            prompt_manager.show("talent", "g1mythfire.auto_heal",
+                               player_name=player.name,
+                               old_hp=old_hp, new_hp=player.hp,
+                               level=PromptLevel.IMPORTANT)
 
         return None  # 不消耗回合，正常继续
 
@@ -203,8 +208,10 @@ class G1MythFire(BaseTalent):
         if target.player_id != self.player_id:
             return raw_damage
         reduced = raw_damage * 0.5
-        display.show_info(
-            f"🔥 火萤减伤：{raw_damage} → {reduced}")
+        prompt_manager.show("talent", "g1mythfire.damage_reduction",
+                           attacker_name=attacker.name, target_name=target.name,
+                           original_damage=raw_damage, reduced_damage=reduced,
+                           level=PromptLevel.NORMAL)
         return reduced
 
     # ============================================
@@ -231,10 +238,10 @@ class G1MythFire(BaseTalent):
         self.kill_count += 1
         # 击杀会推迟debuff
         self.debuff_start_round = self._calc_debuff_start_round()
-        display.show_info(
-            f"🔥 {killer.name} 击杀了 {victim.name}！"
-            f"累计击杀：{self.kill_count}"
-            f"\n   debuff起始轮次重算为：{self.debuff_start_round}")
+        prompt_manager.show("talent", "g1mythfire.kill_record",
+                           killer_name=killer.name, victim_name=victim.name,
+                           kill_count=self.kill_count, debuff_round=self.debuff_start_round,
+                           level=PromptLevel.IMPORTANT)
 
     # ============================================
     #  炽愿（涟漪献诗给的）
@@ -245,7 +252,9 @@ class G1MythFire(BaseTalent):
         self.has_ardent_wish = True
         me = self.state.get_player(self.player_id)
         name = me.name if me else self.player_id
-        display.show_info(f"🔥 {name} 获得了「炽愿」！可抵扣1次debuff。")
+        prompt_manager.show("talent", "g1mythfire.ardent_wish_gain",
+                           player_name=name,
+                           level=PromptLevel.IMPORTANT)
 
     # ============================================
     #  描述
