@@ -61,6 +61,133 @@
       "skip_shocked": "  ⚡ {player_name} 处于震荡状态，跳过行动。",
       "skip_petrified": "  🗿 {player_name} 处于石化状态，跳过行动。",
       "barrier_end": "═══════════════════════════════════════════════════════════════\n  🌀 「神话之外」结界解除！\n  📍 {player_name} 返回原地点：{location}\n  📎 结界内面对面关系解除。\n  ▶️  全局轮次恢复！\n═══════════════════════════════════════════════════════════════"
+    },
+    
+    "g1mythfire": {
+      "lore": [
+        "「我曾安眠，赤染之萤。自破碎的天空坠落，沉睡在静默的星河。」",
+        "「我梦见一片焦土，一株破土而出的新蕊，它迎着朝阳绽放，向我低语呢喃……」",
+        "「我会看见，飞萤之火自无梦的长夜亮起，绽放在终竟的明天。」"
+      ],
+      "activate": "【神代天赋1：火萤Ⅳ型-完全燃烧】{player_name}开始燃烧自己的存在...",
+      "debuff_start": "🔥 {player_name} 的血火debuff开始！（第{round_num}轮）",
+      "ardent_wish_consume": "🔥 {player_name} 消耗「炽愿」抵扣本次debuff！",
+      "debuff_outer": "🔥 血火debuff：摧毁 {player_name} 的外层护甲「{armor_name}」！",
+      "debuff_inner_destroy": "🔥 血火debuff：摧毁 {player_name} 的内层护甲「{armor_name}」！",
+      "debuff_inner_damage": "🔥 血火debuff：{player_name} 的「{armor_name}」护甲值 {old_hp} → {new_hp}",
+      "debuff_no_armor": "🔥 血火debuff：{player_name} 无护甲可扣，本次跳过。",
+      "auto_heal": "🔥 {player_name} 的血火之力自动恢复！HP: {old_hp} → {new_hp}",
+      "damage_reduction": "🔥 血火减伤：{attacker_name} 对 {target_name} 的伤害 {original_damage} → {reduced_damage}",
+      "kill_record": "🔥 {killer_name} 击杀了 {victim_name}！累计击杀：{kill_count}\n   debuff起始轮次重算为：{debuff_round}",
+      "ardent_wish_gain": "🔥 {player_name} 获得了「炽愿」！可抵扣1次debuff。"
+    },
+    
+    "g2eternity": {
+      "lore": [
+        "「崩溃的世界，舞台上最后的歌姬，被紧紧护在怀中的少女，她唯一的观众。」",
+        "「全息影像的歌声戛然而止，怪物的咆哮由远及近。那是血？还是泪？」",
+        "「别害怕……只要……请你一直注视着……再一次注视着我吧。」"
+      ],
+      "activate": "【神代天赋2：请一直，注视着我】{player_name}展开全息影像..."
+    },
+    
+    "g3mythland": {
+      "lore": [
+        "「每一个神话故事都有着自己的神话之外，那是时光凝滞、一页永恒之处」",
+        "「这个世界也不例外，在时空的尽头，正有这么一方天地，正在静静流淌」",
+        "「它漠视九重天下的人子—不歌颂他们的伟大，也不嗤笑他们的挣扎。」"
+      ],
+      "activate": "【神代天赋3：神话之外】{player_name}展开幻想乡结界..."
+    },
+    
+    "g4savior": {
+      "lore": [
+        "「他们说我生来就是救世主，是将要担负世界的人，可…我的愿望究竟是什么？」",
+        "「直到生命尽头，我才知道，原来我只想……■■■■■」",
+        "「这个世界未竟的道路，就由我来担负着她走下去吧。」"
+      ],
+      "activate": "【神代天赋4：愿负世，照拂黎明】{player_name}的神性觉醒..."
+    },
+    
+    "g5ripple": {
+      "lore": [
+        "「记忆，正等待被流星唤醒」",
+        "「决战落下帷幕，少女踏上通往过去的不归路前，最后一次回望了未来」",
+        "「一定要用要用爱铭记我呀，伙伴♪」"
+      ],
+      "activate": "【神代天赋5：往世的涟漪】{player_name}开始打捞追忆..."
+    },
+    
+    "t1oneslash": {
+      "lore": [
+        "「一刀缭断，斩断因果之线」",
+        "「在电光火石间，世界为之静止」",
+        "「只此一刀，便是永恒」"
+      ],
+      "activate": "【原初天赋1：一刀缭断】{player_name}发动了绝命一击！"
+    },
+    
+    "t2oiltheroad": {
+      "lore": [
+        "「你给路打油，脚底抹油溜之大吉」",
+        "「三十六计走为上，留得青山在」",
+        "「逃跑不是懦弱，而是为了明天的复仇」"
+      ],
+      "activate": "【原初天赋2：你给路打油】{player_name}准备开溜！"
+    },
+    
+    "t3star": {
+      "lore": [
+        "「天星坠落，万物石化」",
+        "「来自苍穹的审判，让时间凝固」",
+        "「在星辰的注视下，一切都将静止」"
+      ],
+      "activate": "【原初天赋3：天星】{player_name}召唤星辰之力！"
+    },
+    
+    "t4hexagram": {
+      "lore": [
+        "「六爻占卜，天命难违」",
+        "「阴阳交替，乾坤倒转」",
+        "「卦象之中，自有天机」"
+      ],
+      "activate": "【原初天赋4：六爻】{player_name}开始占卜命运！"
+    },
+    
+    "t5delinquent": {
+      "lore": [
+        "「不良少年，法外狂徒」",
+        "「规则？那是什么？可以吃吗？」",
+        "「我的刀，就是我的法律」"
+      ],
+      "activate": "【原初天赋5：不良少年】{player_name}开始搞事情！"
+    },
+    
+    "t6goodcitizen": {
+      "lore": [
+        "「朝阳好市民，遵纪守法典范」",
+        "「举报是美德，守法是义务」",
+        "「维护社会和谐，从我做起」"
+      ],
+      "activate": "【原初天赋6：朝阳好市民】{player_name}展现公民责任感！"
+    },
+    
+    "t7resurrection": {
+      "lore": [
+        "「死者苏生，打破生死界限」",
+        "「从冥府归来，带着未尽的使命」",
+        "「死亡不是终点，而是新的开始」"
+      ],
+      "activate": "【原初天赋7：死者苏生】{player_name}施展复活秘法！"
+    },
+    
+    "deathdenier": {
+      "lore": [
+        "「所以我放弃了死亡，选择了永恒」",
+        "「时间为我倒流，命运为我改写」",
+        "「死亡？那只是凡人的归宿」"
+      ],
+      "activate": "【废案天赋：所以我放弃了死亡】{player_name}拒绝死亡！"
     }
   },
   
@@ -68,8 +195,8 @@
     "debug_enabled": "🔧 调试模式已启用，级别: {level}",
     "debug_disabled": "🔧 调试模式已禁用",
     "game_start": "游戏开始！",
-    "game_interrupted": "\\n\\n  游戏被手动中断。\\n  感谢游玩《起闯战争》！",
-    "clear_screen": "\\n" * 50,
+    "game_interrupted": "\n\n  游戏被手动中断。\n  感谢游玩《起闯战争》！",
+    "clear_screen": "\n" * 50,
     "secret_prompt": "🔒 请其他玩家移开视线！",
     "secret_recorded": "  ✓ 已记录"
   },
