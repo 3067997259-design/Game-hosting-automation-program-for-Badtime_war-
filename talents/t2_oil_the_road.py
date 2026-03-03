@@ -6,7 +6,8 @@ R3期间，当你认为某玩家行动可能导致你死亡时声明。
 同地点最多触发1次。
 """
 
-from talents.base_talent import BaseTalent
+from talents.base_talent import BaseTalent, PromptLevel
+from engine.prompt_manager import prompt_manager
 
 
 class OilTheRoad(BaseTalent):
@@ -47,8 +48,13 @@ class OilTheRoad(BaseTalent):
                              location=player.location,
                              remaining=self.uses_remaining)
 
-        return (f"🛢️ {player.name} 使用「你给路打油」！"
-                f"\n   获得1个额外行动回合！（剩余{self.uses_remaining}次）")
+        # 使用提示管理器显示响应信息
+        response_msg = prompt_manager.get_prompt("talent", "t2oiltheroad.response",
+                                                default="🛢️ {player_name} 使用「你给路打油」！\n    获得1个额外行动回合！（剩余{remaining}次）",
+                                                player_name=player.name,
+                                                remaining=self.uses_remaining)
+        
+        return response_msg
 
     def describe_status(self):
         locs = ", ".join(self.triggered_locations) if self.triggered_locations else "无"
