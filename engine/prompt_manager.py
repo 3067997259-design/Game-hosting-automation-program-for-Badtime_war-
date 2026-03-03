@@ -59,6 +59,8 @@ class PromptManager:
         "show_timestamps": False,         # 是否显示时间戳
         "use_colors": True,               # 是否使用颜色
         "language": "zh_CN",              # 语言设置
+        "show_full_lore": False,          # 是否显示完整叙事文案
+        "lore_display_level": PromptLevel.NORMAL,  # 叙事文案显示级别
     }
     
     def __new__(cls):
@@ -321,6 +323,58 @@ class PromptManager:
             return {}
     
     # ========================================================================
+    # 天赋叙事文案显示
+    # ========================================================================
+    
+    @classmethod
+    def show_talent_lore(cls, talent_key: str, level: int = PromptLevel.NORMAL):
+        """
+        显示天赋的叙事文案
+        
+        Args:
+            talent_key: 天赋键名，如 "g1mythfire", "t1oneslash"
+            level: 显示级别
+        """
+        if not cls.should_show(level):
+            return
+        
+        # 获取叙事文案
+        lore = cls.get_prompt("talent", f"{talent_key}.lore", default=[])
+        
+        if not lore:
+            print(f"📖 天赋「{talent_key}」暂无叙事文案")
+            return
+        
+        # 显示格式化的叙事文案
+        print("═══════════════════════════════════════════════════════════════")
+        print(f"  📖 天赋叙事：{talent_key}")
+        print("═══════════════════════════════════════════════════════════════")
+        
+        for line in lore:
+            print(f"  {line}")
+        
+        print("═══════════════════════════════════════════════════════════════")
+    
+    @classmethod
+    def show_formatted_lore(cls, category: str, content: str, level: int = PromptLevel.NORMAL):
+        """
+        显示格式化的叙事内容
+        
+        Args:
+            category: 内容类别，如 "lore", "story"
+            content: 叙事内容文本
+            level: 显示级别
+        """
+        if not cls.should_show(level):
+            return
+        
+        print("═══════════════════════════════════════════════════════════════")
+        print(f"  📖 {category}")
+        print("═══════════════════════════════════════════════════════════════")
+        print(content)
+        print("═══════════════════════════════════════════════════════════════")
+    
+    # ========================================================================
     # 便捷输出方法
     # ========================================================================
     
@@ -433,3 +487,11 @@ def show_warning(category: str, key: str, **kwargs):
 def show_info(category: str, key: str, **kwargs):
     """便捷函数：显示信息提示"""
     prompt_manager.show_info(category, key, **kwargs)
+
+def show_talent_lore(talent_key: str, level: int = PromptLevel.NORMAL):
+    """便捷函数：显示天赋叙事文案"""
+    prompt_manager.show_talent_lore(talent_key, level)
+
+def show_formatted_lore(category: str, content: str, level: int = PromptLevel.NORMAL):
+    """便捷函数：显示格式化的叙事内容"""
+    prompt_manager.show_formatted_lore(category, content, level)
