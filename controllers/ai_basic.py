@@ -364,9 +364,22 @@ class BasicAIController(PlayerController):
                     candidates.append("forfeit")
                     return candidates
         
+        # ========== 极危险情况处理（增强版）==========
         if self._is_critical(player, state):
-            print(f"🤖 [{player.name}] 进入极危模式")
-            candidates.extend(self._survival_commands(player, state, available_actions))
+            danger_type = self._get_danger_type(player, state)
+            print(f"🤖 [{player.name}] 进入极危模式，危险类型: {danger_type}")
+            
+            # 根据不同危险类型采取不同策略
+            if danger_type == "police_surrounded":
+                print(f"🤖 [{player.name}] 被警察围攻，寻求群攻手段")
+                candidates.extend(self._police_survival_commands(player, state, available_actions))
+            elif danger_type == "anchored":
+                print(f"🤖 [{player.name}] 被锚定，采取破坏性行动")
+                candidates.extend(self._anchor_survival_commands(player, state, available_actions))
+            else:
+                # 通用生存命令
+                candidates.extend(self._survival_commands(player, state, available_actions))
+            
             print(f"🤖 [{player.name}] 极危候选：{candidates}")
             if candidates:
                 return candidates
@@ -476,21 +489,66 @@ class BasicAIController(PlayerController):
         return deduped
 
     # ════════════════════════════════════════════════════════
-    #  阶段判定
+    #  阶段判定（增强版）
     # ════════════════════════════════════════════════════════
 
     def _is_critical(self, player, state) -> bool:
+        """判断是否处于极危险情况"""
+        # 血量极低
         if player.hp <= 0.5:
             return True
+        # 被警察围攻
         if (state.police_engine
                 and hasattr(state.police, 'reported_target_id')
                 and state.police.reported_target_id == player.player_id
                 and hasattr(state.police, 'report_phase')
                 and state.police.report_phase in ("dispatched", "enforcing")):
             return True
+        # 被多人锁定
         lock_count = self._count_locked_by(player, state)
         if lock_count >= 2:
             return True
+        # 被锚定（检查涟漪锚定标记）
+        if self._is_anchored(player, state):
+            return True
+        return False
+    
+    def _get_danger_type(self, player, state) -> str:
+        """获取具体的危险类型"""
+        # 检查是否被警察围攻
+        if (state.police_engine
+                and hasattr(state.police, 'reported_target_id')
+                and state.police.reported_target_id == player.player_id
+                and hasattr(state.police, 'report_phase')
+                and state.police.report_phase in ("dispatched", "enforcing")):
+            return "police_surrounded"
+        # 检查是否被锚定
+        if self._is_anchored(player, state):
+            return "anchored"
+        # 默认危险
+        return "general"
+    
+    def _is_anchored(self, player, state) -> bool:
+        """检查是否被涟漪天赋锚定"""
+        # 方法1：检查涟漪天赋的锚定标记
+        markers = getattr(state, 'markers', None)
+        if markers:
+            # 检查是否有ANCHORED_BY关系
+            if hasattr(markers, 'has_relation'):
+                # 查找所有与玩家有ANCHORED_BY关系的玩家
+                for pid in state.player_order:
+                    if pid == player.player_id:
+                        continue
+                    if markers.has_relation(player.player_id, "ANCHORED_BY", pid):
+                        return True
+            # 方法2：检查涟漪天赋的锚定状态
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if target and target.talent and hasattr(target.talent, 'is_anchoring'):
+                    if target.talent.is_anchoring(player):
+                        return True
         return False
     
     def _update_combat_status(self, player, state):
@@ -663,10 +721,11 @@ class BasicAIController(PlayerController):
         return False
 
     # ════════════════════════════════════════════════════════
-    #  生存模式命令
+    #  生存模式命令（增强版：针对不同危险类型）
     # ════════════════════════════════════════════════════════
 
     def _survival_commands(self, player, state, available) -> List[str]:
+        """通用生存命令：获取护甲、隐身、回血等"""
         cmds = []
         loc = player.location
         if "move" in available:
@@ -691,6 +750,91 @@ class BasicAIController(PlayerController):
             for item in player.items:
                 if hasattr(item, 'name') and "隐身" in item.name:
                     cmds.append(f"special {item.name}")
+        return cmds
+
+    def _police_survival_commands(self, player, state, available) -> List[str]:
+        """警察围攻生存命令：获取群攻手段"""
+        cmds = []
+        loc = player.location
+        
+        # 首先尝试获取群攻法术
+        if loc == "魔法所":
+            # 检查是否可以学习地震或地动山摇
+            if self._can_learn(player, "地震"):
+                cmds.append("interact 地震")
+            elif self._can_learn(player, "地动山摇"):
+                cmds.append("interact 地动山摇")
+            else:
+                # 如果已经学会，尝试获取其他生存物品
+                if self._can_take_item(player, "魔法护盾"):
+                    cmds.append("interact 魔法护盾")
+                elif "move" in available:
+                    cmds.append("move 商店")
+        else:
+            # 前往魔法所学习群攻法术
+            if "move" in available:
+                cmds.append("move 魔法所")
+        
+        # 如果没有其他命令，添加通用生存命令
+        if not cmds:
+            cmds.extend(self._survival_commands(player, state, available))
+        
+        return cmds
+
+    def _anchor_survival_commands(self, player, state, available) -> List[str]:
+        """被锚定生存命令：获取护甲或尝试击杀发动者"""
+        cmds = []
+        loc = player.location
+        
+        # 1. 尝试找到锚定发动者
+        anchor_caster = None
+        markers = getattr(state, 'markers', None)
+        if markers and hasattr(markers, 'has_relation'):
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                if markers.has_relation(player.player_id, "ANCHORED_BY", pid):
+                    anchor_caster = state.get_player(pid)
+                    break
+        
+        # 2. 如果找到发动者且护甲足够，尝试击杀
+        if anchor_caster and anchor_caster.is_alive():
+            # 检查护甲是否足够（至少1件外层护甲）
+            if self._count_outer_armor(player) > 0:
+                print(f"🤖 [{player.name}] 护甲足够，尝试反击锚定发动者 {anchor_caster.name}")
+                # 生成攻击命令
+                attack_cmds = self._attack_commands(player, state, available)
+                if attack_cmds:
+                    cmds.extend(attack_cmds)
+                    return cmds
+        
+        # 3. 否则，获取护甲（优先去发动者不在的地方）
+        safe_locations = ["商店", "魔法所", "军事基地", "医院"]
+        if anchor_caster:
+            # 避免去发动者所在的地点
+            safe_locations = [loc for loc in safe_locations if loc != anchor_caster.location]
+        
+        if loc in safe_locations:
+            # 在当前安全地点获取护甲
+            if "interact" in available:
+                for item in LOCATION_ITEMS.get(loc, []):
+                    if item in ("盾牌", "陶瓷护甲", "魔法护盾", "AT力场"):
+                        if self._can_take_item(player, item):
+                            cmds.append(f"interact {item}")
+                            break
+                if not cmds and "move" in available and safe_locations:
+                    # 如果当前地点没有护甲，移动到其他安全地点
+                    target_loc = next((l for l in safe_locations if l != loc), safe_locations[0])
+                    cmds.append(f"move {target_loc}")
+        elif "move" in available and safe_locations:
+            # 移动到安全地点
+            target_loc = safe_locations[0]
+            cmds.append(f"move {target_loc}")
+        
+        # 4. 如果没有其他命令，添加通用生存命令
+        if not cmds:
+            cmds.extend(self._survival_commands(player, state, available))
+        
         return cmds
 
     # ════════════════════════════════════════════════════════
