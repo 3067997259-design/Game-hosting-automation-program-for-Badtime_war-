@@ -416,6 +416,8 @@ def _talent_selection(game_state, ai_players_info=None):
                 player.talent = talent_inst
                 player.talent_name = name
                 talent_inst.on_register()
+                # 显示天赋激活效果
+                talent_inst.show_activation(player_name=player.name, show_lore=True)
                 taken.add(n)
                 print(f"  🤖 {player.name}（AI·{personality}）自动选择天赋【{name}】")
             else:
@@ -467,6 +469,8 @@ def _talent_selection(game_state, ai_players_info=None):
             player.talent = talent_inst
             player.talent_name = name
             talent_inst.on_register()
+            # 显示天赋激活效果
+            talent_inst.show_activation(player_name=player.name, show_lore=True)
             taken.add(n)
             print(f"  ✓ {player.name} 获得天赋【{name}】！")
             break
