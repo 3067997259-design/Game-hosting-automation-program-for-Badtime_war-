@@ -5,6 +5,7 @@ from models.equipment import make_weapon
 from engine.game_state import GameState
 from engine.response_window import ResponseWindowManager
 from engine.debug_config import enable_debug, debug_info, debug_system
+from engine.prompt_manager import prompt_manager
 from cli.display import show_banner, show_info
 
 from controllers.human import HumanController
@@ -75,7 +76,16 @@ AI_NAME_POOL = [
 
 
 def setup_game():
-    show_banner()
+    # ════════════════════════════════════════════════════════
+    #  初始化提示管理系统
+    # ════════════════════════════════════════════════════════
+    prompt_manager.load_prompts()
+    prompt_manager.load_config()
+    
+    # 使用新的提示系统显示横幅
+    from engine.prompt_manager import show_info as pm_show_info
+    pm_show_info("ui", "banner")
+    
     game_state = GameState()
     # ════════════════════════════════════════════════════════
     #  调试模式选择
