@@ -5,6 +5,7 @@
 
 import json
 import os
+import re
 from enum import IntEnum
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
@@ -95,7 +96,7 @@ class PromptManager:
         print("[提示系统] 使用默认配置")
     
     def _load_prompts(self):
-        """加载提示文本"""
+        """加载提示文本，自动修复常见JSON错误"""
         prompt_paths = [
             "data/prompts.json",
             "prompts.json"
@@ -105,15 +106,116 @@ class PromptManager:
             if os.path.exists(path):
                 try:
                     with open(path, 'r', encoding='utf-8') as f:
-                        self.prompts = json.load(f)
-                    print(f"[提示系统] 加载提示: {path} ({len(self.prompts)} categories)")
-                    return
+                        content = f.read()
+                    
+                    # 尝试解析JSON
+                    try:
+                        self.prompts = json.loads(content)
+                        print(f"[提示系统] 加载提示: {path} ({len(self.prompts)} categories)")
+                        return
+                    except json.JSONDecodeError as e:
+                        print(f"[提示系统] JSON解析错误 {path}: {e}")
+                        print(f"[提示系统] 尝试修复JSON...")
+                        
+                        # 尝试修复常见的JSON错误
+                        fixed_content = self._fix_json_errors(content, e)
+                        try:
+                            self.prompts = json.loads(fixed_content)
+                            print(f"[提示系统] JSON修复成功，使用修复后的版本")
+                            
+                            # 保存修复后的版本（备份原文件）
+                            backup_path = path + ".backup"
+                            with open(backup_path, 'w', encoding='utf-8') as backup:
+                                backup.write(content)
+                            print(f"[提示系统] 原文件已备份到: {backup_path}")
+                            
+                            # 可选：保存修复版本
+                            # with open(path, 'w', encoding='utf-8') as f:
+                            #     f.write(fixed_content)
+                            # print(f"[提示系统] 修复版本已保存")
+                            
+                            return
+                        except json.JSONDecodeError as e2:
+                            print(f"[提示系统] JSON修复失败: {e2}")
+                            print(f"[提示系统] 使用空提示结构")
+                
                 except Exception as e:
                     print(f"[提示系统] 提示加载失败 {path}: {e}")
         
         # 创建空结构
         self.prompts = {}
         print("[提示系统] 未找到提示文件，创建空结构")
+    
+    def _fix_json_errors(self, content: str, error: json.JSONDecodeError) -> str:
+        """
+        尝试修复常见的JSON错误
+        
+        常见错误：
+        1. 缺少逗号：在字段之间
+        2. 未转义的双引号
+        3. 尾随逗号
+        """
+        lines = content.split('\n')
+        line_no = error.lineno - 1  # 转换为0-based索引
+        col_no = error.colno - 1    # 转换为0-based索引
+        
+        print(f"[提示系统] 错误位置: 第{error.lineno}行, 第{error.colno}列, 字符{error.pos}")
+        print(f"[提示系统] 错误消息: {error.msg}")
+        
+        # 获取错误行
+        if line_no < len(lines):
+            error_line = lines[line_no]
+            print(f"[提示系统] 错误行: {error_line}")
+            print(f"[提示系统] 错误位置标记: {error_line[:col_no]}^")
+        
+        # 根据错误类型尝试修复
+        if "Expecting ',' delimiter" in error.msg:
+            # 在错误位置插入逗号
+            pos = error.pos
+            if pos < len(content):
+                # 简单修复：在位置插入逗号
+                fixed = content[:pos] + ',' + content[pos:]
+                print(f"[提示系统] 在位置{pos}插入逗号")
+                return fixed
+        
+        elif "Expecting ':' delimiter" in error.msg:
+            # 缺少冒号
+            pos = error.pos
+            if pos < len(content):
+                fixed = content[:pos] + ':' + content[pos:]
+                print(f"[提示系统] 在位置{pos}插入冒号")
+                return fixed
+        
+        elif "Unterminated string" in error.msg:
+            # 字符串未终止，尝试在行末添加引号
+            if line_no < len(lines):
+                error_line = lines[line_no]
+                # 在行末添加引号
+                lines[line_no] = error_line + '"'
+                fixed = '\n'.join(lines)
+                print(f"[提示系统] 在第{error.lineno}行末添加引号")
+                return fixed
+        
+        # 通用修复：尝试修复常见的缺少逗号情况
+        # 查找模式: "key": "value" "next_key"
+        pattern = r'("\s*"[^",}\]]\s*")'
+        fixed = re.sub(pattern, r'\1,', content)
+        
+        # 尝试修复未转义的双引号
+        # 查找字符串内部未转义的双引号
+        # 模式: "(.*[^\\])"(.*)"
+        # 但需要小心处理
+        
+        return fixed
+    
+    # 公共方法，用于向后兼容
+    def load_prompts(self):
+        """公共方法：加载提示（向后兼容）"""
+        self._load_prompts()
+    
+    def load_config(self):
+        """公共方法：加载配置（向后兼容）"""
+        self._load_config()
     
     def reload(self):
         """重新加载配置和提示"""

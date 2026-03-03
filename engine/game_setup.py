@@ -79,8 +79,7 @@ def setup_game():
     # ════════════════════════════════════════════════════════
     #  初始化提示管理系统
     # ════════════════════════════════════════════════════════
-    prompt_manager.load_prompts()
-    prompt_manager.load_config()
+    # 提示管理器单例已在导入时自动初始化，无需重复加载
     
     # 使用新的提示系统显示横幅
     from engine.prompt_manager import show_info as pm_show_info
