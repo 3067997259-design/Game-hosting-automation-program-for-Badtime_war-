@@ -335,7 +335,9 @@ class PromptManager:
         
         lore = self.get_prompt("talent", f"{talent_key}.lore")
         if lore and isinstance(lore, list):
-            self.show_formatted(f"天赋叙事：{talent_key}", lore, level)
+            # 使用更友好的标题
+            title = "天赋背景故事"
+            self.show_formatted(title, lore, level)
     
     def show_critical(self, category: str, key: str, **kwargs):
         """显示关键提示（始终显示）"""
