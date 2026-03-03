@@ -9,7 +9,12 @@ from engine.prompt_manager import prompt_manager, show_info as pm_show_info, sho
 
 
 def clear_screen():
-    print("\n" * 50)
+    """清屏：使用提示管理器的clear_screen文本，如果为空则使用50个换行符"""
+    clear_text = prompt_manager.get_prompt("system", "clear_screen", default="")
+    if clear_text:
+        print(clear_text)
+    else:
+        print("\n" * 50)
 
 
 def show_banner():
@@ -116,6 +121,9 @@ def show_error(msg):
 def show_info(msg):
     """显示一般信息"""
     info_text = prompt_manager.get_prompt("game", "info", default="\n  ℹ️  {msg}")
+    # 确保info_text是字符串
+    if not isinstance(info_text, str):
+        info_text = str(info_text)
     print(info_text.format(msg=msg))
 
 

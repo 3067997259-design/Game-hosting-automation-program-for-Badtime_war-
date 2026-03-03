@@ -222,13 +222,14 @@ class PromptManager:
         self._load_config()
         self._load_prompts()
     
-    def get_prompt(self, category: str, key: str, **kwargs) -> Any:
+    def get_prompt(self, category: str, key: str, default: Any = None, **kwargs) -> Any:
         """
         获取提示文本，支持嵌套键和变量替换
         
         Args:
             category: 类别，如 "ui", "combat", "talent"
             key: 键路径，如 "attack.hit" 或 "g1mythfire.lore"
+            default: 默认值，如果找不到提示则返回
             **kwargs: 替换变量，如 player_name="张三"
         
         Returns:
@@ -243,19 +244,24 @@ class PromptManager:
                 if isinstance(value, dict):
                     value = value.get(part, {})
                 else:
-                    return f"[Missing: {category}.{key}]"
+                    return default if default is not None else f"[Missing: {category}.{key}]"
+            
+            # 如果最终是空字典，返回默认值
+            if isinstance(value, dict) and not value:
+                return default if default is not None else f"[Missing: {category}.{key}]"
             
             # 如果最终是字符串，进行变量替换
             if isinstance(value, str) and kwargs:
                 try:
                     return value.format(**kwargs)
                 except KeyError as e:
-                    return f"[Format Error: {category}.{key} missing {e}]"
+                    return default if default is not None else f"[Format Error: {category}.{key} missing {e}]"
             
+            # 返回原始值（可能是列表、数字等）
             return value
             
         except Exception as e:
-            return f"[Error: {category}.{key} - {e}]"
+            return default if default is not None else f"[Error: {category}.{key} - {e}]"
     
     def show(self, category: str, key: str, level: PromptLevel = None, **kwargs):
         """
