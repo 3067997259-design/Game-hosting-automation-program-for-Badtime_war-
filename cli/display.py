@@ -26,12 +26,18 @@ def show_banner():
 def show_round_header(round_num):
     """显示全局轮次标题"""
     header_text = prompt_manager.get_prompt("ui", "round_header", default=f"{'='*60}\n  📅 全局轮次 {round_num}\n{'='*60}\n")
+    # 安全格式化：如果文本包含 {round_num}，则进行格式化
+    if isinstance(header_text, str) and "{round_num}" in header_text:
+        header_text = header_text.format(round_num=round_num)
     print(header_text)
 
 
 def show_phase(phase_name):
     """显示阶段标题"""
-    phase_text = prompt_manager.get_prompt("ui", "phase_header", default=f"\n--- {phase_name} ---").format(phase_name=phase_name)
+    phase_text = prompt_manager.get_prompt("ui", "phase_header", default=f"\n--- {phase_name} ---")
+    # 安全格式化：如果文本包含 {phase_name}，则进行格式化
+    if isinstance(phase_text, str) and "{phase_name}" in phase_text:
+        phase_text = phase_text.format(phase_name=phase_name)
     print(phase_text)
 
 
@@ -49,20 +55,35 @@ def show_d4_results(results, bonuses, winners):
         cap_str = " (封顶4)" if roll + bonus > 4 else ""
         
         result_text = prompt_manager.get_prompt("game", "d4_player_result", default="  {name}: 骰出 {roll}{bonus_str}{cap_str} → 最终 {final}")
-        print(result_text.format(
-            name=name, roll=roll, bonus_str=bonus_str, 
-            cap_str=cap_str, final=final
-        ))
+        if isinstance(result_text, str):
+            try:
+                print(result_text.format(
+                    name=name, roll=roll, bonus_str=bonus_str, 
+                    cap_str=cap_str, final=final
+                ))
+            except (KeyError, ValueError):
+                print(result_text)
+        else:
+            print(result_text)
     
     # 胜者
     winner_names = ", ".join(winners)
     winner_text = prompt_manager.get_prompt("game", "d4_winners", default="  🏆 本轮胜者：{winner_names}")
-    print(winner_text.format(winner_names=winner_names))
+    if isinstance(winner_text, str):
+        try:
+            print(winner_text.format(winner_names=winner_names))
+        except (KeyError, ValueError):
+            print(winner_text)
+    else:
+        print(winner_text)
 
 
 def show_action_turn_header(player_name):
     """显示行动回合标题"""
-    header_text = prompt_manager.get_prompt("ui", "action_turn_header", default=f"\n{'─'*50}\n  ▶ 轮到 {player_name} 行动\n{'─'*50}").format(player_name=player_name)
+    header_text = prompt_manager.get_prompt("ui", "action_turn_header", default=f"\n{'─'*50}\n  ▶ 轮到 {player_name} 行动\n{'─'*50}")
+    # 安全格式化：如果文本包含 {player_name}，则进行格式化
+    if isinstance(header_text, str) and "{player_name}" in header_text:
+        header_text = header_text.format(player_name=player_name)
     print(header_text)
 
 
@@ -101,7 +122,13 @@ def show_available_actions(actions):
     
     for i, act in enumerate(actions, 1):
         action_item = prompt_manager.get_prompt("ui", "action_item", default="    {index}. {usage:30s} - {description}")
-        print(action_item.format(index=i, usage=act['usage'], description=act['description']))
+        if isinstance(action_item, str):
+            try:
+                print(action_item.format(index=i, usage=act['usage'], description=act['description']))
+            except (KeyError, ValueError):
+                print(action_item)
+        else:
+            print(action_item)
     
     print(f"    status | allstatus | police | help")
 
@@ -109,13 +136,25 @@ def show_available_actions(actions):
 def show_result(msg):
     """显示结果信息"""
     result_text = prompt_manager.get_prompt("game", "result", default="\n  📋 {msg}")
-    print(result_text.format(msg=msg))
+    if isinstance(result_text, str):
+        try:
+            print(result_text.format(msg=msg))
+        except (KeyError, ValueError):
+            print(result_text)
+    else:
+        print(result_text)
 
 
 def show_error(msg):
     """显示错误信息"""
     error_text = prompt_manager.get_prompt("game", "error", default="\n  ❌ {msg}")
-    print(error_text.format(msg=msg))
+    if isinstance(error_text, str):
+        try:
+            print(error_text.format(msg=msg))
+        except (KeyError, ValueError):
+            print(error_text)
+    else:
+        print(error_text)
 
 
 def show_info(msg):
@@ -124,19 +163,34 @@ def show_info(msg):
     # 确保info_text是字符串
     if not isinstance(info_text, str):
         info_text = str(info_text)
-    print(info_text.format(msg=msg))
+    try:
+        print(info_text.format(msg=msg))
+    except (KeyError, ValueError):
+        print(info_text)
 
 
 def show_victory(player_name):
     """显示胜利信息"""
     victory_text = prompt_manager.get_prompt("game", "victory", default="\n🎉" * 20 + f"\n\n  👑 {player_name} 获得了最终胜利！\n\n  游戏结束！\n" + "🎉" * 20)
-    print(victory_text.format(player_name=player_name))
+    if isinstance(victory_text, str):
+        try:
+            print(victory_text.format(player_name=player_name))
+        except (KeyError, ValueError):
+            print(victory_text)
+    else:
+        print(victory_text)
 
 
 def show_death(player_name, cause):
     """显示死亡信息"""
     death_text = prompt_manager.get_prompt("game", "death", default="\n  💀 {player_name} 死亡！原因：{cause}")
-    print(death_text.format(player_name=player_name, cause=cause))
+    if isinstance(death_text, str):
+        try:
+            print(death_text.format(player_name=player_name, cause=cause))
+        except (KeyError, ValueError):
+            print(death_text)
+    else:
+        print(death_text)
 
 
 def show_police_status(game_state):
@@ -158,7 +212,13 @@ def show_police_status(game_state):
             p = game_state.get_player(pid)
             name = p.name if p else pid
             crime_item = prompt_manager.get_prompt("game", "police_crime_record_item", default="    {name}: {crimes}")
-            print(crime_item.format(name=name, crimes=", ".join(crimes)))
+            if isinstance(crime_item, str):
+                try:
+                    print(crime_item.format(name=name, crimes=", ".join(crimes)))
+                except (KeyError, ValueError):
+                    print(crime_item)
+            else:
+                print(crime_item)
     else:
         no_crimes = prompt_manager.get_prompt("game", "police_no_crimes", default="\n  犯罪记录：无")
         print(no_crimes)
@@ -179,14 +239,26 @@ def show_police_enforcement(messages):
         
         for msg in messages:
             enforcement_item = prompt_manager.get_prompt("game", "police_enforcement_item", default="  {msg}")
-            print(enforcement_item.format(msg=msg))
+            if isinstance(enforcement_item, str):
+                try:
+                    print(enforcement_item.format(msg=msg))
+                except (KeyError, ValueError):
+                    print(enforcement_item)
+            else:
+                print(enforcement_item)
 
 
 def show_virus_deaths(dead_players):
     """显示病毒致死"""
     for p in dead_players:
         virus_death_text = prompt_manager.get_prompt("game", "virus_death", default="  💀🦠 {player_name} 因病毒死亡！")
-        print(virus_death_text.format(player_name=p.name))
+        if isinstance(virus_death_text, str):
+            try:
+                print(virus_death_text.format(player_name=p.name))
+            except (KeyError, ValueError):
+                print(virus_death_text)
+        else:
+            print(virus_death_text)
 
 
 def show_help():

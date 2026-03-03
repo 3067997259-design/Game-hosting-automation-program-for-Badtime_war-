@@ -2,6 +2,7 @@
 
 from utils.attribute import Attribute, is_effective
 from models.equipment import ArmorLayer
+from engine.prompt_manager import prompt_manager
 
 def _get_hologram_bonus(target, game_state):
     """检查所有玩家天赋，看目标是否在全息影像中"""
@@ -44,7 +45,15 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
 
     raw = raw_damage
     result["raw_damage"] = raw
-    result["details"].append(f"外部伤害源：{raw}（{damage_attribute_str}）")
+    
+    # 使用提示管理器获取外部伤害源文本
+    external_damage_text = prompt_manager.get_prompt(
+        "combat", "external_damage_source",
+        default="外部伤害源：{damage}（{attribute}）"
+    )
+    result["details"].append(external_damage_text.format(
+        damage=raw, attribute=damage_attribute_str
+    ))
 
     # 量化
     final_damage = quantize_damage(raw)
@@ -58,12 +67,26 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         if armor_piece is not None:
             # 克制判定
             if not is_effective(damage_attr, armor_piece.attribute):
-                result["reason"] = (
-                    f"伤害属性「{damage_attribute_str}」"
-                    f"被护甲「{armor_piece.name}({armor_piece.attribute.value})」克制，无效！")
+                weapon_countered_text = prompt_manager.get_prompt(
+                    "combat", "weapon_countered",
+                    default="伤害属性「{weapon_attr}」被护甲「{armor_name}({armor_attr})」克制，无效！"
+                )
+                result["reason"] = weapon_countered_text.format(
+                    weapon_attr=damage_attribute_str,
+                    armor_name=armor_piece.name,
+                    armor_attr=armor_piece.attribute.value
+                )
                 result["details"].append(result["reason"])
                 return result
-            result["details"].append(f"攻击目标护甲：{armor_piece}")
+            
+            # 使用提示管理器获取攻击目标护甲文本
+            attack_target_text = prompt_manager.get_prompt(
+                "combat", "attack_target_armor",
+                default="攻击目标护甲：{armor_piece}"
+            )
+            result["details"].append(attack_target_text.format(
+                armor_piece=armor_piece
+            ))
             remaining = _apply_damage_to_armor(
                 target, armor_piece, remaining,
                 False, result
@@ -76,8 +99,17 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
-            result["details"].append(
-                f"生命受到 {remaining} 伤害 → HP: {target.hp}/{target.max_hp}")
+            
+            # 使用提示管理器获取HP伤害文本
+            hp_damage_text = prompt_manager.get_prompt(
+                "combat", "hp_damage_detailed",
+                default="生命受到 {damage} 伤害 → HP: {current_hp}/{max_hp}"
+            )
+            result["details"].append(hp_damage_text.format(
+                damage=remaining,
+                current_hp=target.hp,
+                max_hp=target.max_hp
+            ))
 
     result["target_hp"] = target.hp
 
@@ -87,10 +119,27 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         if prevented:
             result["killed"] = False
             result["target_hp"] = target.hp
-            result["details"].append(f"💫 死亡被天赋阻止！HP → {target.hp}")
+            
+            # 使用提示管理器获取死亡阻止文本（这是天赋特定的，但放在combat部分）
+            death_prevented_text = prompt_manager.get_prompt(
+                "combat", "death_prevented",
+                default="💫 记忆令毁灭的骄阳愈发明亮，不会落下…… HP → {target_hp}"
+            )
+            result["details"].append(death_prevented_text.format(
+                target_hp=target.hp
+            ))
         else:
             result["killed"] = True
-            result["details"].append(f"💀 {target.name} 被击杀！")
+            
+            # 使用提示管理器获取击杀文本
+            killed_text = prompt_manager.get_prompt(
+                "combat", "killed",
+                default="💀 {target_name} 被击杀！"
+            )
+            result["details"].append(killed_text.format(
+                target_name=target.name
+            ))
+            
             if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
                 attacker.talent.on_kill(attacker, target)
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
@@ -105,7 +154,24 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             target.is_stunned = True
             if game_state:
                 game_state.markers.add(target.player_id, "STUNNED")
-            result["details"].append(f"💫 {target.name} 进入眩晕状态！")
+            
+            # 使用提示管理器获取眩晕文本
+            stunned_text = prompt_manager.get_prompt(
+                "combat", "stunned_full",
+                default="💫 {target_name} 进入眩晕状态！"
+            )
+            result["details"].append(stunned_text.format(
+                target_name=target.name
+            ))
+        else:
+            # 使用提示管理器获取眩晕阻止文本
+            stun_prevented_text = prompt_manager.get_prompt(
+                "combat", "stun_prevented",
+                default="🔥 {target_name} 从不因为孱弱的攻击而倒下！"
+            )
+            result["details"].append(stun_prevented_text.format(
+                target_name=target.name
+            ))
 
     return result
 
@@ -168,18 +234,38 @@ def resolve_damage(attacker, target, weapon, game_state,
     raw = weapon.get_effective_damage()
     raw = raw * damage_multiplier + bonus_damage
     result["raw_damage"] = raw
-    result["details"].append(f"原始伤害：{raw}")
+    
+    # 使用提示管理器获取原始伤害文本
+    raw_damage_text = prompt_manager.get_prompt(
+        "combat", "raw_damage",
+        default="原始伤害：{damage}"
+    )
+    result["details"].append(raw_damage_text.format(damage=raw))
+    
     # ---- 血火受伤减免 ----
     if target.talent and hasattr(target.talent, 'modify_incoming_damage'):
         raw = target.talent.modify_incoming_damage(target, attacker, weapon, raw)
+        if raw != result["raw_damage"]:
+            # 使用提示管理器获取伤害减免文本
+            damage_reduced_text = prompt_manager.get_prompt(
+                "combat", "damage_reduced",
+                default="受伤减免后：{damage}"
+            )
+            result["details"].append(damage_reduced_text.format(damage=raw))
 
     # ---- 全息影像：目标在影像内额外+0.5 ----
     hologram_bonus = _get_hologram_bonus(target, game_state)
     if hologram_bonus > 0:
         raw += hologram_bonus
-        result["details"].append(f"👁️ 全息影像易伤：+{hologram_bonus}")
-        if raw != result["raw_damage"]:
-            result["details"].append(f"受伤减免后：{raw}")
+        
+        # 使用提示管理器获取全息影像易伤文本
+        hologram_text = prompt_manager.get_prompt(
+            "combat", "hologram_vulnerability",
+            default="👁️ 全息影像易伤：+{hologram_bonus}"
+        )
+        result["details"].append(hologram_text.format(
+            hologram_bonus=hologram_bonus
+        ))
 
     # ---- 第2步：选择攻击目标层和属性 ----
     armor_piece = _select_armor_target(target, target_layer, target_armor_attr)
@@ -188,16 +274,37 @@ def resolve_damage(attacker, target, weapon, game_state,
     if armor_piece is not None:
         if not ignore_counter and not ignore_element:
             if not is_effective(weapon.attribute, armor_piece.attribute):
-                result["reason"] = (f"武器「{weapon.attribute.value}」"
-                                    f"被护甲「{armor_piece.name}({armor_piece.attribute.value})」克制，无效！")
+                weapon_countered_text = prompt_manager.get_prompt(
+                    "combat", "weapon_countered",
+                    default="武器「{weapon_attr}」被护甲「{armor_name}({armor_attr})」克制，无效！"
+                )
+                result["reason"] = weapon_countered_text.format(
+                    weapon_attr=weapon.attribute.value,
+                    armor_name=armor_piece.name,
+                    armor_attr=armor_piece.attribute.value
+                )
                 result["details"].append(result["reason"])
                 return result
-        result["details"].append(f"攻击目标护甲：{armor_piece}")
+        
+        # 使用提示管理器获取攻击目标护甲文本
+        attack_target_text = prompt_manager.get_prompt(
+            "combat", "attack_target_armor",
+            default="攻击目标护甲：{armor_piece}"
+        )
+        result["details"].append(attack_target_text.format(
+            armor_piece=armor_piece
+        ))
 
     # ---- 第4步：伤害量化 ----
     final_damage = quantize_damage(raw)
     result["final_damage"] = final_damage
-    result["details"].append(f"量化后伤害：{final_damage}")
+    
+    # 使用提示管理器获取量化伤害文本
+    quantized_text = prompt_manager.get_prompt(
+        "combat", "quantized_damage",
+        default="量化后伤害：{damage}"
+    )
+    result["details"].append(quantized_text.format(damage=final_damage))
 
     # ---- 第5步：扣减护甲/生命 ----
     remaining = final_damage
@@ -216,8 +323,17 @@ def resolve_damage(attacker, target, weapon, game_state,
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
-            result["details"].append(
-                f"生命受到 {remaining} 伤害 → HP: {target.hp}/{target.max_hp}")
+            
+            # 使用提示管理器获取HP伤害文本
+            hp_damage_text = prompt_manager.get_prompt(
+                "combat", "hp_damage_detailed",
+                default="生命受到 {damage} 伤害 → HP: {current_hp}/{max_hp}"
+            )
+            result["details"].append(hp_damage_text.format(
+                damage=remaining,
+                current_hp=target.hp,
+                max_hp=target.max_hp
+            ))
 
     result["target_hp"] = target.hp
 
@@ -227,10 +343,27 @@ def resolve_damage(attacker, target, weapon, game_state,
         if prevented:
             result["killed"] = False
             result["target_hp"] = target.hp
-            result["details"].append(f"💫 记忆令毁灭的骄阳愈发明亮，不会落下…… HP → {target.hp}")
+            
+            # 使用提示管理器获取死亡阻止文本
+            death_prevented_text = prompt_manager.get_prompt(
+                "combat", "death_prevented",
+                default="💫 记忆令毁灭的骄阳愈发明亮，不会落下…… HP → {target_hp}"
+            )
+            result["details"].append(death_prevented_text.format(
+                target_hp=target.hp
+            ))
         else:
             result["killed"] = True
-            result["details"].append(f"💀 {target.name} 被击杀！")
+            
+            # 使用提示管理器获取击杀文本
+            killed_text = prompt_manager.get_prompt(
+                "combat", "killed",
+                default="💀 {target_name} 被击杀！"
+            )
+            result["details"].append(killed_text.format(
+                target_name=target.name
+            ))
+            
             if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
                 attacker.talent.on_kill(attacker, target)
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
@@ -245,9 +378,24 @@ def resolve_damage(attacker, target, weapon, game_state,
             target.is_stunned = True
             if game_state:
                 game_state.markers.add(target.player_id, "STUNNED")
-            result["details"].append(f"💫 {target.name} 进入眩晕状态！")
+            
+            # 使用提示管理器获取眩晕文本
+            stunned_text = prompt_manager.get_prompt(
+                "combat", "stunned_full",
+                default="💫 {target_name} 进入眩晕状态！"
+            )
+            result["details"].append(stunned_text.format(
+                target_name=target.name
+            ))
         else:
-            result["details"].append(f"🔥 {target.name} 从不因为孱弱的攻击而倒下！")
+            # 使用提示管理器获取眩晕阻止文本
+            stun_prevented_text = prompt_manager.get_prompt(
+                "combat", "stun_prevented",
+                default="🔥 {target_name} 从不因为孱弱的攻击而倒下！"
+            )
+            result["details"].append(stun_prevented_text.format(
+                target_name=target.name
+            ))
 
     # ---- 愿负世：被攻击时积累神性 ----
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
@@ -311,8 +459,16 @@ def _apply_damage_to_armor(target, armor_piece, damage,
         armor_piece.current_hp = 0
         armor_piece.is_broken = True
         result["armor_broken"] = True
-        result["details"].append(
-            f"护甲「{armor_piece.name}」被击破！溢出：{overflow}")
+        
+        # 使用提示管理器获取护甲击破文本
+        armor_destroyed_text = prompt_manager.get_prompt(
+            "combat", "armor_destroyed_detailed",
+            default="护甲「{armor_name}」被击破！溢出：{overflow}"
+        )
+        result["details"].append(armor_destroyed_text.format(
+            armor_name=armor_piece.name,
+            overflow=overflow
+        ))
 
         # 最后内层吸收溢出
         is_last = target.armor.is_last_inner(armor_piece)
@@ -323,8 +479,17 @@ def _apply_damage_to_armor(target, armor_piece, damage,
             return overflow
     else:
         armor_piece.current_hp -= damage
-        result["details"].append(
-            f"护甲「{armor_piece.name}」剩余 {armor_piece.current_hp}/{armor_piece.max_hp}")
+        
+        # 使用提示管理器获取护甲受损文本
+        armor_damaged_text = prompt_manager.get_prompt(
+            "combat", "armor_damaged",
+            default="护甲「{armor_name}」剩余 {current_hp}/{max_hp}"
+        )
+        result["details"].append(armor_damaged_text.format(
+            armor_name=armor_piece.name,
+            current_hp=armor_piece.current_hp,
+            max_hp=armor_piece.max_hp
+        ))
         return 0
 
 
