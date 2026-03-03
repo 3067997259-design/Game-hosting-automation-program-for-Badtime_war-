@@ -61,11 +61,11 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
     result["success"] = True
     remaining = final_damage
 
-    # 护甲结算（仅有属性型伤害走护甲）
-    if damage_attr is not None:
-        armor_piece = _select_armor_target(target, None, None)
-        if armor_piece is not None:
-            # 克制判定
+    # 护甲结算
+    armor_piece = _select_armor_target(target, None, None)
+    if armor_piece is not None:
+        # 克制判定（仅当有属性时）
+        if damage_attr is not None:
             if not is_effective(damage_attr, armor_piece.attribute):
                 weapon_countered_text = prompt_manager.get_prompt(
                     "combat", "weapon_countered",
@@ -78,19 +78,19 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 )
                 result["details"].append(result["reason"])
                 return result
-            
-            # 使用提示管理器获取攻击目标护甲文本
-            attack_target_text = prompt_manager.get_prompt(
-                "combat", "attack_target_armor",
-                default="攻击目标护甲：{armor_piece}"
-            )
-            result["details"].append(attack_target_text.format(
-                armor_piece=armor_piece
-            ))
-            remaining = _apply_damage_to_armor(
-                target, armor_piece, remaining,
-                False, result
-            )
+        
+        # 使用提示管理器获取攻击目标护甲文本
+        attack_target_text = prompt_manager.get_prompt(
+            "combat", "attack_target_armor",
+            default="攻击目标护甲：{armor_piece}"
+        )
+        result["details"].append(attack_target_text.format(
+            armor_piece=armor_piece
+        ))
+        remaining = _apply_damage_to_armor(
+            target, armor_piece, remaining,
+            False, result
+        )
 
     # 扣血
     if remaining > 0:

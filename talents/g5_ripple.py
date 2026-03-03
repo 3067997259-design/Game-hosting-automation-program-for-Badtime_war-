@@ -1163,29 +1163,23 @@ class Ripple(BaseTalent):
             old_hp = target.hp
             result = None
 
-            if dtype == "无视属性克制":
-                target.hp = round(max(0, target.hp - 1.0), 2)
-                lines.append(
-                    f"   → {target.name}（{dtype}）："
-                    f" HP {old_hp} → {target.hp}")
-            else:
-                result = resolve_damage(
-                    attacker=caster,
-                    target=target,
-                    weapon=None,
-                    game_state=self.state,
-                    raw_damage_override=1.0,
-                    damage_attribute_override=dtype,
-                )
-                lines.append(
-                    f"   → {target.name}（{dtype}）："
-                    f" HP {old_hp} → {target.hp}")
-                for detail in result.get("details", []):
-                    lines.append(f"      {detail}")
+            # 对所有伤害类型都使用 resolve_damage
+            result = resolve_damage(
+                attacker=caster,
+                target=target,
+                weapon=None,
+                game_state=self.state,
+                raw_damage_override=1.0,
+            damage_attribute_override=dtype,
+            )
+            lines.append(
+                f"   → {target.name}（{dtype}）："
+                f" HP {old_hp} → {target.hp}")
+            for detail in result.get("details", []):
+                lines.append(f"      {detail}")
 
-            killed = result.get("killed") if result else (target.hp <= 0)
-            stunned = result.get("stunned") if result else (
-                target.hp <= 0.5 and not target.is_stunned)
+                killed = result.get("killed", False)
+                stunned = result.get("stunned", False)
 
             if killed:
                 self.state.markers.on_player_death(target.player_id)
