@@ -1022,10 +1022,43 @@ class BasicAIController(PlayerController):
 
         # ══════ 阶段5：内层护甲 ══════
         elif not has_inner_armor:
-            if loc == "医院":
-                plan.append("interact 晶化皮肤手术")
+            # 如果在魔法所，优先学习其他有用的魔法
+            if loc == "魔法所":
+                # 检查是否有其他重要魔法可以学习
+                other_spells = ["魔法弹幕", "远程魔法弹幕", "地震", "地动山摇", "魔法护盾", "封闭"]
+                spell_learned = False
+                for spell in other_spells:
+                    if self._can_learn(player, spell):
+                        plan.append(f"interact {spell}")
+                        spell_learned = True
+                        print(f"🤖 [{player.name}] 在魔法所，优先学习 {spell}")
+                        break
+                if not spell_learned:
+                    # 没有其他魔法可学，去医院（但需要凭证）
+                    if has_credential:  # 有凭证才去医院做手术
+                        plan.append("move 医院")
+                        print(f"🤖 [{player.name}] 有凭证，前往医院做手术")
+                    else:
+                        # 没有凭证，继续发育其他项目
+                        plan.append("move 商店")
+                        print(f"🤖 [{player.name}] 没有凭证，不去医院，去商店发育")
+            elif loc == "医院":
+                if has_credential:  # 有凭证才做手术
+                    plan.append("interact 晶化皮肤手术")
+                    print(f"🤖 [{player.name}] 在医院且有凭证，进行手术")
+                else:
+                    # 没有凭证，离开医院
+                    plan.append("move 商店")
+                    print(f"🤖 [{player.name}] 在医院但没有凭证，离开医院")
             else:
-                plan.append("move 医院")
+                # 不在魔法所或医院，检查是否有凭证
+                if has_credential:
+                    plan.append("move 医院")
+                    print(f"🤖 [{player.name}] 有凭证，前往医院")
+                else:
+                    # 没有凭证，先去获取凭证或发育
+                    plan.append("move 商店")
+                    print(f"🤖 [{player.name}] 没有凭证，先不去医院")
 
         # ══════ 阶段6：额外发育 ══════
         else:
