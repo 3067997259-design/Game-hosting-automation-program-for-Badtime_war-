@@ -3,11 +3,16 @@
 定义所有钩子接口，子类重写需要的方法。
 """
 
+from engine.prompt_manager import prompt_manager, PromptLevel
+
 
 class BaseTalent:
     name = "未命名天赋"
     description = "无描述"
     tier = "原初"  # "原初" 或 "神代"
+    
+    # 诗意文案（子类可覆盖）
+    lore = []
 
     def __init__(self, player_id, game_state):
         self.player_id = player_id
@@ -102,6 +107,56 @@ class BaseTalent:
         返回消息字符串。
         """
         return ""
+
+    # ---- 诗意文案显示 ----
+
+    def show_lore(self, level=PromptLevel.NORMAL):
+        """
+        显示天赋的叙事文案。
+        子类可覆盖此方法以自定义显示逻辑。
+        """
+        talent_key = self._get_talent_key()
+        prompt_manager.show_talent_lore(talent_key, level)
+
+    def _get_talent_key(self):
+        """
+        获取天赋在prompts.json中的键名。
+        默认规则：类名转小写，移除前缀。
+        例如：G1MythFire → g1mythfire, OneSlash → t1oneslash
+        """
+        class_name = self.__class__.__name__
+        return class_name.lower()
+
+    def get_full_description(self):
+        """
+        获取天赋的完整描述（叙事+机制）。
+        返回字典：{"lore": [...], "mechanic": "...", "rules": "..."}
+        """
+        talent_key = self._get_talent_key()
+        lore = prompt_manager.get_prompt("talent", f"{talent_key}.lore", default=[])
+        return {
+            "lore": lore if lore else self.lore,
+            "mechanic": self.description,
+            "rules": self._get_rules_text()
+        }
+
+    def _get_rules_text(self):
+        """子类可覆盖以提供规则文本"""
+        return ""
+
+    # ---- 天赋激活提示 ----
+
+    def show_activation(self, player_name=None, **kwargs):
+        """
+        显示天赋激活提示。
+        默认使用talent.{key}.activate模板。
+        """
+        talent_key = self._get_talent_key()
+        if player_name is None:
+            player_name = self.state.get_player(self.player_id).name
+        return prompt_manager.show("talent", f"{talent_key}.activate",
+                                  player_name=player_name, **kwargs,
+                                  level=PromptLevel.IMPORTANT)
 
     # ---- 描述 ----
 
