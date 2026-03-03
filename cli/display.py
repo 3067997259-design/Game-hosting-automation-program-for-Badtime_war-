@@ -1,6 +1,11 @@
 """显示与输出模块（Phase 3 完整版）"""
+"""
+注意：本模块已重构为使用统一的提示管理系统。
+所有提示文本现在存储在 data/prompts.json 中，便于玩家自定义修改。
+"""
 
 import getpass
+from engine.prompt_manager import prompt_manager, show_info as pm_show_info, show_error as pm_show_error, show_warning as pm_show_warning
 
 
 def clear_screen():
@@ -8,48 +13,63 @@ def clear_screen():
 
 
 def show_banner():
-    print("=" * 60)
-    print("        ⚔️  起 闯 战 争 （ 大 嘘 ⚔️")
-    print("        Badtime War CLI DM ver1.6")
-    print("=" * 60)
-    print()
+    """显示游戏横幅"""
+    banner_text = prompt_manager.get_prompt("ui", "banner", default="=" * 60 + "\n        ⚔️  起 闯 战 争 （ 大 嘘 ⚔️\n        Badtime War CLI DM ver1.6\n" + "=" * 60 + "\n")
+    print(banner_text)
 
 
 def show_round_header(round_num):
-    print()
-    print(f"{'='*60}")
-    print(f"  📅 全局轮次 {round_num}")
-    print(f"{'='*60}")
+    """显示全局轮次标题"""
+    header_text = prompt_manager.get_prompt("ui", "round_header", default=f"{'='*60}\n  📅 全局轮次 {round_num}\n{'='*60}\n")
+    print(header_text)
 
 
 def show_phase(phase_name):
-    print(f"\n--- {phase_name} ---")
+    """显示阶段标题"""
+    phase_text = prompt_manager.get_prompt("ui", "phase_header", default=f"\n--- {phase_name} ---").format(phase_name=phase_name)
+    print(phase_text)
 
 
 def show_d4_results(results, bonuses, winners):
-    print("\n🎲 D4 投掷结果：")
+    """显示D4投掷结果"""
+    # 标题
+    title = prompt_manager.get_prompt("game", "d4_results", default="\n🎲 D4 投掷结果：")
+    print(title)
+    
+    # 每个玩家的结果
     for name, roll in results.items():
         bonus = bonuses.get(name, 0)
         final = min(roll + bonus, 4)
         bonus_str = f" +{bonus}保底" if bonus > 0 else ""
         cap_str = " (封顶4)" if roll + bonus > 4 else ""
-        print(f"  {name}: 骰出 {roll}{bonus_str}{cap_str} → 最终 {final}")
+        
+        result_text = prompt_manager.get_prompt("game", "d4_player_result", default="  {name}: 骰出 {roll}{bonus_str}{cap_str} → 最终 {final}")
+        print(result_text.format(
+            name=name, roll=roll, bonus_str=bonus_str, 
+            cap_str=cap_str, final=final
+        ))
+    
+    # 胜者
     winner_names = ", ".join(winners)
-    print(f"  🏆 本轮胜者：{winner_names}")
+    winner_text = prompt_manager.get_prompt("game", "d4_winners", default="  🏆 本轮胜者：{winner_names}")
+    print(winner_text.format(winner_names=winner_names))
 
 
 def show_action_turn_header(player_name):
-    print(f"\n{'─'*50}")
-    print(f"  ▶ 轮到 {player_name} 行动")
-    print(f"{'─'*50}")
+    """显示行动回合标题"""
+    header_text = prompt_manager.get_prompt("ui", "action_turn_header", default=f"\n{'─'*50}\n  ▶ 轮到 {player_name} 行动\n{'─'*50}").format(player_name=player_name)
+    print(header_text)
 
 
 def show_player_status(player, game_state):
+    """显示单个玩家状态"""
     print()
     print(player.describe_status())
+    
     marker_desc = game_state.markers.describe_markers(player.player_id)
     if marker_desc != "无异常":
         print(f"  状态标记：{marker_desc}")
+    
     if player.location:
         others = [p for p in game_state.alive_players()
                   if p.location == player.location
@@ -70,53 +90,71 @@ def show_player_status(player, game_state):
 
 
 def show_available_actions(actions):
-    print("\n  可执行的行动：")
+    """显示可执行行动列表"""
+    header = prompt_manager.get_prompt("ui", "available_actions_header", default="\n  可执行的行动：")
+    print(header)
+    
     for i, act in enumerate(actions, 1):
-        print(f"    {i}. {act['usage']:30s} - {act['description']}")
+        action_item = prompt_manager.get_prompt("ui", "action_item", default="    {index}. {usage:30s} - {description}")
+        print(action_item.format(index=i, usage=act['usage'], description=act['description']))
+    
     print(f"    status | allstatus | police | help")
 
 
 def show_result(msg):
-    print(f"\n  📋 {msg}")
+    """显示结果信息"""
+    result_text = prompt_manager.get_prompt("game", "result", default="\n  📋 {msg}")
+    print(result_text.format(msg=msg))
 
 
 def show_error(msg):
-    print(f"\n  ❌ {msg}")
+    """显示错误信息"""
+    error_text = prompt_manager.get_prompt("game", "error", default="\n  ❌ {msg}")
+    print(error_text.format(msg=msg))
 
 
 def show_info(msg):
-    print(f"\n  ℹ️  {msg}")
+    """显示一般信息"""
+    info_text = prompt_manager.get_prompt("game", "info", default="\n  ℹ️  {msg}")
+    print(info_text.format(msg=msg))
 
 
 def show_victory(player_name):
-    print()
-    print("🎉" * 20)
-    print(f"\n  👑 {player_name} 获得了最终胜利！")
-    print(f"\n  游戏结束！")
-    print("🎉" * 20)
+    """显示胜利信息"""
+    victory_text = prompt_manager.get_prompt("game", "victory", default="\n🎉" * 20 + f"\n\n  👑 {player_name} 获得了最终胜利！\n\n  游戏结束！\n" + "🎉" * 20)
+    print(victory_text.format(player_name=player_name))
 
 
 def show_death(player_name, cause):
-    print(f"\n  💀 {player_name} 死亡！原因：{cause}")
+    """显示死亡信息"""
+    death_text = prompt_manager.get_prompt("game", "death", default="\n  💀 {player_name} 死亡！原因：{cause}")
+    print(death_text.format(player_name=player_name, cause=cause))
 
 
 def show_police_status(game_state):
     """显示警察系统状态"""
-    print(f"\n{'='*50}")
-    print("  🚔 警察系统状态")
-    print(f"{'='*50}")
+    header = prompt_manager.get_prompt("game", "police_status_header", default=f"\n{'='*50}\n  🚔 警察系统状态\n{'='*50}")
+    print(header)
+    
     print(game_state.police.describe())
+    
     # 犯罪记录
     criminals = [(pid, crimes) for pid, crimes
                  in game_state.police.crime_records.items() if crimes]
+    
     if criminals:
-        print(f"\n  犯罪记录：")
+        crime_header = prompt_manager.get_prompt("game", "police_crime_records", default="\n  犯罪记录：")
+        print(crime_header)
+        
         for pid, crimes in criminals:
             p = game_state.get_player(pid)
             name = p.name if p else pid
-            print(f"    {name}: {', '.join(crimes)}")
+            crime_item = prompt_manager.get_prompt("game", "police_crime_record_item", default="    {name}: {crimes}")
+            print(crime_item.format(name=name, crimes=", ".join(crimes)))
     else:
-        print(f"\n  犯罪记录：无")
+        no_crimes = prompt_manager.get_prompt("game", "police_no_crimes", default="\n  犯罪记录：无")
+        print(no_crimes)
+    
     print(f"{'='*50}")
 
 
@@ -128,20 +166,24 @@ def show_virus_status(game_state):
 def show_police_enforcement(messages):
     """显示警察执法结果"""
     if messages:
-        print(f"\n  🚔 警察执法：")
+        enforcement_header = prompt_manager.get_prompt("game", "police_enforcement", default="\n  🚔 警察执法：")
+        print(enforcement_header)
+        
         for msg in messages:
-            print(f"  {msg}")
+            enforcement_item = prompt_manager.get_prompt("game", "police_enforcement_item", default="  {msg}")
+            print(enforcement_item.format(msg=msg))
 
 
 def show_virus_deaths(dead_players):
     """显示病毒致死"""
     for p in dead_players:
-        print(f"  💀🦠 {p.name} 因病毒死亡！")
+        virus_death_text = prompt_manager.get_prompt("game", "virus_death", default="  💀🦠 {player_name} 因病毒死亡！")
+        print(virus_death_text.format(player_name=p.name))
 
 
 def show_help():
-    print("""
-╔═══════════════════════════════════════════════════════════════╗
+    """显示指令帮助"""
+    help_text = prompt_manager.get_prompt("help", "main", default="""\n╔═══════════════════════════════════════════════════════════════╗
 ║                        指令帮助                               ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║  wake                              - 起床                    ║
@@ -169,29 +211,39 @@ def show_help():
 ║  攻击示例：attack Bob 小刀 外层 普通                          ║
 ║  地点：home 商店 魔法所 医院 军事基地 警察局                  ║
 ║  克制：普通→魔法 魔法→科技 科技→普通 同属性有效              ║
-╚═══════════════════════════════════════════════════════════════╝
-""")
+╚═══════════════════════════════════════════════════════════════╝\n""")
+    print(help_text)
 
 
 def prompt_input(player_name):
+    """提示输入指令"""
     return input(f"\n  [{player_name}] 请输入指令 > ").strip()
 
 
 def prompt_secret(prompt_text):
+    """提示秘密输入"""
     clear_screen()
-    print(f"\n  🔒 请其他玩家移开视线！")
+    
+    secret_prompt = prompt_manager.get_prompt("system", "secret_prompt", default="\n  🔒 请其他玩家移开视线！")
+    print(secret_prompt)
+    
     try:
         value = getpass.getpass(f"  {prompt_text} > ")
     except EOFError:
         value = ""
-    print(f"  ✓ 已记录")
+    
+    recorded_text = prompt_manager.get_prompt("system", "secret_recorded", default="  ✓ 已记录")
+    print(recorded_text)
+    
     return value.strip()
 
 
 def prompt_choice(prompt_text, options):
+    """提示选择"""
     print(f"\n  {prompt_text}")
     for i, opt in enumerate(options, 1):
         print(f"    {i}. {opt}")
+    
     while True:
         raw = input("  请选择（输入编号或名称）> ").strip()
         try:
@@ -200,18 +252,22 @@ def prompt_choice(prompt_text, options):
                 return options[idx]
         except ValueError:
             pass
+        
         if raw in options:
             return raw
+        
         for opt in options:
             if raw.lower() in opt.lower():
                 return opt
+        
         print(f"  请输入有效的选项。")
 
 
 def show_all_players_status(game_state):
-    print(f"\n{'='*50}")
-    print("  📊 全场玩家状态")
-    print(f"{'='*50}")
+    """显示全场玩家状态"""
+    header = prompt_manager.get_prompt("ui", "all_players_status_header", default=f"\n{'='*50}\n  📊 全场玩家状态\n{'='*50}")
+    print(header)
+    
     for pid in game_state.player_order:
         p = game_state.get_player(pid)
         if p:
@@ -221,8 +277,33 @@ def show_all_players_status(game_state):
             marker_desc = game_state.markers.describe_markers(pid)
             if marker_desc != "无异常":
                 print(f"  状态标记：{marker_desc}")
+    
     # 病毒状态
     if game_state.virus.is_active:
         print()
         show_virus_status(game_state)
+    
     print(f"{'='*50}")
+
+
+# 兼容性函数：直接使用提示管理器的高级功能
+def show_critical(msg):
+    """显示关键信息"""
+    pm_show_error("error", "critical", msg=msg)
+
+
+def show_warning(msg):
+    """显示警告信息"""
+    pm_show_warning("error", "warning", msg=msg)
+
+
+# 直接访问提示管理器的便捷函数
+def get_prompt(category, key, **kwargs):
+    """获取提示文本"""
+    return prompt_manager.get_prompt(category, key, **kwargs)
+
+
+def show_prompt(category, key, **kwargs):
+    """显示提示"""
+    text = prompt_manager.get_prompt(category, key, **kwargs)
+    print(text)
