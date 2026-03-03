@@ -110,10 +110,13 @@ class BaseTalent:
 
     # ---- 诗意文案显示 ----
 
-    def show_lore(self, level=PromptLevel.NORMAL):
+    def show_lore(self, level=None):
         """
         显示天赋的叙事文案。
-        子类可覆盖此方法以自定义显示逻辑。
+        
+        Args:
+            level: 提示级别，None表示使用配置的talent_lore_level
+                  默认为None，让prompt_manager根据配置决定显示级别
         """
         talent_key = self._get_talent_key()
         prompt_manager.show_talent_lore(talent_key, level)
@@ -157,8 +160,8 @@ class BaseTalent:
             **kwargs: 传递给激活文本的变量
         """
         # 显示天赋叙事文案（如果配置允许）
-        if show_lore and prompt_manager.config.get("show_talent_lore", True):
-            self.show_lore()
+        if show_lore:
+            self.show_lore(level=None)
         
         # 显示激活文本
         talent_key = self._get_talent_key()
