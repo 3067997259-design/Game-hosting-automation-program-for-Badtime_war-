@@ -199,7 +199,7 @@
     "debug_disabled": "🔧 调试模式已禁用",
     "game_start": "游戏开始！",
     "game_interrupted": "\n\n  游戏被手动中断。\n  感谢游玩《起闯战争》！",
-    "clear_screen": "\n" * 50,
+    "clear_screen": "",
     "secret_prompt": "🔒 请其他玩家移开视线！",
     "secret_recorded": "  ✓ 已记录"
   },
