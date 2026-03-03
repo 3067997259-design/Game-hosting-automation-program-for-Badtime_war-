@@ -35,7 +35,21 @@
     "armor_destroyed": "  💔 {target} 的 {armor_name} 被击破！",
     "hp_damage": "  ❤️ {target} 生命值减少 {damage} 点，剩余 {remaining_hp}",
     "stunned": "  💫 {target} 被眩晕！",
-    "critical_hit": "  💢 暴击！伤害翻倍！"
+    "critical_hit": "  💢 暴击！伤害翻倍！",
+    "hologram_vulnerability": "👁️ 全息影像易伤：+{hologram_bonus}",
+    "death_prevented": "💫 记忆令毁灭的骄阳愈发明亮，不会落下…… HP → {target_hp}",
+    "killed": "💀 {target_name} 被击杀！",
+    "stunned_full": "💫 {target_name} 进入眩晕状态！",
+    "stun_prevented": "🔥 {target_name} 从不因为孱弱的攻击而倒下！",
+    "armor_destroyed_detailed": "护甲「{armor_name}」被击破！溢出：{overflow}",
+    "armor_damaged": "护甲「{armor_name}」剩余 {current_hp}/{max_hp}",
+    "external_damage_source": "外部伤害源：{damage}（{attribute}）",
+    "raw_damage": "原始伤害：{damage}",
+    "quantized_damage": "量化后伤害：{damage}",
+    "hp_damage_detailed": "生命受到 {damage} 伤害 → HP: {current_hp}/{max_hp}",
+    "attack_target_armor": "攻击目标护甲：{armor_piece}",
+    "weapon_countered": "武器「{weapon_attr}」被护甲「{armor_name}({armor_attr})」克制，无效！",
+    "damage_reduced": "受伤减免后：{damage}"
   },
   
   "talent": {
