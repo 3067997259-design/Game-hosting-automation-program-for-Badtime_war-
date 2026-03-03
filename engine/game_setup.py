@@ -5,6 +5,7 @@ from models.equipment import make_weapon
 from engine.game_state import GameState
 from engine.response_window import ResponseWindowManager
 from engine.debug_config import enable_debug, debug_info, debug_system
+from engine.prompt_manager import prompt_manager
 from cli.display import show_banner, show_info
 
 from controllers.human import HumanController
@@ -18,7 +19,7 @@ from talents.t5_delinquent import Delinquent
 from talents.t6_good_citizen import GoodCitizen
 from talents.t7_resurrection import Resurrection
 from talents.g4_savior import Savior
-from talents.g1_blood_fire import BloodFire
+from talents.g1_firefly import G1MythFire
 from talents.g2_hologram import Hologram
 from talents.g3_mythland import Mythland
 from talents.g5_ripple import Ripple
@@ -40,8 +41,8 @@ TALENT_TABLE = [
      "常驻：远程举报+扩展犯罪名单+竞选-1回合"),
     (7, "死者苏生", Resurrection,
      "学习2回合→挂载目标→目标死亡时在家重生"),
-    (8, "神代天赋-血火啊，燃烧前路", BloodFire,
-     "开局触发，见证浴血战神、天生王者的末路"),
+    (8, "神代天赋-火萤Ⅳ型-完全燃烧", G1MythFire,
+     "常驻：伤害+100%/受伤-50%/0.5血不眩晕。后期debuff扣护甲。"),
     (9, "神代天赋-请一直，注视着我", Hologram,
      "主动1次：给你一次成为聚光灯下最闪耀者的机会"),
     (10, "神代天赋-神话之外", Mythland,
@@ -75,7 +76,16 @@ AI_NAME_POOL = [
 
 
 def setup_game():
-    show_banner()
+    # ════════════════════════════════════════════════════════
+    #  初始化提示管理系统
+    # ════════════════════════════════════════════════════════
+    prompt_manager.load_prompts()
+    prompt_manager.load_config()
+    
+    # 使用新的提示系统显示横幅
+    from engine.prompt_manager import show_info as pm_show_info
+    pm_show_info("ui", "banner")
+    
     game_state = GameState()
     # ════════════════════════════════════════════════════════
     #  调试模式选择

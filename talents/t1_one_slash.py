@@ -5,8 +5,8 @@ T0启动，选任意近战武器+面对面目标。
 本次攻击：伤害+100%，无视属性克制，最后内层不吸收溢出。
 """
 
-from talents.base_talent import BaseTalent
-from cli import display
+from talents.base_talent import BaseTalent, PromptLevel
+from engine.prompt_manager import prompt_manager
 
 
 class OneSlash(BaseTalent):
@@ -35,13 +35,15 @@ class OneSlash(BaseTalent):
 
     def execute_t0(self, player):
         if self.uses_remaining <= 0:
-            return "❌ 一刀缭断已用完", False
+            return prompt_manager.get_prompt("error", "action_failed", 
+                                           reason="一刀缭断已用完", default="❌ 一刀缭断已用完"), False
 
         # 选择近战武器
         from models.equipment import WeaponRange
         melee = [w for w in player.weapons if w.weapon_range == WeaponRange.MELEE]
         if not melee:
-            return "❌ 你没有近战武器", False
+            return prompt_manager.get_prompt("error", "action_failed",
+                                           reason="没有近战武器", default="❌ 你没有近战武器"), False
 
         if len(melee) == 1:
             weapon = melee[0]
@@ -64,7 +66,9 @@ class OneSlash(BaseTalent):
                 valid_targets.append(ep)
 
         if not valid_targets:
-            return "❌ 没有可攻击的面对面目标", False
+            return prompt_manager.get_prompt("error", "action_failed",
+                                           reason="没有可攻击的面对面目标", 
+                                           default="❌ 没有可攻击的面对面目标"), False
 
         if len(valid_targets) == 1:
             target = valid_targets[0]
@@ -81,6 +85,9 @@ class OneSlash(BaseTalent):
         # 执行特殊攻击
         self.uses_remaining -= 1
 
+        # 显示激活提示
+        self.show_activation(player.name)
+
         from combat.damage_resolver import resolve_damage
         result = resolve_damage(
             attacker=player,
@@ -91,19 +98,32 @@ class OneSlash(BaseTalent):
             ignore_counter=True,
             ignore_last_inner_absorb=True,
         )
-        lines = [f"⚔️ 一刀缭断！{player.name} 用「{weapon.name}」斩向 {target.name}！"]
-        lines.append(f"   （伤害×2 + 无视属性克制 + 无视最后内层吸收）")
+        
+        # 构建攻击结果消息
+        attack_msg = prompt_manager.get_prompt("talent", "t1oneslash.attack",
+                                              default="⚔️ 一刀缭断！{player_name} 用「{weapon_name}」斩向 {target_name}！",
+                                              player_name=player.name, 
+                                              weapon_name=weapon.name,
+                                              target_name=target.name)
+        
+        effect_msg = prompt_manager.get_prompt("talent", "t1oneslash.effect",
+                                              default="   （伤害×2 + 无视属性克制 + 无视最后内层吸收）")
+        
+        lines = [attack_msg, effect_msg]
         for detail in result.get("details", []):
             lines.append(f"   {detail}")
 
         if result.get("killed"):
             player.kill_count += 1
             self.state.markers.on_player_death(target.player_id)
-            display.show_death(target.name, f"被 {player.name} 的一刀缭断击杀")
+            # 使用游戏中的死亡提示
+            prompt_manager.show("game", "death",
+                               player_name=target.name,
+                               cause=f"被 {player.name} 的一刀缭断击杀",
+                               level=PromptLevel.CRITICAL)
 
         msg = "\n".join(lines)
         return msg, True
 
     def describe_status(self):
         return f"剩余次数：{self.uses_remaining}"
-

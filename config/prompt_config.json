@@ -1,0 +1,18 @@
+{
+  "verbosity": 2,
+  "show_timestamps": false,
+  "use_colors": true,
+  "language": "zh_CN",
+  "debug": {
+    "ai_min_level": 1,
+    "system_min_level": 1,
+    "show_warnings": true,
+    "show_errors": true,
+    "show_info": true
+  },
+  "ui": {
+    "compact_mode": false,
+    "show_icons": true,
+    "max_line_length": 80
+  }
+}
