@@ -1,0 +1,117 @@
+{
+  "ui": {
+    "banner": "╔═══════════════════════════════════════════════════════════╗\n║        ⚔️  起 闯 战 争 （ 大 嘘 ⚔️             ║\n║        Badtime War CLI DM ver1.6                ║\n╚═══════════════════════════════════════════════════════════╝",
+    "round_header": "═══════════════════════════════════════════════════════════════\n  📅 全局轮次 {round_num}\n═══════════════════════════════════════════════════════════════",
+    "phase_header": "--- {phase_name} ---",
+    "action_turn_header": "──────────────────────────────────────────────────\n  ▶ 轮到 {player_name} 行动\n──────────────────────────────────────────────────",
+    "player_status_header": "📊 玩家状态",
+    "all_players_status_header": "═══════════════════════════════════════════════════════════════\n  📊 全场玩家状态\n═══════════════════════════════════════════════════════════════",
+    "available_actions_header": "  可执行的行动：",
+    "action_item": "    {index}. {usage:30s} - {description}"
+  },
+  
+  "game": {
+    "d4_results": "🎲 D4 投掷结果：",
+    "d4_player_result": "  {name}: 骰出 {roll}{bonus_str}{cap_str} → 最终 {final}",
+    "d4_winners": "  🏆 本轮胜者：{winner_names}",
+    "result": "  📋 {msg}",
+    "error": "  ❌ {msg}",
+    "info": "  ℹ️  {msg}",
+    "victory": "🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉\n\n  👑 {player_name} 获得了最终胜利！\n\n  游戏结束！\n🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉",
+    "death": "  💀 {player_name} 死亡！原因：{cause}",
+    "police_status_header": "═══════════════════════════════════════════════════════════════\n  🚔 警察系统状态\n═══════════════════════════════════════════════════════════════",
+    "police_crime_records": "  犯罪记录：",
+    "police_crime_record_item": "    {name}: {crimes}",
+    "police_no_crimes": "  犯罪记录：无",
+    "police_enforcement": "  🚔 警察执法：",
+    "police_enforcement_item": "  {msg}",
+    "virus_death": "  💀🦠 {player_name} 因病毒死亡！"
+  },
+  
+  "combat": {
+    "attack_hit": "  🗡️ {attacker} 使用 {weapon} 攻击 {target}！",
+    "attack_miss": "  🛡️ {attacker} 的攻击被 {target} 的护甲克制，无效！",
+    "damage_calc": "  💥 造成 {damage} 点伤害！",
+    "armor_destroyed": "  💔 {target} 的 {armor_name} 被击破！",
+    "hp_damage": "  ❤️ {target} 生命值减少 {damage} 点，剩余 {remaining_hp}",
+    "stunned": "  💫 {target} 被眩晕！",
+    "critical_hit": "  💢 暴击！伤害翻倍！"
+  },
+  
+  "talent": {
+    "generic": {
+      "activation": "  ✨ {player_name} 发动了天赋「{talent_name}」！",
+      "effect": "  🌟 天赋效果：{effect}",
+      "cooldown": "  ⏳ 天赋进入冷却，剩余 {remaining} 次使用机会",
+      "expired": "  ⏰ 天赋效果结束"
+    },
+    "mythland": {
+      "barrier_start": "═══════════════════════════════════════════════════════════════\n  🌀 {player_name} 展开了「神话之外」！\n  📍 结界位置：{location}\n  👥 结界内玩家：{players}\n  ⏳ 最多 {max_rounds} 个结界轮次\n  ⏸️  全局轮次已暂停！\n═══════════════════════════════════════════════════════════════",
+      "barrier_round": "──────────────────────────────────────────────────\n🌀 结界轮次 {current}/{max}\n──────────────────────────────────────────────────",
+      "barrier_actor": "🌀 本轮行动者：{actor_name}",
+      "rps_header": "✊✌️✋ 猜拳！{player1} vs {player2}",
+      "rps_choice": "  {player_name}：{choice}",
+      "rps_winner": "  → {winner_name} 胜出！",
+      "rps_tie": "  → 平局！重新猜拳。",
+      "stealth_removed": "  🌀 {player_name} 的隐身被结界破除！",
+      "forced_engaged": "  🌀 {player1_name} 与 {player2_name} 强制进入面对面！",
+      "extra_turn": "🌀 {player_name} 获得结界额外行动回合！",
+      "immune_control": "  🌀 {player_name} 免疫控制，{control_type}解除！",
+      "skip_stunned": "  💫 {player_name} 处于眩晕状态，跳过行动。",
+      "skip_shocked": "  ⚡ {player_name} 处于震荡状态，跳过行动。",
+      "skip_petrified": "  🗿 {player_name} 处于石化状态，跳过行动。",
+      "barrier_end": "═══════════════════════════════════════════════════════════════\n  🌀 「神话之外」结界解除！\n  📍 {player_name} 返回原地点：{location}\n  📎 结界内面对面关系解除。\n  ▶️  全局轮次恢复！\n═══════════════════════════════════════════════════════════════"
+    }
+  },
+  
+  "system": {
+    "debug_enabled": "🔧 调试模式已启用，级别: {level}",
+    "debug_disabled": "🔧 调试模式已禁用",
+    "game_start": "游戏开始！",
+    "game_interrupted": "\\n\\n  游戏被手动中断。\\n  感谢游玩《起闯战争》！",
+    "clear_screen": "\\n" * 50,
+    "secret_prompt": "🔒 请其他玩家移开视线！",
+    "secret_recorded": "  ✓ 已记录"
+  },
+  
+  "help": {
+    "main": "╔═══════════════════════════════════════════════════════════════╗\n║                        指令帮助                               ║\n╠═══════════════════════════════════════════════════════════════╣\n║  wake                              - 起床                    ║\n║  move <地点>                       - 移动                    ║\n║  interact <项目名>                 - 与当前地点交互           ║\n║  lock <玩家名或ID>                 - 锁定（远程前置）         ║\n║  find <玩家名或ID>                 - 找到（近战前置）         ║\n║  attack <目标> <武器名> [层 属性]  - 攻击                    ║\n║  special <操作名>                  - 特殊操作                ║\n║  forfeit                           - 放弃行动                ║\n╠═══════════════════════════════════════════════════════════════╣\n║  警察系统：                                                   ║\n║  report <玩家名>     - 举报违法者（需在警察局）               ║\n║  assemble            - 集结警察（举报者使用）                 ║\n║  track               - 追踪指引（举报者使用）                 ║\n║  recruit             - 加入警察（需在警察局）                 ║\n║  election            - 竞选队长（需在警察局+已加入警察）       ║\n║  designate <玩家名>  - 队长指定执法目标                       ║\n║  split <警队ID>      - 队长拆分警队                           ║\n║  study               - 队长研究性学习（威信+1）               ║\n╠═══════════════════════════════════════════════════════════════╣\n║  查看：                                                       ║\n║  status / allstatus / police / help                           ║\n╠═══════════════════════════════════════════════════════════════╣\n║  攻击示例：attack Bob 小刀 外层 普通                          ║\n║  地点：home 商店 魔法所 医院 军事基地 警察局                  ║\n║  克制：普通→魔法 魔法→科技 科技→普通 同属性有效              ║\n╚═══════════════════════════════════════════════════════════════╝"
+  },
+  
+  "debug": {
+    "ai": {
+      "basic": "🤖 [{player_name}] {message}",
+      "combat_state": "🤖 [{player_name}] 战斗状态：{state}",
+      "kill_opportunity": "🤖 [{player_name}] 击杀机会：{target_name} (HP: {target_hp})",
+      "missile_attack": "🤖 [{player_name}] 导弹攻击 {target_name}",
+      "detailed": {
+        "candidate_commands": "🤖 [{player_name}] 候选命令：{commands}",
+        "attack_generation": "🤖 [{player_name}] 攻击生成：{weapon} 对 {target}",
+        "development_plan": "🤖 [{player_name}] 发育计划：{plan}"
+      },
+      "full": {
+        "weapon_check": "🤖 [{player_name}] 武器检查：{weapon} 伤害 {damage}",
+        "armor_detection": "🤖 [{player_name}] 护甲检测：{armor_info}",
+        "damage_calc": "🤖 [{player_name}] 伤害计算：{calculation}"
+      }
+    },
+    "system": {
+      "basic": "🔧 {message}",
+      "talent_selection": "🔧 AI天赋选择：{player_name} 选择 {talent_name}",
+      "function_call": "🔧 调用 {function_name}({args})",
+      "function_return": "🔧 {function_name} 返回: {result}"
+    },
+    "warning": "⚠️ {message}",
+    "error": "❌ {message}",
+    "info": "💡 {message}"
+  },
+  
+  "error": {
+    "file_not_found": "文件不存在: {path}",
+    "load_failed": "加载失败: {error}",
+    "invalid_input": "无效输入: {input}",
+    "action_failed": "行动失败: {reason}",
+    "talent_not_found": "天赋未找到: {talent_name}",
+    "player_not_found": "玩家未找到: {player_name}"
+  }
+}
