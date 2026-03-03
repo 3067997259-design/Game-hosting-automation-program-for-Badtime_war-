@@ -124,10 +124,32 @@ class BaseTalent:
     def _get_talent_key(self):
         """
         获取天赋在prompts.json中的键名。
-        默认规则：类名转小写，移除前缀。
-        例如：G1MythFire → g1mythfire, OneSlash → t1oneslash
+        类名到prompt键的映射表。
         """
+        # 类名到prompt键的映射
+        CLASS_TO_PROMPT_KEY = {
+            # 原初天赋
+            "OneSlash": "t1oneslash",
+            "OilTheRoad": "t2oiltheroad",
+            "Star": "t3star",
+            "Hexagram": "t4hexagram",
+            "Delinquent": "t5delinquent",
+            "GoodCitizen": "t6goodcitizen",
+            "Resurrection": "t7resurrection",
+            # 神代天赋
+            "G1MythFire": "g1mythfire",
+            "Hologram": "g2eternity",      # 注意：类名是Hologram，但prompt键是g2eternity
+            "Mythland": "g3mythland",
+            "Savior": "g4savior",
+            "Ripple": "g5ripple",
+        }
+        
         class_name = self.__class__.__name__
+        # 优先使用映射表
+        if class_name in CLASS_TO_PROMPT_KEY:
+            return CLASS_TO_PROMPT_KEY[class_name]
+        
+        # 备用规则：类名转小写
         return class_name.lower()
 
     def get_full_description(self):
