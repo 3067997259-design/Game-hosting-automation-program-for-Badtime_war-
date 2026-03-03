@@ -1,0 +1,1 @@
+# This file has been removed. Use g1_firefly.py instead.
