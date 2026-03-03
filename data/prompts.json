@@ -135,7 +135,8 @@
         "「三十六计走为上，留得青山在」",
         "「逃跑不是懦弱，而是为了明天的复仇」"
       ],
-      "activate": "【原初天赋2：你给路打油】{player_name}准备开溜！"
+      "activate": "【原初天赋2：你给路打油】{player_name}准备开溜！",
+      "response": "🛢️ {player_name} 使用「你给路打油」！\n    获得1个额外行动回合！（剩余{remaining}次）"
     },
     
     "t3star": {
