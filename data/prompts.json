@@ -4,8 +4,8 @@
     "round_header": "═══════════════════════════════════════════════════════════════\n  📅 全局轮次 {round_num}\n═══════════════════════════════════════════════════════════════",
     "phase_header": "--- {phase_name} ---",
     "action_turn_header": "──────────────────────────────────────────────────\n  ▶ 轮到 {player_name} 行动\n──────────────────────────────────────────────────",
-    "player_status_header": "📊 玩家状态",
-    "all_players_status_header": "═══════════════════════════════════════════════════════════════\n  📊 全场玩家状态\n═══════════════════════════════════════════════════════════════",
+    "player_status_header": " 玩家状态",
+    "all_players_status_header": "═══════════════════════════════════════════════════════════════\n   全场玩家状态\n═══════════════════════════════════════════════════════════════",
     "available_actions_header": "  可执行的行动：",
     "action_item": "    {index}. {usage:30s} - {description}"
   },
@@ -69,15 +69,15 @@
         "「我梦见一片焦土，一株破土而出的新蕊，它迎着朝阳绽放，向我低语呢喃……」",
         "「我会看见，飞萤之火自无梦的长夜亮起，绽放在终竟的明天。」"
       ],
-      "activate": "【神代天赋1：火萤Ⅳ型-完全燃烧】{player_name}开始燃烧自己的存在...",
-      "debuff_start": "🔥 {player_name} 的血火debuff开始！（第{round_num}轮）",
-      "ardent_wish_consume": "🔥 {player_name} 消耗「炽愿」抵扣本次debuff！",
-      "debuff_outer": "🔥 血火debuff：摧毁 {player_name} 的外层护甲「{armor_name}」！",
-      "debuff_inner_destroy": "🔥 血火debuff：摧毁 {player_name} 的内层护甲「{armor_name}」！",
-      "debuff_inner_damage": "🔥 血火debuff：{player_name} 的「{armor_name}」护甲值 {old_hp} → {new_hp}",
-      "debuff_no_armor": "🔥 血火debuff：{player_name} 无护甲可扣，本次跳过。",
-      "auto_heal": "🔥 {player_name} 的血火之力自动恢复！HP: {old_hp} → {new_hp}",
-      "damage_reduction": "🔥 血火减伤：{attacker_name} 对 {target_name} 的伤害 {original_damage} → {reduced_damage}",
+      "activate": "「神代天赋1：火萤Ⅳ型-完全燃烧」{player_name}-代号：火萤Ⅳ型，已就位，开始清扫战场",
+      "debuff_start": " {player_name} 的失熵症debuff开始！（第{round_num}轮）",
+      "ardent_wish_consume": " {player_name} 消耗「炽愿」抵扣本次debuff！",
+      "debuff_outer": " 失熵症：摧毁 {player_name} 的外层护甲「{armor_name}」！",
+      "debuff_inner_destroy": "失熵症debuff：摧毁 {player_name} 的内层护甲「{armor_name}」！",
+      "debuff_inner_damage": "失熵症debuff：{player_name} 的「{armor_name}」护甲值 {old_hp} → {new_hp}",
+      "debuff_no_armor": "失熵症debuff：{player_name} 无护甲可扣，本次跳过。",
+      "auto_heal": "{player_name} 没有退路，只能向前 HP: {old_hp} → {new_hp}",
+      "damage_reduction": "：{attacker_name} 对 {target_name} 的伤害 {original_damage} → {reduced_damage}",
       "kill_record": "🔥 {killer_name} 击杀了 {victim_name}！累计击杀：{kill_count}\n   debuff起始轮次重算为：{debuff_round}",
       "ardent_wish_gain": "🔥 {player_name} 获得了「炽愿」！可抵扣1次debuff。"
     },
@@ -88,7 +88,7 @@
         "「全息影像的歌声戛然而止，怪物的咆哮由远及近。那是血？还是泪？」",
         "「别害怕……只要……请你一直注视着……再一次注视着我吧。」"
       ],
-      "activate": "【神代天赋2：请一直，注视着我】{player_name}展开全息影像..."
+      "activate": "「神代天赋2：请一直，注视着我」{player_name}展开全息影像..."
     },
     
     "g3mythland": {
@@ -97,16 +97,16 @@
         "「这个世界也不例外，在时空的尽头，正有这么一方天地，正在静静流淌」",
         "「它漠视九重天下的人子—不歌颂他们的伟大，也不嗤笑他们的挣扎。」"
       ],
-      "activate": "【神代天赋3：神话之外】{player_name}展开幻想乡结界..."
+      "activate": "「神代天赋3：神话之外」{player_name}展开「遗世独立的幻想乡」..."
     },
     
     "g4savior": {
       "lore": [
-        "「他们说我生来就是救世主，是将要担负世界的人，可…我的愿望究竟是什么？」",
-        "「直到生命尽头，我才知道，原来我只想……■■■■■」",
+        "「他们说我生来就是救世主，是将要背负世界的人，可…我的愿望究竟是什么？」",
+        "「直到生命尽头，我才知道，我注定不会有自己的愿望。我只想要……■■■■■」",
         "「这个世界未竟的道路，就由我来担负着她走下去吧。」"
       ],
-      "activate": "【神代天赋4：愿负世，照拂黎明】{player_name}的神性觉醒..."
+      "activate": "「神代天赋4：愿负世，照拂黎明」{player_name}的神性觉醒..."
     },
     
     "g5ripple": {
@@ -115,37 +115,37 @@
         "「决战落下帷幕，少女踏上通往过去的不归路前，最后一次回望了未来」",
         "「一定要用要用爱铭记我呀，伙伴♪」"
       ],
-      "activate": "【神代天赋5：往世的涟漪】{player_name}开始打捞追忆..."
+      "activate": "「神代天赋5：往世的涟漪」{player_name}开始打捞追忆..."
     },
     
     "t1oneslash": {
       "lore": [
-        "「一刀缭断，斩断因果之线」",
-        "「在电光火石间，世界为之静止」",
-        "「只此一刀，便是永恒」"
+        "「他说，那一刀未必不可企及……」",
+        "「哪那么多废话？」",
+        "「刀刀烈火刀刀爆，爽就完了」"
       ],
-      "activate": "【原初天赋1：一刀缭断】{player_name}发动了绝命一击！",
+      "activate": "「原初天赋1：一刀缭断」{player_name}发动了无想的一刀！",
       "attack": "⚔️ 一刀缭断！{player_name} 用「{weapon_name}」斩向 {target_name}！",
       "effect": "   （伤害×2 + 无视属性克制 + 无视最后内层吸收）"
     },
     
     "t2oiltheroad": {
       "lore": [
-        "「你给路打油，脚底抹油溜之大吉」",
-        "「三十六计走为上，留得青山在」",
-        "「逃跑不是懦弱，而是为了明天的复仇」"
+        "「我还有最后一个计策可以扭转局面！」",
+        "「看好了，这可是我的杀手锏！」",
+        "「那就是……你给路打油！！！！！！」"
       ],
-      "activate": "【原初天赋2：你给路打油】{player_name}准备开溜！",
+      "activate": "「原初天赋2：你给路打油」{player_name}准备开溜！",
       "response": "🛢️ {player_name} 使用「你给路打油」！\n    获得1个额外行动回合！（剩余{remaining}次）"
     },
     
     "t3star": {
       "lore": [
-        "「天星坠落，万物石化」",
-        "「来自苍穹的审判，让时间凝固」",
-        "「在星辰的注视下，一切都将静止」"
+        "「天理尝蛆」",
+        "「我要点菜」",
+        "「不是，就没有一个正经译法吗？！」"
       ],
-      "activate": "【原初天赋3：天星】{player_name}召唤星辰之力！"
+      "activate": "「原初天赋3：天星」{player_name}落下了天星！"
     },
     
     "t4hexagram": {
@@ -154,43 +154,43 @@
         "「阴阳交替，乾坤倒转」",
         "「卦象之中，自有天机」"
       ],
-      "activate": "【原初天赋4：六爻】{player_name}开始占卜命运！"
+      "activate": "「原初天赋4：六爻」{player_name}开始占卜命运！"
     },
     
     "t5delinquent": {
       "lore": [
-        "「不良少年，法外狂徒」",
-        "「规则？那是什么？可以吃吗？」",
-        "「我的刀，就是我的法律」"
+        "「恶人，只有恶人才能制裁」",
+        "「所以，制裁你的人，是我」",
+        "「DO YOU UNDERSTAND?」"
       ],
-      "activate": "【原初天赋5：不良少年】{player_name}开始搞事情！"
+      "activate": "「原初天赋5：不良少年」{player_name}开始搞事情！"
     },
     
     "t6goodcitizen": {
       "lore": [
-        "「朝阳好市民，遵纪守法典范」",
-        "「举报是美德，守法是义务」",
-        "「维护社会和谐，从我做起」"
+        "「朝阳好市民，世界上最大的反间谍和情报组织」",
+        "「军情六处闻之伤心，FBI们见之落泪」",
+        "「你想惹他们？你确定他们背后没几个大人物？」"
       ],
-      "activate": "【原初天赋6：朝阳好市民】{player_name}展现公民责任感！"
+      "activate": "「原初天赋6：朝阳好市民」{player_name}向警方又双叒贡献了三等功出来"
     },
     
     "t7resurrection": {
       "lore": [
-        "「死者苏生，打破生死界限」",
-        "「从冥府归来，带着未尽的使命」",
-        "「死亡不是终点，而是新的开始」"
+        "「死者苏生，让一张卡牌从墓地回到场上」",
+        "「所以，孩子们，我打赢复活赛，杀穿冥界出来了」",
+        "「啊？老大？而且不是seedance和sora生成的？！」"
       ],
-      "activate": "【原初天赋7：死者苏生】{player_name}施展复活秘法！"
+      "activate": "「原初天赋7：死者苏生」{player_name}瞬间打赢了复活赛！"
     },
     
     "deathdenier": {
       "lore": [
-        "「所以我放弃了死亡，选择了永恒」",
-        "「时间为我倒流，命运为我改写」",
-        "「死亡？那只是凡人的归宿」"
+        "「所以我放弃了……」",
+        "「所以你放弃了音乐？拿不拿更新了？」",
+        "「……我依稀记得我放弃的是死亡。」"
       ],
-      "activate": "【废案天赋：所以我放弃了死亡】{player_name}拒绝死亡！"
+      "activate": "「废案天赋：所以我放弃了死亡」{player_name}拒绝死亡！"
     }
   },
   
