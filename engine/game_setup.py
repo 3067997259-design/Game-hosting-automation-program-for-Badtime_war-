@@ -19,7 +19,7 @@ from talents.t5_delinquent import Delinquent
 from talents.t6_good_citizen import GoodCitizen
 from talents.t7_resurrection import Resurrection
 from talents.g4_savior import Savior
-from talents.g1_blood_fire import BloodFire
+from talents.g1_firefly import G1MythFire
 from talents.g2_hologram import Hologram
 from talents.g3_mythland import Mythland
 from talents.g5_ripple import Ripple
@@ -41,8 +41,8 @@ TALENT_TABLE = [
      "常驻：远程举报+扩展犯罪名单+竞选-1回合"),
     (7, "死者苏生", Resurrection,
      "学习2回合→挂载目标→目标死亡时在家重生"),
-    (8, "神代天赋-血火啊，燃烧前路", BloodFire,
-     "开局触发，见证浴血战神、天生王者的末路"),
+    (8, "神代天赋-火萤Ⅳ型-完全燃烧", G1MythFire,
+     "常驻：伤害+100%/受伤-50%/0.5血不眩晕。后期debuff扣护甲。"),
     (9, "神代天赋-请一直，注视着我", Hologram,
      "主动1次：给你一次成为聚光灯下最闪耀者的机会"),
     (10, "神代天赋-神话之外", Mythland,
