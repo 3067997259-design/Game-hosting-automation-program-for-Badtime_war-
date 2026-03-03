@@ -404,7 +404,7 @@ class BasicAIController(PlayerController):
         # ========== 修复：优先处理击杀机会 ==========
         # 这里特别重要：即使不在战斗状态，有击杀机会也要攻击
         if self._has_kill_opportunity(player, state):
-            debug_ai_kill_opportunity(player.name, "有击杀机会！")
+            debug_ai_basic(player.name, f"有击杀机会！")
             kill_attack_cmds = self._attack_commands(player, state, available_actions)
             if kill_attack_cmds:
                 candidates.extend(kill_attack_cmds)
@@ -709,7 +709,7 @@ class BasicAIController(PlayerController):
         if best_weapon_dmg <= 0:
             return False
         
-        debug_ai_kill_opportunity(player.name, f"检查击杀机会，最佳武器伤害: {best_weapon_dmg}")
+        debug_ai_basic(player.name, f"检查击杀机会，最佳武器伤害: {best_weapon_dmg}")
         
         for pid in state.player_order:
             if pid == player.player_id:
@@ -718,12 +718,12 @@ class BasicAIController(PlayerController):
             if not target or not target.is_alive():
                 continue
             
-            debug_ai_kill_opportunity(player.name, f"检查目标 {target.name}，血量: {target.hp}")
+            debug_ai_kill_opportunity(player.name, target.name, target.hp)
             
             if target.hp <= best_weapon_dmg:
-                debug_ai_kill_opportunity(player.name, f"目标 {target.name} 血量({target.hp}) <= 武器伤害({best_weapon_dmg})")
+                debug_ai_basic(player.name, f"目标 {target.name} 血量({target.hp}) <= 武器伤害({best_weapon_dmg})")
                 if self._has_attack_prerequisite(player, target, state):
-                    debug_ai_kill_opportunity(player.name, "满足攻击前提条件，有击杀机会！")
+                    debug_ai_basic(player.name, "满足攻击前提条件，有击杀机会！")
                     return True
                 else:
                     debug_ai_basic(player.name, f"目标 {target.name} 血量低但不满足攻击前提条件")
@@ -1124,7 +1124,7 @@ class BasicAIController(PlayerController):
             # 击杀机会优先
             if target.hp <= my_dmg and self._has_attack_prerequisite(player, target, state):
                 score += 100
-                debug_ai_kill_opportunity(player.name, f"目标 {target.name} 有击杀机会，分数+100")
+                debug_ai_basic(player.name, f"目标 {target.name} 有击杀机会，分数+100")
             
             # 同地点优先
             if target.location == player.location:
