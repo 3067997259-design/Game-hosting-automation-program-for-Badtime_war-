@@ -14,6 +14,16 @@ from typing import List, Optional, Dict, Any
 from controllers.base import PlayerController
 import random
 
+# 导入调试系统
+from engine.debug_config import (
+    debug_ai, debug_ai_basic, debug_ai_detailed, debug_ai_full,
+    debug_ai_combat_state, debug_ai_kill_opportunity, 
+    debug_ai_missile_attack, debug_ai_candidate_commands,
+    debug_ai_attack_generation, debug_ai_development_plan,
+    debug_ai_talent_selection, debug_system, debug_warning,
+    debug_error, debug_info
+)
+
 # ════════════════════════════════════════════════════════
 #  常量：地点名、交互项目、克制关系
 # ════════════════════════════════════════════════════════
@@ -119,18 +129,18 @@ class BasicAIController(PlayerController):
                 player, game_state, available_actions
             )
             self._attempt_index = 0
-            print(f"\n🤖 [{player.name}] 候选命令列表（共{len(self._candidates)}条）：")
+            debug_ai_candidate_commands(player.name, f"候选命令列表（共{len(self._candidates)}条）")
             for i, cmd in enumerate(self._candidates, 1):
-                print(f"   {i}. {cmd}")
+                debug_ai_detailed(player.name, f"   {i}. {cmd}")
         else:
             self._attempt_index += 1
 
         if self._attempt_index < len(self._candidates):
             cmd = self._candidates[self._attempt_index]
-            print(f"🤖 [{player.name}] 尝试第{attempt}条：{cmd}")
+            debug_ai_basic(player.name, f"尝试第{attempt}条：{cmd}")
         else:
             cmd = "forfeit"
-            print(f"🤖 [{player.name}] 候选耗尽，兜底forfeit")
+            debug_ai_basic(player.name, "候选耗尽，兜底forfeit")
         return cmd
 
     # ════════════════════════════════════════════════════════
@@ -316,18 +326,18 @@ class BasicAIController(PlayerController):
         
         # ========== 战斗状态优先级最高 ==========
         if self._in_combat and self._combat_target:
-            print(f"🤖 [{player.name}] 处于战斗状态，目标: {self._combat_target.name}")
+            debug_ai_combat_state(player.name, f"处于战斗状态，目标: {self._combat_target.name}")
             
             # 检查是否应该继续战斗
             if not self._should_continue_combat(player, self._combat_target):
-                print(f"🤖 [{player.name}] 需要撤退，退出战斗状态")
+                debug_ai_basic(player.name, "需要撤退，退出战斗状态")
                 self._in_combat = False
                 self._combat_target = None
             else:
                 # 生成战斗攻击命令（重点修复）
                 combat_cmds = self._combat_attack_commands(player, state, available_actions, self._combat_target)
                 if combat_cmds:
-                    print(f"🤖 [{player.name}] 战斗攻击命令: {combat_cmds}")
+                    debug_ai_attack_generation(player.name, f"战斗攻击命令: {combat_cmds}")
                     # 战斗状态下，攻击优先级最高
                     candidates.extend(combat_cmds)
                     
@@ -335,7 +345,7 @@ class BasicAIController(PlayerController):
                     if player.location != self._combat_target.location:
                         # 如果有远程武器，可以尝试远程攻击而不是移动
                         if self._has_ranged_weapon(player):
-                            print(f"🤖 [{player.name}] 有远程武器，优先远程攻击而不是移动")
+                            debug_ai_basic(player.name, "有远程武器，优先远程攻击而不是移动")
                         else:
                             # 没有远程武器，添加移动命令
                             if f"move {self._combat_target.location}" not in candidates:
@@ -354,11 +364,11 @@ class BasicAIController(PlayerController):
         # 检查导弹冷却
         if self._missile_cooldown <= 0:
             if self._needs_missile_attack(player, state):
-                print(f"🤖 [{player.name}] 需要导弹攻击")
+                debug_ai_missile_attack(player.name, "需要导弹攻击")
                 missile_cmds = self._missile_attack_commands(player, state, available_actions)
                 if missile_cmds:
                     candidates.extend(missile_cmds)
-                    print(f"🤖 [{player.name}] 导弹攻击候选：{missile_cmds}")
+                    debug_ai_missile_attack(player.name, f"导弹攻击候选：{missile_cmds}")
                     # 设置导弹冷却
                     self._missile_cooldown = 3
                     candidates.append("forfeit")
@@ -367,38 +377,38 @@ class BasicAIController(PlayerController):
         # ========== 极危险情况处理（增强版）==========
         if self._is_critical(player, state):
             danger_type = self._get_danger_type(player, state)
-            print(f"🤖 [{player.name}] 进入极危模式，危险类型: {danger_type}")
+            debug_ai_basic(player.name, f"进入极危模式，危险类型: {danger_type}")
             
             # 根据不同危险类型采取不同策略
             if danger_type == "police_surrounded":
-                print(f"🤖 [{player.name}] 被警察围攻，寻求群攻手段")
+                debug_ai_basic(player.name, "被警察围攻，寻求群攻手段")
                 candidates.extend(self._police_survival_commands(player, state, available_actions))
             elif danger_type == "anchored":
-                print(f"🤖 [{player.name}] 被锚定，采取破坏性行动")
+                debug_ai_basic(player.name, "被锚定，采取破坏性行动")
                 candidates.extend(self._anchor_survival_commands(player, state, available_actions))
             else:
                 # 通用生存命令
                 candidates.extend(self._survival_commands(player, state, available_actions))
             
-            print(f"🤖 [{player.name}] 极危候选：{candidates}")
+            debug_ai_detailed(player.name, f"极危候选：{candidates}")
             if candidates:
                 return candidates
         
         if self._needs_virus_cure(player, state):
-            print(f"🤖 [{player.name}] 进入病毒应急模式")
+            debug_ai_basic(player.name, "进入病毒应急模式")
             candidates.extend(self._virus_cure_commands(player, state))
-            print(f"🤖 [{player.name}] 病毒候选：{candidates}")
+            debug_ai_detailed(player.name, f"病毒候选：{candidates}")
             if candidates:
                 return candidates
         
         # ========== 修复：优先处理击杀机会 ==========
         # 这里特别重要：即使不在战斗状态，有击杀机会也要攻击
         if self._has_kill_opportunity(player, state):
-            print(f"🤖 [{player.name}] 有击杀机会！")
+            debug_ai_kill_opportunity(player.name, "有击杀机会！")
             kill_attack_cmds = self._attack_commands(player, state, available_actions)
             if kill_attack_cmds:
                 candidates.extend(kill_attack_cmds)
-                print(f"🤖 [{player.name}] 击杀攻击候选：{kill_attack_cmds}")
+                debug_ai_attack_generation(player.name, f"击杀攻击候选：{kill_attack_cmds}")
                 # 击杀机会优先级很高，直接返回
                 if kill_attack_cmds:
                     # 添加发育命令作为后备
@@ -409,14 +419,14 @@ class BasicAIController(PlayerController):
                     return candidates
         
         # 生成发育命令
-        print(f"🤖 [{player.name}] 进入发育模式")
+        debug_ai_development_plan(player.name, "进入发育模式")
         develop = self._develop_commands(player, state, available_actions)
-        print(f"🤖 [{player.name}] 发育候选：{develop}")
+        debug_ai_development_plan(player.name, f"发育候选：{develop}")
         candidates.extend(develop)
         
         # 检查发育是否完成，如果完成则优先攻击
         if self._is_development_complete(player):
-            print(f"🤖 [{player.name}] 发育完成，尝试生成find/攻击命令")
+            debug_ai_basic(player.name, "发育完成，尝试生成find/攻击命令")
             
             # 检查同地点是否有其他玩家
             same_location_targets = []
@@ -428,7 +438,7 @@ class BasicAIController(PlayerController):
                     same_location_targets.append(target)
             
             if same_location_targets:
-                print(f"🤖 [{player.name}] 同地点发现玩家: {[t.name for t in same_location_targets]}")
+                debug_ai_detailed(player.name, f"同地点发现玩家: {[t.name for t in same_location_targets]}")
                 
                 # 选择威胁最大的目标
                 best_target = max(same_location_targets, 
@@ -447,27 +457,27 @@ class BasicAIController(PlayerController):
                     find_cmd = f"find {best_target.name}"
                     if find_cmd not in candidates:
                         candidates.insert(0, find_cmd)
-                        print(f"🤖 [{player.name}] 插入优先find命令: {find_cmd}")
+                        debug_ai_basic(player.name, f"插入优先find命令: {find_cmd}")
                 elif "attack" in available_actions:
                     # 如果已经有find关系，直接攻击
                     attack_cmds = self._attack_commands(player, state, available_actions)
                     if attack_cmds and attack_cmds[0] not in candidates:
                         # 将攻击命令插入到发育命令之前
                         candidates.insert(0, attack_cmds[0])
-                        print(f"🤖 [{player.name}] 插入优先攻击命令: {attack_cmds[0]}")
+                        debug_ai_basic(player.name, f"插入优先攻击命令: {attack_cmds[0]}")
         
         if self.personality == "political":
-            print(f"🤖 [{player.name}] 进入政治模式")
+            debug_ai_basic(player.name, "进入政治模式")
             political = self._political_commands(player, state, available_actions)
-            print(f"🤖 [{player.name}] 政治候选：{political}")
+            debug_ai_detailed(player.name, f"政治候选：{political}")
             candidates.extend(political)
         
         # ========== 修复：常规攻击命令 ==========
         # 确保总是尝试生成攻击命令
         if "attack" in available_actions:
-            print(f"🤖 [{player.name}] 生成常规进攻命令")
+            debug_ai_attack_generation(player.name, "生成常规进攻命令")
             attack = self._attack_commands(player, state, available_actions)
-            print(f"🤖 [{player.name}] 进攻候选：{attack}")
+            debug_ai_detailed(player.name, f"进攻候选：{attack}")
             # 避免重复添加相同的攻击命令
             for cmd in attack:
                 if cmd not in candidates:
@@ -480,12 +490,12 @@ class BasicAIController(PlayerController):
                 find_cmd = f"find {target.name}"
                 if find_cmd not in candidates:
                     candidates.append(find_cmd)
-                    print(f"🤖 [{player.name}] 添加find命令: {find_cmd}")
+                    debug_ai_basic(player.name, f"添加find命令: {find_cmd}")
         
         candidates.append("forfeit")
         seen = set()
         deduped = [cmd for cmd in candidates if not (cmd in seen or seen.add(cmd))]
-        print(f"🤖 [{player.name}] 最终候选（去重后）：{deduped}")
+        debug_ai_candidate_commands(player.name, f"最终候选（去重后）：{deduped}")
         return deduped
 
     # ════════════════════════════════════════════════════════
@@ -572,11 +582,11 @@ class BasicAIController(PlayerController):
             # 进入或保持战斗状态
             self._in_combat = True
             self._combat_target = current_combat_target
-            print(f"🤖 [{player.name}] 与 {current_combat_target.name} 进入战斗状态")
+            debug_ai_combat_state(player.name, f"与 {current_combat_target.name} 进入战斗状态")
         else:
             # 没有战斗关系，退出战斗状态
             if self._in_combat:
-                print(f"🤖 [{player.name}] 退出战斗状态")
+                debug_ai_basic(player.name, "退出战斗状态")
             self._in_combat = False
             self._combat_target = None
 
@@ -615,55 +625,55 @@ class BasicAIController(PlayerController):
         cmds = []
         
         if not target:
-            print(f"⚠️ [{player.name}] 战斗攻击命令：目标无效")
+            debug_warning(f"[{player.name}] 战斗攻击命令：目标无效")
             return cmds
         
-        print(f"🤖 [{player.name}] 生成针对 {target.name} 的战斗攻击命令")
+        debug_ai_attack_generation(player.name, f"生成针对 {target.name} 的战斗攻击命令")
         
         # 检查攻击前提条件
         if not self._has_attack_prerequisite(player, target, state):
-            print(f"⚠️ [{player.name}] 无法攻击 {target.name}，不满足攻击前提条件")
+            debug_ai_basic(player.name, f"无法攻击 {target.name}，不满足攻击前提条件")
             # 如果不满足攻击条件，尝试建立关系
             if "find" in available_actions and player.location == target.location:
                 cmds.append(f"find {target.name}")
-                print(f"🤖 [{player.name}] 添加find命令建立战斗关系")
+                debug_ai_basic(player.name, "添加find命令建立战斗关系")
             return cmds
         
         # 检查是否在同一地点
         if player.location != target.location:
-            print(f"🤖 [{player.name}] 与目标 {target.name} 不在同一地点 ({player.location} vs {target.location})")
+            debug_ai_detailed(player.name, f"与目标 {target.name} 不在同一地点 ({player.location} vs {target.location})")
             
             # 检查是否有远程武器
             if self._has_ranged_weapon(player):
-                print(f"🤖 [{player.name}] 拥有远程武器，尝试远程攻击")
+                debug_ai_basic(player.name, "拥有远程武器，尝试远程攻击")
                 # 尝试生成远程攻击命令
                 attack_cmd = self._generate_attack_command(player, target, available_actions)
                 if attack_cmd:
                     cmds.append(attack_cmd)
-                    print(f"🤖 [{player.name}] 生成远程攻击命令: {attack_cmd}")
+                    debug_ai_attack_generation(player.name, f"生成远程攻击命令: {attack_cmd}")
                 else:
-                    print(f"⚠️ [{player.name}] 无法生成远程攻击命令")
+                    debug_ai_basic(player.name, "无法生成远程攻击命令")
                     # 无法远程攻击，移动到目标地点
                     if "move" in available_actions:
                         cmds.append(f"move {target.location}")
-                        print(f"🤖 [{player.name}] 添加移动命令到 {target.location}")
+                        debug_ai_basic(player.name, f"添加移动命令到 {target.location}")
             else:
-                print(f"🤖 [{player.name}] 没有远程武器，移动到目标地点")
+                debug_ai_basic(player.name, "没有远程武器，移动到目标地点")
                 # 没有远程武器，移动到目标地点
                 if "move" in available_actions:
                     cmds.append(f"move {target.location}")
-                    print(f"🤖 [{player.name}] 添加移动命令到 {target.location}")
+                    debug_ai_basic(player.name, f"添加移动命令到 {target.location}")
         else:
             # 在同一地点，直接攻击
-            print(f"🤖 [{player.name}] 与目标 {target.name} 在同一地点，直接攻击")
+            debug_ai_detailed(player.name, f"与目标 {target.name} 在同一地点，直接攻击")
             
             if "attack" in available_actions:
                 attack_cmd = self._generate_attack_command(player, target, available_actions)
                 if attack_cmd:
                     cmds.append(attack_cmd)
-                    print(f"🤖 [{player.name}] 生成攻击命令: {attack_cmd}")
+                    debug_ai_attack_generation(player.name, f"生成攻击命令: {attack_cmd}")
                 else:
-                    print(f"⚠️ [{player.name}] 无法生成攻击命令")
+                    debug_ai_basic(player.name, "无法生成攻击命令")
                     # 如果无法生成攻击命令，尝试find
                     if "find" in available_actions:
                         markers = getattr(state, 'markers', None)
@@ -673,7 +683,7 @@ class BasicAIController(PlayerController):
                         
                         if needs_find:
                             cmds.append(f"find {target.name}")
-                            print(f"🤖 [{player.name}] 添加find命令")
+                            debug_ai_basic(player.name, "添加find命令")
             elif "find" in available_actions:
                 # 如果没有攻击选项，尝试find
                 markers = getattr(state, 'markers', None)
@@ -683,7 +693,7 @@ class BasicAIController(PlayerController):
                 
                 if needs_find:
                     cmds.append(f"find {target.name}")
-                    print(f"🤖 [{player.name}] 添加find命令")
+                    debug_ai_basic(player.name, "添加find命令")
         
         return cmds
 
@@ -699,7 +709,7 @@ class BasicAIController(PlayerController):
         if best_weapon_dmg <= 0:
             return False
         
-        print(f"🤖 [{player.name}] 检查击杀机会，最佳武器伤害: {best_weapon_dmg}")
+        debug_ai_kill_opportunity(player.name, f"检查击杀机会，最佳武器伤害: {best_weapon_dmg}")
         
         for pid in state.player_order:
             if pid == player.player_id:
@@ -708,15 +718,15 @@ class BasicAIController(PlayerController):
             if not target or not target.is_alive():
                 continue
             
-            print(f"🤖 [{player.name}] 检查目标 {target.name}，血量: {target.hp}")
+            debug_ai_kill_opportunity(player.name, f"检查目标 {target.name}，血量: {target.hp}")
             
             if target.hp <= best_weapon_dmg:
-                print(f"🤖 [{player.name}] 目标 {target.name} 血量({target.hp}) <= 武器伤害({best_weapon_dmg})")
+                debug_ai_kill_opportunity(player.name, f"目标 {target.name} 血量({target.hp}) <= 武器伤害({best_weapon_dmg})")
                 if self._has_attack_prerequisite(player, target, state):
-                    print(f"🤖 [{player.name}] 满足攻击前提条件，有击杀机会！")
+                    debug_ai_kill_opportunity(player.name, "满足攻击前提条件，有击杀机会！")
                     return True
                 else:
-                    print(f"⚠️ [{player.name}] 目标 {target.name} 血量低但不满足攻击前提条件")
+                    debug_ai_basic(player.name, f"目标 {target.name} 血量低但不满足攻击前提条件")
         
         return False
 
@@ -801,7 +811,7 @@ class BasicAIController(PlayerController):
         if anchor_caster and anchor_caster.is_alive():
             # 检查护甲是否足够（至少1件外层护甲）
             if self._count_outer_armor(player) > 0:
-                print(f"🤖 [{player.name}] 护甲足够，尝试反击锚定发动者 {anchor_caster.name}")
+                debug_ai_basic(player.name, f"护甲足够，尝试反击锚定发动者 {anchor_caster.name}")
                 # 生成攻击命令
                 attack_cmds = self._attack_commands(player, state, available)
                 if attack_cmds:
@@ -866,25 +876,25 @@ class BasicAIController(PlayerController):
         # 选择最佳目标
         target = self._pick_best_target(player, state)
         if not target:
-            print(f"🤖 [{player.name}] 攻击命令：没有找到合适的目标")
+            debug_ai_basic(player.name, "攻击命令：没有找到合适的目标")
             return cmds
         
         target_name = target.name
-        print(f"🤖 [{player.name}] 攻击命令：选择目标 {target_name}")
+        debug_ai_attack_generation(player.name, f"攻击命令：选择目标 {target_name}")
         
         # 选择最佳武器（重点修复）
         weapon = self._pick_best_weapon_against(player, target)
         if not weapon:
-            print(f"⚠️ [{player.name}] 攻击命令：无法选择武器攻击 {target_name}")
+            debug_ai_basic(player.name, f"攻击命令：无法选择武器攻击 {target_name}")
             # 即使没有最佳武器，也尝试使用默认武器
             if player.weapons and len(player.weapons) > 0:
                 weapon = player.weapons[0]
-                print(f"🤖 [{player.name}] 使用默认武器: {weapon.name}")
+                debug_ai_basic(player.name, f"使用默认武器: {weapon.name}")
             else:
                 return cmds
         
         weapon_name = weapon.name
-        print(f"🤖 [{player.name}] 攻击命令：选择武器 {weapon_name} 攻击 {target_name}")
+        debug_ai_attack_generation(player.name, f"攻击命令：选择武器 {weapon_name} 攻击 {target_name}")
         
         # 生成攻击命令
         if "attack" in available:
@@ -893,25 +903,25 @@ class BasicAIController(PlayerController):
                 layer_str, attr_str = layer_attr
                 attack_cmd = f"attack {target_name} {weapon_name} {layer_str} {attr_str}"
                 cmds.append(attack_cmd)
-                print(f"🤖 [{player.name}] 生成攻击命令: {attack_cmd}")
+                debug_ai_attack_generation(player.name, f"生成攻击命令: {attack_cmd}")
             else:
                 # 如果无法确定攻击层，使用默认值
                 attack_cmd = f"attack {target_name} {weapon_name} 外层 普通"
                 cmds.append(attack_cmd)
-                print(f"🤖 [{player.name}] 使用默认攻击命令: {attack_cmd}")
+                debug_ai_basic(player.name, f"使用默认攻击命令: {attack_cmd}")
         
         # 附加命令：find, lock, move
         if "find" in available and target.location == player.location:
             cmds.append(f"find {target_name}")
-            print(f"🤖 [{player.name}] 添加find命令")
+            debug_ai_basic(player.name, "添加find命令")
         
         if "lock" in available:
             cmds.append(f"lock {target_name}")
-            print(f"🤖 [{player.name}] 添加lock命令")
+            debug_ai_basic(player.name, "添加lock命令")
         
         if "move" in available and target.location != player.location and target.location:
             cmds.append(f"move {target.location}")
-            print(f"🤖 [{player.name}] 添加move命令到 {target.location}")
+            debug_ai_basic(player.name, f"添加move命令到 {target.location}")
         
         return cmds
 
@@ -932,10 +942,11 @@ class BasicAIController(PlayerController):
         has_inner_armor = self._count_inner_armor(player) > 0
         has_military_pass = getattr(player, 'has_military_pass', False)
         
-        print(f"  📊 [{player.name}] has_credential={has_credential} has_outer={has_outer_armor} "
-              f"has_weapon={has_good_weapon}(dmg={self._best_weapon_damage(player)}) "
-              f"has_detect={has_detection} has_inner={has_inner_armor} "
-              f"has_pass={has_military_pass}")
+        debug_ai_development_plan(player.name, 
+            f"has_credential={has_credential} has_outer={has_outer_armor} "
+            f"has_weapon={has_good_weapon}(dmg={self._best_weapon_damage(player)}) "
+            f"has_detect={has_detection} has_inner={has_inner_armor} "
+            f"has_pass={has_military_pass}")
         
         plan: list = []
 
@@ -1031,34 +1042,34 @@ class BasicAIController(PlayerController):
                     if self._can_learn(player, spell):
                         plan.append(f"interact {spell}")
                         spell_learned = True
-                        print(f"🤖 [{player.name}] 在魔法所，优先学习 {spell}")
+                        debug_ai_development_plan(player.name, f"在魔法所，优先学习 {spell}")
                         break
                 if not spell_learned:
                     # 没有其他魔法可学，去医院（但需要凭证）
                     if has_credential:  # 有凭证才去医院做手术
                         plan.append("move 医院")
-                        print(f"🤖 [{player.name}] 有凭证，前往医院做手术")
+                        debug_ai_development_plan(player.name, "有凭证，前往医院做手术")
                     else:
                         # 没有凭证，继续发育其他项目
                         plan.append("move 商店")
-                        print(f"🤖 [{player.name}] 没有凭证，不去医院，去商店发育")
+                        debug_ai_development_plan(player.name, "没有凭证，不去医院，去商店发育")
             elif loc == "医院":
                 if has_credential:  # 有凭证才做手术
                     plan.append("interact 晶化皮肤手术")
-                    print(f"🤖 [{player.name}] 在医院且有凭证，进行手术")
+                    debug_ai_development_plan(player.name, "在医院且有凭证，进行手术")
                 else:
                     # 没有凭证，离开医院
                     plan.append("move 商店")
-                    print(f"🤖 [{player.name}] 在医院但没有凭证，离开医院")
+                    debug_ai_development_plan(player.name, "在医院但没有凭证，离开医院")
             else:
                 # 不在魔法所或医院，检查是否有凭证
                 if has_credential:
                     plan.append("move 医院")
-                    print(f"🤖 [{player.name}] 有凭证，前往医院")
+                    debug_ai_development_plan(player.name, "有凭证，前往医院")
                 else:
                     # 没有凭证，先去获取凭证或发育
                     plan.append("move 商店")
-                    print(f"🤖 [{player.name}] 没有凭证，先不去医院")
+                    debug_ai_development_plan(player.name, "没有凭证，先不去医院")
 
         # ══════ 阶段6：额外发育 ══════
         else:
@@ -1113,26 +1124,26 @@ class BasicAIController(PlayerController):
             # 击杀机会优先
             if target.hp <= my_dmg and self._has_attack_prerequisite(player, target, state):
                 score += 100
-                print(f"🤖 [{player.name}] 目标 {target.name} 有击杀机会，分数+100")
+                debug_ai_kill_opportunity(player.name, f"目标 {target.name} 有击杀机会，分数+100")
             
             # 同地点优先
             if target.location == player.location:
                 score += 20
-                print(f"🤖 [{player.name}] 目标 {target.name} 同地点，分数+20")
+                debug_ai_basic(player.name, f"目标 {target.name} 同地点，分数+20")
             
             # 低血量优先
             if target.hp <= 0.5:
                 score += 30
-                print(f"🤖 [{player.name}] 目标 {target.name} 低血量，分数+30")
+                debug_ai_basic(player.name, f"目标 {target.name} 低血量，分数+30")
             
             if score > best_score:
                 best_score = score
                 best_target = target
         
         if best_target:
-            print(f"🤖 [{player.name}] 选择最佳目标: {best_target.name}，分数: {best_score}")
+            debug_ai_attack_generation(player.name, f"选择最佳目标: {best_target.name}，分数: {best_score}")
         else:
-            print(f"🤖 [{player.name}] 没有找到合适的目标")
+            debug_ai_basic(player.name, "没有找到合适的目标")
         
         return best_target
 
@@ -1185,7 +1196,7 @@ class BasicAIController(PlayerController):
         if max_dmg <= 0:
             max_dmg = 0.5
         
-        print(f"🤖 [{player.name}] 最佳武器伤害: {max_dmg}")
+        debug_ai_full(player.name, f"最佳武器伤害: {max_dmg}")
         return max_dmg
     
     # 类属性：前置条件
@@ -1232,16 +1243,16 @@ class BasicAIController(PlayerController):
     def _pick_best_weapon_against(self, player, target):
         """选择最佳武器攻击目标（重点修复）"""
         if not hasattr(player, 'weapons') or not player.weapons:
-            print(f"⚠️ [{player.name}] 没有武器")
+            debug_ai_basic(player.name, "没有武器")
             return None
         
-        print(f"🤖 [{player.name}] 选择武器攻击 {target.name}")
+        debug_ai_attack_generation(player.name, f"选择武器攻击 {target.name}")
         
         best = None
         best_score = -1
         
         for w in player.weapons:
-            print(f"🤖 [{player.name}] 检查武器: {getattr(w, 'name', '未知')}")
+            debug_ai_full(player.name, f"检查武器: {getattr(w, 'name', '未知')}")
             
             # 获取武器伤害
             damage = 0
@@ -1274,7 +1285,7 @@ class BasicAIController(PlayerController):
                         weapon_attr = attr_value
                         break
             
-            print(f"🤖 [{player.name}] 武器 {getattr(w, 'name', '未知')} 伤害: {damage}, 属性: {weapon_attr}")
+            debug_ai_full(player.name, f"武器 {getattr(w, 'name', '未知')} 伤害: {damage}, 属性: {weapon_attr}")
             
             # 计算分数
             score = damage * 10  # 基础分数
@@ -1282,30 +1293,30 @@ class BasicAIController(PlayerController):
             # 属性克制加分
             if self._can_damage_any_armor(weapon_attr, target):
                 score += 15
-                print(f"🤖 [{player.name}] 武器属性克制，分数+15")
+                debug_ai_full(player.name, "武器属性克制，分数+15")
             
             # 高伤害武器额外加分
             if damage >= 1.0:
                 score += 10
-                print(f"🤖 [{player.name}] 高伤害武器，分数+10")
+                debug_ai_full(player.name, "高伤害武器，分数+10")
             
             # 远程武器对远处目标加分
             if player.location != target.location:
                 weapon_name = getattr(w, 'name', '').lower()
                 if "远程" in weapon_name or "导弹" in weapon_name or "弹幕" in weapon_name:
                     score += 20
-                    print(f"🤖 [{player.name}] 远程武器对远处目标，分数+20")
+                    debug_ai_full(player.name, "远程武器对远处目标，分数+20")
             
-            print(f"🤖 [{player.name}] 武器 {getattr(w, 'name', '未知')} 最终分数: {score}")
+            debug_ai_full(player.name, f"武器 {getattr(w, 'name', '未知')} 最终分数: {score}")
             
             if score > best_score:
                 best_score = score
                 best = w
         
         if best:
-            print(f"🤖 [{player.name}] 选择武器: {getattr(best, 'name', '未知')}，分数: {best_score}")
+            debug_ai_attack_generation(player.name, f"选择武器: {getattr(best, 'name', '未知')}，分数: {best_score}")
         else:
-            print(f"⚠️ [{player.name}] 没有找到合适的武器")
+            debug_ai_basic(player.name, "没有找到合适的武器")
         
         return best
 
@@ -1320,29 +1331,29 @@ class BasicAIController(PlayerController):
                     weapon_attr = attr_value
                     break
         
-        print(f"🤖 [{self.player_name}] 选择攻击层，武器属性: {weapon_attr}")
+        debug_ai_full(self.player_name, f"选择攻击层，武器属性: {weapon_attr}")
         
         effective_set = EFFECTIVE_AGAINST.get(weapon_attr, set())
         
         # 检查目标是否有护甲
         if hasattr(target, 'armor'):
-            print(f"🤖 [{self.player_name}] 目标有护甲，检查有效攻击层")
+            debug_ai_full(self.player_name, "目标有护甲，检查有效攻击层")
             
             # 优先攻击有效的护甲层
             for attr in ["普通", "魔法", "科技"]:
                 if attr in effective_set and self._target_has_armor_layer(target, "外层", attr):
-                    print(f"🤖 [{self.player_name}] 选择外层 {attr} 护甲")
+                    debug_ai_full(self.player_name, f"选择外层 {attr} 护甲")
                     return ("外层", attr)
             
             # 如果没有有效的护甲层，检查是否有外层护甲
             if not self._target_has_any_outer(target):
-                print(f"🤖 [{self.player_name}] 目标没有外层护甲，检查内层")
+                debug_ai_full(self.player_name, "目标没有外层护甲，检查内层")
                 for attr in ["普通", "魔法", "科技"]:
                     if attr in effective_set and self._target_has_armor_layer(target, "内层", attr):
-                        print(f"🤖 [{self.player_name}] 选择内层 {attr} 护甲")
+                        debug_ai_full(self.player_name, f"选择内层 {attr} 护甲")
                         return ("内层", attr)
         
-        print(f"🤖 [{self.player_name}] 使用默认攻击层: 外层 {weapon_attr}")
+        debug_ai_basic(self.player_name, f"使用默认攻击层: 外层 {weapon_attr}")
         return ("外层", weapon_attr)
 
     def _can_damage_any_armor(self, weapon_attr: str, target) -> bool:
@@ -1350,17 +1361,17 @@ class BasicAIController(PlayerController):
         effective_set = EFFECTIVE_AGAINST.get(weapon_attr, set())
         
         if not hasattr(target, 'armor'):
-            print(f"🤖 [{self.player_name}] 目标没有护甲，任何武器都能伤害")
+            debug_ai_full(self.player_name, "目标没有护甲，任何武器都能伤害")
             return True
         
         # 检查是否有任何有效的护甲层
         for layer_type in ["外层", "内层"]:
             for attr in ["普通", "魔法", "科技"]:
                 if attr in effective_set and self._target_has_armor_layer(target, layer_type, attr):
-                    print(f"🤖 [{self.player_name}] 武器属性 {weapon_attr} 能伤害 {layer_type} {attr} 护甲")
+                    debug_ai_full(self.player_name, f"武器属性 {weapon_attr} 能伤害 {layer_type} {attr} 护甲")
                     return True
         
-        print(f"🤖 [{self.player_name}] 武器属性 {weapon_attr} 不能伤害目标的任何护甲")
+        debug_ai_full(self.player_name, f"武器属性 {weapon_attr} 不能伤害目标的任何护甲")
         return False
 
     # ========== 增强的护甲检测（更新版：支持新的ArmorSlots列表结构） ==========
@@ -1369,7 +1380,7 @@ class BasicAIController(PlayerController):
             return False
         
         armor = target.armor
-        print(f"🤖 [{self.player_name}] 检查目标 {target.name} 的 {layer_type} {attribute} 护甲")
+        debug_ai_full(self.player_name, f"检查目标 {target.name} 的 {layer_type} {attribute} 护甲")
         
         # 获取对应层的列表
         layer_list = armor.outer if layer_type == "外层" else armor.inner
@@ -1382,10 +1393,10 @@ class BasicAIController(PlayerController):
                 
                 # 检查属性匹配
                 if target_attr in piece_attr or (attribute == "普通" and "普通" in piece_attr):
-                    print(f"🤖 [{self.player_name}] 找到 {layer_type} {attribute} 护甲: {piece.name}")
+                    debug_ai_full(self.player_name, f"找到 {layer_type} {attribute} 护甲: {piece.name}")
                     return True
         
-        print(f"🤖 [{self.player_name}] 没有找到 {layer_type} {attribute} 护甲")
+        debug_ai_full(self.player_name, f"没有找到 {layer_type} {attribute} 护甲")
         return False
         
     def _target_has_any_outer(self, target) -> bool:
@@ -1505,7 +1516,7 @@ class BasicAIController(PlayerController):
         """判断是否可以攻击目标"""
         # 如果在同一地点，可以直接攻击
         if player.location == target.location:
-            print(f"🤖 [{player.name}] 与目标 {target.name} 在同一地点，可以攻击")
+            debug_ai_basic(player.name, f"与目标 {target.name} 在同一地点，可以攻击")
             return True
     
         # 远程攻击：需要已锁定且目标可见
@@ -1516,13 +1527,13 @@ class BasicAIController(PlayerController):
                 has_detection = getattr(player, 'has_detection', False)
                 if hasattr(markers, 'is_visible_to'):
                     is_visible = markers.is_visible_to(target.player_id, player.player_id, has_detection)
-                    print(f"🤖 [{player.name}] 目标 {target.name} 已锁定，可见性: {is_visible}")
+                    debug_ai_basic(player.name, f"目标 {target.name} 已锁定，可见性: {is_visible}")
                     return is_visible
                 else:
-                    print(f"🤖 [{player.name}] 目标 {target.name} 已锁定，默认可见")
+                    debug_ai_basic(player.name, f"目标 {target.name} 已锁定，默认可见")
                     return True
         
-        print(f"🤖 [{player.name}] 无法攻击目标 {target.name}，不满足攻击前提条件")
+        debug_ai_basic(player.name, f"无法攻击目标 {target.name}，不满足攻击前提条件")
         return False
 
     def _extra_develop_commands(self, player, state):
@@ -1642,19 +1653,19 @@ class BasicAIController(PlayerController):
         has_inner_armor = self._count_inner_armor(player) > 0
         
         if self.personality == "aggressive":
-            print(f"🤖 [{player.name}] 进攻型发育检查：武器伤害={self._best_weapon_damage(player)}，完成={has_good_weapon}")
+            debug_ai_development_plan(player.name, f"进攻型发育检查：武器伤害={self._best_weapon_damage(player)}，完成={has_good_weapon}")
             return has_good_weapon
         elif self.personality == "balanced":
             result = has_credential and has_outer_armor and has_good_weapon
-            print(f"🤖 [{player.name}] 均衡型发育检查：凭证={has_credential}，外层={has_outer_armor}，武器={has_good_weapon}，完成={result}")
+            debug_ai_development_plan(player.name, f"均衡型发育检查：凭证={has_credential}，外层={has_outer_armor}，武器={has_good_weapon}，完成={result}")
             return result
         elif self.personality == "defensive" or self.personality == "builder":
             result = (has_credential and has_outer_armor and has_good_weapon and 
                     has_detection and has_inner_armor)
-            print(f"🤖 [{player.name}] 发育型检查：凭证={has_credential}，外层={has_outer_armor}，武器={has_good_weapon}，探测={has_detection}，内层={has_inner_armor}，完成={result}")
+            debug_ai_development_plan(player.name, f"发育型检查：凭证={has_credential}，外层={has_outer_armor}，武器={has_good_weapon}，探测={has_detection}，内层={has_inner_armor}，完成={result}")
             return result
         else:
-            print(f"🤖 [{player.name}] 政治型，不需要发育完成")
+            debug_ai_development_plan(player.name, "政治型，不需要发育完成")
             return False
 
     # ========== 导弹攻击逻辑优化 ==========
@@ -1675,6 +1686,7 @@ class BasicAIController(PlayerController):
         for pid in state.player_order:
             if pid == player.player_id:
                 continue
+            
             target = state.get_player(pid)
             if not target or not target.is_alive():
                 continue
@@ -1694,7 +1706,7 @@ class BasicAIController(PlayerController):
                 best_target = target
         
         if best_target and best_threat > 80:
-            print(f"🤖 [{player.name}] 检测到高威胁远程目标 {best_target.name}，威胁分数 {best_threat}")
+            debug_ai_missile_attack(player.name, f"检测到高威胁远程目标 {best_target.name}，威胁分数 {best_threat}")
             return True
         
         return False
@@ -1730,25 +1742,25 @@ class BasicAIController(PlayerController):
         target_name = target.name
         has_missile_control = self._has_weapon_named(player, "导弹控制权")
         
-        print(f"🤖 [{player.name}] 导弹攻击目标：{target_name}，已有控制权：{has_missile_control}")
+        debug_ai_missile_attack(player.name, f"导弹攻击目标：{target_name}，已有控制权：{has_missile_control}")
         
         is_invisible = getattr(target, 'is_invisible', False)
         if is_invisible:
             if not self._has_detection_capability(player):
-                print(f"🤖 [{player.name}] 目标隐身且无探测能力，无法使用导弹")
+                debug_ai_missile_attack(player.name, "目标隐身且无探测能力，无法使用导弹")
                 return cmds
         
         if not has_missile_control:
             if player.location == "军事基地" and "interact" in available_actions:
                 if not self._should_avoid_military_base(player, state):
                     cmds.append("interact 导弹控制权")
-                    print(f"🤖 [{player.name}] 需要获取导弹控制权")
+                    debug_ai_missile_attack(player.name, "需要获取导弹控制权")
                 else:
-                    print(f"🤖 [{player.name}] 太多玩家在军事基地，暂不获取导弹")
+                    debug_ai_missile_attack(player.name, "太多玩家在军事基地，暂不获取导弹")
                     cmds.append("move 商店")
             else:
                 cmds.append("move 军事基地")
-                print(f"🤖 [{player.name}] 前往军事基地获取导弹")
+                debug_ai_missile_attack(player.name, "前往军事基地获取导弹")
             return cmds
         
         markers = state.markers
@@ -1758,7 +1770,7 @@ class BasicAIController(PlayerController):
         
         if not is_locked and "lock" in available_actions:
             cmds.append(f"lock {target_name}")
-            print(f"🤖 [{player.name}] 需要锁定目标 {target_name}")
+            debug_ai_missile_attack(player.name, f"需要锁定目标 {target_name}")
             return cmds
         
         if "attack" in available_actions:
@@ -1774,11 +1786,11 @@ class BasicAIController(PlayerController):
                     layer_str, attr_str = layer_attr
                     attack_cmd = f"attack {target_name} {missile_weapon.name} {layer_str} {attr_str}"
                     cmds.append(attack_cmd)
-                    print(f"🤖 [{player.name}] 发射导弹攻击 {target_name}")
+                    debug_ai_missile_attack(player.name, f"发射导弹攻击 {target_name}")
                 else:
                     attack_cmd = f"attack {target_name} {missile_weapon.name} 外层 普通"
                     cmds.append(attack_cmd)
-                    print(f"🤖 [{player.name}] 使用默认参数发射导弹")
+                    debug_ai_missile_attack(player.name, "使用默认参数发射导弹")
         
         return cmds
 
@@ -1932,5 +1944,5 @@ class BasicAIController(PlayerController):
                 return 0.0
             return active_pieces / total_pieces
         except Exception as e:
-            print(f"⚠️ 计算护甲健康度时出错: {e}")
+            debug_error(f"计算护甲健康度时出错: {e}")
             return 0.0
