@@ -2,10 +2,14 @@
 调试配置模块
 ═══════════════════════════════════════════════════
 提供统一的调试输出控制，支持调试模式开关。
+已集成到提示管理系统，调试文本可从data/prompts.json中修改。
 """
 
 import sys
 from typing import Any, Optional
+
+# 导入提示管理器
+from engine.prompt_manager import prompt_manager, PromptLevel
 
 # ============================================================================
 # 全局调试配置
@@ -44,7 +48,7 @@ class DebugConfig:
         return cls._debug_mode and cls._debug_level >= min_level
 
 # ============================================================================
-# 调试输出函数
+# 调试输出函数（使用提示管理器）
 # ============================================================================
 
 def debug_print(message: str, min_level: int = 1, prefix: str = "🤖", **kwargs):
@@ -72,7 +76,14 @@ def debug_ai(player_name: str, message: str, min_level: int = 1, **kwargs):
         **kwargs: 传递给print的其他参数
     """
     if DebugConfig.should_show(min_level):
-        formatted_message = f"🤖 [{player_name}] {message}"
+        # 尝试从提示管理器获取模板，如果不存在则使用默认
+        template = prompt_manager.get_prompt(
+            "debug", "ai.basic", 
+            default="🤖 [{player_name}] {message}"
+        )
+        formatted_message = template.format(
+            player_name=player_name, message=message
+        )
         print(formatted_message, **kwargs)
 
 def debug_system(message: str, min_level: int = 1, **kwargs):
@@ -85,7 +96,12 @@ def debug_system(message: str, min_level: int = 1, **kwargs):
         **kwargs: 传递给print的其他参数
     """
     if DebugConfig.should_show(min_level):
-        formatted_message = f"🔧 {message}"
+        # 尝试从提示管理器获取模板
+        template = prompt_manager.get_prompt(
+            "debug", "system.basic",
+            default="🔧 {message}"
+        )
+        formatted_message = template.format(message=message)
         print(formatted_message, **kwargs)
 
 def debug_warning(message: str, **kwargs):
@@ -96,8 +112,8 @@ def debug_warning(message: str, **kwargs):
         message: 警告信息
         **kwargs: 传递给print的其他参数
     """
-    formatted_message = f"⚠️ {message}"
-    print(formatted_message, **kwargs)
+    # 使用提示管理器的警告显示，确保与其他警告统一
+    prompt_manager.show_warning("debug", "warning", message=message, **kwargs)
 
 def debug_error(message: str, **kwargs):
     """
@@ -107,8 +123,8 @@ def debug_error(message: str, **kwargs):
         message: 错误信息
         **kwargs: 传递给print的其他参数
     """
-    formatted_message = f"❌ {message}"
-    print(formatted_message, **kwargs)
+    # 使用提示管理器的错误显示，确保与其他错误统一
+    prompt_manager.show_error("debug", "error", message=message, **kwargs)
 
 def debug_info(message: str, **kwargs):
     """
@@ -118,8 +134,134 @@ def debug_info(message: str, **kwargs):
         message: 信息
         **kwargs: 传递给print的其他参数
     """
-    formatted_message = f"💡 {message}"
-    print(formatted_message, **kwargs)
+    # 使用提示管理器的信息显示
+    prompt_manager.show_info("debug", "info", message=message, **kwargs)
+
+# ============================================================================
+# 详细的AI调试函数（支持不同级别）
+# ============================================================================
+
+def debug_ai_basic(player_name: str, message: str, **kwargs):
+    """AI基本调试输出（级别1）"""
+    debug_ai(player_name, message, min_level=1, **kwargs)
+
+def debug_ai_detailed(player_name: str, message: str, **kwargs):
+    """AI详细调试输出（级别2）"""
+    if DebugConfig.should_show(2):
+        # 尝试获取详细调试模板
+        template = prompt_manager.get_prompt(
+            "debug", "ai.detailed.generic",
+            default="🤖 [{player_name}] {message}"
+        )
+        formatted_message = template.format(
+            player_name=player_name, message=message
+        )
+        print(formatted_message, **kwargs)
+
+def debug_ai_full(player_name: str, message: str, **kwargs):
+    """AI完整调试输出（级别3）"""
+    if DebugConfig.should_show(3):
+        # 尝试获取完整调试模板
+        template = prompt_manager.get_prompt(
+            "debug", "ai.full.generic",
+            default="🤖 [{player_name}] {message}"
+        )
+        formatted_message = template.format(
+            player_name=player_name, message=message
+        )
+        print(formatted_message, **kwargs)
+
+def debug_ai_combat_state(player_name: str, state: str, **kwargs):
+    """AI战斗状态调试"""
+    if DebugConfig.should_show(1):
+        template = prompt_manager.get_prompt(
+            "debug", "ai.combat_state",
+            default="🤖 [{player_name}] 战斗状态：{state}"
+        )
+        formatted_message = template.format(
+            player_name=player_name, state=state
+        )
+        print(formatted_message, **kwargs)
+
+def debug_ai_kill_opportunity(player_name: str, target_name: str, target_hp: float, **kwargs):
+    """AI击杀机会调试"""
+    if DebugConfig.should_show(1):
+        template = prompt_manager.get_prompt(
+            "debug", "ai.kill_opportunity",
+            default="🤖 [{player_name}] 击杀机会：{target_name} (HP: {target_hp})"
+        )
+        formatted_message = template.format(
+            player_name=player_name,
+            target_name=target_name,
+            target_hp=target_hp
+        )
+        print(formatted_message, **kwargs)
+
+def debug_ai_missile_attack(player_name: str, target_name: str, **kwargs):
+    """AI导弹攻击调试"""
+    if DebugConfig.should_show(1):
+        template = prompt_manager.get_prompt(
+            "debug", "ai.missile_attack",
+            default="🤖 [{player_name}] 导弹攻击 {target_name}"
+        )
+        formatted_message = template.format(
+            player_name=player_name,
+            target_name=target_name
+        )
+        print(formatted_message, **kwargs)
+
+def debug_ai_candidate_commands(player_name: str, commands: list, **kwargs):
+    """AI候选命令调试（级别2）"""
+    if DebugConfig.should_show(2):
+        template = prompt_manager.get_prompt(
+            "debug", "ai.detailed.candidate_commands",
+            default="🤖 [{player_name}] 候选命令：{commands}"
+        )
+        formatted_message = template.format(
+            player_name=player_name,
+            commands=commands
+        )
+        print(formatted_message, **kwargs)
+
+def debug_ai_attack_generation(player_name: str, weapon: str, target: str, **kwargs):
+    """AI攻击生成调试（级别2）"""
+    if DebugConfig.should_show(2):
+        template = prompt_manager.get_prompt(
+            "debug", "ai.detailed.attack_generation",
+            default="🤖 [{player_name}] 攻击生成：{weapon} 对 {target}"
+        )
+        formatted_message = template.format(
+            player_name=player_name,
+            weapon=weapon,
+            target=target
+        )
+        print(formatted_message, **kwargs)
+
+def debug_ai_development_plan(player_name: str, plan: str, **kwargs):
+    """AI发育计划调试（级别2）"""
+    if DebugConfig.should_show(2):
+        template = prompt_manager.get_prompt(
+            "debug", "ai.detailed.development_plan",
+            default="🤖 [{player_name}] 发育计划：{plan}"
+        )
+        formatted_message = template.format(
+            player_name=player_name,
+            plan=plan
+        )
+        print(formatted_message, **kwargs)
+
+def debug_ai_talent_selection(player_name: str, talent_name: str, **kwargs):
+    """AI天赋选择调试"""
+    if DebugConfig.should_show(2):
+        template = prompt_manager.get_prompt(
+            "debug", "system.talent_selection",
+            default="🔧 AI天赋选择：{player_name} 选择 {talent_name}"
+        )
+        formatted_message = template.format(
+            player_name=player_name,
+            talent_name=talent_name
+        )
+        print(formatted_message, **kwargs)
 
 # ============================================================================
 # 调试装饰器
