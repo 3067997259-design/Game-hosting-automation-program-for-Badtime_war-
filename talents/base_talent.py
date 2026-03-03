@@ -146,11 +146,21 @@ class BaseTalent:
 
     # ---- 天赋激活提示 ----
 
-    def show_activation(self, player_name=None, **kwargs):
+    def show_activation(self, player_name=None, show_lore=True, **kwargs):
         """
         显示天赋激活提示。
         默认使用talent.{key}.activate模板。
+        
+        Args:
+            player_name: 玩家名称，默认为天赋持有者
+            show_lore: 是否显示天赋叙事文案（lore）
+            **kwargs: 传递给激活文本的变量
         """
+        # 显示天赋叙事文案（如果配置允许）
+        if show_lore and prompt_manager.config.get("show_talent_lore", True):
+            self.show_lore()
+        
+        # 显示激活文本
         talent_key = self._get_talent_key()
         if player_name is None:
             player_name = self.state.get_player(self.player_id).name
