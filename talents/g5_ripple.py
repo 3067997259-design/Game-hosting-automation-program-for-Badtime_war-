@@ -1327,15 +1327,32 @@ class Ripple(BaseTalent):
         all_targets = others + [player] if player.talent else others
 
         if not all_targets:
-            return "❌ 没有可献诗的目标。"
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.no_poem_targets",
+                default="❌ 没有可献诗的目标。"
+            )
 
-        display.show_info(f"\n🌊 选择献诗目标：")
+        display.show_info(
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_selection_header",
+                default="\n🌊 选择献诗目标："
+            )
+        )
+        
         for i, p in enumerate(all_targets, 1):
             talent_name = p.talent.name if p.talent else "无天赋"
             poem_name = self.POEM_MAP.get(talent_name, "未知")
             display.show_info(
-                f"  {i}. {p.name}（{talent_name}）"
-                f"→ 献予「{poem_name}」之诗")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.poem_target_format",
+                    default="  {index}. {player_name}（{talent_name}）→ 献予「{poem_name}」之诗"
+                ).format(
+                    index=i,
+                    player_name=p.name,
+                    talent_name=talent_name,
+                    poem_name=poem_name
+                )
+            )
 
         # ══ CONTROLLER 改动 9：选献诗目标 ══
         names = [p.name for p in all_targets]
@@ -1362,10 +1379,10 @@ class Ripple(BaseTalent):
         return self._dispatch_poem(player, target, poem_type)
 
     def _dispatch_poem(self, caster, target, poem_type):
-        header = (f"\n{'='*60}"
-                  f"\n  🌊🎶 献予「{poem_type}」之诗！"
-                  f"\n  目标：{target.name}"
-                  f"\n{'='*60}\n")
+        header = prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_header",
+            default="\n{'='*60}\n  🌊🎶 献予「{poem_type}」之诗！\n  目标：{target_name}\n{'='*60}\n"
+        ).format(poem_type=poem_type, target_name=target.name)
 
         if poem_type == "游侠":
             msg = self._poem_ranger(target)
@@ -1388,7 +1405,10 @@ class Ripple(BaseTalent):
         elif poem_type == "命运":
             msg = self._poem_destiny(caster)
         else:
-            msg = "❌ 未知诗名。"
+            msg = prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_unknown",
+                default="❌ 未知诗名。"
+            )
 
         return header + msg
 
@@ -1401,24 +1421,39 @@ class Ripple(BaseTalent):
                 talent.max_uses += 1
                 if hasattr(talent, 'uses_left'):
                     talent.uses_left += 1
-                return (f"⚔️ {target.name} 的「一刀缭断」"
-                        f"可用次数+1！当前：{talent.uses_left}/{talent.max_uses}")
-            return f"⚔️ {target.name} 的一刀缭断已增强！+1次数。"
+                return prompt_manager.get_prompt(
+                    "talent", "g5ripple.poem_ranger_oneslash",
+                    default="⚔️ {target_name} 的「一刀缭断」可用次数+1！当前：{uses_left}/{max_uses}"
+                ).format(
+                    target_name=target.name,
+                    uses_left=talent.uses_left,
+                    max_uses=talent.max_uses
+                )
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_ranger_oneslash_fallback",
+                default="⚔️ {target_name} 的一刀缭断已增强！+1次数。"
+            ).format(target_name=target.name)
         elif talent.name == "你给路打油":
             if hasattr(talent, 'reset_all_triggers'):
                 talent.reset_all_triggers()
             if hasattr(talent, 'max_global_triggers'):
                 talent.max_global_triggers += 2
-            return (f"🛤️ {target.name} 的「你给路打油」"
-                    f"所有地点触发重置，全局上限+2！")
-        return "效果已生效。"
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_ranger_oiltheroad",
+                default="🛤️ {target_name} 的「你给路打油」所有地点触发重置，全局上限+2！"
+            ).format(target_name=target.name)
+        return prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_ranger_default",
+            default="效果已生效。"
+        )
 
     def _poem_stars(self, target):
         talent = target.talent
         talent.ripple_enhanced = True
-        return (f"⭐ {target.name} 的「天星」被涟漪增强！"
-                f"\n   天星落下后额外2次×0.5无视属性伤害"
-                f"\n   石化不再因被攻击自动解除")
+        return prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_stars",
+            default="⭐ {target_name} 的「天星」被涟漪增强！\n   天星落下后额外2次×0.5无视属性伤害\n   石化不再因被攻击自动解除"
+        ).format(target_name=target.name)
 
     def _poem_law(self, target):
         lines = []
@@ -1426,39 +1461,62 @@ class Ripple(BaseTalent):
             if hasattr(target, 'crime_records'):
                 target.crime_records = []
             target.is_police = True
-            lines.append(f"👮 {target.name} 犯罪记录清除，获得警察岗位！")
+            lines.append(prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_law_police_granted",
+                default="👮 {target_name} 犯罪记录清除，获得警察岗位！"
+            ).format(target_name=target.name))
         elif getattr(target, 'is_captain', False):
             if hasattr(target, 'prestige'):
                 target.prestige += 2
-                lines.append(f"👮 {target.name} 的威信+2！当前：{target.prestige}")
+                lines.append(prompt_manager.get_prompt(
+                    "talent", "g5ripple.poem_law_prestige_increased",
+                    default="👮 {target_name} 的威信+2！当前：{prestige}"
+                ).format(target_name=target.name, prestige=target.prestige))
             else:
-                lines.append(f"👮 DM请手动为 {target.name} 的威信+2。")
+                lines.append(prompt_manager.get_prompt(
+                    "talent", "g5ripple.poem_law_prestige_manual",
+                    default="👮 DM请手动为 {target_name} 的威信+2。"
+                ).format(target_name=target.name))
         else:
             if self.state.police_engine:
                 pe = self.state.police_engine
                 if hasattr(pe, 'election_progress'):
                     pe.election_progress[target.player_id] = \
                         pe.election_progress.get(target.player_id, 0) + 2
-                    lines.append(
-                        f"👮 {target.name} 竞选进度+2！"
-                        f"（配合朝阳好市民减1轮=立刻上任）")
+                    lines.append(prompt_manager.get_prompt(
+                        "talent", "g5ripple.poem_law_election_progress",
+                        default="👮 {target_name} 竞选进度+2！（配合朝阳好市民减1轮=立刻上任）"
+                    ).format(target_name=target.name))
                 else:
-                    lines.append(
-                        f"👮 DM请手动为 {target.name} 竞选进度+2。")
-        return "\n".join(lines) if lines else "效果已生效。"
+                    lines.append(prompt_manager.get_prompt(
+                        "talent", "g5ripple.poem_law_election_manual",
+                        default="👮 DM请手动为 {target_name} 竞选进度+2。"
+                    ).format(target_name=target.name))
+        return "\n".join(lines) if lines else prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_law_default",
+            default="效果已生效。"
+        )
 
     def _poem_trick(self, caster, target):
-        display.show_info(f"🃏 {target.name} 获得一次立刻行动！")
+        display.show_info(prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_trick_immediate_action",
+            default="🃏 {target_name} 获得一次立刻行动！"
+        ).format(target_name=target.name))
+        
         from engine.action_turn import ActionTurnManager
         atm = ActionTurnManager(self.state)
         atm.execute_single_action(target)
+        
         talent = target.talent
         if hasattr(talent, 'trigger_count'):
             talent.trigger_count = 0
         if hasattr(talent, 'used_this_round'):
             talent.used_this_round = False
-        return (f"🃏 {target.name} 完成立刻行动！"
-                f"\n   「不良少年」天赋累计触发已重置。")
+        
+        return prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_trick_completion",
+            default="🃏 {target_name} 完成立刻行动！\n   「不良少年」天赋累计触发已重置。"
+        ).format(target_name=target.name)
 
     def _poem_yinyang(self, target):
         talent = target.talent
@@ -1468,20 +1526,31 @@ class Ripple(BaseTalent):
             talent.max_charges = max(talent.max_charges, talent.charges)
         talent.ripple_free_choices = getattr(
             talent, 'ripple_free_choices', 0) + 2
-        return (f"☯️ {target.name} 的「六爻」增强！"
-                f"\n   充能+1（当前{talent.charges}）"
-                f"\n   下{talent.ripple_free_choices}次发动可指定效果")
+        
+        return prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_yinyang",
+            default="☯️ {target_name} 的「六爻」增强！\n   充能+1（当前{charges}）\n   下{free_choices}次发动可指定效果"
+        ).format(
+            target_name=target.name,
+            charges=talent.charges,
+            free_choices=talent.ripple_free_choices
+        )
 
     def _poem_shore(self, target):
         talent = target.talent
         talent.ripple_enhanced = True
-        return (f"💀✨ {target.name} 的「死者苏生」增强！"
-                f"\n   复活后可获得全游戏任意一件物品或法术"
-                f"\n   （不含扩展/天赋物品，不含抽象权能）")
+        return prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_shore",
+            default="💀✨ {target_name} 的「死者苏生」增强！\n   复活后可获得全游戏任意一件物品或法术\n   （不含扩展/天赋物品，不含抽象权能）"
+        ).format(target_name=target.name)
 
     def _poem_strife(self, caster, target):
         """纷争之诗：为火萤Ⅳ型-完全燃烧的持有者增强"""
-        display.show_info(f"🔥 {target.name} 获得一次立刻行动！")
+        display.show_info(prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_strife_immediate_action",
+            default="🔥 {target_name} 获得一次立刻行动！"
+        ).format(target_name=target.name))
+        
         from engine.action_turn import ActionTurnManager
         atm = ActionTurnManager(self.state)
         atm.execute_single_action(target)
@@ -1489,26 +1558,32 @@ class Ripple(BaseTalent):
         # 调用目标天赋的grant_ardent_wish方法
         if hasattr(target.talent, 'grant_ardent_wish'):
             target.talent.grant_ardent_wish()
-            return (f"🔥 {target.name} 完成立刻行动！"
-                    f"\n   获得特殊物品「炽愿」"
-                    f"（可抵扣1次debuff效果结算）")
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_strife_completion",
+                default="🔥 {target_name} 完成立刻行动！\n   获得特殊物品「炽愿」\n   （可抵扣1次debuff效果结算）"
+            ).format(target_name=target.name)
         else:
             # 如果目标天赋没有grant_ardent_wish方法，尝试直接设置字段
             target.talent.has_ardent_wish = True
-            return (f"🔥 {target.name} 完成立刻行动！"
-                    f"\n   获得特殊物品「炽愿」"
-                    f"（可抵扣1次debuff效果结算）")
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_strife_completion",
+                default="🔥 {target_name} 完成立刻行动！\n   获得特殊物品「炽愿」\n   （可抵扣1次debuff效果结算）"
+            ).format(target_name=target.name)
 
     def _poem_light(self, target):
         talent = target.talent
         if hasattr(talent, 'enhance_by_ripple'):
             talent.enhance_by_ripple()
-            return (f"👁️ {target.name} 的「请一直，注视着我」增强！"
-                    f"\n   持续时间-1轮 | 易伤+1.0 | 可用次数+1")
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_light_enhanced",
+                default="👁️ {target_name} 的「请一直，注视着我」增强！\n   持续时间-1轮 | 易伤+1.0 | 可用次数+1"
+            ).format(target_name=target.name)
         else:
             talent.ripple_enhanced = True
-            return (f"👁️ {target.name} 的全息影像已增强！"
-                    f"\n   DM请手动调整效果。")
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_light_fallback",
+                default="👁️ {target_name} 的全息影像已增强！\n   DM请手动调整效果。"
+            ).format(target_name=target.name)
 
     def _poem_bear(self, target):
         talent = target.talent
@@ -1519,10 +1594,10 @@ class Ripple(BaseTalent):
         talent.passive_bonus_divinity = 2
 
         current_div = getattr(talent, 'divinity', '?')
-        return (f"🌅 {target.name} 的「愿负世」增强！"
-                f"\n   额外+2神性（当前：{current_div}）"
-                f"\n   新增：可花1回合主动启动（启动后获1额外行动）"
-                f"\n   被动触发时再+2神性")
+        return prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_bear",
+            default="🌅 {target_name} 的「愿负世」增强！\n   额外+2神性（当前：{divinity}）\n   新增：可花1回合主动启动（启动后获1额外行动）\n   被动触发时再+2神性"
+        ).format(target_name=target.name, divinity=current_div)
 
     def _poem_destiny(self, caster):
         """
@@ -1533,20 +1608,30 @@ class Ripple(BaseTalent):
         damage_assignments = []
 
         display.show_info(
-            f"\n🌊 献予「命运」之诗！"
-            f"\n   选择4个单体单位（可重复），分别承受："
-            f"\n   科技/普通/魔法/无视属性克制 各1点伤害"
-            f"\n   四种类型必须各使用一次。")
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_destiny_header",
+                default="\n🌊 献予「命运」之诗！\n   选择4个单体单位（可重复），分别承受：\n   科技/普通/魔法/无视属性克制 各1点伤害\n   四种类型必须各使用一次。"
+            )
+        )
 
         all_alive = [p for p in self.state.alive_players()]
         if not all_alive:
-            return "❌ 没有存活的目标。"
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_destiny_no_targets",
+                default="❌ 没有存活的目标。"
+            )
 
         names = [p.name for p in all_alive]
 
         # ══ CONTROLLER 改动 10：选伤害目标 ×4 ══
         for dtype in DAMAGE_TYPES:
-            display.show_info(f"\n   选择承受「{dtype}」1点伤害的目标：")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.poem_destiny_damage_selection",
+                    default="\n   选择承受「{damage_type}」1点伤害的目标："
+                ).format(damage_type=dtype)
+            )
+            
             target_name = caster.controller.choose(
                 f"「{dtype}」伤害目标：", names,
                 context={
@@ -1560,11 +1645,17 @@ class Ripple(BaseTalent):
         # ══ CONTROLLER 改动 10 结束 ══
 
         # 执行伤害
-        lines = [f"\n🌊 命运之诗——伤害结算："]
+        lines = [prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_destiny_settlement_header",
+            default="\n🌊 命运之诗——伤害结算："
+        )]
 
         for target, dtype in damage_assignments:
             if not target.is_alive():
-                lines.append(f"   → {target.name}（{dtype}）：目标已死亡，跳过。")
+                lines.append(prompt_manager.get_prompt(
+                    "talent", "g5ripple.poem_destiny_target_dead",
+                    default="   → {target_name}（{damage_type}）：目标已死亡，跳过。"
+                ).format(target_name=target.name, damage_type=dtype))
                 continue
 
             old_hp = target.hp
@@ -1577,27 +1668,41 @@ class Ripple(BaseTalent):
                 weapon=None,
                 game_state=self.state,
                 raw_damage_override=1.0,
-            damage_attribute_override=dtype,
+                damage_attribute_override=dtype,
             )
-            lines.append(
-                f"   → {target.name}（{dtype}）："
-                f" HP {old_hp} → {target.hp}")
+            
+            lines.append(prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_destiny_damage_result",
+                default="   → {target_name}（{damage_type}）： HP {old_hp} → {new_hp}"
+            ).format(
+                target_name=target.name,
+                damage_type=dtype,
+                old_hp=old_hp,
+                new_hp=target.hp
+            ))
+            
             for detail in result.get("details", []):
                 lines.append(f"      {detail}")
 
-                killed = result.get("killed", False)
-                stunned = result.get("stunned", False)
+            killed = result.get("killed", False)
+            stunned = result.get("stunned", False)
 
             if killed:
                 self.state.markers.on_player_death(target.player_id)
-                lines.append(f"   💀 {target.name} 被命运之诗击杀！")
+                lines.append(prompt_manager.get_prompt(
+                    "talent", "g5ripple.poem_destiny_killed",
+                    default="   💀 {target_name} 被命运之诗击杀！"
+                ).format(target_name=target.name))
                 display.show_death(target.name, "命运之诗")
             elif stunned:
                 if not target.is_stunned:
                     target.is_stunned = True
                 if not self.state.markers.has(target.player_id, "STUNNED"):
                     self.state.markers.add(target.player_id, "STUNNED")
-                lines.append(f"   💫 {target.name} 进入眩晕！")
+                lines.append(prompt_manager.get_prompt(
+                    "talent", "g5ripple.poem_destiny_stunned",
+                    default="   💫 {target_name} 进入眩晕！"
+                ).format(target_name=target.name))
 
         result_msg = "\n".join(lines)
         display.show_info(result_msg)
@@ -1614,8 +1719,11 @@ class Ripple(BaseTalent):
             return
 
         display.show_info(
-            f"\n🌊💀 {player.name} 在锚定期间死亡！"
-            f"\n   锚定立即失败，无法回溯复活。")
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.death_check_during_anchor",
+                default="\n🌊💀 {player_name} 在锚定期间死亡！\n   锚定立即失败，无法回溯复活。"
+            ).format(player_name=player.name)
+        )
         self._anchor_fail(player, can_revert=False)
 
     # ================================================================
@@ -1643,8 +1751,14 @@ class Ripple(BaseTalent):
         # 如果锚定之前被暂停，现在恢复监控
         if self.was_paused_by_barrier:
             display.show_info(
-                f"🌊▶️ 结界已结束，{self._get_caster().name} 的锚定监控恢复"
-                f"（剩余{self.anchor_rounds_left}轮）")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.barrier_end_resume",
+                    default="🌊▶️ 结界已结束，{caster_name} 的锚定监控恢复（剩余{remaining_rounds}轮）"
+                ).format(
+                    caster_name=self._get_caster().name,
+                    remaining_rounds=self.anchor_rounds_left
+                )
+            )
             # 标记为不再暂停，下一轮 on_round_end 会正常处理
             self.was_paused_by_barrier = False
 
@@ -1658,18 +1772,23 @@ class Ripple(BaseTalent):
             return False
 
         display.show_info(
-            f"\n☯️ 涟漪增强：跳过猜拳判定！"
-            f"\n   {player.name} 可直接指定效果"
-            f"（剩余自由选择：{free}次）")
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.hexagram_free_choice_header",
+                default="\n☯️ 涟漪增强：跳过猜拳判定！\n   {player_name} 可直接指定效果（剩余自由选择：{remaining}次）"
+            ).format(player_name=player.name, remaining=free)
+        )
 
-        effects = [
-            "双剪刀→天雷（对任意1人造成1点伤害）",
-            "双石头→获得任意护甲",
-            "双布→进入隐身",
-            "剪刀vs石头→所有蓄力武器立刻蓄力",
-            "剪刀vs布→获得额外行动回合",
-            "石头vs布→清除锁定/探测+隐身",
-        ]
+        effects = prompt_manager.get_prompt(
+            "talent", "g5ripple.hexagram_effects",
+            default=[
+                "双剪刀→天雷（对任意1人造成1点伤害）",
+                "双石头→获得任意护甲",
+                "双布→进入隐身",
+                "剪刀vs石头→所有蓄力武器立刻蓄力",
+                "剪刀vs布→获得额外行动回合",
+                "石头vs布→清除锁定/探测+隐身"
+            ]
+        )
 
         # ══ CONTROLLER 改动 11：选六爻效果 ══
         choice = player.controller.choose(
