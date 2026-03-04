@@ -1,4 +1,6 @@
-"""合法性校验器（Phase 3 完整版）"""
+"""
+合法性校验器（Phase 3 完整版）
+"""
 
 from actions.move import get_all_valid_locations
 from actions.interact import get_location_module
@@ -98,7 +100,6 @@ def validate_wake(player):
         return False, "你已经起床了！"
     return True, ""
 
-
 def validate_move(player, destination, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
@@ -114,7 +115,6 @@ def validate_move(player, destination, game_state):
     if destination == player.location:
         return False, "你已经在这里了！"
     return True, ""
-
 
 def validate_interact(player, item_name, game_state):
     if not player.is_awake:
@@ -135,7 +135,6 @@ def validate_interact(player, item_name, game_state):
     if not can:
         return False, reason
     return True, ""
-
 
 def validate_lock(player, target_str, game_state):
     if not player.is_awake:
@@ -177,7 +176,6 @@ def validate_lock(player, target_str, game_state):
 
     return True, ""
 
-
 def validate_find(player, target_str, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
@@ -218,7 +216,6 @@ def validate_find(player, target_str, game_state):
 
     return True, ""
 
-
 def validate_attack(player, parsed, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
@@ -236,6 +233,21 @@ def validate_attack(player, parsed, game_state):
         else:
             available = ", ".join(w.name for w in player.weapons)
             return False, f"你有多把武器，请指定使用哪一把：{available}"
+    
+    # 检查是否为警察目标
+    if target_str.lower().startswith("police"):
+        # 警察目标特殊验证
+        weapon = player.get_weapon(weapon_name)
+        if not weapon:
+            available = ", ".join(w.name for w in player.weapons)
+            return False, f"你没有武器「{weapon_name}」。你持有：{available}"
+        if weapon.requires_charge and not weapon.is_charged:
+            return False, f"「{weapon_name}」需要先蓄力！"
+        # 警察只能被AOE攻击，但这里不验证具体武器，由警察引擎处理
+        # 允许通过验证，具体AOE检查在警察引擎中进行
+        return True, ""
+    
+    # 原有玩家目标验证
     target_id = resolve_player_target(target_str, game_state)
     if not target_id:
         return False, f"找不到玩家「{target_str}」"
@@ -269,7 +281,6 @@ def validate_attack(player, parsed, game_state):
     elif weapon.weapon_range == WeaponRange.AREA:
         return _validate_area(player, target, game_state)
     return True, ""
-
 
 def validate_special(player, op_name, game_state):
     if not player.is_awake:
@@ -316,7 +327,6 @@ def validate_report(player, target_str, game_state):
         return False, reason
     return True, ""
 
-
 def validate_assemble(player, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
@@ -333,7 +343,6 @@ def validate_assemble(player, game_state):
     if not can:
         return False, reason
     return True, ""
-
 
 def validate_track_guide(player, game_state):
     if not player.is_awake:
@@ -355,7 +364,6 @@ def validate_track_guide(player, game_state):
         return False, "当前没有警队在追踪中"
     return True, ""
 
-
 def validate_recruit(player, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
@@ -373,7 +381,6 @@ def validate_recruit(player, game_state):
         return False, reason
     return True, ""
 
-
 def validate_election(player, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
@@ -390,7 +397,6 @@ def validate_election(player, game_state):
     if not can:
         return False, reason
     return True, ""
-
 
 def validate_designate(player, target_str, game_state):
     if not player.is_awake:
@@ -411,7 +417,6 @@ def validate_designate(player, target_str, game_state):
         return False, f"{target_str} 已死亡"
     return True, ""
 
-
 def validate_split(player, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
@@ -428,7 +433,6 @@ def validate_split(player, game_state):
     if police.splits_this_round >= 1:
         return False, "本轮已拆分过一次"
     return True, ""
-
 
 def validate_study(player, game_state):
     if not player.is_awake:
@@ -457,7 +461,6 @@ def _validate_melee(player, target, target_id, game_state):
         return False, f"近战需要先找到{target.name}（建立面对面）"
     return True, ""
 
-
 def _validate_ranged(player, target, target_id, weapon, game_state):
     if "missile" in weapon.special_tags:
         if player.location != "军事基地":
@@ -474,14 +477,12 @@ def _validate_ranged(player, target, target_id, weapon, game_state):
         return False, f"{target.name} 对你不可见"
     return True, ""
 
-
 def _validate_area(player, target, game_state):
     others = [p for p in game_state.players_at_location(player.location)
               if p.player_id != player.player_id and p.is_alive()]
     if not others:
         return False, "同地点没有其他目标"
     return True, ""
-
 
 def _check_not_disabled(player, game_state):
     if game_state.markers.has(player.player_id, "STUNNED"):
