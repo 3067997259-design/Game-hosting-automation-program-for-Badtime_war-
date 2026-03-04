@@ -136,7 +136,7 @@ class PoliceEngine:
 
         self.state.log_event("assemble", reporter=reporter_id)
         return (f"🚔 警察集结完成！举报者获得警察保护。"
-                f"\n   警察将在本轮结束时出动！")
+                f"\n   警察将在本轮结束时尝试出动！")
 
     # ============================================
     #  出动与执法（轮次结束时调用）
@@ -145,7 +145,7 @@ class PoliceEngine:
     def process_end_of_round(self, game_state):
         """
         R4-1: 轮次结束时的警察处理。
-        按顺序：出动延迟处理 → 出动 → 执法攻击 → 追踪倒计时。
+        按顺序：出动延迟处理 → 准备出动 → 出动 → 执法攻击 → 追踪倒计时。
         返回消息列表。
         """
         messages = []
@@ -160,23 +160,33 @@ class PoliceEngine:
                     msg = self._dispatch_police()
                     messages.append(msg)
 
-        # 1. 出动（assembled → dispatched）
+        # 1. 准备出动（assembled → ready_to_dispatch）
         if self.police.report_phase == "assembled":
+            # 标记为准备出动，下一轮才会实际移动
+            self.police.report_phase = "ready_to_dispatch"
+            messages.append("🚔 警察准备出动，将在下一轮开始时移动到目标位置！")
+
+        # 2. 出动（ready_to_dispatch → dispatched）
+        if self.police.report_phase == "ready_to_dispatch":
             msg = self._dispatch_police()
             messages.append(msg)
 
-        # 2. 执法攻击（dispatched 或 enforcing 状态）
-        if self.police.report_phase in ("dispatched", "enforcing"):
+        # 3. 执法攻击（dispatched 状态）
+        if self.police.report_phase == "dispatched":
+            # 标记为正在执行执法，下一轮才会实际攻击
+            self.police.report_phase = "enforcing"
+            messages.append("🚔 警察已抵达目标位置，将在下一轮开始执法攻击！")
+
+        # 4. 执法攻击（enforcing 状态）
+        if self.police.report_phase == "enforcing":
             atk_msgs = self._enforcement_attack()
             messages.extend(atk_msgs)
-            if self.police.report_phase == "dispatched":
-                self.police.report_phase = "enforcing"
 
-        # 3. 追踪倒计时
+        # 5. 追踪倒计时
         tracking_msgs = self._process_tracking()
         messages.extend(tracking_msgs)
         
-        # 4. 警察反击（新增）
+        # 6. 警察反击（新增）
         retaliation_msgs = self._process_police_retaliation()
         messages.extend(retaliation_msgs)
 
