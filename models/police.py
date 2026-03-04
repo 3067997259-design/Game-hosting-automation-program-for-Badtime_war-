@@ -149,7 +149,7 @@ class PoliceData:
         self.reporter_id = None
         self.reported_target_id = None
         self.report_phase = "idle"
-        # phases: "idle" → "reported" → "assembled" → "dispatched_delayed" → "dispatched" → "enforcing"
+        # phases: "idle" → "reported" → "assembled" → "ready_to_dispatch" → "dispatched_delayed" → "dispatched" → "enforcing"
         
         # 出动延迟计数
         self.dispatch_countdown = 0
