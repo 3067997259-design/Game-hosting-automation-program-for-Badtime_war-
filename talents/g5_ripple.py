@@ -147,7 +147,7 @@ class Ripple(BaseTalent):
         return {
             "name": "往世的涟漪",
             "description": (
-                f"追忆已满（{self.reminiscence}/{self.max_reminiscence}）\n"
+                f"追忆已满（{self.reminiscence}/{self.max_reminiscence}\n"
                 f"  方式一：锚定命运（不消耗行动回合）\n"
                 f"  方式二：献诗增强（消耗行动回合）"),
         }
@@ -1477,41 +1477,68 @@ class Ripple(BaseTalent):
 
     def _poem_law(self, target):
         lines = []
-        if not getattr(target, 'is_police', False):
-            if hasattr(target, 'crime_records'):
-                target.crime_records = []
-            target.is_police = True
-            lines.append(prompt_manager.get_prompt(
-                "talent", "g5ripple.poem_law_police_granted",
-                default="👮 {target_name} 犯罪记录清除，获得警察岗位！"
-            ).format(target_name=target.name))
-        elif getattr(target, 'is_captain', False):
-            if hasattr(target, 'prestige'):
-                target.prestige += 2
-                lines.append(prompt_manager.get_prompt(
-                    "talent", "g5ripple.poem_law_prestige_increased",
-                    default="👮 {target_name} 的威信+2！当前：{prestige}"
-                ).format(target_name=target.name, prestige=target.prestige))
-            else:
-                lines.append(prompt_manager.get_prompt(
-                    "talent", "g5ripple.poem_law_prestige_manual",
-                    default="👮 DM请手动为 {target_name} 的威信+2。"
-                ).format(target_name=target.name))
+        
+        # 使用警察系统的统一方法来处理律法之诗效果
+        if hasattr(self.state, 'police_engine') and self.state.police_engine:
+            msg = self.state.police_engine.process_poem_law_effect(target.player_id)
+            lines.append(msg)
         else:
-            if self.state.police_engine:
-                pe = self.state.police_engine
-                if hasattr(pe, 'election_progress'):
-                    pe.election_progress[target.player_id] = \
-                        pe.election_progress.get(target.player_id, 0) + 2
+            # 备用逻辑：如果警察引擎不可用
+            if not getattr(target, 'is_police', False):
+                if hasattr(target, 'crime_records'):
+                    target.crime_records = []
+                target.is_police = True
+                lines.append(prompt_manager.get_prompt(
+                    "talent", "g5ripple.poem_law_police_granted",
+                    default="👮 {target_name} 犯罪记录清除，获得警察岗位！"
+                ).format(target_name=target.name))
+            elif getattr(target, 'is_captain', False):
+                if hasattr(target, 'prestige'):
+                    target.prestige += 2
                     lines.append(prompt_manager.get_prompt(
-                        "talent", "g5ripple.poem_law_election_progress",
-                        default="👮 {target_name} 竞选进度+2！（配合朝阳好市民减1轮=立刻上任）"
-                    ).format(target_name=target.name))
+                        "talent", "g5ripple.poem_law_prestige_increased",
+                        default="👮 {target_name} 的威信+2！当前：{prestige}"
+                    ).format(target_name=target.name, prestige=target.prestige))
                 else:
                     lines.append(prompt_manager.get_prompt(
-                        "talent", "g5ripple.poem_law_election_manual",
-                        default="👮 DM请手动为 {target_name} 竞选进度+2。"
+                        "talent", "g5ripple.poem_law_prestige_manual",
+                        default="👮 DM请手动为 {target_name} 的威信+2。"
                     ).format(target_name=target.name))
+            else:
+                # 竞选进度+2
+                if self.state.police_engine:
+                    pe = self.state.police_engine
+                    # 直接使用警察引擎的竞选进度系统
+                    progress_key = "captain_election"
+                    current = target.progress.get(progress_key, 0)
+                    current += 2
+                    target.progress[progress_key] = current
+                    
+                    # 检查是否立即上任
+                    required = 3
+                    if target.talent and hasattr(target.talent, 'get_election_rounds_reduction'):
+                        reduction = target.talent.get_election_rounds_reduction()
+                        required = max(1, required - reduction)
+                    
+                    if current >= required:
+                        # 竞选成功
+                        del target.progress[progress_key]
+                        if hasattr(pe, 'police') and hasattr(pe.police, 'captain_id'):
+                            pe.police.captain_id = target.player_id
+                            pe.police.authority = 3
+                        target.is_captain = True
+                        if hasattr(self.state, 'markers'):
+                            self.state.markers.add(target.player_id, "IS_CAPTAIN")
+                        lines.append(prompt_manager.get_prompt(
+                            "talent", "g5ripple.poem_law_election_success",
+                            default="👑 {target_name} 立即成为警队队长！威信：3"
+                        ).format(target_name=target.name))
+                    else:
+                        lines.append(prompt_manager.get_prompt(
+                            "talent", "g5ripple.poem_law_election_progress",
+                            default="🏛️ {target_name} 竞选进度+2！当前：{current}/{required}"
+                        ).format(target_name=target.name, current=current, required=required))
+        
         return "\n".join(lines) if lines else prompt_manager.get_prompt(
             "talent", "g5ripple.poem_law_default",
             default="效果已生效。"
