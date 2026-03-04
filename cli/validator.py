@@ -83,6 +83,8 @@ def validate(parsed, player, game_state):
         return validate_split(player, game_state)
     elif action == "study":
         return validate_study(player, game_state)
+    elif action == "police_command":
+        return validate_police_command(player, parsed, game_state)
     elif action == "forfeit":
         return True, ""
     elif action in ("status", "allstatus", "help", "police_status"):
@@ -445,6 +447,28 @@ def validate_study(player, game_state):
         return False, barrier_msg
     if player.location != "警察局":
         return False, "需要在警察局才能研究性学习"
+    return True, ""
+
+def validate_police_command(player, parsed, game_state):
+    """验证队长操控警察命令"""
+    if not player.is_awake:
+        return False, "你还没起床！"
+    if not player.is_captain:
+        return False, "只有队长可以操控警察"
+    ok, reason = _check_not_disabled(player, game_state)
+    if not ok:
+        return False, reason
+    # 结界限制
+    barrier_msg = _check_barrier_block(player, "police_command", game_state)
+    if barrier_msg:
+        return False, barrier_msg
+    if not game_state.police_engine:
+        return False, "警察系统未初始化"
+    subcommand = parsed.get("subcommand")
+    police_id = parsed.get("police_id")
+    if not subcommand or not police_id:
+        return False, "命令格式错误"
+    # 基本验证：警察单位是否存在（具体验证由警察引擎执行）
     return True, ""
 
 
