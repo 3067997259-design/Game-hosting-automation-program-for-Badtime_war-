@@ -745,23 +745,32 @@ class Ripple(BaseTalent):
         if self.is_anchor_paused():
             self.was_paused_by_barrier = True
             display.show_info(
-                f"🌊⏸️ 锚定倒计时因幻想乡结界暂停"
-                f"（剩余{self.anchor_rounds_left}轮）")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.paused_by_barrier",
+                    default="🌊⏸️ 锚定倒计时因幻想乡结界暂停（剩余{remaining_rounds}轮）"
+                ).format(remaining_rounds=self.anchor_rounds_left)
+            )
             return
         
         # 如果之前被暂停，现在结界已结束，显示恢复信息
         if self.was_paused_by_barrier:
             display.show_info(
-                f"🌊▶️ 结界已结束，锚定监控恢复"
-                f"（剩余{self.anchor_rounds_left}轮）")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.resumed_after_barrier",
+                    default="🌊▶️ 结界已结束，锚定监控恢复（剩余{remaining_rounds}轮）"
+                ).format(remaining_rounds=self.anchor_rounds_left)
+            )
             self.was_paused_by_barrier = False
 
         me = self._get_caster()
 
         if not me or not me.is_alive():
             display.show_info(
-                f"\n🌊💀 {me.name if me else '发动者'} 在锚定期间死亡！"
-                f"\n   锚定立即失败，且无法回溯复活。")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.caster_death_during_anchor",
+                    default="\n🌊💀 {caster_name} 在锚定期间死亡！\n   锚定立即失败，且无法回溯复活。"
+                ).format(caster_name=me.name if me else "发动者")
+            )
             self._anchor_fail(me, can_revert=False)
             return
 
@@ -769,8 +778,11 @@ class Ripple(BaseTalent):
 
         if self.anchor_type in ("acquire", "arrive"):
             display.show_info(
-                f"🌊 锚定剩余 {self.anchor_rounds_left} 轮"
-                f"（{self.anchor_detail}）")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.simple_anchor_remaining",
+                    default="🌊 锚定剩余 {remaining_rounds} 轮（{anchor_detail}）"
+                ).format(remaining_rounds=self.anchor_rounds_left, anchor_detail=self.anchor_detail)
+            )
             if self.anchor_rounds_left <= 0:
                 self._anchor_resolve_simple()
             return
@@ -782,10 +794,20 @@ class Ripple(BaseTalent):
 
         display.show_info(
             f"\n{'─'*50}"
-            f"\n🌊 锚定监控 —— 剩余 {self.anchor_rounds_left} 轮"
-            f"\n   事件：{self.anchor_detail}"
-            f"\n   当前破坏性行动：{self.anchor_destructive_count}/{self.anchor_variance}"
-            f"\n{'─'*50}")
+            f"\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.monitoring_header",
+                default="🌊 锚定监控 —— 剩余 {remaining_rounds} 轮"
+            ).format(remaining_rounds=self.anchor_rounds_left)
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.monitoring_event",
+                default="   事件：{anchor_detail}"
+            ).format(anchor_detail=self.anchor_detail)
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.monitoring_destructive_count",
+                default="   当前破坏性行动：{current}/{variance}"
+            ).format(current=self.anchor_destructive_count, variance=self.anchor_variance)
+            + f"\n{'─'*50}"
+        )
 
         if target and target.is_alive():
             self._ask_dm_destructive_action(target)
@@ -795,58 +817,83 @@ class Ripple(BaseTalent):
 
     def _ask_dm_destructive_action(self, target):
         display.show_info(
-            f"\n📋 DM请判定：{target.name} 本轮是否执行了破坏性行动？"
-            f"\n   破坏性行动包括："
-            f"\n   - 移动到与发动者不同地点"
-            f"\n   - 获得/更换克制发动者武器属性的护甲"
-            f"\n   - 进入隐身（且发动者无探测手段）"
-            f"\n   - 被攻击致眩晕或HP降至0.5"
-            f"\n   每轮最多计1次。")
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.destructive_action_question",
+                default="\n📋 DM请判定：{target_name} 本轮是否执行了破坏性行动？"
+            ).format(target_name=target.name)
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.destructive_action_list",
+                default="   破坏性行动包括：\n   - 移动到与发动者不同地点\n   - 获得/更换克制发动者武器属性的护甲\n   - 进入隐身（且发动者无探测手段）\n   - 被攻击致眩晕或HP降至0.5\n   每轮最多计1次。"
+            )
+        )
 
         # ══ DM 判定 3：破坏性行动（全 AI 时自动判定）══
         if self._has_human_players():
             choice = display.prompt_choice(
-                f"{target.name} 本轮破坏性行动判定：",
-                ["有破坏性行动", "无破坏性行动"]
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.destructive_action_choice_prompt",
+                    default="{target_name} 本轮破坏性行动判定："
+                ).format(target_name=target.name),
+                [
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.has_destructive_action",
+                        default="有破坏性行动"
+                    ),
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.no_destructive_action",
+                        default="无破坏性行动"
+                    )
+                ]
             )
         else:
             # 全 AI 自动判定：检查目标是否移动、护甲变化等
             choice = self._auto_judge_destructive(target)
-            display.show_info(f"  📋 [自动DM] 判定：{choice}")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.auto_dm_judgment",
+                    default="  📋 [自动DM] 判定：{judgment}"
+                ).format(judgment=choice)
+            )
         # ══ DM 判定 3 结束 ══
 
-        if "有" in choice:
+        if prompt_manager.get_prompt("talent", "g5ripple.has_destructive_action", default="有破坏性行动") in choice:
             self.anchor_destructive_count += 1
             display.show_info(
-                f"  ⚠️ 破坏性行动+1！"
-                f"当前：{self.anchor_destructive_count}/{self.anchor_variance}")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.destructive_action_incremented",
+                    default="  ⚠️ 破坏性行动+1！当前：{current}/{variance}"
+                ).format(current=self.anchor_destructive_count, variance=self.anchor_variance)
+            )
 
     def _auto_judge_destructive(self, target):
         """全 AI 模式下自动判定破坏性行动"""
         me = self._get_caster()
         if not me:
-            return "无破坏性行动"
+            return prompt_manager.get_prompt("talent", "g5ripple.no_destructive_action", default="无破坏性行动")
 
         # 简单启发式：目标和发动者不在同地点 → 有
         if target.location != me.location:
-            return "有破坏性行动"
+            return prompt_manager.get_prompt("talent", "g5ripple.has_destructive_action", default="有破坏性行动")
         # 目标隐身且发动者无探测 → 有
         if getattr(target, 'is_invisible', False):
             if not getattr(me, 'has_detection', False):
-                return "有破坏性行动"
+                return prompt_manager.get_prompt("talent", "g5ripple.has_destructive_action", default="有破坏性行动")
         # 目标快照对比：护甲变化 → 有
         if self.anchor_target_snapshot:
             current_armor = self._get_armor_summary(target)
             if current_armor != self.anchor_target_snapshot.get('armor_summary', []):
-                return "有破坏性行动"
-        return "无破坏性行动"
+                return prompt_manager.get_prompt("talent", "g5ripple.has_destructive_action", default="有破坏性行动")
+        return prompt_manager.get_prompt("talent", "g5ripple.no_destructive_action", default="无破坏性行动")
 
     def _check_external_completion(self, target):
         if self.anchor_type == "kill":
             if not target or not target.is_alive():
                 display.show_info(
-                    f"\n🌊❌ 锚定目标 {target.name if target else '?'}"
-                    f" 已被其他单位击杀！锚定失败。")
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.external_kill_completion",
+                        default="\n🌊❌ 锚定目标 {target_name} 已被其他单位击杀！锚定失败。"
+                    ).format(target_name=target.name if target else "?")
+                )
                 me = self._get_caster()
                 self._anchor_fail(me, can_revert=True)
                 return True
@@ -856,24 +903,51 @@ class Ripple(BaseTalent):
                 # ══ DM 判定 4：外部破坏（全 AI 时自动判定）══
                 if self._has_human_players():
                     display.show_info(
-                        f"\n📋 DM请确认：{target.name} 的被锚定护甲"
-                        f"是否已被其他单位破坏？")
-                    ext = display.prompt_choice("判定：",
-                        ["未被外部破坏", "已被外部破坏或超出"])
+                        prompt_manager.get_prompt(
+                            "talent", "g5ripple.external_armor_damage_question",
+                            default="\n📋 DM请确认：{target_name} 的被锚定护甲是否已被其他单位破坏？"
+                        ).format(target_name=target.name)
+                    )
+                    ext = display.prompt_choice(
+                        prompt_manager.get_prompt(
+                            "talent", "g5ripple.external_damage_judgment_prompt",
+                            default="判定："
+                        ),
+                        [
+                            prompt_manager.get_prompt(
+                                "talent", "g5ripple.not_externally_damaged",
+                                default="未被外部破坏"
+                            ),
+                            prompt_manager.get_prompt(
+                                "talent", "g5ripple.externally_damaged",
+                                default="已被外部破坏或超出"
+                            )
+                        ]
+                    )
                 else:
                     # 自动判定：对比快照
                     current_armor = self._get_armor_summary(target)
                     snap_armor = (self.anchor_target_snapshot.get('armor_summary', [])
                                   if self.anchor_target_snapshot else [])
                     if current_armor != snap_armor:
-                        ext = "已被外部破坏或超出"
+                        ext = prompt_manager.get_prompt("talent", "g5ripple.externally_damaged", default="已被外部破坏或超出")
                     else:
-                        ext = "未被外部破坏"
-                    display.show_info(f"  📋 [自动DM] 判定：{ext}")
+                        ext = prompt_manager.get_prompt("talent", "g5ripple.not_externally_damaged", default="未被外部破坏")
+                    display.show_info(
+                        prompt_manager.get_prompt(
+                            "talent", "g5ripple.auto_dm_judgment",
+                            default="  📋 [自动DM] 判定：{judgment}"
+                        ).format(judgment=ext)
+                    )
                 # ══ DM 判定 4 结束 ══
 
-                if "已被" in ext:
-                    display.show_info("🌊❌ 锚定条件已被外部达成，锚定失败。")
+                if prompt_manager.get_prompt("talent", "g5ripple.externally_damaged", default="已被外部破坏或超出") in ext:
+                    display.show_info(
+                        prompt_manager.get_prompt(
+                            "talent", "g5ripple.external_condition_met",
+                            default="🌊❌ 锚定条件已被外部达成，锚定失败。"
+                        )
+                    )
                     me = self._get_caster()
                     self._anchor_fail(me, can_revert=True)
                     return True
@@ -889,13 +963,25 @@ class Ripple(BaseTalent):
         if me and me.is_alive():
             display.show_info(
                 f"\n{'='*60}"
-                f"\n  🌊✅ 锚定成功！事件自动实现：{self.anchor_detail}"
-                f"\n  📸 {me.name} 状态回溯至锚定前备份。"
-                f"\n{'='*60}")
+                f"\n" + prompt_manager.get_prompt(
+                    "talent", "g5ripple.simple_anchor_success",
+                    default="  🌊✅ 锚定成功！事件自动实现：{anchor_detail}"
+                ).format(anchor_detail=self.anchor_detail)
+                + "\n" + prompt_manager.get_prompt(
+                    "talent", "g5ripple.state_restored_from_backup",
+                    default="  📸 {caster_name} 状态回溯至锚定前备份。"
+                ).format(caster_name=me.name)
+                + f"\n{'='*60}"
+            )
             self._auto_resolve_event(me)
             self._restore_player_backup(me, self.anchor_caster_backup)
         else:
-            display.show_info(f"\n🌊❌ 发动者已死亡，锚定失败。")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.caster_death_anchor_fail",
+                    default="\n🌊❌ 发动者已死亡，锚定失败。"
+                )
+            )
         self._anchor_cleanup()
 
     def _anchor_resolve_combat(self, target):
@@ -908,32 +994,79 @@ class Ripple(BaseTalent):
             if self._target_state_unchanged(target):
                 adjusted_count = max(0, adjusted_count - 2)
                 display.show_info(
-                    f"\n📋 {target.name} 执行了{self.anchor_destructive_count}"
-                    f"次破坏性行动，但最终状态（除位置）未改变。"
-                    f"\n   破坏性行动计数 -2：{self.anchor_destructive_count}"
-                    f" → {adjusted_count}")
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.state_unchanged_adjustment",
+                        default="\n📋 {target_name} 执行了{count}次破坏性行动，但最终状态（除位置）未改变。\n   破坏性行动计数 -2：{original} → {adjusted}"
+                    ).format(
+                        target_name=target.name,
+                        count=self.anchor_destructive_count,
+                        original=self.anchor_destructive_count,
+                        adjusted=adjusted_count
+                    )
+                )
 
         display.show_info(
             f"\n{'='*60}"
-            f"\n🌊 锚定结算！"
-            f"\n   事件：{self.anchor_detail}"
-            f"\n   变数：{self.anchor_variance}"
-            f"\n   破坏性行动（调整后）：{adjusted_count}"
-            f"\n   判定：{'成功' if adjusted_count <= self.anchor_variance else '失败'}")
+            f"\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.anchor_settlement_header",
+                default="🌊 锚定结算！"
+            )
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.settlement_event",
+                default="   事件：{anchor_detail}"
+            ).format(anchor_detail=self.anchor_detail)
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.settlement_variance",
+                default="   变数：{variance}"
+            ).format(variance=self.anchor_variance)
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.settlement_destructive_adjusted",
+                default="   破坏性行动（调整后）：{adjusted_count}"
+            ).format(adjusted_count=adjusted_count)
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.settlement_judgment",
+                default="   判定：{result}"
+            ).format(result=prompt_manager.get_prompt(
+                "talent", "g5ripple.success" if adjusted_count <= self.anchor_variance else "g5ripple.failure",
+                default="成功" if adjusted_count <= self.anchor_variance else "失败"
+            ))
+        )
 
-        display.show_info(f"\n📜 锚定完整路径：")
+        display.show_info(
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.full_path_header",
+                default="\n📜 锚定完整路径："
+            )
+        )
         for i, step in enumerate(self.anchor_path, 1):
-            display.show_info(f"   第{i}步：{step}")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.path_step_numbered",
+                    default="   第{step_num}步：{step}"
+                ).format(step_num=i, step=step)
+            )
 
         if adjusted_count <= self.anchor_variance:
             display.show_info(
-                f"\n  🌊✅ 锚定成功！事件自动实现：{self.anchor_detail}"
-                f"\n  📸 {me.name} 状态回溯至锚定前备份。"
-                f"\n{'='*60}")
+                f"\n" + prompt_manager.get_prompt(
+                    "talent", "g5ripple.combat_anchor_success",
+                    default="  🌊✅ 锚定成功！事件自动实现：{anchor_detail}"
+                ).format(anchor_detail=self.anchor_detail)
+                + "\n" + prompt_manager.get_prompt(
+                    "talent", "g5ripple.state_restored_from_backup",
+                    default="  📸 {caster_name} 状态回溯至锚定前备份。"
+                ).format(caster_name=me.name)
+                + f"\n{'='*60}"
+            )
             self._auto_resolve_event(me)
             self._restore_player_backup(me, self.anchor_caster_backup)
         else:
-            display.show_info(f"\n  🌊❌ 锚定失败！")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.combat_anchor_failure",
+                    default="\n  🌊❌ 锚定失败！"
+                )
+            )
             self._anchor_fail(me, can_revert=True)
             return
 
@@ -943,20 +1076,45 @@ class Ripple(BaseTalent):
         # ══ CONTROLLER 改动 8：锚定失败选择 ══
         if can_revert and me and me.is_alive() and self.anchor_caster_backup:
             choice = me.controller.choose(
-                f"{me.name}，锚定失败。选择：",
-                ["回到过去（回档至备份状态）", "留在当下（不做额外操作）"],
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.anchor_fail_choice_prompt",
+                    default="{caster_name}，锚定失败。选择："
+                ).format(caster_name=me.name),
+                [
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.return_to_past",
+                        default="回到过去（回档至备份状态）"
+                    ),
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.stay_in_present",
+                        default="留在当下（不做额外操作）"
+                    )
+                ],
                 context={"phase": "anchor_fail", "situation": "ripple_anchor_fail"}
             )
-            if "回到过去" in choice:
+            if prompt_manager.get_prompt("talent", "g5ripple.return_to_past", default="回到过去（回档至备份状态）") in choice:
                 self._restore_player_backup(me, self.anchor_caster_backup)
                 display.show_info(
-                    f"🌊 {me.name} 回溯至锚定前状态。"
-                    f"\n   HP: {me.hp} | 位置: {me.location}")
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.state_restored_to_past",
+                        default="🌊 {caster_name} 回溯至锚定前状态。\n   HP: {hp} | 位置: {location}"
+                    ).format(caster_name=me.name, hp=me.hp, location=me.location)
+                )
             else:
-                display.show_info(f"🌊 {me.name} 选择留在当下。")
+                display.show_info(
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.stayed_in_present",
+                        default="🌊 {caster_name} 选择留在当下。"
+                    ).format(caster_name=me.name)
+                )
         else:
             if not can_revert:
-                display.show_info("🌊 发动者死亡，无法回溯。")
+                display.show_info(
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.caster_death_no_revert",
+                        default="🌊 发动者死亡，无法回溯。"
+                    )
+                )
         # ══ CONTROLLER 改动 8 结束 ══
 
         self._anchor_cleanup()
@@ -972,27 +1130,51 @@ class Ripple(BaseTalent):
                 target.hp = 0
                 self.state.markers.on_player_death(target.player_id)
                 display.show_info(
-                    f"💀 锚定事件实现：{target.name} 被命运击杀！")
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.kill_event_implemented",
+                        default="💀 锚定事件实现：{target_name} 被命运击杀！"
+                    ).format(target_name=target.name)
+                )
                 display.show_death(target.name, "锚定命运")
 
         elif self.anchor_type == "break_armor":
             target = self.state.get_player(self.anchor_target_id)
             if target:
                 display.show_info(
-                    f"🛡️💥 锚定事件实现：{target.name} 的被锚定护甲被命运破坏！")
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.break_armor_event_implemented",
+                        default="🛡️💥 锚定事件实现：{target_name} 的被锚定护甲被命运破坏！"
+                    ).format(target_name=target.name)
+                )
                 display.show_info(
-                    f"📋 DM请手动移除 {target.name} 的对应护甲层。")
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.manual_armor_removal",
+                        default="📋 DM请手动移除 {target_name} 的对应护甲层。"
+                    ).format(target_name=target.name)
+                )
 
         elif self.anchor_type == "acquire":
             display.show_info(
-                f"📦 锚定事件实现：{caster.name} 获得「{self.anchor_detail}」！")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.acquire_event_implemented",
+                    default="📦 锚定事件实现：{caster_name} 获得「{item_detail}」！"
+                ).format(caster_name=caster.name, item_detail=self.anchor_detail)
+            )
             display.show_info(
-                f"📋 DM请手动为 {caster.name} 添加对应物品/权能。")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.manual_item_addition",
+                    default="📋 DM请手动为 {caster_name} 添加对应物品/权能。"
+                ).format(caster_name=caster.name)
+            )
 
         elif self.anchor_type == "arrive":
             loc = self.anchor_detail.replace("到达 ", "")
             display.show_info(
-                f"📍 锚定事件实现：{caster.name} 到达 {loc}！")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.arrive_event_implemented",
+                    default="📍 锚定事件实现：{caster_name} 到达 {location}！"
+                ).format(caster_name=caster.name, location=loc)
+            )
 
     # ================================================================
     #  锚定：目标状态对比
@@ -1059,15 +1241,26 @@ class Ripple(BaseTalent):
             backup['inventory'] = []
 
         display.show_info(
-            f"📸 备份 {player.name}："
-            f" HP={backup['hp']}"
-            f" 位置={backup['location']}"
-            f" 护甲={backup['armor_summary']}")
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.backup_created",
+                default="📸 备份 {player_name}： HP={hp} 位置={location} 护甲={armor_summary}"
+            ).format(
+                player_name=player.name,
+                hp=backup['hp'],
+                location=backup['location'],
+                armor_summary=backup['armor_summary']
+            )
+        )
         return backup
 
     def _restore_player_backup(self, player, backup):
         if not backup:
-            display.show_info("⚠️ 无备份数据，无法恢复。")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.no_backup_data",
+                    default="⚠️ 无备份数据，无法恢复。"
+                )
+            )
             return
         player.hp = backup['hp']
         player.max_hp = backup['max_hp']
@@ -1091,10 +1284,16 @@ class Ripple(BaseTalent):
             player.inventory = copy.deepcopy(backup['inventory'])
         self.state.markers.on_player_move(player.player_id)
         display.show_info(
-            f"📸 {player.name} 状态已恢复至备份："
-            f" HP={player.hp}"
-            f" 位置={player.location}"
-            f" 护甲={self._get_armor_summary(player)}")
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.backup_restored",
+                default="📸 {player_name} 状态已恢复至备份： HP={hp} 位置={location} 护甲={armor_summary}"
+            ).format(
+                player_name=player.name,
+                hp=player.hp,
+                location=player.location,
+                armor_summary=self._get_armor_summary(player)
+            )
+        )
 
     # ================================================================
     #  锚定清理
