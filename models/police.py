@@ -13,7 +13,30 @@ class PoliceUnit:
         self.unit_id = unit_id
         self.hp = 1.0
         self.weapon_name = "警棍"   # 可被队长更换
+        self.armor_name = None      # 护甲（盾牌、陶瓷护甲、魔法护盾、AT力场）
         self.is_stunned = False
+        
+        # 拆分相关
+        self.is_individual = False           # 是否已拆分为独立单位
+        self.original_team_id = None         # 拆分前的原队伍ID
+        
+        # 反击相关
+        self.last_attacker_id = None         # 本轮最后攻击者的player_id
+        self.was_attacked_this_round = False # 本轮是否被攻击过
+        
+        # 队长指令
+        self.current_order = None            # 当前执行的命令 {"type": "move"/"equip"/"attack", "data": {...}}
+        
+        # 位置（独立单位才有独立位置，否则跟随队伍）
+        self._location = "警察局"
+
+    @property
+    def location(self):
+        return self._location
+    
+    @location.setter
+    def location(self, value):
+        self._location = value
 
     def is_alive(self):
         return self.hp > 0
@@ -21,13 +44,42 @@ class PoliceUnit:
     def is_active(self):
         return self.is_alive() and not self.is_stunned
 
+    def take_damage(self, damage, attacker_id):
+        """警察受到伤害，返回伤害结果"""
+        old_hp = self.hp
+        self.hp = max(0, self.hp - damage)
+        
+        # 记录攻击者（用于反击）
+        if attacker_id:
+            self.last_attacker_id = attacker_id
+            self.was_attacked_this_round = True
+        
+        return {
+            "damage": damage,
+            "old_hp": old_hp,
+            "new_hp": self.hp,
+            "killed": self.hp <= 0
+        }
+
+    def reset_to_initial(self):
+        """重置为初始状态（警长丢掉职位时调用）"""
+        self.weapon_name = "警棍"
+        self.armor_name = None
+        self.is_individual = False
+        self.original_team_id = None
+        self._location = "警察局"
+        self.current_order = None
+        # 注意：不清除HP和眩晕状态，保持现状
+
     def __repr__(self):
         status = "活跃"
         if not self.is_alive():
             status = "已击杀"
         elif self.is_stunned:
             status = "眩晕"
-        return f"警察{self.unit_id}({status} HP:{self.hp} 武器:{self.weapon_name})"
+        armor_str = f" 护甲:{self.armor_name}" if self.armor_name else ""
+        indiv_str = " [独立]" if self.is_individual else ""
+        return f"警察{self.unit_id}({status}{indiv_str} HP:{self.hp} 武器:{self.weapon_name}{armor_str})"
 
 
 class PoliceTeam:
@@ -89,6 +141,9 @@ class PoliceData:
 
         # 警队列表（初始1支，每支3人）
         self.teams = [PoliceTeam("alpha", initial_size=3)]
+        
+        # 独立警察单位列表（拆分后不可合并）
+        self.individual_units = []
 
         # 举报信息
         self.reporter_id = None
@@ -148,6 +203,11 @@ class PoliceData:
         for t in self.teams:
             if not t.is_eliminated():
                 lines.append(f"    {t}")
+        if self.individual_units:
+            lines.append(f"  独立警察：{len(self.individual_units)}个")
+            for u in self.individual_units:
+                if u.is_alive():
+                    lines.append(f"    {u}")
         if self.captain_id:
             lines.append(f"  队长：{self.captain_id}（威信：{self.authority}）")
         else:
