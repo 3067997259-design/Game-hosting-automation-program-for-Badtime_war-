@@ -56,6 +56,12 @@ ARMOR_LAYERS = [
     ("内层", "普通"), ("内层", "魔法"), ("内层", "科技"),
 ]
 
+# 警察相关常量
+POLICE_AOE_WEAPONS = {"地震", "地动山摇", "电磁步枪", "天星"}
+POLICE_ALLOWED_WEAPONS = {"警棍", "高斯步枪", "地震", "地动山摇"}
+POLICE_ALLOWED_ARMOR = {"盾牌", "陶瓷护甲", "魔法护盾", "AT力场"}
+POLICE_FORBIDDEN_WEAPONS = {"电磁步枪"}  # 蓄力武器不能用
+
 
 class BasicAIController(PlayerController):
     """
@@ -108,6 +114,10 @@ class BasicAIController(PlayerController):
         
         # 探测装备列表
         self._detection_items = ["热成像仪", "雷达", "探测魔法"]
+        
+        # 警察系统状态缓存（新增）
+        self._police_situation_cache = None
+        self._last_police_check_turn = -1
 
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command
@@ -181,12 +191,31 @@ class BasicAIController(PlayerController):
             return options[0]
         # ---- 加入警察 ----
         if situation in ("recruit_pick_1", "recruit_pick_2"):
-            priority = ["盾牌", "凭证", "警棍"]
+            # 根据人格选择入队装备
             if self.personality == "aggressive":
                 priority = ["警棍", "盾牌", "凭证"]
+            elif self.personality == "defensive":
+                priority = ["盾牌", "警棍", "凭证"]
+            elif self.personality == "political":
+                priority = ["凭证", "警棍", "盾牌"]  # 政治型优先凭证
+            else:
+                priority = ["盾牌", "凭证", "警棍"]
+            
             for preferred in priority:
                 if preferred in options:
                     return preferred
+            return options[0]
+        # ---- 竞选队长相关 ----
+        if situation == "captain_election":
+            # 是否竞选队长
+            if self._should_become_captain(self._player, self._game_state):
+                for opt in options:
+                    if "竞选" in opt:
+                        return opt
+            else:
+                for opt in options:
+                    if "不竞选" in opt or "放弃" in opt:
+                        return opt
             return options[0]
         # ---- 六爻 ----
         if situation == "hexagram_thunder_target":
@@ -311,6 +340,13 @@ class BasicAIController(PlayerController):
         self.player_name = player.name
         self._update_threat_scores(player, state)
         
+        # 保存当前玩家和状态引用（用于choose方法）
+        self._player = player
+        self._game_state = state
+        
+        # 更新警察状态缓存
+        self._update_police_situation_cache(state)
+        
         # 更新战斗状态
         self._update_combat_status(player, state)
         
@@ -324,7 +360,18 @@ class BasicAIController(PlayerController):
         if not player.is_awake:
             return ["wake"]
         
-        # ========== 战斗状态优先级最高 ==========
+        # ========== 队长指挥优先级最高 ==========
+        # 如果是队长，优先指挥警察
+        if self._is_captain(player, state):
+            debug_ai_basic(player.name, "作为队长，优先指挥警察")
+            captain_cmds = self._generate_captain_commands(player, state, available_actions)
+            if captain_cmds:
+                candidates.extend(captain_cmds)
+                # 队长指挥优先级高，直接返回
+                candidates.append("forfeit")
+                return candidates
+        
+        # ========== 战斗状态优先级高 ==========
         if self._in_combat and self._combat_target:
             debug_ai_combat_state(player.name, f"处于战斗状态，目标: {self._combat_target.name}")
             
@@ -357,6 +404,18 @@ class BasicAIController(PlayerController):
                         if develop:
                             candidates.append(develop[0])
                     
+                    candidates.append("forfeit")
+                    return candidates
+        
+        # ========== 攻击警察决策（新增） ==========
+        # 检查是否应该攻击警察
+        if self._should_attack_police(player, state):
+            police_target = self._find_police_target(player, state)
+            if police_target and self._has_suitable_aoe_weapon(player):
+                debug_ai_basic(player.name, f"决定攻击警察 {police_target}")
+                police_attack_cmds = self._police_attack_commands(player, state, available_actions, police_target)
+                if police_attack_cmds:
+                    candidates.extend(police_attack_cmds)
                     candidates.append("forfeit")
                     return candidates
         
@@ -466,6 +525,7 @@ class BasicAIController(PlayerController):
                         candidates.insert(0, attack_cmds[0])
                         debug_ai_basic(player.name, f"插入优先攻击命令: {attack_cmds[0]}")
         
+        # 政治型玩家：警察相关行动
         if self.personality == "political":
             debug_ai_basic(player.name, "进入政治模式")
             political = self._political_commands(player, state, available_actions)
@@ -762,32 +822,38 @@ class BasicAIController(PlayerController):
                     cmds.append(f"special {item.name}")
         return cmds
 
-    def _police_survival_commands(self, player, state, available) -> List[str]:
-        """警察围攻生存命令：获取群攻手段"""
+    def _police_survival_commands(self, player, state, available_actions) -> List[str]:
+        """警察围攻生存命令（增强版）"""
         cmds = []
         loc = player.location
         
-        # 首先尝试获取群攻法术
-        if loc == "魔法所":
-            # 检查是否可以学习地震或地动山摇
-            if self._can_learn(player, "地震"):
-                cmds.append("interact 地震")
-            elif self._can_learn(player, "地动山摇"):
-                cmds.append("interact 地动山摇")
-            else:
-                # 如果已经学会，尝试获取其他生存物品
-                if self._can_take_item(player, "魔法护盾"):
-                    cmds.append("interact 魔法护盾")
-                elif "move" in available:
-                    cmds.append("move 商店")
-        else:
-            # 前往魔法所学习群攻法术
-            if "move" in available:
-                cmds.append("move 魔法所")
+        # 获取警察状态
+        police_situation = self._get_police_situation(player, state)
         
-        # 如果没有其他命令，添加通用生存命令
-        if not cmds:
-            cmds.extend(self._survival_commands(player, state, available))
+        # 如果被警察围攻
+        if police_situation.get("report_target") == player.player_id:
+            debug_ai_basic(player.name, "被警察围攻！")
+            
+            # 检查警察保护状态（同地点警察时免疫单体伤害）
+            if self._has_police_protection(player, state):
+                debug_ai_basic(player.name, "拥有警察保护，免疫单体伤害")
+                # 可以采取更激进的策略
+                cmds.extend(self._aggressive_survival_strategy(player, state, available_actions))
+            else:
+                # 无保护，采取防守策略
+                cmds.extend(self._defensive_survival_strategy(player, state, available_actions))
+        
+        # 如果警察在附近但未围攻
+        elif self._are_police_nearby(player, state):
+            debug_ai_basic(player.name, "警察在附近，小心行事")
+            
+            # 避免违法行为
+            if self._is_about_to_commit_crime(player, available_actions):
+                debug_ai_basic(player.name, "放弃违法行为以避免警察注意")
+                cmds.append("forfeit")
+            else:
+                # 正常行动，但更小心
+                cmds.extend(self._cautious_actions(player, state, available_actions))
         
         return cmds
 
@@ -1633,6 +1699,12 @@ class BasicAIController(PlayerController):
             if target:
                 cmds.append(f"vote {target.name}")
 
+        # 新增：队长竞选
+        if "election" in available and loc == "警察局":
+            if self._should_become_captain(player, state):
+                cmds.append("election")
+                debug_ai_basic(player.name, "决定竞选队长")
+
         return cmds
 
     def _pick_report_target(self, player, state):
@@ -1946,3 +2018,474 @@ class BasicAIController(PlayerController):
         except Exception as e:
             debug_error(f"计算护甲健康度时出错: {e}")
             return 0.0
+
+    # ════════════════════════════════════════════════════════
+    #  警察系统AI交互机制（新增）
+    # ════════════════════════════════════════════════════════
+
+    def _update_police_situation_cache(self, state):
+        """更新警察状态缓存"""
+        if not hasattr(state, 'police') or not state.police:
+            self._police_situation_cache = None
+            return
+        
+        situation = {
+            "is_captain": False,
+            "police_count": 0,
+            "individual_units": [],
+            "teams": [],
+            "captain_id": None,
+            "authority": 0,
+            "report_phase": None,
+            "report_target": None
+        }
+        
+        police = state.police
+        
+        # 队长状态
+        if hasattr(police, 'captain_id'):
+            situation["captain_id"] = police.captain_id
+            situation["is_captain"] = (police.captain_id == self._my_id)
+        
+        # 威信
+        if hasattr(police, 'captain_authority'):
+            situation["authority"] = police.captain_authority
+        
+        # 举报状态
+        if hasattr(police, 'report_phase'):
+            situation["report_phase"] = police.report_phase
+            situation["report_target"] = police.reported_target_id
+        
+        # 警察数量
+        total_police = 0
+        individual_units = []
+        
+        # 警队成员
+        if hasattr(police, 'teams'):
+            for team in police.teams:
+                alive = len(team.get_alive_members()) if hasattr(team, 'get_alive_members') else 0
+                total_police += alive
+                situation["teams"].append({
+                    "id": getattr(team, 'team_id', 'unknown'),
+                    "alive": alive,
+                    "location": getattr(team, 'location', '警察局')
+                })
+        
+        # 独立警察
+        if hasattr(police, 'individual_units'):
+            for unit in police.individual_units:
+                if hasattr(unit, 'is_alive') and unit.is_alive():
+                    total_police += 1
+                    individual_units.append({
+                        "id": getattr(unit, 'unit_id', 'unknown'),
+                        "location": getattr(unit, 'location', '警察局'),
+                        "weapon": getattr(unit, 'weapon_name', '警棍')
+                    })
+        
+        situation["police_count"] = total_police
+        situation["individual_units"] = individual_units
+        
+        self._police_situation_cache = situation
+        debug_ai_detailed(self.player_name, f"警察状态更新: {situation}")
+
+    def _get_police_situation(self, player, state):
+        """获取警察状态信息"""
+        if self._police_situation_cache:
+            return self._police_situation_cache
+        
+        self._update_police_situation_cache(state)
+        return self._police_situation_cache or {}
+
+    def _is_captain(self, player, state):
+        """检查是否是队长"""
+        situation = self._get_police_situation(player, state)
+        return situation.get("is_captain", False)
+
+    def _should_become_captain(self, player, state):
+        """判断是否应该竞选队长"""
+        # 1. 政治型人格优先
+        if self.personality == "political":
+            return True
+        
+        # 2. 有犯罪记录或高威胁目标
+        if hasattr(player, 'crime_record') and player.crime_record > 0:
+            return True  # 有犯罪记录的人需要警察豁免权
+        
+        # 3. 需要警察力量支持
+        if self._needs_police_assistance(player, state):
+            return True
+        
+        # 4. 威望高的玩家
+        kills = getattr(player, 'kill_count', 0)
+        if kills >= 2:
+            return True
+        
+        # 5. 当前没有队长或队长威信低
+        situation = self._get_police_situation(player, state)
+        if situation.get("captain_id") is None:  # 没有队长
+            return True
+        if situation.get("authority", 3) <= 1:  # 队长威信低
+            return True
+        
+        return False
+
+    def _generate_captain_commands(self, player, state, available_actions):
+        """生成队长指挥命令"""
+        commands = []
+        
+        if not self._is_captain(player, state):
+            return commands
+        
+        # 检查是否有police命令可用
+        has_police_command = any(action.startswith("police") for action in available_actions)
+        if not has_police_command:
+            debug_ai_basic(player.name, "队长但没有police命令可用")
+            return commands
+        
+        # 1. 检查是否需要拆分警察
+        if self._should_split_police(player, state) and "police split" in available_actions:
+            commands.append("police split")
+        
+        # 2. 指挥警察攻击高威胁目标
+        target = self._pick_best_target(player, state)
+        if target and "police attack" in available_actions:
+            # 选择可用的警察单位
+            police_id = self._get_available_police_unit(player, state)
+            if police_id:
+                # 移动警察到目标位置（如果需要）
+                if target.location != self._get_police_location(police_id, state):
+                    commands.append(f"police move {police_id} {target.location}")
+                # 命令警察攻击
+                commands.append(f"police attack {police_id} {target.name}")
+        
+        # 3. 为警察装备
+        if self._needs_police_equipment(player, state) and "police equip" in available_actions:
+            police_id = self._get_available_police_unit(player, state)
+            if police_id:
+                equipment = self._pick_police_equipment(player, state)
+                commands.append(f"police equip {police_id} {equipment}")
+        
+        debug_ai_basic(player.name, f"队长命令生成: {commands}")
+        return commands
+
+    def _should_split_police(self, player, state):
+        """判断是否应该拆分警察"""
+        situation = self._get_police_situation(player, state)
+        
+        # 只有政治型和进攻型会考虑拆分
+        if self.personality not in ["political", "aggressive"]:
+            return False
+        
+        # 检查警察数量
+        police_count = situation.get("police_count", 0)
+        individual_count = len(situation.get("individual_units", []))
+        
+        # 如果总警察数>=2且独立单位少于3，可以考虑拆分
+        if police_count >= 2 and individual_count < 3:
+            # 政治型更倾向于拆分以增加控制力
+            if self.personality == "political":
+                return True
+            # 进攻型在有高威胁目标时拆分
+            elif self.personality == "aggressive":
+                target = self._pick_best_target(player, state)
+                if target and self._threat_scores.get(target.name, 0) > 80:
+                    return True
+        
+        return False
+
+    def _needs_police_assistance(self, player, state):
+        """判断是否需要警察援助"""
+        # 检查是否有高威胁目标
+        target = self._pick_best_target(player, state)
+        if target and self._threat_scores.get(target.name, 0) > 100:
+            return True
+        
+        # 检查是否被围攻
+        if self._is_critical(player, state):
+            return True
+        
+        return False
+
+    def _get_available_police_unit(self, player, state):
+        """获取可用的警察单位ID"""
+        situation = self._get_police_situation(player, state)
+        
+        # 优先使用独立警察单位
+        for unit in situation.get("individual_units", []):
+            if unit.get("location") == player.location:
+                return unit.get("id")
+        
+        # 如果没有独立单位，使用第一个警察
+        if situation.get("police_count", 0) > 0:
+            return "police1"
+        
+        return None
+
+    def _get_police_location(self, police_id, state):
+        """获取警察单位的位置"""
+        situation = self._get_police_situation(player, state)
+        
+        # 检查独立单位
+        for unit in situation.get("individual_units", []):
+            if unit.get("id") == police_id:
+                return unit.get("location", "警察局")
+        
+        # 默认位置
+        return "警察局"
+
+    def _needs_police_equipment(self, player, state):
+        """判断是否需要为警察装备"""
+        situation = self._get_police_situation(player, state)
+        
+        # 检查警察是否有好装备
+        for unit in situation.get("individual_units", []):
+            weapon = unit.get("weapon", "警棍")
+            if weapon == "警棍":  # 只有基础装备
+                return True
+        
+        return False
+
+    def _pick_police_equipment(self, player, state):
+        """为警察选择装备"""
+        # 警察装备优先级（根据AI人格）
+        if self.personality == "aggressive":
+            equipment_priority = ["高斯步枪", "地震", "地动山摇", "警棍", "盾牌"]
+        elif self.personality == "defensive":
+            equipment_priority = ["盾牌", "魔法护盾", "AT力场", "警棍", "高斯步枪"]
+        elif self.personality == "balanced":
+            equipment_priority = ["高斯步枪", "盾牌", "地震", "警棍", "魔法护盾"]
+        elif self.personality == "political":
+            equipment_priority = ["盾牌", "警棍", "高斯步枪"]  # 政治型更注重控制
+        else:
+            equipment_priority = ["警棍", "盾牌", "高斯步枪"]
+        
+        # 移除警察不能用的装备
+        equipment_priority = [e for e in equipment_priority if e not in POLICE_FORBIDDEN_WEAPONS]
+        
+        # 选择玩家拥有的装备
+        for equipment in equipment_priority:
+            if equipment in POLICE_ALLOWED_WEAPONS or equipment in POLICE_ALLOWED_ARMOR:
+                # 检查玩家是否有这个装备（简化版）
+                if equipment == "警棍" or equipment == "盾牌":
+                    return equipment  # 基础装备总是可用
+                # 对于其他装备，需要玩家实际拥有
+                if self._has_item_named(player, equipment) or self._has_weapon_named(player, equipment):
+                    return equipment
+        
+        return "警棍"  # 默认
+
+    def _should_attack_police(self, player, state):
+        """判断是否应该攻击警察"""
+        # 1. 自卫情况：被警察围攻
+        situation = self._get_police_situation(player, state)
+        if situation.get("report_target") == player.player_id:
+            return True
+        
+        # 2. 清除障碍：警察阻碍了重要行动
+        if self._are_police_blocking_path(player, state):
+            return True
+        
+        # 3. 战略目标：需要削弱警察力量
+        if self._has_strategic_need_to_weaken_police(player, state):
+            return True
+        
+        # 4. 有合适的AOE武器
+        if self._has_suitable_aoe_weapon(player):
+            # 进攻型人格更可能攻击警察
+            if self.personality == "aggressive":
+                return True
+        
+        return False
+
+    def _find_police_target(self, player, state):
+        """寻找警察攻击目标"""
+        situation = self._get_police_situation(player, state)
+        
+        # 检查同地点的独立警察单位
+        for unit in situation.get("individual_units", []):
+            if unit.get("location") == player.location:
+                return unit.get("id")
+        
+        # 检查同地点的警队
+        for team in situation.get("teams", []):
+            if team.get("location") == player.location and team.get("alive", 0) > 0:
+                return "police"  # 攻击整个警队
+        
+        return None
+
+    def _has_suitable_aoe_weapon(self, player):
+        """检查是否有合适的AOE武器"""
+        for weapon in getattr(player, 'weapons', []):
+            weapon_name = getattr(weapon, 'name', '')
+            if weapon_name in POLICE_AOE_WEAPONS:
+                return True
+        return False
+
+    def _police_attack_commands(self, player, state, available_actions, police_target):
+        """生成攻击警察命令"""
+        cmds = []
+        
+        if not police_target:
+            return cmds
+        
+        # 检查是否有AOE武器
+        aoe_weapon = None
+        for weapon in getattr(player, 'weapons', []):
+            weapon_name = getattr(weapon, 'name', '')
+            if weapon_name in POLICE_AOE_WEAPONS:
+                aoe_weapon = weapon_name
+                break
+        
+        if not aoe_weapon:
+            debug_ai_basic(player.name, "没有合适的AOE武器攻击警察")
+            return cmds
+        
+        # 生成攻击命令
+        if "attack" in available_actions:
+            attack_cmd = f"attack {police_target} {aoe_weapon}"
+            cmds.append(attack_cmd)
+            debug_ai_basic(player.name, f"生成攻击警察命令: {attack_cmd}")
+        
+        return cmds
+
+    def _has_police_protection(self, player, state):
+        """检查是否有警察保护状态"""
+        situation = self._get_police_situation(player, state)
+        
+        # 检查同地点是否有警察
+        for unit in situation.get("individual_units", []):
+            if unit.get("location") == player.location:
+                return True
+        
+        for team in situation.get("teams", []):
+            if team.get("location") == player.location:
+                return True
+        
+        return False
+
+    def _are_police_nearby(self, player, state):
+        """检查警察是否在附近"""
+        situation = self._get_police_situation(player, state)
+        
+        # 检查同地点或相邻地点是否有警察
+        for unit in situation.get("individual_units", []):
+            if unit.get("location") == player.location:
+                return True
+        
+        for team in situation.get("teams", []):
+            if team.get("location") == player.location:
+                return True
+        
+        return False
+
+    def _is_about_to_commit_crime(self, player, available_actions):
+        """检查是否即将进行违法行为"""
+        # 简化版：攻击玩家通常不是犯罪，除非攻击警察或无犯罪记录目标
+        # 这里需要根据实际游戏规则完善
+        return False
+
+    def _aggressive_survival_strategy(self, player, state, available_actions):
+        """激进生存策略（有警察保护时）"""
+        cmds = []
+        
+        # 有警察保护时可以更激进
+        target = self._pick_best_target(player, state)
+        if target and target.location == player.location:
+            # 直接攻击
+            attack_cmds = self._attack_commands(player, state, available_actions)
+            if attack_cmds:
+                cmds.extend(attack_cmds)
+        
+        return cmds if cmds else self._defensive_survival_strategy(player, state, available_actions)
+
+    def _defensive_survival_strategy(self, player, state, available_actions):
+        """防守生存策略（无警察保护时）"""
+        cmds = []
+        loc = player.location
+        
+        # 尝试获取AOE武器对抗警察
+        if loc == "魔法所" and "interact" in available_actions:
+            for spell in ["地震", "地动山摇"]:
+                if self._can_learn(player, spell):
+                    cmds.append(f"interact {spell}")
+                    break
+        
+        # 尝试获取护甲
+        if not cmds and "interact" in available_actions:
+            for item in ["盾牌", "陶瓷护甲", "魔法护盾", "AT力场"]:
+                if self._can_take_item(player, item):
+                    cmds.append(f"interact {item}")
+                    break
+        
+        # 如果当前地点危险，移动
+        if not cmds and "move" in available_actions:
+            safe_loc = self._find_safest_location(player, state)
+            if safe_loc and safe_loc != loc:
+                cmds.append(f"move {safe_loc}")
+        
+        return cmds
+
+    def _cautious_actions(self, player, state, available_actions):
+        """警察附近的谨慎行动"""
+        cmds = []
+        
+        # 优先发育，避免战斗
+        develop = self._develop_commands(player, state, available_actions)
+        if develop:
+            cmds.extend(develop[:2])  # 只取前2个发育命令
+        
+        # 如果没有发育命令，考虑移动
+        if not cmds and "move" in available_actions:
+            # 移动到没有警察的地点
+            police_locations = set()
+            situation = self._get_police_situation(player, state)
+            
+            for unit in situation.get("individual_units", []):
+                police_locations.add(unit.get("location"))
+            for team in situation.get("teams", []):
+                police_locations.add(team.get("location"))
+            
+            safe_locations = [loc for loc in LOCATIONS if loc not in police_locations]
+            if safe_locations:
+                target_loc = safe_locations[0]
+                if target_loc != player.location:
+                    cmds.append(f"move {target_loc}")
+        
+        return cmds
+
+    def _are_police_blocking_path(self, player, state):
+        """检查警察是否阻碍路径"""
+        # 简化版：检查警察是否在玩家想去的重要地点
+        important_locations = ["魔法所", "军事基地", "商店"]
+        situation = self._get_police_situation(player, state)
+        
+        for loc in important_locations:
+            if loc == player.location:
+                continue
+            
+            # 检查该地点是否有警察
+            for unit in situation.get("individual_units", []):
+                if unit.get("location") == loc:
+                    return True
+            for team in situation.get("teams", []):
+                if team.get("location") == loc:
+                    return True
+        
+        return False
+
+    def _has_strategic_need_to_weaken_police(self, player, state):
+        """检查是否有战略需要削弱警察"""
+        # 进攻型和政治型人格可能考虑削弱警察
+        if self.personality not in ["aggressive", "political"]:
+            return False
+        
+        situation = self._get_police_situation(player, state)
+        
+        # 如果警察数量多且队长威信高，可能需要削弱
+        police_count = situation.get("police_count", 0)
+        authority = situation.get("authority", 0)
+        
+        if police_count >= 2 and authority >= 2:
+            return True
+        
+        return False
