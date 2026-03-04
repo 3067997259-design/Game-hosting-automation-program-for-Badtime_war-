@@ -435,11 +435,35 @@ class PoliceEngine:
         self.police.authority = 3
         player.is_captain = True
         self.state.markers.add(player_id, "IS_CAPTAIN")
+        
+        # 队长上任：所有警察返回警察局等待指令
+        self._on_captain_elected()
 
         self.state.log_event("captain_elected", player=player_id)
         return (f"👑 {player.name} 成为警队队长！威信：3"
                 f"\n   队长可指挥警察、指定目标、拆分警队。"
                 f"\n   ⚠️ 警局不再受理其他人的举报。")
+
+    def _on_captain_elected(self):
+        """队长上任处理：所有警察返回警察局等待指令"""
+        # 所有警队返回警察局
+        for team in self.police.teams:
+            if not team.is_eliminated():
+                team.location = "警察局"
+                team.enforcement_target = None
+                team.is_engaged_with_target = False
+                team.is_tracking = False
+        
+        # 独立单位也返回警察局
+        for cop in self.police.individual_units:
+            if cop.is_alive():
+                cop.location = "警察局"
+                cop.current_order = None
+        
+        # 举报系统暂停（但保留犯罪记录）
+        self.police.report_phase = "idle"
+        self.police.reporter_id = None
+        self.police.reported_target_id = None
 
     def captain_designate_target(self, captain_id, target_id):
         """队长指定执法目标"""
