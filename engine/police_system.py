@@ -94,7 +94,11 @@ class PoliceEngine:
         # 举报者位置（基础局需要在警察局，朝阳好市民可远程）
         # Phase 4: 检查朝阳好市民天赋
         if reporter.location != "警察局":
-            return False, "需要在警察局才能举报（除非有特殊天赋）"
+            # 检查是否有远程举报天赋
+            if reporter.talent and hasattr(reporter.talent, 'allows_remote_report') and reporter.talent.allows_remote_report():
+                pass  # 允许远程举报
+            else:
+                return False, "需要在警察局才能举报（除非有特殊天赋）"
 
         # 已有未完成的举报
         if self.police.report_phase != "idle":
@@ -180,6 +184,14 @@ class PoliceEngine:
             return "🚔 执法目标已不存在，警察撤回。"
 
         target_loc = target.location
+        
+        # 检查目标地点是否已有警察（每个地点只能有1个警察单位，除非强制聚集）
+        if self._has_police_at_location(target_loc):
+            # 有警察在目标地点，警察出动延迟到下一轮
+            self.police.report_phase = "dispatched_delayed"
+            self.police.dispatch_countdown = 1
+            return f"🚔 警察出动受阻！目标地点{target_loc}已有警察，下一轮再尝试出动。"
+        
         for team in self.police.teams:
             if not team.is_eliminated():
                 team.location = target_loc
@@ -218,6 +230,7 @@ class PoliceEngine:
         if not all_attackers:
             return messages
 
+        # 每个警察单位攻击一次
         for cop in all_attackers:
             weapon = make_weapon(cop.weapon_name)
             if not weapon:
@@ -422,9 +435,10 @@ class PoliceEngine:
         """
         player = self.state.get_player(player_id)
         required = 3
-        # Phase 4: 朝阳好市民减1
-        # if player.talent and player.talent.name == "朝阳好市民":
-        #     required = 2
+        # 朝阳好市民减1
+        if player.talent and hasattr(player.talent, 'get_election_rounds_reduction'):
+            reduction = player.talent.get_election_rounds_reduction()
+            required = max(1, required - reduction)
 
         progress_key = "captain_election"
         current = player.progress.get(progress_key, 0)
@@ -634,7 +648,15 @@ class PoliceEngine:
         player = self.state.get_player(player_id)
         if not player or not player.has_police_protection:
             return False
-        # 必须与至少一支警队同地点
+        
+        # 如果是队长，只在与警察同地点时获得保护
+        if player.is_captain:
+            for team in self.police.teams:
+                if not team.is_eliminated() and team.location == player.location:
+                    return True
+            return False
+        
+        # 非队长：必须与至少一支警队同地点
         for team in self.police.teams:
             if not team.is_eliminated() and team.location == player.location:
                 return True
@@ -854,6 +876,17 @@ class PoliceEngine:
             location = kwargs.get("location")
             if not location:
                 return "❌ 请指定目的地"
+            
+            # 检查目标地点是否已有警察（每个地点只能有1个警察单位，除非强制聚集）
+            if self._has_police_at_location(location) and location != police_unit.location:
+                # 检查是否有强制聚集效果（神代天赋2）
+                captain = self.state.get_player(captain_id)
+                if captain and captain.talent and hasattr(captain.talent, 'can_force_gather') and captain.talent.can_force_gather():
+                    # 允许强制聚集
+                    pass
+                else:
+                    return f"❌ 目标地点{location}已有警察，不能移动（除非强制聚集）"
+            
             police_unit.location = location
             police_unit.current_order = {"type": "move", "destination": location}
             return f"👑 队长移动 {police_id} 到 {location}"
@@ -896,3 +929,80 @@ class PoliceEngine:
         
         else:
             return f"❌ 未知的命令类型：{command}"
+    
+    def _has_police_at_location(self, location):
+        """检查指定地点是否已有警察（包括警队和独立单位）"""
+        # 检查警队
+        for team in self.police.teams:
+            if not team.is_eliminated() and team.location == location:
+                return True
+        
+        # 检查独立单位
+        for cop in self.police.individual_units:
+            if cop.is_alive() and cop.location == location:
+                return True
+        
+        return False
+    
+    def process_poem_law_effect(self, target_player_id):
+        """
+        处理献予律法之诗的效果
+        调用者：g5_ripple.py 的 _poem_law 方法
+        """
+        target = self.state.get_player(target_player_id)
+        if not target:
+            return "❌ 目标玩家不存在"
+        
+        messages = []
+        
+        # 1. 清除犯罪记录
+        if hasattr(target, 'crime_record'):
+            target.crime_record = 0
+        if hasattr(target, 'is_criminal'):
+            target.is_criminal = False
+        # 清除警察系统中的犯罪记录
+        if target.player_id in self.police.crime_records:
+            self.police.crime_records[target.player_id] = set()
+        
+        # 2. 授予警察身份（如果还不是警察）
+        if not getattr(target, 'is_police', False):
+            target.is_police = True
+            self.state.markers.add(target.player_id, "IS_POLICE")
+            messages.append(f"👮 {target.name} 获得警察岗位！")
+        
+        # 3. 如果是队长，威信+2
+        if getattr(target, 'is_captain', False):
+            if self.police.captain_id == target.player_id:
+                self.police.authority += 2
+                messages.append(f"👑 {target.name} 威信+2！当前：{self.police.authority}")
+            elif hasattr(target, 'prestige'):
+                target.prestige += 2
+                messages.append(f"👑 {target.name} 个人威信+2！")
+        
+        # 4. 如果不是队长，竞选进度+2
+        elif not self.police.has_captain() and target.is_police:
+            # 使用进度系统
+            progress_key = "captain_election"
+            current = target.progress.get(progress_key, 0)
+            current += 2
+            target.progress[progress_key] = current
+            
+            # 检查是否立即上任
+            required = 3
+            if target.talent and hasattr(target.talent, 'get_election_rounds_reduction'):
+                reduction = target.talent.get_election_rounds_reduction()
+                required = max(1, required - reduction)
+            
+            if current >= required:
+                # 竞选成功
+                del target.progress[progress_key]
+                self.police.captain_id = target.player_id
+                self.police.authority = 3
+                target.is_captain = True
+                self.state.markers.add(target.player_id, "IS_CAPTAIN")
+                self._on_captain_elected()
+                messages.append(f"👑 {target.name} 立即成为警队队长！威信：3")
+            else:
+                messages.append(f"🏛️ {target.name} 竞选进度+2！当前：{current}/{required}")
+        
+        return "\n".join(messages) if messages else "献予律法之诗效果已生效。"
