@@ -102,7 +102,26 @@
         "「全息影像的歌声戛然而止，怪物的咆哮由远及近。那是血？还是泪？」",
         "「别害怕……只要……请你一直注视着……再一次注视着我吧。」"
       ],
-      "activate": "「神代天赋2：请一直，注视着我」{player_name}展开全息影像..."
+      "activate": "「神代天赋2：请一直，注视着我」{player_name}展开全息影像...",
+      "already_active": "全息影像已经展开中。",
+      "activation_header": "  👁️ {player_name} 展开了「全息影像」！",
+      "activation_location": "  📍 位置：{location}",
+      "activation_duration": "  ⏳ 持续：{remaining_rounds} 轮",
+      "activation_effects": "  效果：隐身无效 | 受伤+{bonus_damage} | 禁锁定/找到",
+      "police_pull": "  👮 警察小队从 {old_loc} 被拉到 {location}！",
+      "police_stun_remove": "  👮 警察小队眩晕解除！",
+      "police_submerge": "  👮 警察小队进入「沉沦」状态！",
+      "no_npc_affected": "  （当前无非玩家单位受影响）",
+      "stealth_removed": "  👁️ {player_name} 的隐身被全息影像破除！",
+      "caster_stealth_removed": "  👁️ {caster_name} 的隐身被全息影像破除！",
+      "auto_engaged": "  👁️ {player_name} 自动与 {caster_name} 建立面对面！",
+      "shock_from_stay": "  👁️⚡ {player_name} 在全息影像中停留2轮，进入震荡！",
+      "round_countdown": "👁️ {name} 的全息影像剩余 {remaining_rounds} 轮（位置：{location}）",
+      "expire_header": "  👁️ {name} 的全息影像消失了！",
+      "expire_police_recover": "  👮 警察小队解除「沉沦」，恢复行动！",
+      "expire_disengage": "  📎 {player1_name} 与 {player2_name} 的面对面关系解除。",
+      "expire_lock_clear": "  📎 锁定关系解除。",
+      "ripple_enhance": "👁️ {name} 的全息影像被涟漪增强！易伤+1（替代+0.5）| 可用次数+1（注意：下次展开持续时间-1轮=2轮）"
     },
     
     "g3mythland": {
