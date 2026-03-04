@@ -26,7 +26,7 @@ def execute(player, target_id, weapon_name, game_state,
 
     参数：
       player: 攻击者
-      target_id: 目标玩家ID
+      target_id: 目标玩家ID或警察目标
       weapon_name: 使用的武器名
       game_state: 游戏状态
       layer_str: 攻击层字符串（"外层"/"内层"），可选
@@ -37,6 +37,21 @@ def execute(player, target_id, weapon_name, game_state,
 
     返回 (结果消息str, 结算详情dict)
     """
+    # 检查是否是警察目标
+    if target_id.lower().startswith("police"):
+        # 调用警察攻击接口
+        if not hasattr(game_state, 'police_engine') or not game_state.police_engine:
+            return "❌ 警察系统未初始化", {}
+        
+        result = game_state.police_engine.attack_police(
+            attacker_id=player.player_id,
+            police_target=target_id,
+            attack_method=weapon_name
+        )
+        # 警察攻击返回字符串消息，没有详情dict
+        return result, {}
+    
+    # 原有玩家攻击逻辑
     target = game_state.get_player(target_id)
     if not target:
         return f"❌ 找不到玩家 {target_id}", {}
@@ -74,7 +89,6 @@ def execute(player, target_id, weapon_name, game_state,
     lines = [f"⚔️ {player.name} 用「{weapon.name}」攻击 {target.name}！"]
     for detail in result["details"]:
         lines.append(f"   {detail}")
-
 
     game_state.log_event("attack", attacker=player.player_id,
                          target=target_id, weapon=weapon_name,
