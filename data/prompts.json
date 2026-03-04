@@ -336,7 +336,24 @@
         "「阴阳交替，乾坤倒转」",
         "「卦象之中，自有天机」"
       ],
-      "activate": "「原初天赋4：六爻」{player_name}开始占卜命运！"
+      "activate": "「原初天赋4：六爻」{player_name}开始占卜命运！",
+      "charge_gain": "🔮 {player_name} 的六爻充能+1！当前：{current}/{max}",
+      "thunder_no_target": "🔮 双剪刀→天雷！但没有可攻击的目标。",
+      "activation": "🔮 六爻发动！{player_name} 向 {target_name} 发起猜拳！",
+      "choices_display": "🔮 {player_name} 出「{my_choice}」 vs {target_name} 出「{opp_choice}」",
+      "thunder_damage": "🔮 双剪刀→⚡天雷！对 {target_name} 造成 1.0 伤害（无视克制+无视保护）",
+      "thunder_kill": "   💀 {target_name} 被天雷击杀！",
+      "thunder_stun": "   💫 {target_name} 进入眩晕！",
+      "armor_no_available": "🔮 双石头→获得护甲！但你已经没有可装备的护甲槽了。天赋发动失效。",
+      "armor_gained": "🔮 双石头→🛡️ {player_name} 获得了「{armor_name}」！",
+      "armor_failed": "🔮 双石头→获得护甲失败：{reason}",
+      "invisible_gained": "🔮 双布→🫥 {player_name} 进入隐身状态！",
+      "charge_completed": "🔮 剪刀vs石头→⚡ 蓄力完成：{weapons_list}",
+      "charge_no_weapons": "🔮 剪刀vs石头→蓄力完成！但你没有需要蓄力的武器。",
+      "extra_turn_gained": "🔮 剪刀vs布→🎯 {player_name} 获得1个额外行动回合！\n   （额外回合内不可再次发动六爻）",
+      "barrier_blocked": "🌀 结界内六爻的解除锁定/发现不生效！",
+      "invalid_in_barrier": "🔮 石头vs布→结界内解除锁定/发现被屏蔽，隐身被结界破除。\n   效果完全无效。",
+      "lock_clear_invisible": "🔮 石头vs布→🫥 {player_name} 清除所有锁定与探测，进入隐身！"
     },
     
     "t5delinquent": {
@@ -345,7 +362,8 @@
         "「所以，制裁你的人，是我」",
         "「DO YOU UNDERSTAND?」"
       ],
-      "activate": "「原初天赋5：不良少年」{player_name}开始搞事情！"
+      "activate": "「原初天赋5：不良少年」{player_name}开始搞事情！",
+      "crime_trigger": "🔥 不良少年：首次触发犯罪「{crime_type}」→ 获得额外行动回合！"
     },
     
     "t6goodcitizen": {
@@ -363,7 +381,11 @@
         "「所以，孩子们，我打赢复活赛，杀穿冥界出来了」",
         "「啊？老大？而且不是seedance和sora生成的？！」"
       ],
-      "activate": "「原初天赋7：死者苏生」{player_name}瞬间打赢了复活赛！"
+      "activate": "「原初天赋7：死者苏生」{player_name}瞬间打赢了复活赛！",
+      "learning_progress": "📖 {player_name} 正在学习「死者苏生」（进度：{progress}/2）",
+      "learning_complete": "✨ {player_name} 学会了「死者苏生」！\n   下次行动回合可挂载到目标玩家身上。",
+      "mount_success": "🔮 {player_name} 将「死者苏生」挂载到 {target_name} 身上！\n   当 {target_name} 死亡时，将在家中重生。",
+      "resurrection_trigger": "🌟 死者苏生触发！{player_name} 在家中重生！\n   保留所有物品，无需起床。"
     },
     
     "deathdenier": {
