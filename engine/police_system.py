@@ -145,10 +145,20 @@ class PoliceEngine:
     def process_end_of_round(self, game_state):
         """
         R4-1: 轮次结束时的警察处理。
-        按顺序：出动 → 执法攻击 → 追踪倒计时。
+        按顺序：出动延迟处理 → 出动 → 执法攻击 → 追踪倒计时。
         返回消息列表。
         """
         messages = []
+
+        # 0. 处理出动延迟（dispatched_delayed 状态）
+        if self.police.report_phase == "dispatched_delayed":
+            if self.police.dispatch_countdown > 0:
+                self.police.dispatch_countdown -= 1
+                messages.append(f"🚔 警察出动延迟中...（{self.police.dispatch_countdown}轮后尝试）")
+                if self.police.dispatch_countdown <= 0:
+                    # 尝试重新出动
+                    msg = self._dispatch_police()
+                    messages.append(msg)
 
         # 1. 出动（assembled → dispatched）
         if self.police.report_phase == "assembled":
