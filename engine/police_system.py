@@ -222,6 +222,10 @@ class PoliceEngine:
             weapon = make_weapon(cop.weapon_name)
             if not weapon:
                 weapon = make_weapon("警棍")
+            
+            # 警察使用高斯步枪时强制不使用蓄力模式
+            if weapon.name == "高斯步枪" and weapon.requires_charge:
+                weapon.is_charged = False  # 强制不蓄力，使用基础伤害1.0
 
             result = resolve_damage(
                 attacker=None,  # 警察不是玩家
@@ -687,7 +691,7 @@ class PoliceEngine:
                     return cop
         return None
 
-    def _is_valid_aoe_attack(self, attack_method):
+    def _is_valid_aoe_attack(self, attack_method, attacker=None):
         """验证是否为允许攻击警察的AOE手段"""
         # 武器名称匹配
         if attack_method in self.ALLOWED_AOE:
@@ -698,9 +702,16 @@ class PoliceEngine:
         if weapon and weapon.name in self.ALLOWED_AOE:
             return True
         
-        # 天赋名称匹配（如"天星"）
-        attacker_weapon = None
-        # 这里可以扩展检查天赋名称
+        # 天赋匹配（如"天星"）
+        # 检查攻击者是否有名为attack_method的天赋
+        if attacker and hasattr(attacker, 'talent') and attacker.talent:
+            # 简化：如果天赋名称包含攻击方法，或者天赋有对应方法
+            talent_name = getattr(attacker.talent, 'name', '').lower()
+            if attack_method.lower() in talent_name or talent_name in attack_method.lower():
+                # 检查是否是允许的AOE天赋
+                if "天星" in attack_method:
+                    return True
+        
         return False
 
     def attack_police(self, attacker_id, police_target, attack_method):
@@ -711,7 +722,7 @@ class PoliceEngine:
             return "❌ 攻击者不存在"
         
         # 验证AOE攻击
-        if not self._is_valid_aoe_attack(attack_method):
+        if not self._is_valid_aoe_attack(attack_method, attacker):
             return "❌ 警察只能被地震、地动山摇、电磁步枪、天星伤害！"
         
         # 查找警察目标
@@ -788,6 +799,10 @@ class PoliceEngine:
         weapon = make_weapon(police_unit.weapon_name)
         if not weapon:
             weapon = make_weapon("警棍")
+        
+        # 警察使用高斯步枪时强制不使用蓄力模式
+        if weapon.name == "高斯步枪" and weapon.requires_charge:
+            weapon.is_charged = False  # 强制不蓄力，使用基础伤害1.0
         
         result = resolve_damage(
             attacker=None,
