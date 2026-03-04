@@ -106,6 +106,34 @@ def parse(raw_input, player_id):
     if cmd in ("study", "研究", "研究性学习"):
         return {"action": "study"}
 
+    # ---- 队长操控警察 ----
+    if cmd in ("police", "警察命令"):
+        if len(parts) < 3:
+            return None
+        sub_cmd = parts[1].lower()  # move, equip, attack
+        police_id = parts[2]  # police1, police2, police3, 或警察ID
+        if sub_cmd == "move":
+            if len(parts) < 4:
+                return None
+            location = parts[3]
+            return {"action": "police_command", "subcommand": "move", 
+                    "police_id": police_id, "location": location}
+        elif sub_cmd == "equip":
+            if len(parts) < 4:
+                return None
+            equipment = parts[3]  # 武器或护甲名称
+            # 可选：区分武器和护甲，这里简化，由警察引擎判断
+            return {"action": "police_command", "subcommand": "equip",
+                    "police_id": police_id, "equipment": equipment}
+        elif sub_cmd == "attack":
+            if len(parts) < 4:
+                return None
+            target = parts[3]
+            return {"action": "police_command", "subcommand": "attack",
+                    "police_id": police_id, "target": target}
+        else:
+            return None
+
     # ---- 放弃 ----
     if cmd in ("forfeit", "放弃", "f", "pass", "skip"):
         return {"action": "forfeit"}
@@ -116,7 +144,10 @@ def parse(raw_input, player_id):
     if cmd in ("allstatus", "全场", "all", "a"):
         return {"action": "allstatus"}
     if cmd in ("police", "警察", "警察状态"):
-        return {"action": "police_status"}
+        # 注意：上面的police命令优先，所以"police status"可能被误解析
+        # 这里做特殊处理：如果只有"police"或"police status"，则返回警察状态
+        if len(parts) == 1 or (len(parts) == 2 and parts[1].lower() == "status"):
+            return {"action": "police_status"}
     if cmd in ("help", "帮助", "h", "?"):
         return {"action": "help"}
 
