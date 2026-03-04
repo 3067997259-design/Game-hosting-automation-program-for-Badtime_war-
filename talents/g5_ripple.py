@@ -166,7 +166,10 @@ class Ripple(BaseTalent):
         if "锚定" in choice:
             msg = self._execute_anchor(player)
             if msg is None:
-                return "锚定未成立，追忆已返还。", False
+                return prompt_manager.get_prompt(
+                    "talent", "g5ripple.anchor_not_established",
+                    default="锚定未成立，追忆已返还。"
+                ), False
             return msg, False
 
         elif "献诗" in choice:
@@ -174,7 +177,10 @@ class Ripple(BaseTalent):
             return msg, True
 
         else:
-            return "取消发动。", False
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.cancel_activation",
+                default="取消发动。"
+            ), False
 
     # ================================================================
     #  方式一：锚定命运
@@ -448,7 +454,12 @@ class Ripple(BaseTalent):
             result = verify_anchor(
                 self.state, player, "arrive", target_location=self.anchor_detail)
         else:
-            display.show_info(f"❌ 未知锚定类型：{self.anchor_type}")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.unknown_anchor_type",
+                    default="❌ 未知锚定类型：{anchor_type}"
+                ).format(anchor_type=self.anchor_type)
+            )
             return None
 
         display.show_info(
@@ -651,7 +662,10 @@ class Ripple(BaseTalent):
 
         self._anchor_start_combat(player, target)
 
-        return f"锚定命运已启动：{self.anchor_detail}"
+        return prompt_manager.get_prompt(
+            "talent", "g5ripple.anchor_fate_started",
+            default="锚定命运已启动：{anchor_detail}"
+        ).format(anchor_detail=self.anchor_detail)
 
     # ---------- 获取/到达类简化启动 ----------
 
@@ -1365,7 +1379,10 @@ class Ripple(BaseTalent):
         if target_name == "取消":
             self.used = False
             self.reminiscence = self.max_reminiscence
-            return "取消献诗。"
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.cancel_poem",
+                default="取消献诗。"
+            )
 
         target = next(p for p in all_targets if p.name == target_name)
         talent_name = target.talent.name if target.talent else ""
@@ -1374,7 +1391,10 @@ class Ripple(BaseTalent):
         if not poem_type:
             self.used = False
             self.reminiscence = self.max_reminiscence
-            return f"❌ {target.name} 的天赋不在献诗列表中。"
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.talent_not_in_poem_list",
+                default="❌ {target_name} 的天赋不在献诗列表中。"
+            ).format(target_name=target.name)
 
         return self._dispatch_poem(player, target, poem_type)
 
