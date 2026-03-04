@@ -9,6 +9,7 @@
 
 from talents.base_talent import BaseTalent
 from cli import display
+from engine.prompt_manager import prompt_manager
 
 
 class Resurrection(BaseTalent):
@@ -54,12 +55,16 @@ class Resurrection(BaseTalent):
 
             self.learn_progress += 1
             if self.learn_progress < 2:
-                return (f"📖 {player.name} 正在学习「死者苏生」"
-                        f"（进度：{self.learn_progress}/2）"), True
+                return (prompt_manager.get_prompt(
+                    "talent", "t7resurrection.learning_progress",
+                    default="📖 {player_name} 正在学习「死者苏生」（进度：{progress}/2）"
+                ).format(player_name=player.name, progress=self.learn_progress)), True
 
             self.learned = True
-            return (f"✨ {player.name} 学会了「死者苏生」！"
-                    f"\n   下次行动回合可挂载到目标玩家身上。"), True
+            return (prompt_manager.get_prompt(
+                "talent", "t7resurrection.learning_complete",
+                default="✨ {player_name} 学会了「死者苏生」！\n   下次行动回合可挂载到目标玩家身上。"
+            ).format(player_name=player.name)), True
 
         # 挂载阶段
         if self.mounted_on is None:
@@ -77,8 +82,10 @@ class Resurrection(BaseTalent):
             # ══ CONTROLLER 改动结束 ══
 
             self.mounted_on = target.player_id
-            return (f"🔮 {player.name} 将「死者苏生」挂载到 {target.name} 身上！"
-                    f"\n   当 {target.name} 死亡时，将在家中重生。"), True
+            return (prompt_manager.get_prompt(
+                "talent", "t7resurrection.mount_success",
+                default="🔮 {player_name} 将「死者苏生」挂载到 {target_name} 身上！\n   当 {target_name} 死亡时，将在家中重生。"
+            ).format(player_name=player.name, target_name=target.name)), True
 
         return "❌ 死者苏生已挂载", False
 
@@ -100,9 +107,11 @@ class Resurrection(BaseTalent):
         # 清除LOCKED_BY、ENGAGED_WITH等状态
         self.state.markers.on_player_death(dying_player.player_id)
 
-        display.show_info(
-            f"🌟 死者苏生触发！{dying_player.name} 在家中重生！"
-            f"\n   保留所有物品，无需起床。")
+        resurrection_msg = prompt_manager.get_prompt(
+            "talent", "t7resurrection.resurrection_trigger",
+            default="🌟 死者苏生触发！{player_name} 在家中重生！\n   保留所有物品，无需起床。"
+        ).format(player_name=dying_player.name)
+        display.show_info(resurrection_msg)
 
         return {"prevent_death": True, "new_hp": 1.0}
 
