@@ -29,6 +29,7 @@
 
 from talents.base_talent import BaseTalent
 from cli import display
+from engine.prompt_manager import prompt_manager
 
 
 class Hologram(BaseTalent):
@@ -75,7 +76,12 @@ class Hologram(BaseTalent):
 
     def execute_t0(self, player):
         if self.active:
-            display.show_info("全息影像已经展开中。")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g2eternity.already_active",
+                    default="全息影像已经展开中。"
+                )
+            )
             return None, "cancelled"
 
         self.active = True
@@ -92,10 +98,22 @@ class Hologram(BaseTalent):
 
         lines = [
             f"\n{'='*50}",
-            f"  👁️ {player.name} 展开了「全息影像」！",
-            f"  📍 位置：{self.location}",
-            f"  ⏳ 持续：{self.remaining_rounds} 轮",
-            f"  效果：隐身无效 | 受伤+{self._get_bonus_damage()} | 禁锁定/找到",
+            prompt_manager.get_prompt(
+                "talent", "g2eternity.activation_header",
+                default="  👁️ {player_name} 展开了「全息影像」！"
+            ).format(player_name=player.name),
+            prompt_manager.get_prompt(
+                "talent", "g2eternity.activation_location",
+                default="  📍 位置：{location}"
+            ).format(location=self.location),
+            prompt_manager.get_prompt(
+                "talent", "g2eternity.activation_duration",
+                default="  ⏳ 持续：{remaining_rounds} 轮"
+            ).format(remaining_rounds=self.remaining_rounds),
+            prompt_manager.get_prompt(
+                "talent", "g2eternity.activation_effects",
+                default="  效果：隐身无效 | 受伤+{bonus_damage} | 禁锁定/找到"
+            ).format(bonus_damage=self._get_bonus_damage()),
             f"{'='*50}",
         ]
 
@@ -127,21 +145,40 @@ class Hologram(BaseTalent):
                         old_loc = squad.location
                         squad.location = self.location
                         lines.append(
-                            f"  👮 警察小队从 {old_loc} 被拉到 {self.location}！")
+                            prompt_manager.get_prompt(
+                                "talent", "g2eternity.police_pull",
+                                default="  👮 警察小队从 {old_loc} 被拉到 {location}！"
+                            ).format(old_loc=old_loc, location=self.location)
+                        )
 
                     # 解除眩晕
                     if hasattr(squad, 'is_stunned') and squad.is_stunned:
                         squad.is_stunned = False
-                        lines.append(f"  👮 警察小队眩晕解除！")
+                        lines.append(
+                            prompt_manager.get_prompt(
+                                "talent", "g2eternity.police_stun_remove",
+                                default="  👮 警察小队眩晕解除！"
+                            )
+                        )
 
                     # 沉沦
                     if hasattr(squad, 'can_act'):
                         squad.can_act = False
                     self.submerged_npcs.append(id(squad))
-                    lines.append(f"  👮 警察小队进入「沉沦」状态！")
+                    lines.append(
+                        prompt_manager.get_prompt(
+                            "talent", "g2eternity.police_submerge",
+                            default="  👮 警察小队进入「沉沦」状态！"
+                        )
+                    )
 
         if not lines:
-            lines.append("  （当前无非玩家单位受影响）")
+            lines.append(
+                prompt_manager.get_prompt(
+                    "talent", "g2eternity.no_npc_affected",
+                    default="  （当前无非玩家单位受影响）"
+                )
+            )
 
         return lines
 
@@ -174,12 +211,22 @@ class Hologram(BaseTalent):
         # 破除隐身
         if self.state.markers.has(player.player_id, "INVISIBLE"):
             self.state.markers.remove(player.player_id, "INVISIBLE")
-            lines.append(f"  👁️ {player.name} 的隐身被全息影像破除！")
+            lines.append(
+                prompt_manager.get_prompt(
+                    "talent", "g2eternity.stealth_removed",
+                    default="  👁️ {player_name} 的隐身被全息影像破除！"
+                ).format(player_name=player.name)
+            )
 
         # 发动者也破除隐身
         if caster and self.state.markers.has(caster.player_id, "INVISIBLE"):
             self.state.markers.remove(caster.player_id, "INVISIBLE")
-            lines.append(f"  👁️ {caster.name} 的隐身被全息影像破除！")
+            lines.append(
+                prompt_manager.get_prompt(
+                    "talent", "g2eternity.caster_stealth_removed",
+                    default="  👁️ {caster_name} 的隐身被全息影像破除！"
+                ).format(caster_name=caster.name)
+            )
 
         # 自动建立面对面
         if caster and caster.is_alive() and caster.location == self.location:
@@ -190,7 +237,11 @@ class Hologram(BaseTalent):
                 self.hologram_markers.append(
                     (caster.player_id, player.player_id, "ENGAGED_WITH"))
                 lines.append(
-                    f"  👁️ {player.name} 自动与 {caster.name} 建立面对面！")
+                    prompt_manager.get_prompt(
+                        "talent", "g2eternity.auto_engaged",
+                        default="  👁️ {player_name} 自动与 {caster_name} 建立面对面！"
+                    ).format(player_name=player.name, caster_name=caster.name)
+                )
 
         # 初始化停留计数
         if player.player_id not in self.stay_count:
@@ -310,13 +361,24 @@ class Hologram(BaseTalent):
                     p.is_stunned = True
                     self.state.markers.on_shock(pid)
                     display.show_info(
-                        f"  👁️⚡ {p.name} 在全息影像中停留2轮，进入震荡！")
+                        prompt_manager.get_prompt(
+                            "talent", "g2eternity.shock_from_stay",
+                            default="  👁️⚡ {player_name} 在全息影像中停留2轮，进入震荡！"
+                        ).format(player_name=p.name)
+                    )
 
         # 倒计时
         self.remaining_rounds -= 1
         display.show_info(
-            f"👁️ {name} 的全息影像剩余 {self.remaining_rounds} 轮"
-            f"（位置：{self.location}）")
+            prompt_manager.get_prompt(
+                "talent", "g2eternity.round_countdown",
+                default="👁️ {name} 的全息影像剩余 {remaining_rounds} 轮（位置：{location}）"
+            ).format(
+                name=name,
+                remaining_rounds=self.remaining_rounds,
+                location=self.location
+            )
+        )
 
         if self.remaining_rounds <= 0:
             self._expire()
@@ -332,7 +394,10 @@ class Hologram(BaseTalent):
 
         lines = [
             f"\n{'='*50}",
-            f"  👁️ {name} 的全息影像消失了！",
+            prompt_manager.get_prompt(
+                "talent", "g2eternity.expire_header",
+                default="  👁️ {name} 的全息影像消失了！"
+            ).format(name=name),
         ]
 
         # 解除沉沦
@@ -341,7 +406,12 @@ class Hologram(BaseTalent):
                 if id(squad) in self.submerged_npcs:
                     if hasattr(squad, 'can_act'):
                         squad.can_act = True
-                    lines.append(f"  👮 警察小队解除「沉沦」，恢复行动！")
+                    lines.append(
+                        prompt_manager.get_prompt(
+                            "talent", "g2eternity.expire_police_recover",
+                            default="  👮 警察小队解除「沉沦」，恢复行动！"
+                        )
+                    )
 
         # 清除影像产生的标记
         cleared_pairs = set()
@@ -357,10 +427,20 @@ class Hologram(BaseTalent):
                 p2 = self.state.get_player(p2_id)
                 n1 = p1.name if p1 else p1_id
                 n2 = p2.name if p2 else p2_id
-                lines.append(f"  📎 {n1} 与 {n2} 的面对面关系解除。")
+                lines.append(
+                    prompt_manager.get_prompt(
+                        "talent", "g2eternity.expire_disengage",
+                        default="  📎 {player1_name} 与 {player2_name} 的面对面关系解除。"
+                    ).format(player1_name=n1, player2_name=n2)
+                )
             elif marker_type == "LOCKED_BY":
                 self.state.markers.remove_lock(p1_id, p2_id)
-                lines.append(f"  📎 锁定关系解除。")
+                lines.append(
+                    prompt_manager.get_prompt(
+                        "talent", "g2eternity.expire_lock_clear",
+                        default="  📎 锁定关系解除。"
+                    )
+                )
 
         lines.append(f"{'='*50}")
         display.show_info("\n".join(lines))
@@ -386,9 +466,11 @@ class Hologram(BaseTalent):
         me = self.state.get_player(self.player_id)
         name = me.name if me else self.player_id
         display.show_info(
-            f"👁️ {name} 的全息影像被涟漪增强！"
-            f"易伤+1（替代+0.5）| 可用次数+1"
-            f"（注意：下次展开持续时间-1轮=2轮）")
+            prompt_manager.get_prompt(
+                "talent", "g2eternity.ripple_enhance",
+                default="👁️ {name} 的全息影像被涟漪增强！易伤+1（替代+0.5）| 可用次数+1（注意：下次展开持续时间-1轮=2轮）"
+            ).format(name=name)
+        )
 
     def _get_initial_duration(self):
         """初始持续轮数（涟漪增强后缩短）"""
