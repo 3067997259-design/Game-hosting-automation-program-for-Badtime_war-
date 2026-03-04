@@ -25,6 +25,7 @@
 from engine.action_turn import ActionTurnManager
 from talents.base_talent import BaseTalent
 from cli import display
+from engine.prompt_manager import prompt_manager
 from controllers.human import HumanController
 
 
@@ -108,16 +109,23 @@ class Mythland(BaseTalent):
         self.state.active_barrier = self
         self._setup_barrier_state()
 
-        lines = [
-            f"\n{'='*60}",
-            f"  🌀 {player.name} 展开了「神话之外」！",
-            f"  📍 结界位置：{self.barrier_location}",
-            f"  👥 结界内玩家：{self._player_names()}",
-            f"  ⏳ 最多 {self.max_barrier_rounds} 个结界轮次",
-            f"  ⏸️  全局轮次已暂停！",
-            f"{'='*60}",
-        ]
-        display.show_info("\n".join(lines))
+        barrier_text = prompt_manager.get_prompt(
+            "talent", "mythland.barrier_start",
+            default=f"""
+═══════════════════════════════════════════════════════════════
+  🌀 {player.name} 展开了「神话之外」！
+  📍 结界位置：{self.barrier_location}
+  👥 结界内玩家：{self._player_names()}
+  ⏳ 最多 {self.max_barrier_rounds} 个结界轮次
+  ⏸️  全局轮次已暂停！
+═══════════════════════════════════════════════════════════════"""
+        ).format(
+            player_name=player.name,
+            location=self.barrier_location,
+            players=self._player_names(),
+            max_rounds=self.max_barrier_rounds
+        )
+        display.show_info(barrier_text)
 
         self.run_barrier()
 
@@ -157,14 +165,22 @@ class Mythland(BaseTalent):
                 self.state.markers.remove(pid, "INVISIBLE")
                 p = self.state.get_player(pid)
                 name = p.name if p else pid
-                display.show_info(f"  🌀 {name} 的隐身被结界破除！")
+                stealth_removed = prompt_manager.get_prompt(
+                    "talent", "mythland.stealth_removed",
+                    default=f"  🌀 {name} 的隐身被结界破除！"
+                ).format(player_name=name)
+                display.show_info(stealth_removed)
 
         if len(self.barrier_players) == 2:
             p1, p2 = self.barrier_players
             self.state.markers.set_engaged(p1, p2)
             n1 = self.state.get_player(p1).name
             n2 = self.state.get_player(p2).name
-            display.show_info(f"  🌀 {n1} 与 {n2} 强制进入面对面！")
+            forced_engaged = prompt_manager.get_prompt(
+                "talent", "mythland.forced_engaged",
+                default=f"  🌀 {n1} 与 {n2} 强制进入面对面！"
+            ).format(player1_name=n1, player2_name=n2)
+            display.show_info(forced_engaged)
 
     # ============================================
     #  结界主循环
@@ -173,8 +189,11 @@ class Mythland(BaseTalent):
     def run_barrier(self):
         caster = self.state.get_player(self.player_id)
 
-        display.show_info(
-            f"\n🌀 {caster.name} 获得结界额外行动回合！")
+        extra_turn = prompt_manager.get_prompt(
+            "talent", "mythland.extra_turn",
+            default=f"🌀 {caster.name} 获得结界额外行动回合！"
+        ).format(player_name=caster.name)
+        display.show_info(extra_turn)
         self._execute_barrier_action(caster)
 
         if self._check_exit():
@@ -183,16 +202,24 @@ class Mythland(BaseTalent):
 
         while self.barrier_round < self.max_barrier_rounds:
             self.barrier_round += 1
-            display.show_info(
-                f"\n{'─'*40}"
-                f"\n🌀 结界轮次 {self.barrier_round}/{self.max_barrier_rounds}"
-                f"\n{'─'*40}")
+            barrier_round = prompt_manager.get_prompt(
+                "talent", "mythland.barrier_round",
+                default=f"""
+──────────────────────────────────────────────────
+🌀 结界轮次 {self.barrier_round}/{self.max_barrier_rounds}
+──────────────────────────────────────────────────"""
+            ).format(current=self.barrier_round, max=self.max_barrier_rounds)
+            display.show_info(barrier_round)
 
             actor = self._determine_actor()
             if actor is None:
                 break
 
-            display.show_info(f"🌀 本轮行动者：{actor.name}")
+            barrier_actor = prompt_manager.get_prompt(
+                "talent", "mythland.barrier_actor",
+                default=f"🌀 本轮行动者：{actor.name}"
+            ).format(actor_name=actor.name)
+            display.show_info(barrier_actor)
             self._execute_barrier_action(actor)
 
             if self._check_exit():
@@ -212,26 +239,47 @@ class Mythland(BaseTalent):
         p1 = self.state.get_player(alive[0])
         p2 = self.state.get_player(alive[1])
 
-        display.show_info(
-            f"\n✊✌️✋ 猜拳！{p1.name} vs {p2.name}")
+        rps_header = prompt_manager.get_prompt(
+            "talent", "mythland.rps_header",
+            default=f"✊✌️✋ 猜拳！{p1.name} vs {p2.name}"
+        ).format(player1=p1.name, player2=p2.name)
+        display.show_info(rps_header)
 
         while True:
             c1 = self._get_rps_choice(p1)
             c2 = self._get_rps_choice(p2)
 
-            display.show_info(
-                f"  {p1.name}：{self.RPS_NAMES[c1]}"
-                f"  vs  {p2.name}：{self.RPS_NAMES[c2]}")
+            rps_choice1 = prompt_manager.get_prompt(
+                "talent", "mythland.rps_choice",
+                default=f"  {p1.name}：{self.RPS_NAMES[c1]}"
+            ).format(player_name=p1.name, choice=self.RPS_NAMES[c1])
+            rps_choice2 = prompt_manager.get_prompt(
+                "talent", "mythland.rps_choice",
+                default=f"  vs  {p2.name}：{self.RPS_NAMES[c2]}"
+            ).format(player_name=p2.name, choice=self.RPS_NAMES[c2])
+            display.show_info(f"{rps_choice1} {rps_choice2}")
 
             diff = (c1 - c2) % 3
             if diff == 1:
-                display.show_info(f"  → {p1.name} 胜出！")
+                rps_winner = prompt_manager.get_prompt(
+                    "talent", "mythland.rps_winner",
+                    default=f"  → {p1.name} 胜出！"
+                ).format(winner_name=p1.name)
+                display.show_info(rps_winner)
                 return p1
             elif diff == 2:
-                display.show_info(f"  → {p2.name} 胜出！")
+                rps_winner = prompt_manager.get_prompt(
+                    "talent", "mythland.rps_winner",
+                    default=f"  → {p2.name} 胜出！"
+                ).format(winner_name=p2.name)
+                display.show_info(rps_winner)
                 return p2
             else:
-                display.show_info(f"  → 平局！重新猜拳。")
+                rps_tie = prompt_manager.get_prompt(
+                    "talent", "mythland.rps_tie",
+                    default="  → 平局！重新猜拳。"
+                )
+                display.show_info(rps_tie)
 
     def _get_rps_choice(self, player):
         """获取一个玩家的猜拳选择，走 controller"""
@@ -254,25 +302,49 @@ class Mythland(BaseTalent):
             if actor.is_stunned:
                 actor.is_stunned = False
                 self.state.markers.on_stun_recover(actor.player_id)
-                display.show_info(f"  🌀 {actor.name} 免疫控制，眩晕解除！")
+                immune_control = prompt_manager.get_prompt(
+                    "talent", "mythland.immune_control",
+                    default=f"  🌀 {actor.name} 免疫控制，眩晕解除！"
+                ).format(player_name=actor.name, control_type="眩晕")
+                display.show_info(immune_control)
             if hasattr(actor, 'is_shocked') and actor.is_shocked:
                 actor.is_shocked = False
                 self.state.markers.on_shock_recover(actor.player_id)
-                display.show_info(f"  🌀 {actor.name} 免疫控制，震荡解除！")
+                immune_control = prompt_manager.get_prompt(
+                    "talent", "mythland.immune_control",
+                    default=f"  🌀 {actor.name} 免疫控制，震荡解除！"
+                ).format(player_name=actor.name, control_type="震荡")
+                display.show_info(immune_control)
             if hasattr(actor, 'is_petrified') and actor.is_petrified:
                 actor.is_petrified = False
                 self.state.markers.on_petrify_recover(actor.player_id)
-                display.show_info(f"  🌀 {actor.name} 免疫控制，石化解除！")
+                immune_control = prompt_manager.get_prompt(
+                    "talent", "mythland.immune_control",
+                    default=f"  🌀 {actor.name} 免疫控制，石化解除！"
+                ).format(player_name=actor.name, control_type="石化")
+                display.show_info(immune_control)
 
         if actor.player_id != self.player_id:
             if actor.is_stunned:
-                display.show_info(f"  💫 {actor.name} 处于眩晕状态，跳过行动。")
+                skip_stunned = prompt_manager.get_prompt(
+                    "talent", "mythland.skip_stunned",
+                    default=f"  💫 {actor.name} 处于眩晕状态，跳过行动。"
+                ).format(player_name=actor.name)
+                display.show_info(skip_stunned)
                 return
             if hasattr(actor, 'is_shocked') and actor.is_shocked:
-                display.show_info(f"  ⚡ {actor.name} 处于震荡状态，跳过行动。")
+                skip_shocked = prompt_manager.get_prompt(
+                    "talent", "mythland.skip_shocked",
+                    default=f"  ⚡ {actor.name} 处于震荡状态，跳过行动。"
+                ).format(player_name=actor.name)
+                display.show_info(skip_shocked)
                 return
             if hasattr(actor, 'is_petrified') and actor.is_petrified:
-                display.show_info(f"  🗿 {actor.name} 处于石化状态，跳过行动。")
+                skip_petrified = prompt_manager.get_prompt(
+                    "talent", "mythland.skip_petrified",
+                    default=f"  🗿 {actor.name} 处于石化状态，跳过行动。"
+                ).format(player_name=actor.name)
+                display.show_info(skip_petrified)
                 return
 
         atm = ActionTurnManager(self.state)
@@ -288,8 +360,11 @@ class Mythland(BaseTalent):
         if pl1.location == pl2.location:
             if not self.state.markers.has_relation(p1, "ENGAGED_WITH", p2):
                 self.state.markers.set_engaged(p1, p2)
-                display.show_info(
-                    f"  🌀 {pl1.name} 与 {pl2.name} 重新进入面对面。")
+                forced_engaged = prompt_manager.get_prompt(
+                    "talent", "mythland.forced_engaged",
+                    default=f"  🌀 {pl1.name} 与 {pl2.name} 重新进入面对面。"
+                ).format(player1_name=pl1.name, player2_name=pl2.name)
+                display.show_info(forced_engaged)
 
     # ============================================
     #  退出条件检查
@@ -318,30 +393,30 @@ class Mythland(BaseTalent):
     # ============================================
 
     def _end_barrier(self):
-        lines = [
-            f"\n{'='*60}",
-            f"  🌀 「神话之外」结界解除！",
-        ]
-
         alive = self._get_alive_barrier_players()
+        
+        # 构建玩家返回信息
+        return_info = []
         for pid in alive:
             p = self.state.get_player(pid)
             original = self.original_locations.get(pid)
             if p and original:
-                p.location = original
-                lines.append(
-                    f"  📍 {p.name} 返回原地点：{original}")
+                return_info.append(f"  📍 {p.name} 返回原地点：{original}")
 
-        if len(self.barrier_players) == 2:
-            p1, p2 = self.barrier_players
-            self.state.markers.disengage(p1, p2)
-            lines.append(f"  📎 结界内面对面关系解除。")
-
-        lines.extend([
-            f"  ▶️  全局轮次恢复！",
-            f"{'='*60}",
-        ])
-        display.show_info("\n".join(lines))
+        barrier_end = prompt_manager.get_prompt(
+            "talent", "mythland.barrier_end",
+            default=f"""
+═══════════════════════════════════════════════════════════════
+  🌀 「神话之外」结界解除！
+{chr(10).join(return_info) if return_info else ''}
+  📎 结界内面对面关系解除。
+  ▶️  全局轮次恢复！
+═══════════════════════════════════════════════════════════════"""
+        ).format(
+            player_name="玩家" if not alive else self.state.get_player(alive[0]).name,
+            location=self.original_locations.get(alive[0] if alive else "", "未知")
+        )
+        display.show_info(barrier_end)
 
         # ══ 修复：通知所有涟漪天赋结界已结束 ══
         self._notify_ripple_barrier_end()
@@ -369,7 +444,11 @@ class Mythland(BaseTalent):
             pass
         except Exception as e:
             # 避免通知失败导致结界结束崩溃
-            display.show_info(f"⚠️ 通知涟漪天赋结界结束时出错：{e}")
+            error_msg = prompt_manager.get_prompt(
+                "error", "action_failed",
+                default=f"⚠️ 通知涟漪天赋结界结束时出错：{e}"
+            ).format(reason=str(e))
+            display.show_info(error_msg)
 
     # ============================================
     #  辅助方法
