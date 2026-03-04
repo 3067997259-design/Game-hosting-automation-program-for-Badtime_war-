@@ -291,7 +291,13 @@
         "剪刀vs石头→所有蓄力武器立刻蓄力",
         "剪刀vs布→获得额外行动回合",
         "石头vs布→清除锁定/探测+隐身"
-      ]
+      ],
+      "cancel_activation": "取消发动。",
+      "anchor_not_established": "锚定未成立，追忆已返还。",
+      "unknown_anchor_type": "❌ 未知锚定类型：{anchor_type}",
+      "cancel_poem": "取消献诗。",
+      "talent_not_in_poem_list": "❌ {target_name} 的天赋不在献诗列表中。",
+      "anchor_fate_started": "锚定命运已启动：{anchor_detail}"
     },
     
     "t1oneslash": {
