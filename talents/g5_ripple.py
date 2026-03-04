@@ -13,6 +13,7 @@ from talents.base_talent import BaseTalent
 from combat.damage_resolver import resolve_damage
 from cli import display
 from controllers.human import HumanController
+from engine.prompt_manager import prompt_manager
 
 try:
     from engine.action_turn import ActionTurnManager
@@ -99,12 +100,22 @@ class Ripple(BaseTalent):
         me = self._get_caster()
         name = me.name if me else self.player_id
         display.show_info(
-            f"🌊 {name} 获得 {gain} 层追忆"
-            f"（{old}→{self.reminiscence}/{self.max_reminiscence}）")
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.reminiscence_gain",
+                default="🌊 {name} 获得 {gain} 层追忆（{old}→{reminiscence}/{max_reminiscence}）"
+            ).format(
+                name=name, gain=gain, old=old, 
+                reminiscence=self.reminiscence, max_reminiscence=self.max_reminiscence
+            )
+        )
 
         if self.reminiscence >= self.max_reminiscence:
             display.show_info(
-                f"🌊✨ {name} 的追忆已满！可以发动「往世的涟漪」！")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.reminiscence_full",
+                    default="🌊✨ {name} 的追忆已满！可以发动「往世的涟漪」！"
+                ).format(name=name)
+            )
 
         self.acted_last_round = False
         self.only_extra_turn = False
@@ -172,7 +183,10 @@ class Ripple(BaseTalent):
     def _execute_anchor(self, player):
         lines = [
             f"\n{'='*60}",
-            f"  🌊 {player.name} 发动「往世的涟漪」——锚定命运！",
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.anchor_activation",
+                default="  🌊 {player_name} 发动「往世的涟漪」——锚定命运！"
+            ).format(player_name=player.name),
             f"{'='*60}",
         ]
         display.show_info("\n".join(lines))
@@ -207,7 +221,12 @@ class Ripple(BaseTalent):
         others = [p for p in self.state.alive_players()
                   if p.player_id != player.player_id]
         if not others:
-            display.show_info("没有可锚定的目标。")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.no_targets",
+                    default="没有可锚定的目标。"
+                )
+            )
             return None
 
         # ══ CONTROLLER 改动 3：选击杀目标 ══
@@ -234,7 +253,12 @@ class Ripple(BaseTalent):
         others = [p for p in self.state.alive_players()
                   if p.player_id != player.player_id]
         if not others:
-            display.show_info("没有可锚定的目标。")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.no_targets",
+                    default="没有可锚定的目标。"
+                )
+            )
             return None
 
         # ══ CONTROLLER 改动 4：选目标玩家 ══
@@ -250,7 +274,12 @@ class Ripple(BaseTalent):
         target = next(p for p in others if p.name == target_name)
 
         armor_desc = target.armor.describe() if hasattr(target, 'armor') else "无护甲"
-        display.show_info(f"{target.name} 当前护甲：{armor_desc}")
+        display.show_info(
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.target_armor_display",
+                default="{target_name} 当前护甲：{armor_desc}"
+            ).format(target_name=target.name, armor_desc=armor_desc)
+        )
 
         # ══ CONTROLLER 改动 5：选护甲层名称 ══
         # 尝试从目标护甲获取可选列表
@@ -265,11 +294,21 @@ class Ripple(BaseTalent):
         else:
             # 无法列举 → 人类手动输入，AI 自动选第一层
             if isinstance(player.controller, HumanController):
-                armor_name = input("输入要破坏的护甲层名称：").strip()
+                armor_name = input(
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.input_armor_name",
+                        default="输入要破坏的护甲层名称："
+                    )
+                ).strip()
                 if not armor_name:
                     return None
             else:
-                display.show_info("AI 无法确定护甲层名称，锚定取消。")
+                display.show_info(
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.ai_no_armor_name",
+                        default="AI 无法确定护甲层名称，锚定取消。"
+                    )
+                )
                 return None
         # ══ CONTROLLER 改动 5 结束 ══
 
@@ -307,7 +346,11 @@ class Ripple(BaseTalent):
             "高斯步枪", "防毒面具", "通行证",
         ]
         item_name = player.controller.choose(
-            "选择要获取的物品或权能：", common_items + ["取消"],
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.select_item",
+                default="选择要获取的物品或权能："
+            ),
+            common_items + ["取消"],
             context={"phase": "T0", "situation": "ripple_anchor_acquire_item"}
         )
         if item_name == "取消":
@@ -321,13 +364,42 @@ class Ripple(BaseTalent):
         # ══ DM 判定 1：DM 确认可行性（全 AI 时自动通过）══
         if self._has_human_players():
             display.show_info(
-                f"\n📋 DM请确认：{player.name} 是否可以在5回合内获取「{item_name}」？")
-            confirm = display.prompt_choice("DM确认：", ["可行", "不可行"])
-            if confirm == "不可行":
-                display.show_info("DM判定不可行，追忆返还。")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.dm_confirm_acquisition",
+                    default="\n📋 DM请确认：{player_name} 是否可以在5回合内获取「{item_name}」？"
+                ).format(player_name=player.name, item_name=item_name)
+            )
+            confirm = display.prompt_choice(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.dm_confirm",
+                    default="DM确认："
+                ),
+                [
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.feasible",
+                        default="可行"
+                    ),
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.infeasible",
+                        default="不可行"
+                    )
+                ]
+            )
+            if confirm == prompt_manager.get_prompt("talent", "g5ripple.infeasible", default="不可行"):
+                display.show_info(
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.dm_reject",
+                        default="DM判定不可行，追忆返还。"
+                    )
+                )
                 return None
         else:
-            display.show_info(f"  📋 [自动DM] 判定获取「{item_name}」可行。")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.auto_dm_feasible",
+                    default="  📋 [自动DM] 判定获取「{item_name}」可行。"
+                ).format(item_name=item_name)
+            )
         # ══ DM 判定 1 结束 ══
 
         return self._anchor_start_simple(player)
@@ -340,7 +412,11 @@ class Ripple(BaseTalent):
 
         # ══ CONTROLLER 改动 7：选地点 ══
         loc = player.controller.choose(
-            "选择要到达的地点：", locations + ["取消"],
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.select_location",
+                default="选择要到达的地点："
+            ),
+            locations + ["取消"],
             context={"phase": "T0", "situation": "ripple_anchor_arrive_loc"}
         )
         # ══ CONTROLLER 改动 7 结束 ══
@@ -377,56 +453,133 @@ class Ripple(BaseTalent):
 
         display.show_info(
             f"\n{'─'*50}"
-            f"\n📋 锚定事件：{self.anchor_detail}"
-            f"\n📋 假人系统自动验证结果：")
+            f"\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.anchor_event",
+                default="📋 锚定事件：{anchor_detail}"
+            ).format(anchor_detail=self.anchor_detail)
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.dummy_system_result",
+                default="📋 假人系统自动验证结果："
+            )
+        )
 
         if not result.feasible:
             display.show_info(
-                f"   ❌ 不可行：{result.reason}"
-                f"\n{'─'*50}")
-            display.show_info("追忆已返还。")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.infeasible_reason",
+                    default="   ❌ 不可行：{reason}"
+                ).format(reason=result.reason)
+                + f"\n{'─'*50}"
+            )
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.reminiscence_returned",
+                    default="追忆已返还。"
+                )
+            )
             return None
 
-        display.show_info(f"   ✅ 可行")
-        display.show_info(f"   命数 = {result.fate}，变数 = {result.variance}")
-        display.show_info(f"   路径：")
+        display.show_info(
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.feasible_check",
+                default="   ✅ 可行"
+            )
+        )
+        display.show_info(
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.fate_variance",
+                default="   命数 = {fate}，变数 = {variance}"
+            ).format(fate=result.fate, variance=result.variance)
+        )
+        display.show_info(
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.path_steps",
+                default="   路径："
+            )
+        )
         for step in result.path_description:
-            display.show_info(f"     {step}")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.path_step",
+                    default="     {step}"
+                ).format(step=step)
+            )
         display.show_info(f"{'─'*50}")
 
         # ══ DM 判定 2：DM 最终确认（全 AI 时自动采用系统结果）══
         if self._has_human_players():
             confirm = display.prompt_choice(
-                "DM确认：", [
-                    "确认，按此结果开始锚定",
-                    "手动修改命数",
-                    "不可行，返还追忆",
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.dm_confirm_choices",
+                    default="DM确认："
+                ),
+                [
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.confirm_anchor",
+                        default="确认，按此结果开始锚定"
+                    ),
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.modify_fate",
+                        default="手动修改命数"
+                    ),
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.reject_anchor",
+                        default="不可行，返还追忆"
+                    ),
                 ])
 
-            if "不可行" in confirm:
-                display.show_info("DM判定不可行，追忆返还。")
+            if prompt_manager.get_prompt("talent", "g5ripple.reject_anchor", default="不可行，返还追忆") in confirm:
+                display.show_info(
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.dm_reject",
+                        default="DM判定不可行，追忆返还。"
+                    )
+                )
                 return None
 
-            if "手动修改" in confirm:
+            if prompt_manager.get_prompt("talent", "g5ripple.modify_fate", default="手动修改命数") in confirm:
                 while True:
-                    fate_str = input("DM请输入修正后的「命数」（1-5）：").strip()
+                    fate_str = input(
+                        prompt_manager.get_prompt(
+                            "talent", "g5ripple.dm_input_fate",
+                            default="DM请输入修正后的「命数」（1-5）："
+                        )
+                    ).strip()
                     try:
                         fate = int(fate_str)
                         if 1 <= fate <= 5:
                             break
                     except ValueError:
                         pass
-                    display.show_info("请输入1-5的整数。")
+                    display.show_info(
+                        prompt_manager.get_prompt(
+                            "talent", "g5ripple.input_1_to_5",
+                            default="请输入1-5的整数。"
+                        )
+                    )
                 self.anchor_fate = fate
                 self.anchor_variance = 5 - fate
                 display.show_info(
-                    f"已修正：命数 = {fate}，变数 = {self.anchor_variance}")
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.fate_modified",
+                        default="已修正：命数 = {fate}，变数 = {variance}"
+                    ).format(fate=fate, variance=self.anchor_variance)
+                )
 
                 display.show_info(
-                    f"DM请输入锚定路径（共{fate}步，每步一行，输入空行结束）：")
+                    prompt_manager.get_prompt(
+                        "talent", "g5ripple.dm_input_path",
+                        default="DM请输入锚定路径（共{fate}步，每步一行，输入空行结束）："
+                    ).format(fate=fate)
+                )
                 path = []
                 for i in range(fate):
-                    step = input(f"  第{i+1}步：").strip()
+                    step = input(
+                        prompt_manager.get_prompt(
+                            "talent", "g5ripple.path_step_input",
+                            default="  第{step_num}步："
+                        ).format(step_num=i+1)
+                    ).strip()
                     if not step:
                         break
                     path.append(step)
@@ -437,17 +590,35 @@ class Ripple(BaseTalent):
                 self.anchor_path = result.path_description
         else:
             # 全 AI 模式：自动采用系统结果
-            display.show_info("  📋 [自动DM] 采用系统验证结果。")
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.auto_dm_adopt",
+                    default="  📋 [自动DM] 采用系统验证结果。"
+                )
+            )
             self.anchor_fate = result.fate
             self.anchor_variance = result.variance
             self.anchor_path = result.path_description
         # ══ DM 判定 2 结束 ══
 
         display.show_info(
-            f"\n⚓ 锚定确认！"
-            f"\n   命数 = {self.anchor_fate}"
-            f"\n   变数 = {self.anchor_variance}"
-            f"\n   路径共 {len(self.anchor_path)} 步")
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.anchor_confirmed",
+                default="\n⚓ 锚定确认！"
+            )
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.fate_display",
+                default="   命数 = {fate}"
+            ).format(fate=self.anchor_fate)
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.variance_display",
+                default="   变数 = {variance}"
+            ).format(variance=self.anchor_variance)
+            + "\n" + prompt_manager.get_prompt(
+                "talent", "g5ripple.path_length",
+                default="   路径共 {length} 步"
+            ).format(length=len(self.anchor_path))
+        )
 
         self.anchor_caster_backup = self._create_player_backup(player)
 
@@ -467,9 +638,16 @@ class Ripple(BaseTalent):
             step_idx = min(d6 - 1, len(self.anchor_path) - 1)
             self.anchor_revealed_step = self.anchor_path[step_idx]
             display.show_info(
-                f"🎲 D6 = {d6} → 公布路径步骤：「{self.anchor_revealed_step}」")
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.d6_reveal",
+                    default="🎲 D6 = {d6} → 公布路径步骤：「{revealed_step}」"
+                ).format(d6=d6, revealed_step=self.anchor_revealed_step)
+            )
         else:
-            self.anchor_revealed_step = "（无路径）"
+            self.anchor_revealed_step = prompt_manager.get_prompt(
+                "talent", "g5ripple.no_path",
+                default="（无路径）"
+            )
 
         self._anchor_start_combat(player, target)
 
@@ -492,9 +670,18 @@ class Ripple(BaseTalent):
 
         lines = [
             f"\n{'='*60}",
-            f"  🌊 锚定成立！事件：{self.anchor_detail}",
-            f"  ⏳ 5轮后若 {player.name} 存活，事件自动实现。",
-            f"  📸 状态已备份。",
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.anchor_established_simple",
+                default="  🌊 锚定成立！事件：{anchor_detail}"
+            ).format(anchor_detail=self.anchor_detail),
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.anchor_countdown",
+                default="  ⏳ 5轮后若 {player_name} 存活，事件自动实现。"
+            ).format(player_name=player.name),
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.state_backed_up",
+                default="  📸 状态已备份。"
+            ),
             f"{'='*60}",
         ]
         display.show_info("\n".join(lines))
@@ -514,13 +701,34 @@ class Ripple(BaseTalent):
     def _format_anchor_start_msg(self, player, target):
         lines = [
             f"\n{'='*60}",
-            f"  🌊 锚定成立！",
-            f"  📋 事件：{self.anchor_detail}",
-            f"  🎯 目标：{target.name}",
-            f"  📊 命定 = {self.anchor_fate}，变数 = {self.anchor_variance}",
-            f"  🎲 公布步骤：「{self.anchor_revealed_step}」",
-            f"  ⏳ 监控期：5轮",
-            f"  📸 {player.name} 状态已备份",
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.anchor_established",
+                default="  🌊 锚定成立！"
+            ),
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.anchor_event_detail",
+                default="  📋 事件：{anchor_detail}"
+            ).format(anchor_detail=self.anchor_detail),
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.anchor_target",
+                default="  🎯 目标：{target_name}"
+            ).format(target_name=target.name),
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.fate_variance_display",
+                default="  📊 命定 = {fate}，变数 = {variance}"
+            ).format(fate=self.anchor_fate, variance=self.anchor_variance),
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.revealed_step_display",
+                default="  🎲 公布步骤：「{revealed_step}」"
+            ).format(revealed_step=self.anchor_revealed_step),
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.monitoring_period",
+                default="  ⏳ 监控期：5轮"
+            ),
+            prompt_manager.get_prompt(
+                "talent", "g5ripple.state_backed_up_player",
+                default="  📸 {player_name} 状态已备份"
+            ).format(player_name=player.name),
             f"{'='*60}",
         ]
         return "\n".join(lines)
