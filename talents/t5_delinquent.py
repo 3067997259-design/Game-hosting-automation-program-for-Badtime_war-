@@ -9,6 +9,7 @@
 from talents.base_talent import BaseTalent
 from models.equipment import Weapon, WeaponRange
 from utils.attribute import Attribute
+from engine.prompt_manager import prompt_manager
 
 
 class Delinquent(BaseTalent):
@@ -51,7 +52,10 @@ class Delinquent(BaseTalent):
         if crime_type not in self.triggered_crime_types:
             self.triggered_crime_types.add(crime_type)
             return {"extra_turn": True, "message":
-                    f"🔥 不良少年：首次触发犯罪「{crime_type}」→ 获得额外行动回合！"}
+                    prompt_manager.get_prompt(
+                        "talent", "t5delinquent.crime_trigger",
+                        default="🔥 不良少年：首次触发犯罪「{crime_type}」→ 获得额外行动回合！"
+                    ).format(crime_type=crime_type)}
 
         return None
 
