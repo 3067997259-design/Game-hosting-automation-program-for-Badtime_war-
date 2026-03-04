@@ -20,9 +20,10 @@ class PoliceEngine:
         self.ALLOWED_AOE = {"地震", "地动山摇", "电磁步枪", "天星"}
         
         # 警察允许装备的白名单
+        # 禁止：电磁步枪（蓄力武器）、磨刀武器、导弹等
         self.POLICE_ALLOWED_WEAPONS = {
             "警棍", "高斯步枪", "地震", "地动山摇"
-            # 禁止：电磁步枪（蓄力）、磨刀武器、导弹等
+            # 高斯步枪可以使用不蓄力模式（基础伤害1.0）
         }
         self.POLICE_ALLOWED_ARMOR = {
             "盾牌", "陶瓷护甲", "魔法护盾", "AT力场"
@@ -697,6 +698,9 @@ class PoliceEngine:
         if weapon and weapon.name in self.ALLOWED_AOE:
             return True
         
+        # 天赋名称匹配（如"天星"）
+        attacker_weapon = None
+        # 这里可以扩展检查天赋名称
         return False
 
     def attack_police(self, attacker_id, police_target, attack_method):
@@ -718,9 +722,10 @@ class PoliceEngine:
         # 计算伤害（警察HP=1，直接全额伤害）
         weapon = make_weapon(attack_method) or attacker.get_weapon(attack_method)
         if not weapon:
-            return "❌ 无效的攻击手段"
-        
-        base_damage = weapon.get_effective_damage()
+            # 可能是天赋攻击，默认伤害1.0
+            base_damage = 1.0
+        else:
+            base_damage = weapon.get_effective_damage()
         
         # 施加伤害
         result = police_unit.take_damage(base_damage, attacker_id)
