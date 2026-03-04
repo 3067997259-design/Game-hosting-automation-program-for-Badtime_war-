@@ -205,6 +205,14 @@ class ActionTurnManager:
             for name, usage, desc in police_actions:
                 names.append(name)
                 descs.append({"usage": usage, "description": desc})
+            
+            # 队长操控警察命令（仅队长可见）
+            if player.is_captain:
+                names.append("police_command")
+                descs.append({
+                    "usage": "police move/equip/attack <警察ID> <参数>", 
+                    "description": "队长操控警察移动/装备/攻击"
+                })
 
         return names, descs
 
@@ -381,6 +389,12 @@ class ActionTurnManager:
         elif action == "study":
             msg = self.state.police_engine.captain_study(player.player_id)
             return msg, "study"
+
+        elif action == "police_command":
+            # 队长操控警察
+            from actions.police_command import execute as police_command_execute
+            msg = police_command_execute(player, parsed, self.state)
+            return msg, "police_command"
 
         elif action == "forfeit":
             msg = forfeit.execute(player, self.state)
