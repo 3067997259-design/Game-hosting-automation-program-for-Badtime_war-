@@ -74,9 +74,9 @@ class BasicAIController(PlayerController):
         "陶瓷护甲": ("外层", "普通"),  # 修正：陶瓷护甲是普通属性，不是科技属性
         "魔法护盾": ("外层", "魔法"),
         "AT力场": ("外层", "科技"),
-        "晶化皮肤手术": ("内层", "普通"),   # 假设手术提供内层普通护甲
+        "晶化皮肤手术": ("内层", "科技"),   # 晶化皮肤：科技属性内层护甲
         "额外心脏手术": ("内层", "普通"),
-        "不老泉手术": ("内层", "普通"),
+        "不老泉手术": ("内层", "魔法"),
         # 可根据实际游戏扩展
     }
 
@@ -1215,7 +1215,7 @@ class BasicAIController(PlayerController):
 
     # ════════════════════════════════════════════════════════
     #  核心修复：武器与攻击层选择
-    # ════════════════════════════════════════════════════════
+    # ══════════════════════════════════════��═════════════════
 
     def _has_weapon_named(self, player, name: str) -> bool:
         """检查玩家是否已拥有指定名称的武器"""
@@ -1235,13 +1235,15 @@ class BasicAIController(PlayerController):
         """获取最佳武器伤害（修复版）"""
         max_dmg = 0.0
         for w in getattr(player, 'weapons', []):
-            # 尝试多种可能的伤害属性名
+            # 直接调用标准方法获取伤害，其次尝试 base_damage
             dmg = 0
-            for attr_name in ['damage', 'base_damage', 'dmg']:
-                if hasattr(w, attr_name):
-                    attr_value = getattr(w, attr_name)
-                    if isinstance(attr_value, (int, float)):
-                        dmg = max(dmg, attr_value)
+            if hasattr(w, 'get_effective_damage') and callable(w.get_effective_damage):
+                try:
+                    dmg = w.get_effective_damage()
+                except Exception:
+                    pass
+            if dmg <= 0 and hasattr(w, 'base_damage') and isinstance(w.base_damage, (int, float)):
+                dmg = w.base_damage
             
             # 如果没有找到伤害属性，尝试从名称推断
             if dmg <= 0 and hasattr(w, 'name'):
@@ -1320,13 +1322,15 @@ class BasicAIController(PlayerController):
         for w in player.weapons:
             debug_ai_full(player.name, f"检查武器: {getattr(w, 'name', '未知')}")
             
-            # 获取武器伤害
+            # 直接调用标准方法获取伤害，其次尝试 base_damage
             damage = 0
-            for attr_name in ['damage', 'base_damage', 'dmg']:
-                if hasattr(w, attr_name):
-                    attr_value = getattr(w, attr_name)
-                    if isinstance(attr_value, (int, float)):
-                        damage = max(damage, attr_value)
+            if hasattr(w, 'get_effective_damage') and callable(w.get_effective_damage):
+                try:
+                    damage = w.get_effective_damage()
+                except Exception:
+                    pass
+            if damage <= 0 and hasattr(w, 'base_damage') and isinstance(w.base_damage, (int, float)):
+                damage = w.base_damage
             
             # 如果找不到伤害属性，使用默认值
             if damage <= 0:
@@ -1342,14 +1346,14 @@ class BasicAIController(PlayerController):
                 else:
                     damage = 0.5  # 默认值
             
-            # 获取武器属性
+            # 直接读取 w.attribute.value（Attribute 枚举的字符串展示层）
             weapon_attr = "普通"
-            for attr_name in ['damage_type', 'attribute', 'type']:
-                if hasattr(w, attr_name):
-                    attr_value = getattr(w, attr_name)
-                    if attr_value in ["普通", "魔法", "科技"]:
-                        weapon_attr = attr_value
-                        break
+            if hasattr(w, 'attribute'):
+                _attr = w.attribute
+                if hasattr(_attr, 'value'):
+                    weapon_attr = _attr.value
+                elif isinstance(_attr, str) and _attr in ["普通", "魔法", "科技"]:
+                    weapon_attr = _attr
             
             debug_ai_full(player.name, f"武器 {getattr(w, 'name', '未知')} 伤害: {damage}, 属性: {weapon_attr}")
             
@@ -1388,14 +1392,14 @@ class BasicAIController(PlayerController):
 
     def _pick_attack_layer(self, weapon, target):
         """选择攻击层和属性（修复版）"""
-        # 获取武器属性
+        # 直接读取 weapon.attribute.value（Attribute 枚举的字符串展示层）
         weapon_attr = "普通"
-        for attr_name in ['damage_type', 'attribute', 'type']:
-            if hasattr(weapon, attr_name):
-                attr_value = getattr(weapon, attr_name)
-                if attr_value in ["普通", "魔法", "科技"]:
-                    weapon_attr = attr_value
-                    break
+        if hasattr(weapon, 'attribute'):
+            _attr = weapon.attribute
+            if hasattr(_attr, 'value'):
+                weapon_attr = _attr.value
+            elif isinstance(_attr, str) and _attr in ["普通", "魔法", "科技"]:
+                weapon_attr = _attr
         
         debug_ai_full(self.player_name, f"选择攻击层，武器属性: {weapon_attr}")
         
@@ -2223,7 +2227,7 @@ class BasicAIController(PlayerController):
 
     def _get_police_location(self, police_id, state):
         """获取警察单位的位置"""
-        situation = self._get_police_situation(player, state)
+        situation = self._police_situation_cache or {}
         
         # 检查独立单位
         for unit in situation.get("individual_units", []):
