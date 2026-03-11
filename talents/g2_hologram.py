@@ -325,6 +325,9 @@ class Hologram(BaseTalent):
             return 0
         if not self.is_in_hologram(target_id):
             return 0
+        # 发动者免疫额外伤害
+        if self.is_caster(target_id):
+            return 0
         return self._get_bonus_damage()
 
     # ============================================
@@ -335,7 +338,12 @@ class Hologram(BaseTalent):
         if not self.active:
             return
 
+        # 检查发动者是否存活，如果死亡则影像立即消失
         me = self.state.get_player(self.player_id)
+        if not me or not me.is_alive():
+            self._expire()
+            return
+
         name = me.name if me else self.player_id
 
         # 更新停留计数
