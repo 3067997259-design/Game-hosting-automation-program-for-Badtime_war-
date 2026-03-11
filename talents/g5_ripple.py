@@ -1399,10 +1399,11 @@ class Ripple(BaseTalent):
         return self._dispatch_poem(player, target, poem_type)
 
     def _dispatch_poem(self, caster, target, poem_type):
+        separator = '=' * 60
         header = prompt_manager.get_prompt(
             "talent", "g5ripple.poem_header",
-            default="\n{'='*60}\n  🌊🎶 献予「{poem_type}」之诗！\n  目标：{target_name}\n{'='*60}\n"
-        ).format(poem_type=poem_type, target_name=target.name)
+            default="\n{separator}\n  🌊🎶 献予「{poem_type}」之诗！\n  目标：{target_name}\n{separator}\n"
+        ).format(separator=separator, poem_type=poem_type, target_name=target.name)
 
         if poem_type == "游侠":
             msg = self._poem_ranger(target)
