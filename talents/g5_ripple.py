@@ -1633,20 +1633,35 @@ class Ripple(BaseTalent):
                 default="👁️ {target_name} 的全息影像已增强！\n   DM请手动调整效果。"
             ).format(target_name=target.name)
 
-    def _poem_bear(self, target):
-        talent = target.talent
-        if hasattr(talent, 'divinity'):
-            talent.divinity += 2
-        talent.ripple_enhanced = True
-        talent.can_active_start = True
-        talent.passive_bonus_divinity = 2
-
-        current_div = getattr(talent, 'divinity', '?')
-        return prompt_manager.get_prompt(
-            "talent", "g5ripple.poem_bear",
-            default="🌅 {target_name} 的「愿负世」增强！\n   额外+2神性（当前：{divinity}）\n   新增：可花1回合主动启动（启动后获1额外行动）\n   被动触发时再+2神性"
+    def _poem_bear(self, target):  
+        talent = target.talent  
+  
+        # g5 基础：给予 2 点神性  
+        if hasattr(talent, 'gain_divinity'):  
+            talent.gain_divinity(2, "涟漪方式2-基础奖励")  
+        elif hasattr(talent, 'divinity'):  
+            talent.divinity += 2  
+  
+        # 调用 g4 的增强方法（额外 2 点神性 + 解锁主动 + 被动奖励）  
+        if hasattr(talent, 'enhance_by_ripple'):  
+            talent.enhance_by_ripple()  
+        else:  
+            # 兼容：直接设置属性  
+            talent.ripple_enhanced = True  
+            talent.can_active_start = True  
+            talent.passive_bonus_divinity = 2  
+  
+        current_div = getattr(talent, 'divinity', '?')  
+        return prompt_manager.get_prompt(  
+            "talent", "g5ripple.poem_bear",  
+            default=(  
+                "🌅 {target_name} 的「愿负世」增强！\n"  
+                "   额外+2神性（当前：{divinity}）\n"  
+                "   新增：可花1回合主动启动（启动后获1额外行动）\n"  
+                "   被动触发时再+2神性"  
+            )  
         ).format(target_name=target.name, divinity=current_div)
-
+    
     def _poem_destiny(self, caster):
         """
         献予「命运」之诗（自身）

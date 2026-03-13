@@ -181,6 +181,12 @@ class RoundManager:
                 action_queue.insert(i + 1, actor.player_id)
                 display.show_info(
                     f"📌 {actor.name} 的额外行动回合已插入！")
+            # === 愿负世主动发动的额外回合 ===  
+            if getattr(actor, 'savior_extra_turn', False):  
+                actor.savior_extra_turn = False  
+                action_queue.insert(i + 1, actor.player_id)  
+                display.show_info(  
+                    f"📌 {actor.name} 的额外行动回合已插入！（主动发动）")
 
             # 检查胜利
             if self.state.check_victory():

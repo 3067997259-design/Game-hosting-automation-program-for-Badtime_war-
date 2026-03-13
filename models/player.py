@@ -144,6 +144,7 @@ class Player:
         # 天赋辅助标记
         self.hexagram_extra_turn = False  # 六爻剪刀vs布的额外回合标记
         self.crime_extra_turn = False     # 犯罪触发的额外行动回合标记
+        self.savior_extra_turn = False    # 愿负世主动发动的额外行动回合标记
 
         # 多回合进度
         self.progress = {}
