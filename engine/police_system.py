@@ -1,1028 +1,1033 @@
-"""
-警察执法引擎。
-管理：举报流程、执法攻击、追踪、队长系统、威信机制。
-"""
-
-from models.police import PoliceTeam
-from combat.damage_resolver import resolve_damage
-from models.equipment import make_weapon, WeaponRange
-from utils.attribute import Attribute
-
-
-class PoliceEngine:
-    """警察执法引擎，操作 game_state.police 数据"""
-
-    def __init__(self, game_state):
-        self.state = game_state
-        self.police = game_state.police
-        
-        # 允许攻击警察的AOE手段
-        self.ALLOWED_AOE = {"地震", "地动山摇", "电磁步枪", "天星"}
-        
-        # 警察允许装备的白名单
-        # 禁止：电磁步枪（蓄力武器）、磨刀武器、导弹等
-        self.POLICE_ALLOWED_WEAPONS = {
-            "警棍", "高斯步枪", "地震", "地动山摇"
-            # 高斯步枪可以使用不蓄力模式（基础伤害1.0）
-        }
-        self.POLICE_ALLOWED_ARMOR = {
-            "盾牌", "陶瓷护甲", "魔法护盾", "AT力场"
-        }
-
-    # ============================================
-    #  犯罪检测
-    # ============================================
-
-    def check_and_record_crime(self, player_id, crime_type):
-        """
-        检查并记录犯罪行为。
-        crime_type: "伤害玩家" / "无凭证商店" / "无凭证手术" /
-                    "进入他人家" / "进入军事基地" / "释放病毒"
-        返回：是否构成犯罪（bool）
-        """
-        player = self.state.get_player(player_id)
-        if not player:
-            return False
-
-        # 警察（非队长）不能犯罪
-        if player.is_police and not player.is_captain:
-            return False
-
-        # 不良少年的热那亚之刃：攻击不构成犯罪
-        # Phase 4 天赋系统会在这里插入检查
-        # 目前基础局直接记录
-
-        self.police.add_crime(player_id, crime_type)
-        player.is_criminal = True
-
-        # 队长犯罪扣威信
-        if player.is_captain:
-            self.police.authority -= 1
-            if self.police.authority <= 0:
-                self._on_authority_zero()
-
-        self.state.log_event("crime", player=player_id, crime_type=crime_type)
-        return True
-
-    # ============================================
-    #  举报流程
-    # ============================================
-
-    def can_report(self, reporter_id, target_id):
-        """
-        检查举报合法性。
-        返回 (bool, str原因)
-        """
-        reporter = self.state.get_player(reporter_id)
-        target = self.state.get_player(target_id)
-
-        if not reporter or not target:
-            return False, "玩家不存在"
-
-        # 有队长时不受理举报
-        if self.police.has_captain():
-            return False, "警队已有队长，不再受理举报（邮箱直通垃圾桶）"
-
-        # 举报者不能是犯罪者
-        if self.police.is_criminal(reporter_id):
-            return False, "你有犯罪记录，不能举报"
-
-        # 目标必须有犯罪记录
-        if not self.police.is_criminal(target_id):
-            return False, f"{target.name} 没有犯罪记录"
-
-        # 举报者位置（基础局需要在警察局，朝阳好市民可远程）
-        # Phase 4: 检查朝阳好市民天赋
-        if reporter.location != "警察局":
-            # 检查是否有远程举报天赋
-            if reporter.talent and hasattr(reporter.talent, 'allows_remote_report') and reporter.talent.allows_remote_report():
-                pass  # 允许远程举报
-            else:
-                return False, "需要在警察局才能举报（除非有特殊天赋）"
-
-        # 已有未完成的举报
-        if self.police.report_phase != "idle":
-            return False, "已有进行中的举报流程"
-
-        return True, ""
-
-    def do_report(self, reporter_id, target_id):
-        """执行举报（P1），消耗1行动回合"""
-        self.police.reporter_id = reporter_id
-        self.police.reported_target_id = target_id
-        self.police.report_phase = "reported"
-
-        target = self.state.get_player(target_id)
-        self.state.log_event("report", reporter=reporter_id, target=target_id)
-        return f"📢 举报成功！目标：{target.name}。接下来需要花1回合「集结」警察。"
-
-    def can_assemble(self, reporter_id):
-        """检查能否集结"""
-        if self.police.report_phase != "reported":
-            return False, "没有待集结的举报"
-        if self.police.reporter_id != reporter_id:
-            return False, "只有举报者本人才能集结警察"
-        return True, ""
-
-    def do_assemble(self, reporter_id):
-        """执行集结（P2），消耗1行动回合"""
-        self.police.report_phase = "assembled"
-
-        # 举报者获得警察保护
-        reporter = self.state.get_player(reporter_id)
-        if reporter:
-            reporter.has_police_protection = True
-            self.state.markers.add(reporter_id, "POLICE_PROTECT")
-
-        self.state.log_event("assemble", reporter=reporter_id)
-        return (f"🚔 警察集结完成！举报者获得警察保护。"
-                f"\n   警察将在本轮结束时尝试出动！")
-
-    # ============================================
-    #  出动与执法（轮次结束时调用）
-    # ============================================
-
-    def process_end_of_round(self, game_state):
-        """
-        R4-1: 轮次结束时的警察处理。
-        按顺序：出动延迟处理 → 准备出动 → 出动 → 执法攻击 → 追踪倒计时。
-        返回消息列表。
-        """
-        messages = []
-
-        # 0. 处理出动延迟（dispatched_delayed 状态）
-        if self.police.report_phase == "dispatched_delayed":
-            if self.police.dispatch_countdown > 0:
-                self.police.dispatch_countdown -= 1
-                messages.append(f"🚔 警察出动延迟中...（{self.police.dispatch_countdown}轮后尝试）")
-                if self.police.dispatch_countdown <= 0:
-                    # 尝试重新出动
-                    msg = self._dispatch_police()
-                    messages.append(msg)
-
-        # 1. 准备出动（assembled → ready_to_dispatch）
-        if self.police.report_phase == "assembled":
-            # 标记为准备出动，下一轮才会实际移动
-            self.police.report_phase = "ready_to_dispatch"
-            messages.append("🚔 警察准备出动，将在下一轮开始时移动到目标位置！")
-
-        # 2. 出动（ready_to_dispatch → dispatched）
-        if self.police.report_phase == "ready_to_dispatch":
-            msg = self._dispatch_police()
-            messages.append(msg)
-
-        # 3. 执法攻击（dispatched 状态）
-        if self.police.report_phase == "dispatched":
-            # 标记为正在执行执法，下一轮才会实际攻击
-            self.police.report_phase = "enforcing"
-            messages.append("🚔 警察已抵达目标位置，将在下一轮开始执法攻击！")
-
-        # 4. 执法攻击（enforcing 状态）
-        if self.police.report_phase == "enforcing":
-            atk_msgs = self._enforcement_attack()
-            messages.extend(atk_msgs)
-
-        # 5. 追踪倒计时
-        tracking_msgs = self._process_tracking()
-        messages.extend(tracking_msgs)
-        
-        # 6. 警察反击（新增）
-        retaliation_msgs = self._process_police_retaliation()
-        messages.extend(retaliation_msgs)
-
-        # 重置本轮拆分计数
-        self.police.splits_this_round = 0
-
-        return messages
-
-    def _dispatch_police(self):
-        """警察出动：移动到目标位置，建立面对面"""
-        target_id = self.police.reported_target_id
-        target = self.state.get_player(target_id)
-        if not target or not target.is_alive():
-            self.police.report_phase = "idle"
-            return "🚔 执法目标已不存在，警察撤回。"
-
-        target_loc = target.location
-        
-        # 检查目标地点是否已有警察（每个地点只能有1个警察单位，除非强制聚集）
-        if self._has_police_at_location(target_loc):
-            # 有警察在目标地点，警察出动延迟到下一轮
-            self.police.report_phase = "dispatched_delayed"
-            self.police.dispatch_countdown = 1
-            return f"🚔 警察出动受阻！目标地点{target_loc}已有警察，下一轮再尝试出动。"
-        
-        for team in self.police.teams:
-            if not team.is_eliminated():
-                team.location = target_loc
-                team.enforcement_target = target_id
-                team.is_engaged_with_target = True
-                team.is_tracking = False
-
-        self.police.report_phase = "dispatched"
-        self.state.log_event("police_dispatch", target=target_id, location=target_loc)
-        return f"🚔 警察出动！已抵达{target_loc}，与{target.name}面对面！"
-
-    def _enforcement_attack(self):
-        """对执法目标执行攻击"""
-        messages = []
-        target_id = self._get_enforcement_target()
-        if not target_id:
-            return messages
-
-        target = self.state.get_player(target_id)
-        if not target or not target.is_alive():
-            messages.append(f"🚔 执法目标已死亡，警察任务完成。")
-            self._reset_enforcement()
-            return messages
-
-        # 攻击目标：包括警队和独立单位
-        all_attackers = []
-        for team in self.police.teams:
-            if not team.is_eliminated() and team.location == target.location:
-                all_attackers.extend(team.get_active_members())
-        
-        # 独立单位
-        for cop in self.police.individual_units:
-            if cop.is_active() and cop.location == target.location:
-                all_attackers.append(cop)
-        
-        if not all_attackers:
-            return messages
-
-        # 每个警察单位攻击一次
-        for cop in all_attackers:
-            weapon = make_weapon(cop.weapon_name)
-            if not weapon:
-                weapon = make_weapon("警棍")
-            
-            # 警察使用高斯步枪时强制不使用蓄力模式
-            if weapon.name == "高斯步枪" and weapon.requires_charge:
-                weapon.is_charged = False  # 强制不蓄力，使用基础伤害1.0
-
-            result = resolve_damage(
-                attacker=None,  # 警察不是玩家
-                target=target,
-                weapon=weapon,
-                game_state=self.state,
-            )
-
-            if result["success"]:
-                detail = f"   {cop.unit_id} 用{weapon.name}攻击 → "
-                if result["killed"]:
-                    detail += f"💀 击杀！"
-                    self.state.markers.on_player_death(target_id)
-                elif result["stunned"]:
-                    detail += f"💫 眩晕！(HP:{result['target_hp']})"
-                else:
-                    detail += f"HP:{result['target_hp']}"
-                messages.append(detail)
-
-                # 威信检查：攻击无辜者
-                if not self.police.is_criminal(target_id):
-                    self.police.authority -= 1
-                    messages.append(f"   ⚠️ 攻击无辜者！威信-1（当前：{self.police.authority}）")
-                    if self.police.authority <= 0:
-                        auth_msgs = self._on_authority_zero()
-                        messages.extend(auth_msgs)
-                        return messages
-
-            if not target.is_alive():
-                break
-        
-        if not target.is_alive():
-            messages.append(f"🚔 {target.name} 已被警察击杀。执法完成。")
-            self._reset_enforcement()
-
-        return messages
-
-    def _get_enforcement_target(self):
-        """获取当前执法目标"""
-        # 队长指定优先
-        if self.police.has_captain():
-            # 检查各警队的 enforcement_target
-            for team in self.police.teams:
-                if team.enforcement_target:
-                    return team.enforcement_target
-            # 独立单位没有 enforcement_target，使用举报目标
-
-        return self.police.reported_target_id
-
-    # ============================================
-    #  追踪
-    # ============================================
-
-    def on_target_moved(self, target_id, new_location):
-        """目标移动后触发追踪"""
-        for team in self.police.teams:
-            if team.enforcement_target == target_id and not team.is_eliminated():
-                team.is_engaged_with_target = False
-                team.is_tracking = True
-                team.tracking_countdown = 2  # 方式B默认2轮
-        self.state.log_event("police_tracking", target=target_id)
-
-    def do_tracking_guide(self, reporter_id):
-        """
-        举报者花1回合指引追踪（方式A）。
-        警察立刻到达目标位置。
-        """
-        target_id = self.police.reported_target_id
-        target = self.state.get_player(target_id)
-        if not target or not target.is_alive():
-            return "执法目标已不存在"
-
-        for team in self.police.teams:
-            if team.enforcement_target == target_id and team.is_tracking:
-                team.location = target.location
-                team.is_tracking = False
-                team.tracking_countdown = 0
-                team.is_engaged_with_target = True
-
-        return f"🚔 举报者指引追踪！警察立刻抵达{target.location}，恢复围攻{target.name}！"
-
-    def _process_tracking(self):
-        """处理追踪倒计时"""
-        messages = []
-        for team in self.police.teams:
-            if not team.is_tracking or team.is_eliminated():
-                continue
-            team.tracking_countdown -= 1
-            if team.tracking_countdown <= 0:
-                # 自动追上
-                target_id = team.enforcement_target
-                target = self.state.get_player(target_id)
-                if target and target.is_alive():
-                    team.location = target.location
-                    team.is_tracking = False
-                    team.is_engaged_with_target = True
-                    messages.append(
-                        f"🚔 {team.team_id}追踪完成，抵达{target.location}恢复围攻！")
-                else:
-                    team.is_tracking = False
-                    messages.append(f"🚔 {team.team_id}追踪目标已消失。")
-            else:
-                messages.append(
-                    f"🚔 {team.team_id}追踪中...（{team.tracking_countdown}轮后到达）")
-        return messages
-
-    # ============================================
-    #  举报者违法
-    # ============================================
-
-    def on_reporter_crime(self):
-        """举报者在集结后违法"""
-        reporter_id = self.police.reporter_id
-        reporter = self.state.get_player(reporter_id)
-        if reporter:
-            reporter.has_police_protection = False
-            self.state.markers.remove(reporter_id, "POLICE_PROTECT")
-
-        if not self.police.has_captain():
-            # 无队长：打所有违法者然后撤退
-            return "reporter_crime_no_captain"
-        else:
-            # 有队长：后续由队长指挥
-            return "reporter_crime_has_captain"
-
-    # ============================================
-    #  加入警察
-    # ============================================
-
-    def can_join_police(self, player_id):
-        """检查能否加入警察"""
-        player = self.state.get_player(player_id)
-        if not player:
-            return False, "玩家不存在"
-        if player.is_police:
-            return False, "你已经是警察了"
-        if self.police.is_criminal(player_id):
-            return False, "你有犯罪记录，不能加入警察"
-        if player.location != "警察局":
-            return False, "需要在警察局才能加入"
-        return True, ""
-
-    def do_join_police(self, player_id, choices):
-        """
-        加入警察，三选二。
-        choices: list of 2 items from ["凭证", "警棍", "盾牌"]
-        """
-        player = self.state.get_player(player_id)
-        player.is_police = True
-        self.state.markers.add(player_id, "IS_POLICE")
-
-        rewards = []
-        for c in choices:
-            if c == "凭证":
-                player.vouchers += 1
-                rewards.append("购买凭证x1")
-            elif c == "警棍":
-                from models.equipment import make_weapon
-                player.add_weapon(make_weapon("警棍"))
-                rewards.append("警棍")
-            elif c == "盾牌":
-                from models.equipment import make_armor
-                armor = make_armor("盾牌")
-                success, _ = player.add_armor(armor)
-                if success:
-                    rewards.append("盾牌")
-                else:
-                    rewards.append("盾牌(装备失败)")
-
-        self.state.log_event("join_police", player=player_id, rewards=rewards)
-        return f"🚔 {player.name} 加入了警察！获得：{', '.join(rewards)}"
-
-    # ============================================
-    #  队长系统
-    # ============================================
-
-    def can_start_election(self, player_id):
-        """检查能否开始/继续竞选"""
-        player = self.state.get_player(player_id)
-        if not player:
-            return False, "玩家不存在"
-        if not player.is_police:
-            return False, "需要先加入警察"
-        if self.police.has_captain():
-            return False, "已有队长，不能竞选"
-        if player.location != "警察局":
-            return False, "需要在警察局竞选"
-        return True, ""
-
-    def do_election_progress(self, player_id):
-        """
-        推进竞选进度。
-        需要3回合（朝阳好市民天赋减1→2回合）。
-        """
-        player = self.state.get_player(player_id)
-        required = 3
-        # 朝阳好市民减1
-        if player.talent and hasattr(player.talent, 'get_election_rounds_reduction'):
-            reduction = player.talent.get_election_rounds_reduction()
-            required = max(1, required - reduction)
-
-        progress_key = "captain_election"
-        current = player.progress.get(progress_key, 0)
-        current += 1
-        player.progress[progress_key] = current
-
-        if current < required:
-            return f"🏛️ {player.name} 竞选进度：{current}/{required}"
-
-        # 竞选成功
-        del player.progress[progress_key]
-        self.police.captain_id = player_id
-        self.police.authority = 3
-        player.is_captain = True
-        self.state.markers.add(player_id, "IS_CAPTAIN")
-        
-        # 队长上任：所有警察返回警察局等待指令
-        self._on_captain_elected()
-
-        self.state.log_event("captain_elected", player=player_id)
-        return (f"👑 {player.name} 成为警队队长！威信：3"
-                f"\n   队长可指挥警察、指定目标、拆分警队。"
-                f"\n   ⚠️ 警局不再受理其他人的举报。")
-
-    def _on_captain_elected(self):
-        """队长上任处理：所有警察返回警察局等待指令"""
-        # 所有警队返回警察局
-        for team in self.police.teams:
-            if not team.is_eliminated():
-                team.location = "警察局"
-                team.enforcement_target = None
-                team.is_engaged_with_target = False
-                team.is_tracking = False
-        
-        # 独立单位也返回警察局
-        for cop in self.police.individual_units:
-            if cop.is_alive():
-                cop.location = "警察局"
-                cop.current_order = None
-        
-        # 举报系统暂停（但保留犯罪记录）
-        self.police.report_phase = "idle"
-        self.police.reporter_id = None
-        self.police.reported_target_id = None
-
-    def captain_designate_target(self, captain_id, target_id):
-        """队长指定执法目标"""
-        target = self.state.get_player(target_id)
-        for team in self.police.teams:
-            if not team.is_eliminated():
-                team.enforcement_target = target_id
-
-        # 如果还没出动，现在标记为需要出动
-        if self.police.report_phase == "idle":
-            self.police.report_phase = "assembled"
-            self.police.reported_target_id = target_id
-
-        self.state.log_event("captain_designate", captain=captain_id, target=target_id)
-        return f"👑 队长指定执法目标：{target.name}"
-
-    def captain_split_team(self, captain_id, team_id):
-        """
-        队长拆分警队为独立单位（修改版）。
-        拆分后成为独立个体，不可合并。
-        全场最多3个独立单位（police1, police2, police3）。
-        """
-        # 验证队长权限
-        if self.police.captain_id != captain_id:
-            return "❌ 只有队长可以拆分警察"
-
-        if self.police.splits_this_round >= 1:
-            return "❌ 本轮已拆分过一次"
-
-        source = self.police.get_team(team_id)
-        if not source:
-            return f"❌ 找不到警队 {team_id}"
-
-        # 检查是否能拆分（至少2个存活成员）
-        alive = source.get_alive_members()
-        if len(alive) < 2:
-            return "❌ 该警队存活人数不足2人，无法拆分"
-
-        # 检查独立单位数量上限（最多3个）
-        existing_individuals = len(self.police.individual_units)
-        if existing_individuals >= 3:
-            return "❌ 独立警察数量已达上限（最多3个）"
-
-        # 拆分第一个成员为独立单位
-        cop_to_split = alive[0]
-        cop_to_split.is_individual = True
-        cop_to_split.original_team_id = team_id
-        
-        # 生成独立ID
-        individual_id = self._generate_individual_id()
-        cop_to_split.unit_id = individual_id
-        
-        # 从原队伍移除，添加到独立单位列表
-        source.members.remove(cop_to_split)
-        self.police.individual_units.append(cop_to_split)
-        
-        # 独立单位位置与原队伍相同
-        cop_to_split.location = source.location
-        
-        self.police.splits_this_round += 1
-
-        self.state.log_event("police_split_individual", captain=captain_id,
-                             source=team_id, new_unit=individual_id)
-        return f"🚔 警察 {individual_id} 已拆分为独立单位！不可合并。"
-
-    def captain_equip_team(self, captain_id, team_id, weapon_name):
-        """队长为警队更换装备"""
-        team = self.police.get_team(team_id)
-        if not team:
-            return f"❌ 找不到警队 {team_id}"
-
-        # 验证装备是否允许
-        if not self._validate_police_equipment(weapon_name, "weapon"):
-            return f"❌ 警察不能装备「{weapon_name}」"
-
-        for cop in team.get_alive_members():
-            cop.weapon_name = weapon_name
-
-        return f"🚔 警队{team_id}全员更换武器为「{weapon_name}」"
-
-    # ============================================
-    #  威信归零
-    # ============================================
-
-    def _on_authority_zero(self):
-        """威信归零处理（扩展版：重置独立警察）"""
-        messages = []
-        captain_id = self.police.captain_id
-        captain = self.state.get_player(captain_id)
-
-        messages.append(f"\n  ⚠️⚠️⚠️ 队长 {captain.name} 威信归零！")
-        messages.append(f"  队长身份解除！所有警队撤退回警察局！")
-
-        # 解除队长
-        if captain:
-            captain.is_captain = False
-            self.state.markers.remove(captain_id, "IS_CAPTAIN")
-
-        self.police.captain_id = None
-        self.police.authority = 0
-
-        # 所有警队撤退
-        for team in self.police.teams:
-            team.location = "警察局"
-            team.enforcement_target = None
-            team.is_engaged_with_target = False
-            team.is_tracking = False
-
-        # 重置所有独立警察为初始状态
-        for cop in self.police.individual_units:
-            if cop.is_alive():
-                cop.reset_to_initial()
-                # 返回原队伍（如果原队伍还存在）
-                original_team = self.police.get_team(cop.original_team_id)
-                if original_team:
-                    cop.is_individual = False
-                    original_team.members.append(cop)
-                    messages.append(f"  {cop.unit_id} 重置并返回原队伍")
-                else:
-                    messages.append(f"  {cop.unit_id} 重置为初始状态")
-        
-        # 清除独立单位列表
-        self.police.individual_units = []
-
-        # 原队长成为唯一违法者
-        self.police.clear_all_crimes_except(captain_id)
-        self.police.add_crime(captain_id, "队长滥权")
-
-        messages.append(f"  {captain.name} 被记录为唯一违法者。其他人犯罪记录清空。")
-
-        # 清除所有玩家的犯罪标记（除原队长）
-        for p in self.state.players.values():
-            if p.player_id != captain_id:
-                p.is_criminal = False
-
-        self.police.report_phase = "idle"
-        self.state.log_event("authority_zero", captain=captain_id)
-
-        return messages
-
-    def captain_study(self, captain_id):
-        """队长在警察局研究性学习，威信+1"""
-        self.police.authority += 1
-        return f"📚 队长研究性学习完成！威信+1（当前：{self.police.authority}）"
-
-    # ============================================
-    #  辅助
-    # ============================================
-
-    def _reset_enforcement(self):
-        """重置执法状态"""
-        self.police.report_phase = "idle"
-        self.police.reporter_id = None
-        self.police.reported_target_id = None
-        for team in self.police.teams:
-            team.enforcement_target = None
-            team.is_engaged_with_target = False
-            team.is_tracking = False
-            team.location = "警察局"
-
-    def is_protected_by_police(self, player_id):
-        """检查玩家是否受警察保护"""
-        player = self.state.get_player(player_id)
-        if not player or not player.has_police_protection:
-            return False
-        
-        # 如果是队长，只在与警察同地点时获得保护
-        if player.is_captain:
-            for team in self.police.teams:
-                if not team.is_eliminated() and team.location == player.location:
-                    return True
-            return False
-        
-        # 非队长：必须与至少一支警队同地点
-        for team in self.police.teams:
-            if not team.is_eliminated() and team.location == player.location:
-                return True
-        return False
-
-    def wake_police(self, player_id, team_id, cop_id):
-        """玩家花1回合唤醒眩晕警察"""
-        team = self.police.get_team(team_id)
-        if not team:
-            return "❌ 找不到警队"
-        for cop in team.members:
-            if cop.unit_id == cop_id and cop.is_stunned:
-                cop.is_stunned = False
-                cop.hp = 1.0
-                return f"🚔 {cop_id} 被唤醒！HP恢复至1。"
-        return "❌ 找不到该眩晕警察"
-
-    # ============================================
-    #  新增：警察攻击与反击系统
-    # ============================================
-
-    def _find_police_unit(self, police_target):
-        """查找警察单位（支持 police, police1, police2, police3）"""
-        if police_target.lower() == "police":
-            # 返回第一个存活的警察单位（优先独立单位，然后警队）
-            if self.police.individual_units:
-                for cop in self.police.individual_units:
-                    if cop.is_alive():
-                        return cop
-            for team in self.police.teams:
-                if not team.is_eliminated():
-                    for cop in team.get_alive_members():
-                        return cop
-            return None
-        
-        # 匹配 police1, police2, police3
-        if police_target.lower().startswith("police"):
-            # 提取编号
-            try:
-                num = int(police_target.lower().replace("police", ""))
-            except ValueError:
-                return None
-            # 在独立单位中查找
-            for cop in self.police.individual_units:
-                if cop.unit_id.lower() == police_target.lower() and cop.is_alive():
-                    return cop
-            # 在警队中查找（理论上独立单位才有这些ID）
-            return None
-        
-        # 匹配原ID（如 cop_1）
-        for team in self.police.teams:
-            for cop in team.members:
-                if cop.unit_id == police_target and cop.is_alive():
-                    return cop
-        return None
-
-    def _is_valid_aoe_attack(self, attack_method, attacker=None):
-        """验证是否为允许攻击警察的AOE手段"""
-        # 武器名称匹配
-        if attack_method in self.ALLOWED_AOE:
-            return True
-        
-        # 武器对象匹配
-        weapon = make_weapon(attack_method)
-        if weapon and weapon.name in self.ALLOWED_AOE:
-            return True
-        
-        # 天赋匹配（如"天星"）
-        # 检查攻击者是否有名为attack_method的天赋
-        if attacker and hasattr(attacker, 'talent') and attacker.talent:
-            # 简化：如果天赋名称包含攻击方法，或者天赋有对应方法
-            talent_name = getattr(attacker.talent, 'name', '').lower()
-            if attack_method.lower() in talent_name or talent_name in attack_method.lower():
-                # 检查是否是允许的AOE天赋
-                if "天星" in attack_method:
-                    return True
-        
-        return False
-
-    def attack_police(self, attacker_id, police_target, attack_method):
-        """玩家攻击警察"""
-        # 验证攻击者
-        attacker = self.state.get_player(attacker_id)
-        if not attacker:
-            return "❌ 攻击者不存在"
-        
-        # 验证AOE攻击
-        if not self._is_valid_aoe_attack(attack_method, attacker):
-            return "❌ 警察只能被地震、地动山摇、电磁步枪、天星伤害！"
-        
-        # 查找警察目标
-        police_unit = self._find_police_unit(police_target)
-        if not police_unit:
-            return f"❌ 找不到警察目标 {police_target}"
-        
-        # 计算伤害（警察HP=1，直接全额伤害）
-        weapon = make_weapon(attack_method) or attacker.get_weapon(attack_method)
-        if not weapon:
-            # 可能是天赋攻击，默认伤害1.0
-            base_damage = 1.0
-        else:
-            base_damage = weapon.get_effective_damage()
-        
-        # 施加伤害
-        result = police_unit.take_damage(base_damage, attacker_id)
-        
-        # 记录犯罪
-        crime_type = "攻击执法单位"
-        self.police.add_crime(attacker_id, crime_type)
-        
-        # 队长攻击警察扣威信
-        if self.police.captain_id == attacker_id:
-            self.police.authority -= 1
-            auth_msg = f"👑 队长攻击警察，威信-1（当前：{self.police.authority}）"
-        else:
-            auth_msg = ""
-        
-        # 返回结果
-        if result["killed"]:
-            msg = f"💀 {attacker.name} 使用「{attack_method}」击杀警察{police_unit.unit_id}！"
-            # 从所在容器中移除死亡警察
-            if police_unit.is_individual:
-                self.police.individual_units.remove(police_unit)
-            else:
-                for team in self.police.teams:
-                    if police_unit in team.members:
-                        team.members.remove(police_unit)
-                        break
-        else:
-            msg = f"⚔️ {attacker.name} 攻击警察{police_unit.unit_id}，造成{result['damage']}伤害！"
-        
-        if auth_msg:
-            msg += f"\n{auth_msg}"
-        
-        return msg
-
-    def _process_police_retaliation(self):
-        """处理警察反击（在R4阶段调用）"""
-        messages = []
-        
-        # 1. 检查警队成员
-        for team in self.police.teams:
-            for cop in team.get_active_members():
-                if cop.was_attacked_this_round and cop.is_alive():
-                    messages.extend(self._retaliate(cop))
-        
-        # 2. 检查独立警察
-        for cop in self.police.individual_units:
-            if cop.was_attacked_this_round and cop.is_alive():
-                messages.extend(self._retaliate(cop))
-        
-        return messages
-
-    def _retaliate(self, police_unit):
-        """单个警察反击"""
-        attacker_id = police_unit.last_attacker_id
-        attacker = self.state.get_player(attacker_id)
-        if not attacker or not attacker.is_alive():
-            return []
-        
-        # 警察反击（使用当前武器）
-        weapon = make_weapon(police_unit.weapon_name)
-        if not weapon:
-            weapon = make_weapon("警棍")
-        
-        # 警察使用高斯步枪时强制不使用蓄力模式
-        if weapon.name == "高斯步枪" and weapon.requires_charge:
-            weapon.is_charged = False  # 强制不蓄力，使用基础伤害1.0
-        
-        result = resolve_damage(
-            attacker=None,
-            target=attacker,
-            weapon=weapon,
-            game_state=self.state,
-        )
-        
-        # 清除标记
-        police_unit.was_attacked_this_round = False
-        
-        # 返回消息
-        messages = [f"👮 {police_unit.unit_id} 对 {attacker.name} 进行反击！"]
-        if result.get("killed"):
-            messages.append(f"   💀 击杀！")
-        
-        return messages
-
-    def _generate_individual_id(self):
-        """生成独立警察ID（police1, police2, police3）"""
-        existing = [u.unit_id.lower() for u in self.police.individual_units]
-        for i in range(1, 4):
-            candidate = f"police{i}"
-            if candidate not in existing:
-                return candidate
-        return "policeX"  # 理论上不会超过3个
-
-    def _validate_police_equipment(self, equipment_name, equipment_type):
-        """验证警察装备是否允许"""
-        if equipment_type == "weapon":
-            return equipment_name in self.POLICE_ALLOWED_WEAPONS
-        elif equipment_type == "armor":
-            return equipment_name in self.POLICE_ALLOWED_ARMOR
-        return False
-
-    def captain_control_police(self, captain_id, police_id, command, **kwargs):
-        """队长操控警察（消耗1行动回合）"""
-        # 验证队长权限
-        if self.police.captain_id != captain_id:
-            return "❌ 只有队长可以操控警察"
-        
-        # 查找警察（包括独立单位和警队成员）
-        police_unit = self._find_police_unit(police_id)
-        if not police_unit:
-            return f"❌ 找不到警察单位 {police_id}"
-        
-        if command == "move":
-            # 移动警察到指定地点
-            location = kwargs.get("location")
-            if not location:
-                return "❌ 请指定目的地"
-            
-            # 检查目标地点是否已有警察（每个地点只能有1个警察单位，除非强制聚集）
-            if self._has_police_at_location(location) and location != police_unit.location:
-                # 检查是否有强制聚集效果（神代天赋2）
-                captain = self.state.get_player(captain_id)
-                if captain and captain.talent and hasattr(captain.talent, 'can_force_gather') and captain.talent.can_force_gather():
-                    # 允许强制聚集
-                    pass
-                else:
-                    return f"❌ 目标地点{location}已有警察，不能移动（除非强制聚集）"
-            
-            police_unit.location = location
-            police_unit.current_order = {"type": "move", "destination": location}
-            return f"👑 队长移动 {police_id} 到 {location}"
-        
-        elif command == "equip":
-            # 为警察更换装备
-            weapon = kwargs.get("weapon")
-            armor = kwargs.get("armor")
-            
-            if weapon:
-                if not self._validate_police_equipment(weapon, "weapon"):
-                    return f"❌ 警察不能装备「{weapon}」"
-                police_unit.weapon_name = weapon
-            
-            if armor:
-                if not self._validate_police_equipment(armor, "armor"):
-                    return f"❌ 警察不能装备「{armor}」"
-                police_unit.armor_name = armor
-            
-            police_unit.current_order = {"type": "equip", "weapon": weapon, "armor": armor}
-            return f"👑 队长为 {police_id} 更换装备"
-        
-        elif command == "attack":
-            # 命令警察攻击玩家（仍需满足同地点条件）
-            target_id = kwargs.get("target")
-            if not target_id:
-                return "❌ 请指定攻击目标"
-            
-            target = self.state.get_player(target_id)
-            if not target:
-                return f"❌ 找不到目标玩家 {target_id}"
-            
-            # 标记为需要移动并攻击
-            police_unit.current_order = {
-                "type": "move_and_attack",
-                "destination": target.location,
-                "target": target_id
-            }
-            return f"👑 队长命令 {police_id} 前往 {target.location} 攻击 {target.name}"
-        
-        else:
-            return f"❌ 未知的命令类型：{command}"
+"""  
+警察执法引擎（ver1.9重构）。  
+管理：举报流程、执法攻击、追踪、队长系统、威信机制。  
+"""  
+from combat.damage_resolver import resolve_damage 
+from combat.damage_resolver import quantize_damage  
+from models.equipment import make_weapon, make_armor, WeaponRange, ArmorLayer  
+from utils.attribute import Attribute, is_effective  
+  
+  
+class PoliceEngine:  
+    """警察执法引擎，操作 game_state.police 数据（ver1.9重构）"""  
+  
+    def __init__(self, game_state):  
+        self.state = game_state  
+        self.police = game_state.police  
+  
+        # 允许攻击警察的AOE手段  
+        self.ALLOWED_AOE = {"地震", "地动山摇", "电磁步枪", "天星"}  
+  
+        # 警察允许装备的白名单  
+        self.POLICE_ALLOWED_WEAPONS = {  
+            "警棍", "高斯步枪", "地震", "地动山摇"  
+        }  
+        self.POLICE_ALLOWED_ARMOR = {  
+            "盾牌", "陶瓷护甲", "魔法护盾", "AT力场"  
+        }  
+  
+    # ============================================  
+    #  犯罪检测  
+    # ============================================  
+  
+    def check_and_record_crime(self, player_id, crime_type):  
+        """  
+        检查并记录犯罪行为。  
+        返回：是否构成犯罪（bool）  
+        """  
+        if self.police.permanently_disabled:  
+            return False  
+  
+        player = self.state.get_player(player_id)  
+        if not player:  
+            return False  
+  
+        # 警察（非队长）不能犯罪  
+        if player.is_police and not player.is_captain:  
+            return False  
+  
+        self.police.add_crime(player_id, crime_type)  
+        player.is_criminal = True  
+  
+        # 举报者犯法 → 立刻失去警察保护  
+        if self.police.reporter_id == player_id:  
+            player.has_police_protection = False  
+            self.state.markers.remove(player_id, "POLICE_PROTECT")  
+  
+        # 队长犯罪扣威信  
+        if player.is_captain:  
+            self.police.authority -= 1  
+            if self.police.authority <= 0:  
+                self._on_authority_zero()  
+  
+        self.state.log_event("crime", player=player_id, crime_type=crime_type)  
+        return True  
+  
+    # ============================================  
+    #  举报流程  
+    # ============================================  
+  
+    def can_report(self, reporter_id, target_id):  
+        """检查举报合法性。返回 (bool, str原因)"""  
+        if self.police.permanently_disabled:  
+            return False, "警察系统已永久关闭"  
+  
+        reporter = self.state.get_player(reporter_id)  
+        target = self.state.get_player(target_id)  
+  
+        if not reporter or not target:  
+            return False, "玩家不存在"  
+  
+        if self.police.has_captain():  
+            return False, "警队已有队长，不再受理举报（邮箱直通垃圾桶）"  
+  
+        if self.police.is_criminal(reporter_id):  
+            return False, "你有犯罪记录，不能举报"  
+  
+        if not self.police.is_criminal(target_id):  
+            return False, "目标没有犯罪记录"  
+  
+        if self.police.report_phase != "idle":  
+            return False, "当前已有举报在处理中"  
+  
+        # 朝阳好市民可远程举报  
+        can_remote = False  
+        if reporter.talent and hasattr(reporter.talent, 'can_remote_report'):  
+            can_remote = reporter.talent.can_remote_report()  
+  
+        if not can_remote and reporter.location != "警察局":  
+            return False, "需要在警察局才能举报"  
+  
+        return True, ""  
+  
+    def do_report(self, reporter_id, target_id):  
+        """执行举报"""  
+        ok, reason = self.can_report(reporter_id, target_id)  
+        if not ok:  
+            return f"❌ {reason}"  
+  
+        target = self.state.get_player(target_id)  
+        self.police.report_phase = "reported"  
+        self.police.reporter_id = reporter_id  
+        self.police.reported_target_id = target_id  
+  
+        self.state.log_event("report", reporter=reporter_id, target=target_id)  
+        return f"📋 举报成功！目标：{target.name}。请在下一回合执行「集结」。"  
+  
+    # ============================================  
+    #  集结  
+    # ============================================  
+  
+    def can_assemble(self, player_id):  
+        if self.police.permanently_disabled:  
+            return False, "警察系统已永久关闭"  
+        if self.police.report_phase != "reported":  
+            return False, "当前没有待集结的举报"  
+        if self.police.reporter_id != player_id:  
+            return False, "只有举报者可以执行集结"  
+        return True, ""  
+  
+    def do_assemble(self, player_id):  
+        """执行集结：警察单位出现在警察局"""  
+        ok, reason = self.can_assemble(player_id)  
+        if not ok:  
+            return f"❌ {reason}"  
+  
+        reporter = self.state.get_player(player_id)  
+  
+        # 警察单位出现在警察局  
+        unit = self.police.units[0] if self.police.units else None  
+        if unit and unit.is_alive():  
+            unit.location = "警察局"  
+  
+        # 举报者获得警察保护  
+        reporter.has_police_protection = True  
+        self.state.markers.add(player_id, "POLICE_PROTECT")  
+  
+        self.police.report_phase = "assembled"  
+        self.state.log_event("assemble", reporter=player_id)  
+        return f"🚔 警察集结完成！警察单位已出现在警察局。{reporter.name} 获得警察保护。"  
+  
+    # ============================================  
+    #  追踪指引  
+    # ============================================  
+  
+    def can_track_guide(self, player_id):  
+        """检查是否可以执行追踪指引"""  
+        if self.police.permanently_disabled:  
+            return False, "警察系统已永久关闭"  
+        if self.police.reporter_id != player_id:  
+            return False, "只有举报者可以执行追踪指引"  
+        # 检查是否有警察在追踪中  
+        tracking_units = [u for u in self.police.alive_units()  
+                          if u.is_tracking]  
+        if not tracking_units:  
+            return False, "没有正在追踪的警察单位"  
+        return True, ""  
+  
+    def do_track_guide(self, player_id):  
+        """举报者花1回合指引追踪 → 警察立刻到达目标位置"""  
+        ok, reason = self.can_track_guide(player_id)  
+        if not ok:  
+            return f"❌ {reason}"  
+  
+        target_id = self.police.reported_target_id  
+        target = self.state.get_player(target_id)  
+        if not target or not target.is_alive():  
+            return "❌ 执法目标已不存在"  
+  
+        # 所有追踪中的警察立刻到达目标位置  
+        for unit in self.police.alive_units():  
+            if unit.is_tracking:  
+                unit.location = target.location  
+                unit.is_tracking = False  
+                unit.tracking_countdown = 0  
+                unit.can_attack_this_round = True  # 方式A：本轮可攻击  
+  
+        self.state.log_event("track_guide", reporter=player_id, target=target_id)  
+        return f"🔍 追踪指引成功！警察已到达 {target.name} 所在地点 {target.location}。"  
     
-    def _has_police_at_location(self, location):
-        """检查指定地点是否已有警察（包括警队和独立单位）"""
-        # 检查警队
-        for team in self.police.teams:
-            if not team.is_eliminated() and team.location == location:
-                return True
-        
-        # 检查独立单位
-        for cop in self.police.individual_units:
-            if cop.is_alive() and cop.location == location:
-                return True
-        
-        return False
+    def _dispatch_police(self):  
+            """警察出动：移动到目标位置，建立面对面"""  
+            target_id = self.police.reported_target_id  
+            target = self.state.get_player(target_id)  
+            if not target or not target.is_alive():  
+                self.police.report_phase = "idle"  
+                return "🚔 执法目标已不存在，警察撤回。"  
     
-    def process_poem_law_effect(self, target_player_id):
-        """
-        处理献予律法之诗的效果
-        调用者：g5_ripple.py 的 _poem_law 方法
-        """
-        target = self.state.get_player(target_player_id)
-        if not target:
-            return "❌ 目标玩家不存在"
-        
-        messages = []
-        
-        # 1. 清除犯罪记录
-        if hasattr(target, 'crime_record'):
-            target.crime_record = 0
-        if hasattr(target, 'is_criminal'):
-            target.is_criminal = False
-        # 清除警察系统中的犯罪记录
-        if target.player_id in self.police.crime_records:
-            self.police.crime_records[target.player_id] = set()
-        
-        # 2. 授予警察身份（如果还不是警察）
-        if not getattr(target, 'is_police', False):
-            target.is_police = True
-            self.state.markers.add(target.player_id, "IS_POLICE")
-            messages.append(f"👮 {target.name} 获得警察岗位！")
-        
-        # 3. 如果是队长，威信+2
-        if getattr(target, 'is_captain', False):
-            if self.police.captain_id == target.player_id:
-                self.police.authority += 2
-                messages.append(f"👑 {target.name} 威信+2！当前：{self.police.authority}")
-            elif hasattr(target, 'prestige'):
-                target.prestige += 2
-                messages.append(f"👑 {target.name} 个人威信+2！")
-        
-        # 4. 如果不是队长，竞选进度+2
-        elif not self.police.has_captain() and target.is_police:
-            # 使用进度系统
-            progress_key = "captain_election"
-            current = target.progress.get(progress_key, 0)
-            current += 2
-            target.progress[progress_key] = current
-            
-            # 检查是否立即上任
-            required = 3
-            if target.talent and hasattr(target.talent, 'get_election_rounds_reduction'):
-                reduction = target.talent.get_election_rounds_reduction()
-                required = max(1, required - reduction)
-            
-            if current >= required:
-                # 竞选成功
-                del target.progress[progress_key]
-                self.police.captain_id = target.player_id
-                self.police.authority = 3
-                target.is_captain = True
-                self.state.markers.add(target.player_id, "IS_CAPTAIN")
-                self._on_captain_elected()
-                messages.append(f"👑 {target.name} 立即成为警队队长！威信：3")
-            else:
-                messages.append(f"🏛️ {target.name} 竞选进度+2！当前：{current}/{required}")
-        
-        return "\n".join(messages) if messages else "献予律法之诗效果已生效。"
+            target_loc = target.location  
+    
+            # 移动所有存活警察单位到目标位置  
+            for unit in self.police.alive_units():  
+                unit.location = target_loc  
+    
+            self.police.report_phase = "dispatched"  
+            self.state.log_event("police_dispatch", target=target_id, location=target_loc)  
+            return f"🚔 警察出动！已抵达{target_loc}，与{target.name}面对面！"
+  
+    # ============================================  
+    #  执法攻击（轮末结算）  
+    # ============================================  
+  
+    def _get_enforcement_target(self):  
+        """获取当前执法目标"""  
+        # 队长指定目标优先  
+        for unit in self.police.alive_units():  
+            if unit.enforcement_target:  
+                return unit.enforcement_target  
+        # 否则用举报目标  
+        return self.police.reported_target_id  
+  
+    def _enforcement_attack(self):  
+        """轮末执法攻击结算"""  
+        messages = []  
+        target_id = self._get_enforcement_target()  
+        if not target_id:  
+            return messages  
+  
+        target = self.state.get_player(target_id)  
+        if not target or not target.is_alive():  
+            return messages  
+  
+        for unit in self.police.active_units():  
+            if unit.location != target.location:  
+                continue  
+            # 方式B追踪到达的单位本轮不攻击  
+            if hasattr(unit, 'can_attack_this_round') and not unit.can_attack_this_round:  
+                unit.can_attack_this_round = True  # 下轮可以攻击了  
+                messages.append(f"🚔 {unit.unit_id} 刚到达，本轮不执行攻击。")  
+                continue  
+  
+            # 执行攻击  
+            weapon = make_weapon(unit.weapon_name)  
+            if not weapon:  
+                weapon = make_weapon("警棍")  
+            if weapon is None:  
+                return  
+  
+            # 高斯步枪强制不蓄力  
+            if weapon.name == "高斯步枪" and weapon.requires_charge:  
+                weapon.is_charged = False  
+  
+            result = self._resolve_police_attack_on_player(weapon, target)  
+            messages.append(f"🚔 {unit.unit_id} 对 {target.name} 执法攻击 → {result}")  
+  
+            # 威信检查：攻击从未犯过法的玩家  
+# 在 _enforcement_attack 的循环中，攻击成功后：  
+            if not self.police.is_criminal(target_id):  
+                self.police.authority -= 1  
+                self.police.last_innocent_attacked = target_id  
+                messages.append(f"⚠️ 攻击无辜者！威信-1（当前：{self.police.authority}）")  
+                if self.police.authority <= 0:  
+                    zero_msg = self._on_authority_zero()  
+                    messages.append(zero_msg)  
+                    break  # 威信归零后停止所有执法
+  
+            # 记录最后被攻击的无辜者（用于威信归零时）  
+            if not self.police.is_criminal(target_id):  
+                self.police.last_innocent_attacked = target_id  
+  
+        return messages  
+  
+    def _resolve_police_attack_on_player(self, weapon, target):  
+        """  
+        警察对玩家的攻击结算。  
+        使用通用 resolve_damage（玩家有完整的 ArmorSlots）。  
+        """  
+        from combat.damage_resolver import resolve_damage  
+        result = resolve_damage(  
+            attacker=None,  
+            target=target,  
+            weapon=weapon,  
+            game_state=self.state,  
+        )  
+        details = "; ".join(result.get("details", []))  
+        if result.get("killed"):  
+            return f"击杀！{details}"  
+        elif result.get("stunned"):  
+            return f"眩晕！{details}"  
+        else:  
+            return f"HP {result.get('target_hp', '?')} {details}"  
+  
+    # ============================================  
+    #  攻击警察（玩家 → 警察）  
+    # ============================================  
+  
+    def attack_police(self, attacker_id, police_target, attack_method):  
+        """  
+        玩家攻击警察单位。  
+        只有AOE武器可以攻击警察。攻击警察视为犯法。  
+        """  
+        if self.police.permanently_disabled:  
+            return "❌ 警察系统已永久关闭"  
+  
+        attacker = self.state.get_player(attacker_id)  
+        if not attacker:  
+            return "❌ 攻击者不存在"  
+  
+        # 验证AOE武器  
+        if attack_method not in self.ALLOWED_AOE:  
+            return f"❌ 只能用AOE手段攻击警察（允许：{', '.join(self.ALLOWED_AOE)}）"  
+  
+        weapon = make_weapon(attack_method)  
+        if not weapon:  
+            return f"❌ 找不到武器「{attack_method}」"  
+  
+        if weapon.weapon_range != WeaponRange.AREA:  
+            return "❌ 只能用范围武器攻击警察"  
+  
+        # 找到同地点的警察单位  
+        units_at_loc = self.police.units_at(attacker.location)  
+        if not units_at_loc:  
+            return "❌ 当前地点没有警察单位"  
+  
+        messages = []  
+        for unit in units_at_loc:  
+            if not unit.is_alive():  
+                continue  
+            result = self._resolve_attack_on_police(weapon, unit)  
+            messages.append(f"  → {unit.unit_id}: {result}")  
+  
+            unit.last_attacker_id = attacker_id  
+  
+        # 攻击警察视为犯法  
+        self.check_and_record_crime(attacker_id, "攻击警察")  
+  
+        # 检查是否全灭  
+        self.police.check_all_dead()  
+  
+        return f"⚔️ {attacker.name} 用「{attack_method}」攻击警察！\n" + "\n".join(messages)  
+  
+    def _resolve_attack_on_police(self, weapon, unit):  
+        """  
+        对警察单位的伤害结算（自定义，不走 resolve_damage）。  
+        警察护甲模型：最多1外层 + 1内层，简化结算。  
+        """  
+        raw_damage = weapon.get_effective_damage()  
+        final_damage = quantize_damage(raw_damage)  
+        remaining = final_damage  
+  
+        # 外层护甲优先  
+        if unit.outer_armor and not unit.outer_armor.is_broken:  
+            armor = unit.outer_armor  
+            # 属性克制检查  
+            if not is_effective(weapon.attribute, armor.attribute):  
+                return f"武器「{weapon.attribute.value}」被护甲「{armor.name}({armor.attribute.value})」克制，无效！"  
+            # 扣减护甲  
+            if remaining >= armor.current_hp:  
+                remaining -= armor.current_hp  
+                armor.current_hp = 0  
+                armor.is_broken = True  
+                # 外层破碎后继续检查内层  
+            else:  
+                armor.current_hp -= remaining  
+                return f"护甲「{armor.name}」剩余 {armor.current_hp}/{armor.max_hp}"  
+  
+        # 内层护甲  
+        if remaining > 0 and unit.inner_armor and not unit.inner_armor.is_broken:  
+            armor = unit.inner_armor  
+            if not is_effective(weapon.attribute, armor.attribute):  
+                # 内层克制，剩余伤害直接打HP  
+                pass  # 继续到HP扣减  
+            elif remaining >= armor.current_hp:  
+                # 最后内层吸收溢出（除非无视克制）  
+                armor.current_hp = 0  
+                armor.is_broken = True  
+                remaining = 0  # 最后内层吸收  
+            else:  
+                armor.current_hp -= remaining  
+                return f"内层护甲「{armor.name}」剩余 {armor.current_hp}/{armor.max_hp}"  
+  
+        # 扣减HP  
+        if remaining > 0:  
+            unit.hp = max(0, unit.hp - remaining)  
+  
+        if unit.hp <= 0:  
+            return f"💀 {unit.unit_id} 被击杀！"  
+        elif unit.hp <= 0.5 and not unit.is_stunned:  
+            unit.is_stunned = True  
+            return f"💫 {unit.unit_id} 进入眩晕！HP: {unit.hp}"  
+        else:  
+            return f"HP: {unit.hp}"  
+  
+    # ============================================  
+    #  警察保护  
+    # ============================================  
+  
+    def is_protected_by_police(self, player_id):  
+        """  
+        检查玩家是否受警察保护。  
+        条件：受保护者与未处于debuff的警察单位在同一location。  
+        """  
+        if self.police.permanently_disabled:  
+            return False  
+  
+        player = self.state.get_player(player_id)  
+        if not player:  
+            return False  
+  
+        # 检查是否在幻想乡结界内 → 无视警察保护  
+        if hasattr(self.state, 'active_barrier') and self.state.active_barrier:  
+            barrier = self.state.active_barrier  
+            if hasattr(barrier, 'is_in_barrier') and barrier.is_in_barrier(player_id):  
+                return False  
+  
+        # 确定受保护者  
+        if self.police.has_captain():  
+            # 有队长时：只有队长受保护  
+            if self.police.captain_id != player_id:  
+                return False  
+            if not player.is_captain:  
+                return False  
+        else:  
+            # 无队长时：只有举报者受保护  
+            if not player.has_police_protection:  
+                return False  
+            if self.police.reporter_id != player_id:  
+                return False  
+  
+        # 检查同地点是否有未处于debuff的警察单位  
+        active_at_loc = self.police.active_units_at(player.location)  
+        return len(active_at_loc) > 0  
+  
+    # ============================================  
+    #  唤醒警察  
+    # ============================================  
+  
+    def wake_police(self, player_id, police_id):  
+        """  
+        玩家花1回合唤醒debuff中的警察。  
+        条件：玩家与警察在同一地点，警察处于四种debuff之一。  
+        """  
+        if self.police.permanently_disabled:  
+            return "❌ 警察系统已永久关闭"  
+  
+        player = self.state.get_player(player_id)  
+        if not player:  
+            return "❌ 玩家不存在"  
+  
+        unit = self.police.get_unit(police_id)  
+        if not unit:  
+            return f"❌ 找不到警察单位 {police_id}"  
+  
+        if not unit.is_alive():  
+            return f"❌ {police_id} 已被击杀，无法唤醒"  
+  
+        if not unit.is_disabled():  
+            return f"❌ {police_id} 没有处于需要唤醒的状态"  
+  
+        if unit.location != player.location:  
+            return f"❌ 你与 {police_id} 不在同一地点"  
+  
+        # 检查沉沦+全息影像限制  
+        if unit.is_submerged:  
+            is_in_hologram = self._is_in_hologram_range(unit.location)  
+            if is_in_hologram:  
+                return f"❌ {police_id} 处于沉沦状态且在全息影像范围内，无法被唤醒"  
+  
+        # 执行唤醒  
+        result = unit.wake_up()  
+  
+        if result.get("killed_by_petrify"):  
+            self.police.check_all_dead()  
+            return f"🚔 唤醒 {police_id} 时，石化解除造成0.5伤害，{police_id} 被击杀！"  
+  
+        msg = f"🚔 {police_id} 被唤醒！"  
+        if result.get("was_petrified"):  
+            msg += f" 石化解除扣0.5HP → HP: {result['final_hp']}"  
+        else:  
+            msg += f" HP恢复至 {result['final_hp']}"  
+        return msg  
+  
+    def _is_in_hologram_range(self, location):  
+        """检查某地点是否在全息影像范围内"""  
+        for pid in self.state.player_order:  
+            p = self.state.get_player(pid)  
+            if p and p.talent and hasattr(p.talent, 'is_in_hologram'):  
+                # 全息影像的location就是影像位置  
+                if hasattr(p.talent, 'location') and hasattr(p.talent, 'active'):  
+                    if p.talent.active and p.talent.location == location:  
+                        return True  
+        return False  
+  
+    # ============================================  
+    #  加入警察  
+    # ============================================  
+  
+    def can_recruit(self, player_id):  
+        if self.police.permanently_disabled:  
+            return False, "警察系统已永久关闭"  
+        player = self.state.get_player(player_id)  
+        if not player:  
+            return False, "玩家不存在"  
+        if player.is_police:  
+            return False, "你已经是警察了"  
+        if self.police.is_criminal(player_id):  
+            return False, "你有犯罪记录，不能加入警察"  
+        if player.location != "警察局":  
+            return False, "需要在警察局才能加入"  
+        return True, ""  
+  
+    def do_recruit(self, player_id):  
+        """加入警察，三选二获得奖励"""  
+        ok, reason = self.can_recruit(player_id)  
+        if not ok:  
+            return f"❌ {reason}", []  
+  
+        player = self.state.get_player(player_id)  
+        player.is_police = True  
+        self.state.log_event("recruit", player=player_id)  
+  
+        rewards = ["购买凭证", "警棍", "盾牌"]  
+        return f"🚔 {player.name} 加入警察！请三选二：{', '.join(rewards)}", rewards  
+  
+    # ============================================  
+    #  竞选队长  
+    # ============================================  
+  
+    def can_election(self, player_id):  
+        if self.police.permanently_disabled:  
+            return False, "警察系统已永久关闭"  
+        player = self.state.get_player(player_id)  
+        if not player:  
+            return False, "玩家不存在"  
+        if not player.is_police:  
+            return False, "只有警察才能竞选队长"  
+        if self.police.has_captain():  
+            return False, "已有队长"  
+        if player.location != "警察局":  
+            return False, "需要在警察局竞选"  
+        return True, ""  
+  
+    def do_election(self, player_id):  
+        """竞选队长（累计3回合进度）"""  
+        ok, reason = self.can_election(player_id)  
+        if not ok:  
+            return f"❌ {reason}"  
+  
+        player = self.state.get_player(player_id)  
+        progress_key = "captain_election"  
+        current = player.progress.get(progress_key, 0) + 1  
+        player.progress[progress_key] = current  
+  
+        required = 3  
+        if player.talent and hasattr(player.talent, 'get_election_rounds_reduction'):  
+            reduction = player.talent.get_election_rounds_reduction()  
+            required = max(1, required - reduction)  
+  
+        if current >= required:  
+            del player.progress[progress_key]  
+            self._make_captain(player)  
+            return f"👑 {player.name} 成为警队队长！威信：{self.police.authority}"  
+        else:  
+            return f"🏛️ 竞选进度：{current}/{required}"  
+  
+    def _make_captain(self, player):  
+        """设置队长并生成3个警察单位"""  
+        self.police.captain_id = player.player_id  
+        self.police.authority = 3  
+        player.is_captain = True  
+        self.state.markers.add(player.player_id, "IS_CAPTAIN")  
+        self._on_captain_elected()  
+  
+    
+  
+    # ============================================  
+    #  队长指令：指定目标  
+    # ============================================  
+  
+
+  
+    # ============================================  
+    #  队长指令：移动警察  
+    # ============================================  
+  
+    def captain_move_police(self, captain_id, police_id, location):  
+        """  
+        队长移动警察单位。  
+        如果目标地点已有警察 → 交换位置。  
+        全息影像激活时可无视一个地点一个警察的限制。  
+        """  
+        if self.police.captain_id != captain_id:  
+            return "❌ 只有队长可以移动警察"  
+  
+        unit = self.police.get_unit(police_id)  
+        if not unit or not unit.is_alive():  
+            return f"❌ 找不到存活的警察单位 {police_id}"  
+  
+        if unit.is_disabled():  
+            return f"❌ {police_id} 处于debuff状态，无法移动"  
+  
+        if unit.location == location:  
+            return f"❌ {police_id} 已经在 {location}"  
+  
+        # 检查目标地点是否已有警察  
+        existing_at_target = self.police.units_at(location)  
+        if existing_at_target:  
+            # 检查全息影像豁免  
+            if self._is_in_hologram_range(location):  
+                # 允许多个警察在同一地点  
+                unit.location = location  
+                return f"👑 队长移动 {police_id} 到 {location}（全息影像区域，允许共存）"  
+            else:  
+                # 交换位置  
+                other = existing_at_target[0]  
+                old_loc = unit.location  
+                unit.location = location  
+                other.location = old_loc  
+                return f"👑 {police_id} 与 {other.unit_id} 交换位置：{police_id}→{location}，{other.unit_id}→{old_loc}"  
+        else:  
+            unit.location = location  
+            return f"👑 队长移动 {police_id} 到 {location}"  
+  
+    # ============================================  
+    #  队长指令：更换装备  
+    # ============================================  
+  
+    def captain_equip_police(self, captain_id, police_id, equipment_name, equipment_type=None):  
+        """  
+        队长为警察更换装备。  
+        equipment_type: "weapon" 或 "armor"，None则自动判断。  
+        """  
+        if self.police.captain_id != captain_id:  
+            return "❌ 只有队长可以更换装备"  
+  
+        unit = self.police.get_unit(police_id)  
+        if not unit or not unit.is_alive():  
+            return f"❌ 找不到存活的警察单位 {police_id}"  
+  
+        # 尝试作为武器  
+        if equipment_type in (None, "weapon"):  
+            if equipment_name in self.POLICE_ALLOWED_WEAPONS:  
+                unit.weapon_name = equipment_name  
+                return f"🚔 {police_id} 更换武器为「{equipment_name}」"  
+            elif equipment_type == "weapon":  
+                return f"❌ 警察不能装备武器「{equipment_name}」（允许：{', '.join(self.POLICE_ALLOWED_WEAPONS)}）"  
+  
+        # 尝试作为护甲  
+        if equipment_type in (None, "armor"):  
+            if equipment_name in self.POLICE_ALLOWED_ARMOR:  
+                armor = make_armor(equipment_name)  
+                if armor:  
+                    unit.equip_armor(armor)  
+                    return f"🚔 {police_id} 装备护甲「{equipment_name}」"  
+                return f"❌ 无法创建护甲「{equipment_name}」"  
+            elif equipment_type == "armor":  
+                return f"❌ 警察不能装备护甲「{equipment_name}」（允许：{', '.join(self.POLICE_ALLOWED_ARMOR)}）"  
+  
+        return f"❌ 「{equipment_name}」不在警察允许的装备列表中"  
+  
+    # ============================================  
+    #  队长指令：命令攻击  
+    # ============================================  
+  
+
+    
+    def captain_attack(self, captain_id, police_id, target_id):  
+        """队长命令一个警察单位攻击指定目标（实际执行）"""  
+        if self.police.captain_id != captain_id:  
+            return "❌ 只有队长可以命令攻击"  
+  
+        unit = self.police.get_unit(police_id)  
+        if not unit or not unit.is_alive():  
+            return f"❌ 找不到存活的警察单位 {police_id}"  
+        if unit.is_disabled():  
+            return f"❌ {police_id} 处于行动阻碍状态，无法攻击"  
+  
+        target = self.state.get_player(target_id)  
+        if not target or not target.is_alive():  
+            return f"❌ 目标不存在或已死亡"  
+  
+        # 必须同地点  
+        if unit.location != target.location:  
+            return f"❌ {police_id} 与 {target.name} 不在同一地点（{police_id}在{unit.location}，目标在{target.location}）"  
+  
+        # 执行攻击  
+        result = self._resolve_police_attack_on_target(unit, target)  
+  
+        # 威信检查：攻击从未犯过法的玩家  
+        if not self.police.is_criminal(target_id):  
+            self.police.authority -= 1  
+            result += f"\n⚠️ 攻击无辜者！威信-1（当前：{self.police.authority}）"  
+            # 记录最后被攻击的无辜者（用于威信归零时的举报者指定）  
+            self.police.last_innocent_attacked = target_id  
+            if self.police.authority <= 0:  
+                zero_msg = self._on_authority_zero()  
+                result += "\n" + zero_msg  
+  
+        self.state.log_event("captain_attack", captain=captain_id,  
+                             police=police_id, target=target_id)  
+        return result  
+  
+    # ============================================  
+    #  队长指令：指定执法目标  
+    # ============================================  
+  
+    def captain_designate_target(self, captain_id, target_id):  
+        """队长指定执法目标（不限违法者）"""  
+        if self.police.captain_id != captain_id:  
+            return "❌ 只有队长可以指定目标"  
+  
+        target = self.state.get_player(target_id)  
+        if not target or not target.is_alive():  
+            return f"❌ 目标不存在或已死亡"  
+  
+        self.police.reported_target_id = target_id  
+        if self.police.report_phase == "idle":  
+            self.police.report_phase = "assembled"  
+  
+        self.state.log_event("captain_designate", captain=captain_id, target=target_id)  
+        return f"👑 队长指定执法目标：{target.name}"  
+  
+    # ============================================  
+    #  队长指令：研究性学习（威信恢复）  
+    # ============================================  
+  
+    def can_study(self, captain_id):  
+        """检查队长是否可以研究性学习"""  
+        if self.police.captain_id != captain_id:  
+            return False, "只有队长可以研究性学习"  
+        player = self.state.get_player(captain_id)  
+        if not player:  
+            return False, "玩家不存在"  
+        if player.location != "警察局":  
+            return False, "必须在警察局才能研究性学习"  
+        return True, ""  
+  
+    def do_study(self, captain_id):  
+        """队长在警察局研究性学习，威信+1"""  
+        ok, reason = self.can_study(captain_id)  
+        if not ok:  
+            return f"❌ {reason}"  
+  
+        self.police.authority += 1  
+        self.state.log_event("captain_study", captain=captain_id,  
+                             authority=self.police.authority)  
+        return f"📚 队长研究性学习完成！威信+1（当前：{self.police.authority}）"  
+  
+    # ============================================  
+    #  队长上任处理  
+    # ============================================  
+  
+    def _on_captain_elected(self):  
+        """  
+        队长上任处理：  
+        1. 清空现有单位列表  
+        2. 创建3个独立警察单位，全部在警察局  
+        3. 关闭举报系统  
+        """  
+        from models.police import PoliceUnit  
+  
+        # 创建3个全新单位（默认装备：警棍+盾牌）  
+        self.police.units = []  
+        for i in range(1, 4):  
+            unit = PoliceUnit(f"police{i}")  
+            unit.location = "警察局"  
+            self.police.units.append(unit)  
+  
+        # 关闭举报系统  
+        self.police.report_phase = "idle"  
+        self.police.reporter_id = None  
+        self.police.reported_target_id = None  
+  
+        self.state.log_event("captain_elected", captain=self.police.captain_id)  
+  
+    # ============================================  
+    #  威信归零处理  
+    # ============================================  
+  
+    def _on_authority_zero(self):  
+        """  
+        威信归零处理（对应README 10.9）：  
+        1. 队长身份解除  
+        2. 保留1个单位，重置为默认装备，location=None  
+        3. 原队长成为唯一违法者  
+        4. 最后被攻击的无辜者成为举报者  
+        5. 其他人犯罪记录清空  
+        """  
+        from models.police import PoliceUnit  
+  
+        messages = []  
+        captain_id = self.police.captain_id  
+        captain = self.state.get_player(captain_id)  
+  
+        # 1. 解除队长身份  
+        if captain:  
+            captain.is_captain = False  
+            self.state.markers.remove(captain_id, "IS_CAPTAIN")  
+        messages.append(f"⚠️ 威信归零！{captain.name if captain else captain_id} 队长身份解除！")  
+  
+        # 2. 重置为1个单位，默认装备，不在地图上  
+        self.police.units = [PoliceUnit("police1")]  # __init__中location=None，默认装备  
+        self.police.captain_id = None  
+        self.police.authority = 0  
+  
+        # 3. 原队长成为唯一违法者  
+        self.police.clear_all_crimes_except(captain_id)  
+        if captain:  
+            captain.is_criminal = True  
+        self.police.add_crime(captain_id, "队长失职")  
+        messages.append(f"📋 {captain.name if captain else captain_id} 被记录为唯一违法者，其他人犯罪记录清空。")  
+  
+        # 4. 最后被攻击的无辜者成为举报者，自动启动执法流程  
+        last_innocent = getattr(self.police, 'last_innocent_attacked', None)  
+        if last_innocent:  
+            innocent_player = self.state.get_player(last_innocent)  
+            if innocent_player and innocent_player.is_alive():  
+                self.police.reporter_id = last_innocent  
+                self.police.reported_target_id = captain_id  
+                self.police.report_phase = "assembled"  # 跳过举报和集结，直接进入出动阶段  
+                innocent_player.has_police_protection = True  
+                self.state.markers.add(last_innocent, "POLICE_PROTECT")  
+                messages.append(  
+                    f"📢 {innocent_player.name} 自动成为举报者，警察将对 "  
+                    f"{captain.name if captain else captain_id} 执法。"  
+                )  
+            else:  
+                messages.append("⏳ 无存活的无辜受害者，警察等待新的举报。")  
+        else:  
+            messages.append("⏳ 无被攻击的无辜者记录，警察等待新的举报。")  
+  
+        self.state.log_event("authority_zero", captain=captain_id)  
+        return "\n".join(messages)  
+  
+    # ============================================  
+    #  献予律法之诗效果  
+    # ============================================  
+  
+    def process_poem_law_effect(self, target_player_id):  
+            """  
+            [已废弃] 献予律法之诗的效果现在由 g5_ripple._poem_law() 直接处理。  
+            保留此方法仅为向后兼容。  
+            """  
+            return "⚠️ 请通过 _poem_law() 调用新版逻辑。"
+  
+    # ============================================  
+    #  辅助方法  
+    # ============================================  
+  
+    def summon_police_unit(self, location):  
+            """  
+            召唤一个新的默认装备警察单位到指定位置。  
+            用于献予律法之诗的朝阳好市民特殊效果。  
+            如果警察系统已永久禁用，同时解除禁用。  
+            """  
+            from models.police import PoliceUnit  
+    
+            # 生成新ID  
+            existing_ids = {u.unit_id for u in self.police.units}  
+            new_id = None  
+            for i in range(1, 10):  
+                candidate = f"police{i}"  
+                if candidate not in existing_ids:  
+                    new_id = candidate  
+                    break  
+            if not new_id:  
+                new_id = f"police{len(self.police.units) + 1}"  
+    
+            # 创建新单位（默认装备：警棍+盾牌）  
+            new_unit = PoliceUnit(new_id)  
+            new_unit.location = location  
+            self.police.units.append(new_unit)  
+    
+            # 解除永久禁用  
+            if self.police.permanently_disabled:  
+                self.police.permanently_disabled = False  
+    
+            self.state.log_event("police_summoned", unit_id=new_id, location=location)  
+            return f"🚔 新警察单位 {new_id} 在 {location} 被召唤！（默认装备：警棍+盾牌）"    
+    
+    
+    def _reset_enforcement(self):  
+        """重置执法状态，所有存活单位返回警察局"""  
+        self.police.report_phase = "idle"  
+        self.police.reporter_id = None  
+        self.police.reported_target_id = None  
+  
+        for unit in self.police.units:  
+            if unit.is_alive():  
+                unit.location = "警察局"  
+  
+    def _validate_police_equipment(self, name, eq_type):  
+        """验证装备是否在白名单中"""  
+        if eq_type == "weapon":  
+            return name in self.POLICE_ALLOWED_WEAPONS  
+        elif eq_type == "armor":  
+            return name in self.POLICE_ALLOWED_ARMOR  
+        return False  
+  
+    def get_police_status(self):  
+        """获取警察系统状态描述（用于 police status 命令）"""  
+        return self.police.describe()  
+  
+    def is_hologram_active_at(self, location):  
+        """  
+        检查指定地点是否有活跃的全息影像（用于位置限制豁免）。  
+        由天赋系统提供，这里做安全检查。  
+        """  
+        if not hasattr(self.state, 'active_hologram'):  
+            return False  
+        hologram = self.state.active_hologram  
+        if hologram and hasattr(hologram, 'location') and hasattr(hologram, 'is_active'):  
+            return hologram.is_active and hologram.location == location  
+        return False  
+  
+    def is_in_mythland(self, player_id):  
+        """  
+        检查玩家是否在幻想乡结界内（用于警察保护豁免）。  
+        由天赋系统提供，这里做安全检查。  
+        """  
+        if not hasattr(self.state, 'active_barrier'):  
+            return False  
+        barrier = self.state.active_barrier  
+        if barrier and hasattr(barrier, 'is_in_barrier'):  
+            return barrier.is_in_barrier(player_id)  
+        return False
+
+    def _resolve_police_attack_on_target(self, unit, target):  
+            """  
+            单个警察单位对玩家目标执行一次攻击。  
+            返回结果消息字符串。  
+            """  
+            weapon = make_weapon(unit.weapon_name)  
+            if not weapon:  
+                weapon = make_weapon("警棍")  
+            if weapon is None:  
+                return f"⚠️ {unit.unit_id} 无法创建武器，攻击取消"  
+    
+            # 高斯步枪强制不蓄力  
+            if weapon.name == "高斯步枪" and weapon.requires_charge:  
+                weapon.is_charged = False  
+    
+            # 使用 resolve_damage 进行伤害结算  
+            result = resolve_damage(  
+                attacker=None,      # 警察不是玩家  
+                target=target,  
+                weapon=weapon,  
+                game_state=self.state,  
+            )  
+    
+            # 构建消息  
+            msg_parts = [f"🚔 {unit.unit_id} 对 {target.name} 执法攻击（{weapon.name}）"]  
+            if result.get("success"):  
+                msg_parts.append(f"  → 造成 {result.get('final_damage', 0)} 伤害")  
+                if result.get("armor_hit"):  
+                    msg_parts.append(f"  → 命中护甲：{result['armor_hit']}")  
+                if result.get("armor_broken"):  
+                    msg_parts.append(f"  → 护甲被击破！")  
+                if result.get("killed"):  
+                    msg_parts.append(f"  → 💀 {target.name} 被击杀！")  
+                elif result.get("stunned"):  
+                    msg_parts.append(f"  → 💫 {target.name} 陷入眩晕！")  
+            else:  
+                reason = result.get("reason", "未知原因")  
+                msg_parts.append(f"  → 攻击无效：{reason}")  
+    
+            # 威信检查：攻击无辜者  
+            target_id = target.player_id  
+            if not self.police.is_criminal(target_id):  
+                self.police.authority -= 1  
+                self.police.last_innocent_attacked = target_id  
+                msg_parts.append(f"  ⚠️ 攻击无辜者！威信-1（当前：{self.police.authority}）")  
+                if self.police.authority <= 0:  
+                    zero_msg = self._on_authority_zero()  
+                    msg_parts.append(zero_msg)  
+    
+            return "\n".join(msg_parts)
+    
+    def process_end_of_round(self):  
+            """  
+            全局轮次结束时的警察系统结算。  
+            按顺序处理：出动 → 追踪到达 → 执法攻击。  
+            """  
+            if self.police.permanently_disabled:  
+                return []  
+    
+            messages = []  
+    
+            # 阶段1：如果处于"assembled"状态，执行出动  
+            if self.police.report_phase == "assembled":  
+                dispatch_msg = self._dispatch_police()  
+                if dispatch_msg:  
+                    messages.append(dispatch_msg)  
+                self.police.report_phase = "dispatched"  
+    
+            # 阶段2：处理追踪中的警察（方式B：自动赶到目标位置，本轮不攻击）  
+            target_id = self.police.reported_target_id  
+            if target_id:  
+                target = self.state.get_player(target_id)  
+                if target and target.is_alive():  
+                    for unit in self.police.alive_units():  
+                        if unit.is_on_map() and unit.location != target.location:  
+                            # 标记为"刚到达"，本轮不攻击（方式B）  
+                            if not hasattr(unit, '_just_arrived'):  
+                                unit._just_arrived = False  
+                            if unit.location is not None and unit.location != target.location:  
+                                unit.location = target.location  
+                                unit._just_arrived = True  
+                                messages.append(  
+                                    f"🚔 {unit.unit_id} 追踪到达 {target.location}"  
+                                )  
+    
+            # 阶段3：执法攻击（只有已在目标位置且非"刚到达"的单位才攻击）  
+            if self.police.report_phase == "dispatched" and target_id:  
+                target = self.state.get_player(target_id)  
+                if target and target.is_alive():  
+                    for unit in self.police.active_units():  
+                        if unit.location == target.location:  
+                            # 方式B的单位本轮不攻击  
+                            just_arrived = getattr(unit, '_just_arrived', False)  
+                            if just_arrived:  
+                                unit._just_arrived = False  
+                                continue  
+                            atk_msg = self._resolve_police_attack_on_target(unit, target)  
+                            messages.append(atk_msg)  
+                            # 威信归零后停止  
+                            if self.police.authority <= 0 and self.police.has_captain():  
+                                break  
+    
+            # 阶段4：检查全灭  
+            if self.police.check_all_dead():  
+                messages.append("⚠️ 所有警察单位已被消灭！警察局所有交互永久禁用。")  
+    
+            return messages

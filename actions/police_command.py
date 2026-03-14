@@ -36,68 +36,26 @@ def execute(player, parsed, game_state):
         )
         return result, {}
     
-    elif subcommand == "equip":
-        # 支持同时装备武器和护甲，格式：equip <警察ID> <武器> [护甲]
-        # 或者分别指定：equip <警察ID> weapon <武器名> 和 equip <警察ID> armor <护甲名>
-        equipment = parsed.get("equipment")
-        equipment_type = parsed.get("equipment_type")  # weapon 或 armor
-        
-        if equipment_type:
-            # 分别指定武器或护甲
-            if equipment_type == "weapon":
-                if not equipment:
-                    return "❌ 请指定武器名称", {}
-                result = police_engine.captain_control_police(
-                    captain_id=player.player_id,
-                    police_id=police_id,
-                    command="equip",
-                    weapon=equipment
-                )
-                return result, {}
-            elif equipment_type == "armor":
-                if not equipment:
-                    return "❌ 请指定护甲名称", {}
-                result = police_engine.captain_control_police(
-                    captain_id=player.player_id,
-                    police_id=police_id,
-                    command="equip",
-                    armor=equipment
-                )
-                return result, {}
-            else:
-                return f"❌ 未知的装备类型：{equipment_type}", {}
-        else:
-            # 传统模式：只指定一个装备（可能是武器或护甲）
-            if not equipment:
-                return "❌ 请指定装备名称", {}
-            # 先尝试作为武器，警察引擎内部会验证
-            result = police_engine.captain_control_police(
-                captain_id=player.player_id,
-                police_id=police_id,
-                command="equip",
-                weapon=equipment
-            )
-            # 如果装备被拒绝，尝试作为护甲
-            if "❌ 警察不能装备" in result:
-                result = police_engine.captain_control_police(
-                    captain_id=player.player_id,
-                    police_id=police_id,
-                    command="equip",
-                    armor=equipment
-                )
-            return result, {}
-    
-    elif subcommand == "attack":
-        target = parsed.get("target")
-        if not target:
-            return "❌ 请指定攻击目标", {}
-        result = police_engine.captain_control_police(
-            captain_id=player.player_id,
-            police_id=police_id,
-            command="attack",
-            target=target
-        )
+    elif subcommand == "equip":  
+        equipment = parsed.get("equipment")  
+        equipment_type = parsed.get("equipment_type")  # "weapon" 或 "armor" 或 None  
+        if not equipment:  
+            return "❌ 请指定装备名称", {}  
+        result = police_engine.captain_equip_police(  
+            captain_id=player.player_id,  
+            police_id=police_id,  
+            equipment_name=equipment,  
+            equipment_type=equipment_type  
+        )  
         return result, {}
     
-    else:
-        return f"❌ 未知的子命令：{subcommand}", {}
+    elif subcommand == "attack":  
+        target = parsed.get("target")  
+        if not target:  
+            return "❌ 请指定攻击目标", {}  
+        result = police_engine.captain_attack(  
+            captain_id=player.player_id,  
+            police_id=police_id,  
+            target_id=target  
+        )  
+        return result, {}

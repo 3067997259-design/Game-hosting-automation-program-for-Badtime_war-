@@ -395,10 +395,24 @@ class ActionTurnManager:
             from actions.police_command import execute as police_command_execute
             msg = police_command_execute(player, parsed, self.state)
             return msg, "police_command"
+        
+        elif action == "designate":  
+            target_name = parsed.get("target")  
+            target = self.state.get_player_by_name(target_name)  
+            if not target:  
+                return f"❌ 找不到玩家 {target_name}", "designate"  
+            msg = self.state.police_engine.captain_designate_target(  
+                player.player_id, target.player_id)  
+            return msg, "designate"  
+        
+        elif action == "study":  
+            msg = self.state.police_engine.do_study(player.player_id)  
+            return msg, "study"
 
         elif action == "forfeit":
             msg = forfeit.execute(player, self.state)
             return msg, "forfeit"
+        
 
         return "未知行动", "unknown"
 

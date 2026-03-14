@@ -237,7 +237,7 @@ class RoundManager:
         display.show_phase("📋 轮次结束结算")
 
         # R4-1: 警察执法
-        police_msgs = self.police_engine.process_end_of_round(self.state)
+        police_msgs = self.police_engine.process_end_of_round()
         if police_msgs:
             display.show_police_enforcement(police_msgs)
         if self.state.check_victory():
