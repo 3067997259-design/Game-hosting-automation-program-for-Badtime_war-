@@ -14,6 +14,7 @@ from combat.damage_resolver import resolve_damage
 from cli import display
 from controllers.human import HumanController
 from engine.prompt_manager import prompt_manager
+from actions.police_command import execute as police_cmd_exec  
 
 try:
     from engine.action_turn import ActionTurnManager
@@ -1476,74 +1477,157 @@ class Ripple(BaseTalent):
             default="⭐ {target_name} 的「天星」被涟漪增强！\n   天星落下后额外2次×0.5无视属性伤害\n   石化不再因被攻击自动解除"
         ).format(target_name=target.name)
 
-    def _poem_law(self, target):
-        lines = []
-        
-        # 使用警察系统的统一方法来处理律法之诗效果
-        if hasattr(self.state, 'police_engine') and self.state.police_engine:
-            msg = self.state.police_engine.process_poem_law_effect(target.player_id)
-            lines.append(msg)
-        else:
-            # 备用逻辑：如果警察引擎不可用
-            if not getattr(target, 'is_police', False):
-                if hasattr(target, 'crime_records'):
-                    target.crime_records = []
-                target.is_police = True
-                lines.append(prompt_manager.get_prompt(
-                    "talent", "g5ripple.poem_law_police_granted",
-                    default="👮 {target_name} 犯罪记录清除，获得警察岗位！"
-                ).format(target_name=target.name))
-            elif getattr(target, 'is_captain', False):
-                if hasattr(target, 'prestige'):
-                    target.prestige += 2
-                    lines.append(prompt_manager.get_prompt(
-                        "talent", "g5ripple.poem_law_prestige_increased",
-                        default="👮 {target_name} 的威信+2！当前：{prestige}"
-                    ).format(target_name=target.name, prestige=target.prestige))
-                else:
-                    lines.append(prompt_manager.get_prompt(
-                        "talent", "g5ripple.poem_law_prestige_manual",
-                        default="👮 DM请手动为 {target_name} 的威信+2。"
-                    ).format(target_name=target.name))
-            else:
-                # 竞选进度+2
-                if self.state.police_engine:
-                    pe = self.state.police_engine
-                    # 直接使用警察引擎的竞选进度系统
-                    progress_key = "captain_election"
-                    current = target.progress.get(progress_key, 0)
-                    current += 2
-                    target.progress[progress_key] = current
-                    
-                    # 检查是否立即上任
-                    required = 3
-                    if target.talent and hasattr(target.talent, 'get_election_rounds_reduction'):
-                        reduction = target.talent.get_election_rounds_reduction()
-                        required = max(1, required - reduction)
-                    
-                    if current >= required:
-                        # 竞选成功
-                        del target.progress[progress_key]
-                        if hasattr(pe, 'police') and hasattr(pe.police, 'captain_id'):
-                            pe.police.captain_id = target.player_id
-                            pe.police.authority = 3
-                        target.is_captain = True
-                        if hasattr(self.state, 'markers'):
-                            self.state.markers.add(target.player_id, "IS_CAPTAIN")
-                        lines.append(prompt_manager.get_prompt(
-                            "talent", "g5ripple.poem_law_election_success",
-                            default="👑 {target_name} 立即成为警队队长！威信：3"
-                        ).format(target_name=target.name))
-                    else:
-                        lines.append(prompt_manager.get_prompt(
-                            "talent", "g5ripple.poem_law_election_progress",
-                            default="🏛️ {target_name} 竞选进度+2！当前：{current}/{required}"
-                        ).format(target_name=target.name, current=current, required=required))
-        
-        return "\n".join(lines) if lines else prompt_manager.get_prompt(
-            "talent", "g5ripple.poem_law_default",
-            default="效果已生效。"
-        )
+    def _poem_law(self, target):  
+            """  
+            献予律法之诗 — 对应README第1043行的完整规则。  
+            
+            分支逻辑（按优先级）：  
+            1. 无队长 且 无存活警察 → 立刻上任队长 + 召唤新单位（解除永久禁用）  
+            2. 目标不是警察 → 清除犯罪记录 + 赋予警察岗位  
+            3. 目标是警察但不是队长，且队长空缺 → 立刻成为队长  
+            4. 目标已是队长：  
+            a. 有存活警察 → 威信+2 + 指定1个警察单位立刻行动  
+            b. 无存活警察 → 召唤新单位（解除永久禁用）  
+            """  
+            lines = []  
+            pe = getattr(self.state, 'police_engine', None)  
+            police = getattr(self.state, 'police', None)  
+    
+            if not pe or not police:  
+                # 备用逻辑：警察引擎不可用，仅做基础处理  
+                if not getattr(target, 'is_police', False):  
+                    target.is_police = True  
+                    lines.append(prompt_manager.get_prompt(  
+                        "talent", "g5ripple.poem_law_police_granted",  
+                        default="👮 {target_name} 犯罪记录清除，获得警察岗位！"  
+                    ).format(target_name=target.name))  
+                return "\n".join(lines) if lines else prompt_manager.get_prompt(  
+                    "talent", "g5ripple.poem_law_default", default="效果已生效。")  
+    
+            # ---- 公共前置：清除犯罪记录 ----  
+            if target.player_id in police.crime_records:  
+                police.crime_records[target.player_id] = set()  
+            if hasattr(target, 'is_criminal'):  
+                target.is_criminal = False  
+    
+            has_captain = police.has_captain()  
+            has_alive_police = police.any_alive()  
+            is_captain = (getattr(target, 'is_captain', False)  
+                        and police.captain_id == target.player_id)  
+            is_police = getattr(target, 'is_police', False)  
+    
+            # ============================================================  
+            #  分支1：无队长 且 无存活警察单位  
+            #  → 立刻上任队长 + 在目标位置召唤新单位 + 解除永久禁用  
+            # ============================================================  
+            if not has_captain and not has_alive_police:  
+                # 先确保是警察  
+                if not is_police:  
+                    target.is_police = True  
+                    self.state.markers.add(target.player_id, "IS_POLICE")  
+                    lines.append(f"👮 {target.name} 犯罪记录清除，获得警察岗位！")  
+    
+                # 立刻上任队长  
+                police.captain_id = target.player_id  
+                police.authority = 3  
+                target.is_captain = True  
+                self.state.markers.add(target.player_id, "IS_CAPTAIN")  
+                lines.append(f"👑 {target.name} 立即成为警队队长！威信：3")  
+    
+                # 召唤新单位  
+                msg = pe.summon_police_unit(target.location)  
+                lines.append(msg)  
+    
+                # 队长上任后生成3个单位  
+                pe._on_captain_elected()  
+                lines.append("🚔 队长上任，警察局恢复运作！")  
+    
+            # ============================================================  
+            #  分支2：目标不是警察  
+            #  → 清除犯罪记录 + 赋予警察岗位  
+            # ============================================================  
+            elif not is_police:  
+                target.is_police = True  
+                self.state.markers.add(target.player_id, "IS_POLICE")  
+                lines.append(prompt_manager.get_prompt(  
+                    "talent", "g5ripple.poem_law_police_granted",  
+                    default="👮 {target_name} 犯罪记录清除，获得警察岗位！"  
+                ).format(target_name=target.name))  
+    
+            # ============================================================  
+            #  分支3：目标是警察但不是队长，且队长空缺  
+            #  → 立刻成为队长（无需竞选进度）  
+            # ============================================================  
+            elif is_police and not is_captain and not has_captain:  
+                police.captain_id = target.player_id  
+                police.authority = 3  
+                target.is_captain = True  
+                self.state.markers.add(target.player_id, "IS_CAPTAIN")  
+                pe._on_captain_elected()  
+                lines.append(f"👑 {target.name} 立即成为警队队长！威信：3")  
+    
+            # ============================================================  
+            #  分支4：目标已是队长  
+            # ============================================================  
+            elif is_captain:  
+                if has_alive_police:  
+                    # 4a：有存活警察 → 威信+2 + 指定1个警察单位立刻行动  
+                    police.authority += 2  
+                    lines.append(f"👑 {target.name} 威信+2！当前：{police.authority}")  
+    
+                    # 让队长选择一个警察单位立刻行动  
+                    alive_units = police.alive_units()  
+                    if alive_units:  
+                        unit_ids = [u.unit_id for u in alive_units]  
+                        lines.append(f"🏙️ 朝阳好市民效果：可指定1个警察单位立刻行动！可选：{', '.join(unit_ids)}")  
+    
+                        # 通过 controller 让队长选择  
+                        chosen_id = target.controller.choose(  
+                            "选择立刻行动的警察单位：",  
+                            unit_ids,  
+                            context={"phase": "T0", "situation": "poem_law_extra_action"}  
+                        )  
+    
+                        # 让队长输入该警察单位的行动命令  
+                        display.show_info(f"🚔 {chosen_id} 获得一次立刻行动！请输入命令（police move/equip/attack {chosen_id} ...）")  
+                        raw_cmd = target.controller.get_command(  
+                            player=target,  
+                            game_state=self.state,  
+                            available_actions=["police move", "police equip", "police attack"],  
+                            context={"phase": "T0", "situation": "poem_law_police_action",  
+                                    "police_id": chosen_id}  
+                        )  
+    
+                        # 解析并执行命令  
+                        from cli.parser import parse  
+                        parsed = parse(raw_cmd, target.player_id)  
+                        if parsed and parsed.get("action") == "police_command":  
+                            # 强制使用选中的警察ID  
+                            parsed["police_id"] = chosen_id  
+                            from actions.police_command import execute as police_cmd_exec  
+                            result = police_cmd_exec(target, parsed, self.state)  
+                            if isinstance(result, tuple):  
+                                result_msg, _ = result  
+                            else:  
+                                result_msg = str(result) if result else "⚠️ 命令执行失败"  
+                            lines.append(result_msg)
+                        else:  
+                            lines.append(f"⚠️ 无法解析命令，{chosen_id} 的额外行动跳过。")  
+                else:  
+                    # 4b：无存活警察 → 召唤新单位 + 解除永久禁用  
+                    msg = pe.summon_police_unit(target.location)  
+                    lines.append(msg)  
+                    lines.append("🏙️ 朝阳好市民效果：警察系统恢复运作！")  
+    
+            # ============================================================  
+            #  分支5：目标是警察但不是队长，且已有队长  
+            #  → README未明确定义此情况，仅做基础效果（犯罪记录已清除）  
+            # ============================================================  
+            else:  
+                lines.append(f"👮 {target.name} 的犯罪记录已清除。")  
+    
+            return "\n".join(lines) if lines else prompt_manager.get_prompt(  
+                "talent", "g5ripple.poem_law_default", default="效果已生效。")
 
     def _poem_trick(self, caster, target):
         display.show_info(prompt_manager.get_prompt(
