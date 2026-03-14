@@ -58,7 +58,7 @@ def do_interact(player, item_name, game_state=None):
 
     if item_name == "研究性学习":
         if game_state and hasattr(game_state, 'police_engine'):
-            return game_state.police_engine.captain_study(player.player_id)
+            return game_state.police_engine.do_study(player.player_id)
         return "❌ 警察系统未初始化"
 
     return f"请使用专用指令执行此操作（如 report / recruit / election）"
