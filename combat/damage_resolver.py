@@ -1,4 +1,4 @@
-"""伤害结算管线（Phase 4 完整版）：支持天赋参数"""
+"""伤害结算管线（Phase 4 完整版）：支持天赋参数、电磁步枪/陶瓷护甲特效"""
 
 from utils.attribute import Attribute, is_effective
 from models.equipment import ArmorLayer
@@ -26,6 +26,20 @@ def quantize_damage(damage):
         return float(int_part)
     return int_part + 0.5
 
+
+def _check_electric_immunity(target):
+    """
+    检查目标是否拥有能免疫电流武器的护甲（陶瓷护甲 immune_electric tag）。
+    根据README：陶瓷护甲：外层护甲，普通护盾1，免疫电流武器伤害与眩晕
+    返回：(bool, ArmorPiece or None)
+    """
+    all_active = target.armor.get_all_active()
+    for armor in all_active:
+        if "immune_electric" in armor.special_tags and not armor.is_broken:
+            return True, armor
+    return False, None
+
+
 def _resolve_weaponless_damage(attacker, target, game_state, result,
                                 raw_damage, damage_attribute_str):
     """
@@ -34,7 +48,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
     """
     from utils.attribute import Attribute
 
-    # 属性映射
     ATTR_MAP = {
         "科技": Attribute.TECH,
         "普通": Attribute.ORDINARY,
@@ -46,7 +59,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
     raw = raw_damage
     result["raw_damage"] = raw
     
-    # 使用提示管理器获取外部伤害源文本
     external_damage_text = prompt_manager.get_prompt(
         "combat", "external_damage_source",
         default="外部伤害源：{damage}（{attribute}）"
@@ -55,16 +67,13 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         damage=raw, attribute=damage_attribute_str
     ))
 
-    # 量化
     final_damage = quantize_damage(raw)
     result["final_damage"] = final_damage
     result["success"] = True
     remaining = final_damage
 
-    # 护甲结算
     armor_piece = _select_armor_target(target, None, None)
     if armor_piece is not None:
-        # 克制判定（仅当有属性时）
         if damage_attr is not None:
             if not is_effective(damage_attr, armor_piece.attribute):
                 weapon_countered_text = prompt_manager.get_prompt(
@@ -79,7 +88,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 result["details"].append(result["reason"])
                 return result
         
-        # 使用提示管理器获取攻击目标护甲文本
         attack_target_text = prompt_manager.get_prompt(
             "combat", "attack_target_armor",
             default="攻击目标护甲：{armor_piece}"
@@ -90,10 +98,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         remaining = _apply_damage_to_armor(
             target, armor_piece, remaining,
             False, result,
-            damage_attr  # 添加伤害属性参数（可能是None）
+            damage_attr
         )
 
-    # 扣血
     if remaining > 0:
         if target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp'):
             remaining = target.talent.receive_damage_to_temp_hp(remaining)
@@ -101,7 +108,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
             
-            # 使用提示管理器获取HP伤害文本
             hp_damage_text = prompt_manager.get_prompt(
                 "combat", "hp_damage_detailed",
                 default="生命受到 {damage} 伤害 → HP: {current_hp}/{max_hp}"
@@ -114,14 +120,11 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
 
     result["target_hp"] = target.hp
 
-    # 死亡/眩晕判定
     if target.hp <= 0:
         prevented = _talent_death_check(target, attacker, game_state)
         if prevented:
             result["killed"] = False
             result["target_hp"] = target.hp
-            
-            # 使用提示管理器获取死亡阻止文本（这是天赋特定的，但放在combat部分）
             death_prevented_text = prompt_manager.get_prompt(
                 "combat", "death_prevented",
                 default="💫 记忆令毁灭的骄阳愈发明亮，不会落下…… HP → {target_hp}"
@@ -131,8 +134,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             ))
         else:
             result["killed"] = True
-            
-            # 使用提示管理器获取击杀文本
             killed_text = prompt_manager.get_prompt(
                 "combat", "killed",
                 default="💀 {target_name} 被击杀！"
@@ -140,7 +141,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             result["details"].append(killed_text.format(
                 target_name=target.name
             ))
-            
             if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
                 attacker.talent.on_kill(attacker, target)
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
@@ -155,8 +155,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             target.is_stunned = True
             if game_state:
                 game_state.markers.add(target.player_id, "STUNNED")
-            
-            # 使用提示管理器获取眩晕文本
             stunned_text = prompt_manager.get_prompt(
                 "combat", "stunned_full",
                 default="💫 {target_name} 进入眩晕状态！"
@@ -165,7 +163,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 target_name=target.name
             ))
         else:
-            # 使用提示管理器获取眩晕阻止文本
             stun_prevented_text = prompt_manager.get_prompt(
                 "combat", "stun_prevented",
                 default="🔥 {target_name} 从不因为孱弱的攻击而倒下！"
@@ -204,6 +201,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         "hp_damage": 0,
         "target_hp": target.hp,
         "stunned": False,
+        "shocked": False,
         "killed": False,
         "details": [],
     }
@@ -216,7 +214,23 @@ def resolve_damage(attacker, target, weapon, game_state,
             damage_attribute_override or "普通"
         )
 
-    # ======== 以下为原有逻辑，完全不动 ========
+    # ======== 陶瓷护甲免疫电流武器检查 ========
+    # 根据README：陶瓷护甲 免疫电流武器伤害与眩晕
+    # 如果武器是电流武器(is_electric)且目标有未破碎的immune_electric护甲，
+    # 则整个攻击无效（包括伤害和后续的震荡效果）
+    if weapon.is_electric:
+        immune, immune_armor = _check_electric_immunity(target)
+        if immune:
+            electric_immune_text = prompt_manager.get_prompt(
+                "combat", "electric_immunity",
+                default="🛡️ {target_name} 的「{armor_name}」免疫电流武器伤害与眩晕！攻击无效。"
+            )
+            result["reason"] = electric_immune_text.format(
+                target_name=target.name,
+                armor_name=immune_armor.name
+            )
+            result["details"].append(result["reason"])
+            return result
 
     # ---- 天赋：修改输出伤害 ----
     if attacker and attacker.talent:
@@ -236,7 +250,6 @@ def resolve_damage(attacker, target, weapon, game_state,
     raw = raw * damage_multiplier + bonus_damage
     result["raw_damage"] = raw
     
-    # 使用提示管理器获取原始伤害文本
     raw_damage_text = prompt_manager.get_prompt(
         "combat", "raw_damage",
         default="原始伤害：{damage}"
@@ -247,7 +260,6 @@ def resolve_damage(attacker, target, weapon, game_state,
     if target.talent and hasattr(target.talent, 'modify_incoming_damage'):
         raw = target.talent.modify_incoming_damage(target, attacker, weapon, raw)
         if raw != result["raw_damage"]:
-            # 使用提示管理器获取伤害减免文本
             damage_reduced_text = prompt_manager.get_prompt(
                 "combat", "damage_reduced",
                 default="受伤减免后：{damage}"
@@ -258,8 +270,6 @@ def resolve_damage(attacker, target, weapon, game_state,
     hologram_bonus = _get_hologram_bonus(target, game_state)
     if hologram_bonus > 0:
         raw += hologram_bonus
-        
-        # 使用提示管理器获取全息影像易伤文本
         hologram_text = prompt_manager.get_prompt(
             "combat", "hologram_vulnerability",
             default="👁️ 全息影像易伤：+{hologram_bonus}"
@@ -287,7 +297,6 @@ def resolve_damage(attacker, target, weapon, game_state,
                 result["details"].append(result["reason"])
                 return result
         
-        # 使用提示管理器获取攻击目标护甲文本
         attack_target_text = prompt_manager.get_prompt(
             "combat", "attack_target_armor",
             default="攻击目标护甲：{armor_piece}"
@@ -300,7 +309,6 @@ def resolve_damage(attacker, target, weapon, game_state,
     final_damage = quantize_damage(raw)
     result["final_damage"] = final_damage
     
-    # 使用提示管理器获取量化伤害文本
     quantized_text = prompt_manager.get_prompt(
         "combat", "quantized_damage",
         default="量化后伤害：{damage}"
@@ -315,18 +323,15 @@ def resolve_damage(attacker, target, weapon, game_state,
         remaining = _apply_damage_to_armor(
             target, armor_piece, remaining,
             ignore_last_inner_absorb, result,
-            weapon.attribute  # 添加武器属性参数
+            weapon.attribute
         )
 
     if remaining > 0:
-        # 愿负世临时HP缓冲
         if target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp'):
             remaining = target.talent.receive_damage_to_temp_hp(remaining)
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
-            
-            # 使用提示管理器获取HP伤害文本
             hp_damage_text = prompt_manager.get_prompt(
                 "combat", "hp_damage_detailed",
                 default="生命受到 {damage} 伤害 → HP: {current_hp}/{max_hp}"
@@ -345,8 +350,6 @@ def resolve_damage(attacker, target, weapon, game_state,
         if prevented:
             result["killed"] = False
             result["target_hp"] = target.hp
-            
-            # 使用提示管理器获取死亡阻止文本
             death_prevented_text = prompt_manager.get_prompt(
                 "combat", "death_prevented",
                 default="💫 记忆令毁灭的骄阳愈发明亮，不会落下…… HP → {target_hp}"
@@ -356,8 +359,6 @@ def resolve_damage(attacker, target, weapon, game_state,
             ))
         else:
             result["killed"] = True
-            
-            # 使用提示管理器获取击杀文本
             killed_text = prompt_manager.get_prompt(
                 "combat", "killed",
                 default="💀 {target_name} 被击杀！"
@@ -365,7 +366,6 @@ def resolve_damage(attacker, target, weapon, game_state,
             result["details"].append(killed_text.format(
                 target_name=target.name
             ))
-            
             if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
                 attacker.talent.on_kill(attacker, target)
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
@@ -380,8 +380,6 @@ def resolve_damage(attacker, target, weapon, game_state,
             target.is_stunned = True
             if game_state:
                 game_state.markers.add(target.player_id, "STUNNED")
-            
-            # 使用提示管理器获取眩晕文本
             stunned_text = prompt_manager.get_prompt(
                 "combat", "stunned_full",
                 default="💫 {target_name} 进入眩晕状态！"
@@ -390,7 +388,6 @@ def resolve_damage(attacker, target, weapon, game_state,
                 target_name=target.name
             ))
         else:
-            # 使用提示管理器获取眩晕阻止文本
             stun_prevented_text = prompt_manager.get_prompt(
                 "combat", "stun_prevented",
                 default="🔥 {target_name} 从不因为孱弱的攻击而倒下！"
@@ -398,6 +395,43 @@ def resolve_damage(attacker, target, weapon, game_state,
             result["details"].append(stun_prevented_text.format(
                 target_name=target.name
             ))
+
+    # ---- 第6.5步：电磁步枪命中震荡（stun_on_hit） ----
+    # 根据README：电磁步枪发射时对已发现你的所有目标造成0.5科技伤害+眩晕
+    # 震荡（Shocked）：下一个行动回合只能选择「苏醒」，消耗一个行动回合
+    # 震荡和眩晕不能叠加，其中一个被解除，另一个随即解除
+    # 注意：只有攻击成功且目标未死亡时才施加震荡
+    if (weapon.special_tags and "stun_on_hit" in weapon.special_tags
+            and result["success"] and not result["killed"]):
+        already_cc = getattr(target, 'is_stunned', False) or getattr(target, 'is_shocked', False)
+        if not already_cc:
+            prevent_shock = False
+            if target.talent and hasattr(target.talent, 'prevent_stun'):
+                prevent_shock = target.talent.prevent_stun(target)
+            
+            if not prevent_shock:
+                result["shocked"] = True
+                target.is_shocked = True
+                target.is_stunned = True
+                if game_state:
+                    game_state.markers.add(target.player_id, "SHOCKED")
+                    game_state.markers.add(target.player_id, "STUNNED")
+                
+                shocked_text = prompt_manager.get_prompt(
+                    "combat", "shocked_by_electric",
+                    default="⚡ {target_name} 被电磁步枪击中，进入震荡状态！"
+                )
+                result["details"].append(shocked_text.format(
+                    target_name=target.name
+                ))
+            else:
+                shock_prevented_text = prompt_manager.get_prompt(
+                    "combat", "shock_prevented",
+                    default="🔥 {target_name} 抵抗了电磁步枪的震荡效果！"
+                )
+                result["details"].append(shock_prevented_text.format(
+                    target_name=target.name
+                ))
 
     # ---- 愿负世：被攻击时积累神性 ----
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
@@ -437,7 +471,6 @@ def _select_armor_target(target, target_layer, target_armor_attr):
         if piece:
             return piece
 
-    # 自动选择：外层优先（盾牌priority最高）
     outer = target.armor.get_active(ArmorLayer.OUTER)
     if outer:
         outer.sort(key=lambda a: a.priority, reverse=True)
@@ -460,54 +493,40 @@ def _redirect_overflow_damage(target, broken_armor, overflow,
     from models.equipment import ArmorLayer
     import random
     
-    # 确定破碎护甲的层
     is_outer = False
     is_inner = False
     
-    # 方法1：检查护甲是否在外层列表中
     outer_list = target.armor.get_active(ArmorLayer.OUTER)
     if broken_armor in outer_list:
         is_outer = True
     else:
-        # 方法2：检查是否在内层列表中
         inner_list = target.armor.get_active(ArmorLayer.INNER)
         if broken_armor in inner_list:
             is_inner = True
         else:
-            # 方法3：尝试从护甲对象本身获取层信息
             if hasattr(broken_armor, 'layer'):
                 if broken_armor.layer == ArmorLayer.OUTER:
                     is_outer = True
                 else:
                     is_inner = True
     
-    # 收集候选护甲
     candidates = []
     
     if is_outer:
-        # 规则1：破碎的是外层护甲
-        # 先检查其他外层护甲
         for armor in outer_list:
             if armor is not broken_armor and not armor.is_broken:
                 candidates.append((armor, "外层"))
-        
-        # 如果没有其他外层护甲，或者溢出伤害击穿了所有外层护甲之后还有剩余
-        # 检查内层护甲
         if not candidates:
             inner_list = target.armor.get_active(ArmorLayer.INNER)
             for armor in inner_list:
                 if not armor.is_broken:
                     candidates.append((armor, "内层"))
     else:
-        # 规则2：破碎的是内层护甲（非最后内层）
-        # 只检查其他内层护甲
         inner_list = target.armor.get_active(ArmorLayer.INNER)
         for armor in inner_list:
             if armor is not broken_armor and not armor.is_broken:
                 candidates.append((armor, "内层"))
     
-    # 过滤掉免疫武器属性的护甲
-    # 如果 weapon_attribute 为 None（无视属性克制），则所有护甲都不免疫
     effective_candidates = []
     if weapon_attribute is None:
         effective_candidates = candidates
@@ -517,18 +536,15 @@ def _redirect_overflow_damage(target, broken_armor, overflow,
                 effective_candidates.append((armor, layer_type))
     
     if not effective_candidates:
-        # 没有符合条件的护甲，伤害转移到生命值
         result["details"].append(f"溢出伤害 {overflow} 没有合适的护甲可承受，直接作用到生命")
         return overflow
     
-    # 随机选择一个符合条件的护甲
     selected_armor, selected_layer = random.choice(effective_candidates)
     
     result["details"].append(
         f"溢出伤害 {overflow} 重定向到 {selected_layer}护甲「{selected_armor.name}」"
     )
     
-    # 递归应用伤害到选中的护甲
     return _apply_damage_to_armor(
         target, selected_armor, overflow,
         False, result, weapon_attribute
@@ -540,7 +556,6 @@ def _apply_damage_to_armor(target, armor_piece, damage,
     """
     将伤害施加到护甲上（修复版：支持溢出伤害重定向到其他护甲）。
     返回剩余伤害（溢出到生命的部分）。
-    
     weapon_attribute: 武器属性（Attribute枚举），None表示无视属性克制
     """
     result["armor_hit"] = armor_piece.name
@@ -551,7 +566,6 @@ def _apply_damage_to_armor(target, armor_piece, damage,
         armor_piece.is_broken = True
         result["armor_broken"] = True
         
-        # 使用提示管理器获取护甲击破文本
         armor_destroyed_text = prompt_manager.get_prompt(
             "combat", "armor_destroyed_detailed",
             default="护甲「{armor_name}」被击破！溢出：{overflow}"
@@ -561,21 +575,17 @@ def _apply_damage_to_armor(target, armor_piece, damage,
             overflow=overflow
         ))
 
-        # 最后内层吸收溢出
         is_last = target.armor.is_last_inner(armor_piece)
         if is_last and not ignore_last_inner_absorb:
             result["details"].append("最后内层护甲吸收所有溢出")
             return 0
         else:
-            # 尝试将溢出伤害重定向到其他护甲
             return _redirect_overflow_damage(
                 target, armor_piece, overflow,
                 weapon_attribute, result
             )
     else:
         armor_piece.current_hp -= damage
-        
-        # 使用提示管理器获取护甲受损文本
         armor_damaged_text = prompt_manager.get_prompt(
             "combat", "armor_damaged",
             default="护甲「{armor_name}」剩余 {current_hp}/{max_hp}"
@@ -594,14 +604,12 @@ def _talent_death_check(target, attacker, game_state):
     优先级：1. 免死效果 → 2. 复活效果（死者苏生）
     返回 True 表示死亡被阻止。
     """
-    # 1. 检查目标自己的天赋（如愿负世的自动触发）
     if target.talent:
         death_result = target.talent.on_death_check(target, attacker)
         if death_result and death_result.get("prevent_death"):
             target.hp = death_result.get("new_hp", 0.5)
             return True
 
-    # 2. 检查其他玩家的天赋（如死者苏生挂载）
     if game_state:
         for pid in game_state.player_order:
             p = game_state.get_player(pid)
