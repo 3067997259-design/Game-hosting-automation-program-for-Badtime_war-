@@ -392,10 +392,9 @@ def validate_track_guide(player, game_state):
     police = game_state.police
     if police.reporter_id != player.player_id:
         return False, "只有举报者才能指引追踪"
-    # ver1.9: 使用police_engine.can_track_guide进行完整校验
-    can, reason = game_state.police_engine.can_track_guide(player.player_id)
-    if not can:
-        return False, reason
+    tracking = any(unit.is_tracking for unit in police.units if unit.is_alive())
+    if not tracking:
+        return False, "当前没有警队在追踪中"
     return True, ""
 
 def validate_recruit(player, game_state):
@@ -451,6 +450,7 @@ def validate_designate(player, target_str, game_state):
         return False, f"{target_str} 已死亡"
     return True, ""
 
+
 def validate_study(player, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
@@ -483,7 +483,12 @@ def validate_police_command(player, parsed, game_state):
     police_id = parsed.get("police_id")
     if not subcommand or not police_id:
         return False, "命令格式错误"
-    # 基本验证：警察单位是否存在（具体验证由警察引擎执行）
+    # 基本验证：警察单位是否存在
+    police = game_state.police
+    unit = police.get_unit(police_id)
+    if not unit:
+        return False, f"找不到警察单位 {police_id}"
+    # 具体验证由警察引擎执行
     return True, ""
 
 

@@ -28,10 +28,9 @@ def execute(player, parsed, game_state):
         location = parsed.get("location")
         if not location:
             return "❌ 请指定目的地", {}
-        result = police_engine.captain_control_police(
+        result = police_engine.captain_move_police(
             captain_id=player.player_id,
             police_id=police_id,
-            command="move",
             location=location
         )
         return result, {}

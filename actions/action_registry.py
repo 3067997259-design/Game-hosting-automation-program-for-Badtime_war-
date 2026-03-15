@@ -111,8 +111,8 @@ def _get_police_actions(player, game_state):
     # 追踪指引（举报者、有警察在追踪中）
     # ver1.9: 使用police_engine的can_track_guide方法
     if police.reporter_id == player.player_id:
-        can_track, _ = pe.can_track_guide(player.player_id)
-        if can_track:
+        tracking = any(unit.is_tracking for unit in police.units if unit.is_alive())
+        if tracking:
             actions.append({
                 "name": "追踪指引", "usage": "track",
                 "description": "指引警察追踪目标（立刻到达）",
@@ -159,14 +159,6 @@ def _get_police_actions(player, game_state):
             "description": "指定警察执法目标",
         })
 
-        # ver1.9: 队长操控警察单位（移动/装备/攻击）
-        alive_units = police.alive_units()
-        if alive_units:
-            unit_ids = ", ".join(u.unit_id for u in alive_units)
-            actions.append({
-                "name": "操控警察", "usage": "police <move|equip|attack> <警察ID> <参数>",
-                "description": f"可操控：{unit_ids}",
-            })
 
         if player.location == "警察局":
             actions.append({
