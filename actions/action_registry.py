@@ -1,4 +1,4 @@
-"""行动注册表（Phase 3 完整版）：新增警察相关行动"""
+"""行动注册表（Phase 3 完整版 - ver1.9适配新警察模型）"""
 
 from actions import move, interact, special_op
 from models.equipment import WeaponRange
@@ -78,7 +78,7 @@ def get_available_actions(player, game_state):
 
 
 def _get_police_actions(player, game_state):
-    """获取当前可用的警察相关行动"""
+    """获取当前可用的警察相关行动 - ver1.9适配新警察模型"""
     actions = []
     pe = game_state.police_engine
     if not pe:
@@ -108,10 +108,11 @@ def _get_police_actions(player, game_state):
             "description": "集结警察出动",
         })
 
-    # 追踪指引（举报者、有警队在追踪）
+    # 追踪指引（举报者、有警察在追踪中）
+    # ver1.9: 使用police_engine的can_track_guide方法
     if police.reporter_id == player.player_id:
-        tracking = any(t.is_tracking for t in police.teams if not t.is_eliminated())
-        if tracking:
+        can_track, _ = pe.can_track_guide(player.player_id)
+        if can_track:
             actions.append({
                 "name": "追踪指引", "usage": "track",
                 "description": "指引警察追踪目标（立刻到达）",
@@ -136,6 +137,21 @@ def _get_police_actions(player, game_state):
             "description": f"竞选进度：{progress}/3",
         })
 
+    # 唤醒警察（ver1.9新增：任何玩家可唤醒同地点处于debuff的警察单位）
+    wakeable_units = []
+    for unit in police.alive_units():
+        if unit.is_disabled() and unit.location == player.location:
+            # 检查沉沦+全息影像限制
+            if unit.is_submerged and pe._is_in_hologram_range(unit.location):
+                continue  # 沉沦且在全息影像范围内，不可唤醒
+            wakeable_units.append(unit)
+    if wakeable_units:
+        unit_ids = ", ".join(u.unit_id for u in wakeable_units)
+        actions.append({
+            "name": "唤醒警察", "usage": "wake <警察ID>",
+            "description": f"可唤醒：{unit_ids}",
+        })
+
     # 队长专属
     if player.is_captain:
         actions.append({
@@ -143,12 +159,13 @@ def _get_police_actions(player, game_state):
             "description": "指定警察执法目标",
         })
 
-        active_teams = [t for t in police.teams if not t.is_eliminated()]
-        if len(active_teams) < police.max_teams and police.splits_this_round < 1:
-            team_ids = ", ".join(t.team_id for t in active_teams)
+        # ver1.9: 队长操控警察单位（移动/装备/攻击）
+        alive_units = police.alive_units()
+        if alive_units:
+            unit_ids = ", ".join(u.unit_id for u in alive_units)
             actions.append({
-                "name": "拆分警队", "usage": "split <警队ID>",
-                "description": f"拆分警队。可选：{team_ids}",
+                "name": "操控警察", "usage": "police <move|equip|attack> <警察ID> <参数>",
+                "description": f"可操控：{unit_ids}",
             })
 
         if player.location == "警察局":

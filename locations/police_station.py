@@ -1,6 +1,6 @@
 """
 地点：警察局
-举报 / 集结 / 加入警察 / 竞选队长 / 追踪指引 / 研究性学习
+举报 / 集结 / 加入警察 / 竞选队长 / 追踪指引 / 研究性学习 / 唤醒警察
 """
 
 
@@ -11,6 +11,7 @@ POLICE_MENU = {
     "竞选队长":   "竞选警队队长（需3回合，需先加入警察）",
     "追踪指引":   "指引警察追踪逃跑的目标（消耗1回合，仅举报者）",
     "研究性学习": "队长恢复威信+1（消耗1回合，仅队长）",
+    "唤醒警察":   "唤醒同地点处于debuff的警察单位（消耗1回合，见README 10.7）",
 }
 
 
@@ -44,6 +45,10 @@ def can_interact(player, item_name, game_state=None):
             return False, "只有队长才能进行研究性学习"
         return True, ""
 
+    elif item_name == "唤醒警察":
+        # 详细检查交给 validator.validate_wake_police
+        return True, ""
+
     return True, ""
 
 
@@ -58,7 +63,10 @@ def do_interact(player, item_name, game_state=None):
 
     if item_name == "研究性学习":
         if game_state and hasattr(game_state, 'police_engine'):
-            return game_state.police_engine.captain_study(player.player_id)
+            return game_state.police_engine.do_study(player.player_id)
         return "❌ 警察系统未初始化"
+
+    if item_name == "唤醒警察":
+        return "请使用专用指令执行此操作（wake <警察ID>）"
 
     return f"请使用专用指令执行此操作（如 report / recruit / election）"
