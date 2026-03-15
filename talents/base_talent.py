@@ -158,6 +158,7 @@ class BaseTalent:
         """
         获取天赋的完整描述（叙事+机制）。
         返回字典：{"lore": [...], "mechanic": "...", "rules": "..."}
+        # TODO: Wire up to a 'help <talent>' command in the CLI
         """
         talent_key = self._get_talent_key()
         lore = prompt_manager.get_prompt("talent", f"{talent_key}.lore", default=[])
@@ -168,7 +169,8 @@ class BaseTalent:
         }
 
     def _get_rules_text(self):
-        """子类可覆盖以提供规则文本"""
+        """# TODO: Wire up to a 'help <talent>' command in the CLI
+        子类可覆盖以提供规则文本"""
         return ""
 
     # ---- 天赋激活提示 ----

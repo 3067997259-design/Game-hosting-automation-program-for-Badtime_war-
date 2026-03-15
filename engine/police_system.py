@@ -833,17 +833,6 @@ class PoliceEngine:
         return "\n".join(messages)  
   
     # ============================================  
-    #  献予律法之诗效果  
-    # ============================================  
-  
-    def process_poem_law_effect(self, target_player_id):  
-        """  
-        [已废弃] 献予律法之诗的效果现在由 g5_ripple._poem_law() 直接处理。  
-        保留此方法仅为向后兼容。  
-        """  
-        return "⚠️ 请通过 _poem_law() 调用新版逻辑。"
-
-    # ============================================  
     #  辅助方法  
     # ============================================  
   
@@ -900,18 +889,6 @@ class PoliceEngine:
     def get_police_status(self):  
         """获取警察系统状态描述（用于 police status 命令）"""  
         return self.police.describe()  
-  
-    def is_hologram_active_at(self, location):  
-        """  
-        检查指定地点是否有活跃的全息影像（用于位置限制豁免）。  
-        由天赋系统提供，这里做安全检查。  
-        """  
-        if not hasattr(self.state, 'active_hologram'):  
-            return False  
-        hologram = self.state.active_hologram  
-        if hologram and hasattr(hologram, 'location') and hasattr(hologram, 'is_active'):  
-            return hologram.is_active and hologram.location == location  
-        return False  
   
     def is_in_mythland(self, player_id):  
         """  

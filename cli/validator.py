@@ -201,6 +201,11 @@ def validate_move(player, destination, game_state):
         return False, f"「{destination}」不是有效地点。可用：{', '.join(valid)}"
     if destination == player.location:
         return False, "你已经在这里了！"
+    # 军事基地：无通行证时提示可强买或花回合办理
+    if destination == "军事基地" and not player.has_military_pass:
+        if player.vouchers >= 1:
+            pass  # 允许移动，到达后在 move.execute 中提供强买选项
+        # 无凭证也允许移动，到达后需花回合办理通行证
     return True, ""
 
 def validate_interact(player, item_name, game_state):
@@ -251,6 +256,11 @@ def validate_lock(player, target_str, game_state):
         target_id, player.player_id, player.has_detection)
     if not visible:
         return False, f"{target.name} 对你不可见"
+
+    # 探测能力发现隐身目标：添加 DETECTED_BY 关系
+    if player.has_detection and game_state.markers.has(target_id, "INVISIBLE"):
+        game_state.markers.on_player_detected(player.player_id, target_id)
+
     already = game_state.markers.has_relation(
         target_id, "LOCKED_BY", player.player_id)
     if already:
@@ -291,6 +301,11 @@ def validate_find(player, target_str, game_state):
         target_id, player.player_id, player.has_detection)
     if not visible:
         return False, f"{target.name} 对你不可见"
+
+    # 探测能力发现隐身目标：添加 DETECTED_BY 关系
+    if player.has_detection and game_state.markers.has(target_id, "INVISIBLE"):
+        game_state.markers.on_player_detected(player.player_id, target_id)
+
     already = game_state.markers.has_relation(
         player.player_id, "ENGAGED_WITH", target_id)
     if already:

@@ -1,7 +1,7 @@
 """伤害结算管线（Phase 4 完整版）：支持天赋参数、电磁步枪/陶瓷护甲特效"""
 
 from utils.attribute import Attribute, is_effective
-from models.equipment import ArmorLayer
+from models.equipment import ArmorLayer, WeaponRange
 from engine.prompt_manager import prompt_manager
 
 def _get_hologram_bonus(target, game_state):
@@ -464,6 +464,16 @@ def resolve_damage(attacker, target, weapon, game_state,
                 result["details"].append(shock_prevented_text.format(
                     target_name=target.name
                 ))
+
+    # ---- 近战攻击造成伤害后：隐身失效（README 9.3.3） ----
+    if (attacker and game_state
+            and weapon.weapon_range == WeaponRange.MELEE
+            and result["success"] and result.get("final_damage", 0) > 0
+            and game_state.markers.has(attacker.player_id, "INVISIBLE")
+            and game_state.markers.has_relation(
+                attacker.player_id, "ENGAGED_WITH", target.player_id)):
+        game_state.markers.on_player_lose_invisible(attacker.player_id)
+        attacker.is_invisible = False
 
     # ---- 愿负世：被攻击时积累神性 ----
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:

@@ -270,6 +270,7 @@ def debug_ai_talent_selection(player_name: str, talent_name: str, **kwargs):
 def debug_function(min_level: int = 1):
     """
     函数调试装饰器，记录函数调用和返回
+    # 开发工具：可用于调试复杂天赋交互，示例：with DebugContext(): ...
     
     Args:
         min_level: 最小调试级别
@@ -301,6 +302,7 @@ def debug_function(min_level: int = 1):
 class DebugContext:
     """
     调试上下文管理器，用于临时启用调试
+    # 开发工具：可用于调试复杂天赋交互，示例：with DebugContext(): ...
     """
     def __init__(self, enabled: bool = True, level: int = 1):
         self.enabled = enabled
