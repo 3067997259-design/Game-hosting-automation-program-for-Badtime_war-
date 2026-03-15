@@ -311,9 +311,8 @@ class ActionTurnManager:
             msg = move.execute(player, dest, self.state)
             if (self.state.police_engine
                     and self.state.police.reported_target_id == player.player_id
-                    and self.state.police.report_phase in ("dispatched", "enforcing")):
-                self.state.police_engine.on_target_moved(player.player_id, dest)
-                msg += f"\n   🚔 警察开始追踪！"
+                    and self.state.police.report_phase == "dispatched"):
+                msg += f"\n   🚔 警察将在轮末自动追踪！"
             return msg, "move"
 
         elif action == "interact":
@@ -349,29 +348,29 @@ class ActionTurnManager:
             return msg, "assemble"
 
         elif action == "track_guide":
-            msg = self.state.police_engine.do_tracking_guide(player.player_id)
+            msg = self.state.police_engine.do_track_guide(player.player_id)
             return msg, "track_guide"
 
         elif action == "recruit":
-            # ══ CONTROLLER 改动：加入警察三选二走 controller ══
-            options = ["凭证", "警棍", "盾牌"]
-            display.show_info("加入警察！请从以下三项中选择两项奖励：")
-            choice1 = player.controller.choose(
-                "选择第1项：", options,
-                context={"phase": "T1", "situation": "recruit_pick_1"}
-            )
-            remaining = [o for o in options if o != choice1]
-            choice2 = player.controller.choose(
-                "选择第2项：", remaining,
-                context={"phase": "T1", "situation": "recruit_pick_2"}
-            )
-            # ══ CONTROLLER 改动结束 ══
-            msg = self.state.police_engine.do_join_police(
-                player.player_id, [choice1, choice2])
+            msg, rewards = self.state.police_engine.do_recruit(player.player_id)
+            if rewards:
+                # ══ CONTROLLER 改动：加入警察三选二走 controller ══
+                display.show_info("加入警察！请从以下三项中选择两项奖励：")
+                choice1 = player.controller.choose(
+                    "选择第1项：", rewards,
+                    context={"phase": "T1", "situation": "recruit_pick_1"}
+                )
+                remaining = [o for o in rewards if o != choice1]
+                choice2 = player.controller.choose(
+                    "选择第2项：", remaining,
+                    context={"phase": "T1", "situation": "recruit_pick_2"}
+                )
+                # ══ CONTROLLER 改动结束 ══
+                msg += f"\n选择了：{choice1}、{choice2}"
             return msg, "recruit"
 
         elif action == "election":
-            msg = self.state.police_engine.do_election_progress(player.player_id)
+            msg = self.state.police_engine.do_election(player.player_id)
             return msg, "election"
 
         elif action == "designate":
@@ -381,13 +380,10 @@ class ActionTurnManager:
             return msg, "designate"
 
         elif action == "split":
-            team_id = parsed.get("team", "alpha")
-            msg = self.state.police_engine.captain_split_team(
-                player.player_id, team_id)
-            return msg, "split"
+            return "❌ 拆分功能已在v1.9中移除（警察现在是独立单位）", "split"
 
         elif action == "study":
-            msg = self.state.police_engine.captain_study(player.player_id)
+            msg = self.state.police_engine.do_study(player.player_id)
             return msg, "study"
 
         elif action == "police_command":
@@ -395,19 +391,6 @@ class ActionTurnManager:
             from actions.police_command import execute as police_command_execute
             msg = police_command_execute(player, parsed, self.state)
             return msg, "police_command"
-        
-        elif action == "designate":  
-            target_name = parsed.get("target")  
-            target = self.state.get_player_by_name(target_name)  
-            if not target:  
-                return f"❌ 找不到玩家 {target_name}", "designate"  
-            msg = self.state.police_engine.captain_designate_target(  
-                player.player_id, target.player_id)  
-            return msg, "designate"  
-        
-        elif action == "study":  
-            msg = self.state.police_engine.do_study(player.player_id)  
-            return msg, "study"
 
         elif action == "forfeit":
             msg = forfeit.execute(player, self.state)

@@ -437,9 +437,9 @@ class PoliceEngine:
   
         msg = f"🚔 {police_id} 被唤醒！"  
         if result.get("was_petrified"):  
-            msg += f" 石化解除扣0.5HP → HP: {result['final_hp']}"  
+            msg += f" 石化解除扣0.5HP → HP: {result['new_hp']}"  
         else:  
-            msg += f" HP恢复至 {result['final_hp']}"  
+            msg += f" HP恢复至 {result['new_hp']}"  
         return msg  
   
     def _is_in_hologram_range(self, location):  
@@ -660,16 +660,6 @@ class PoliceEngine:
 
         atk_result = self._resolve_police_attack_on_player(weapon, target)
         result = f"🚔 {unit.unit_id} 对 {target.name} 执法攻击（{weapon.name}）→ {atk_result}"
-  
-        # 威信检查：攻击从未犯过法的玩家  
-        if not self.police.is_criminal(target_id):  
-            self.police.authority -= 1  
-            result += f"\n⚠️ 攻击无辜者！威信-1（当前：{self.police.authority}）"  
-            # 记录最后被攻击的无辜者（用于威信归零时的举报者指定）  
-            self.police.last_innocent_attacked = target_id  
-            if self.police.authority <= 0:  
-                zero_msg = self._on_authority_zero()  
-                result += "\n" + zero_msg  
   
         self.state.log_event("captain_attack", captain=captain_id,  
                              police=police_id, target=target_id)  
