@@ -38,23 +38,23 @@ class Star(BaseTalent):
         if self.uses_remaining <= 0:
             return prompt_manager.get_prompt("error", "action_failed",
                                            reason="天星已用完",
-                                           default="❌ 天星已用完"), False
+                                           default="\u274c 天星已用完"), False
 
         self.uses_remaining -= 1
 
         targets = [p for p in self.state.players_at_location(player.location)
                    if p.player_id != player.player_id and p.is_alive()]
 
-        # 同地点的警察也算目标（非玩家单位）
+        # 同地点的警察也算目标（ver1.9：使用 police.units_at() 扁平列表）
         police_at_loc = []
-        if hasattr(self.state, 'police'):
-            police_at_loc = self.state.police.all_teams_at(player.location)
+        if hasattr(self.state, 'police') and self.state.police:
+            police_at_loc = self.state.police.units_at(player.location)
 
         # 显示激活提示
         self.show_activation(player.name)
 
         lines = [prompt_manager.get_prompt("talent", "t3star.activate",
-                                          default="⭐ {player_name} 发动「天星」！天幕降落！",
+                                          default="\u2b50 {player_name} 发动「天星」！天幕降落！",
                                           player_name=player.name)]
 
         # 对每个玩家造成1点伤害（无视克制）- 使用damage_resolver
@@ -73,7 +73,7 @@ class Star(BaseTalent):
             )
             
             damage_msg = prompt_manager.get_prompt("talent", "t3star.damage",
-                                                  default="   → {target_name} 受到 1.0 点伤害（无视克制） HP: {old_hp} → {new_hp}",
+                                                  default="   \u2192 {target_name} 受到 1.0 点伤害（无视克制） HP: {old_hp} \u2192 {new_hp}",
                                                   target_name=t.name, old_hp=old_hp, new_hp=t.hp)
             lines.append(damage_msg)
             
@@ -86,7 +86,7 @@ class Star(BaseTalent):
             t.is_petrified = True
             
             petrify_msg = prompt_manager.get_prompt("talent", "t3star.petrify",
-                                                   default="   → {target_name} 进入石化状态 🗿",
+                                                   default="   \u2192 {target_name} 进入石化状态 \U0001f5ff",
                                                    target_name=t.name)
             lines.append(petrify_msg)
 
@@ -95,31 +95,41 @@ class Star(BaseTalent):
                 player.kill_count += 1
                 self.state.markers.on_player_death(t.player_id)
                 death_msg = prompt_manager.get_prompt("talent", "t3star.death",
-                                                     default="   💀 {target_name} 被天星击杀！",
+                                                     default="   \U0001f480 {target_name} 被天星击杀！",
                                                      target_name=t.name)
                 lines.append(death_msg)
             elif result.get("stunned", False):
                 stun_msg = prompt_manager.get_prompt("talent", "t3star.stun",
-                                                    default="   💫 {target_name} 进入眩晕状态！",
+                                                    default="   \U0001f4ab {target_name} 进入眩晕状态！",
                                                     target_name=t.name)
                 lines.append(stun_msg)
 
-        # 对警察造成伤害+石化（警察使用简化处理）
-        for team in police_at_loc:
-            for cop in team.get_active_members():
-                cop.hp = max(0, cop.hp - 1.0)
-                if cop.hp <= 0:
-                    police_death_msg = prompt_manager.get_prompt("talent", "t3star.police_death",
-                                                                default="   → 警察{cop_id} 被天星击杀！",
-                                                                cop_id=cop.unit_id)
-                    lines.append(police_death_msg)
-                else:
-                    cop.is_stunned = True
-                    police_damage_msg = prompt_manager.get_prompt("talent", "t3star.police_damage",
-                                                                 default="   → 警察{cop_id} 受到1.0伤害+石化",
-                                                                 cop_id=cop.unit_id)
-                    lines.append(police_damage_msg)
-                # 警察石化标记（简化处理：设为眩晕+石化标记）
+        # 对警察造成伤害+石化（ver1.9：直接遍历PoliceUnit扁平列表）
+        for unit in police_at_loc:
+            if not unit.is_alive():
+                continue
+
+            # 使用PoliceUnit.take_damage()处理伤害
+            dmg_result = unit.take_damage(1.0, attacker_id=player.player_id)
+
+            if dmg_result["killed"]:
+                police_death_msg = prompt_manager.get_prompt(
+                    "talent", "t3star.police_death",
+                    default="   \u2192 警察{unit_id} 被天星击杀！HP: {old_hp} \u2192 0",
+                    unit_id=unit.unit_id, old_hp=dmg_result["old_hp"])
+                lines.append(police_death_msg)
+            else:
+                # 存活则施加石化
+                unit.is_petrified = True
+                police_damage_msg = prompt_manager.get_prompt(
+                    "talent", "t3star.police_damage",
+                    default="   \u2192 警察{unit_id} 受到1.0伤害+石化 HP: {old_hp} \u2192 {new_hp}",
+                    unit_id=unit.unit_id, old_hp=dmg_result["old_hp"], new_hp=dmg_result["new_hp"])
+                lines.append(police_damage_msg)
+
+        # 检查是否所有警察都死亡
+        if hasattr(self.state, 'police') and self.state.police:
+            self.state.police.check_all_dead()
 
         msg = "\n".join(lines)
         self.state.log_event("star", player=player.player_id)
