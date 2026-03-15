@@ -7,7 +7,7 @@ def execute(player, parsed, game_state):
     参数：
       player: 队长玩家
       parsed: 解析后的命令字典，包含：
-        subcommand: "move"/"equip"/"attack"
+        subcommand: "move"/"equip"/"attack"/"designate"
         police_id: 警察单位ID
         location/equipment/target: 根据子命令不同
       game_state: 游戏状态
@@ -57,4 +57,15 @@ def execute(player, parsed, game_state):
             police_id=police_id,  
             target_id=target  
         )  
+        return result, {}
+
+    # [Issue 8] designate 子命令
+    elif subcommand == "designate":
+        target = parsed.get("target")
+        if not target:
+            return "❌ 请指定执法目标", {}
+        result = police_engine.captain_designate_target(
+            captain_id=player.player_id,
+            target_id=target
+        )
         return result, {}
