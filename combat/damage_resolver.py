@@ -17,7 +17,11 @@ def _get_hologram_bonus(target, game_state):
     return 0
 
 def quantize_damage(damage):
-    """伤害量化规则"""
+    """伤害量化规则：
+    - damage <= 0 → 0
+    - 整数伤害 → 不变
+    - 有小数部分 → int_part + 0.5（即 <0.5 补足为0.5，>=0.5 截为0.5）
+    """
     if damage <= 0:
         return 0
     int_part = int(damage)
@@ -69,7 +73,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
 
     final_damage = quantize_damage(raw)
     result["final_damage"] = final_damage
-    result["success"] = True
     remaining = final_damage
 
     armor_piece = _select_armor_target(target, None, None)
@@ -86,8 +89,10 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                     armor_attr=armor_piece.attribute.value
                 )
                 result["details"].append(result["reason"])
+                result["success"] = False
+                result["final_damage"] = 0
                 return result
-        
+
         attack_target_text = prompt_manager.get_prompt(
             "combat", "attack_target_armor",
             default="攻击目标护甲：{armor_piece}"
@@ -95,6 +100,10 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         result["details"].append(attack_target_text.format(
             armor_piece=armor_piece
         ))
+
+    result["success"] = True
+
+    if armor_piece is not None:
         remaining = _apply_damage_to_armor(
             target, armor_piece, remaining,
             False, result,
@@ -171,6 +180,13 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 target_name=target.name
             ))
 
+    # ---- 愿负世：被攻击时积累神性 ----
+    if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
+        is_limited = False
+        if attacker and attacker.talent and hasattr(attacker.talent, 'uses_remaining'):
+            is_limited = True
+        target.talent.on_being_attacked(attacker, None, is_limited)
+
     return result
 
 
@@ -236,7 +252,7 @@ def resolve_damage(attacker, target, weapon, game_state,
     if attacker and attacker.talent:
         mod = attacker.talent.modify_outgoing_damage(attacker, target, weapon, weapon.get_effective_damage())
         if mod:
-            if mod.get("damage_multiplier_override"):
+            if "damage_multiplier_override" in mod:
                 damage_multiplier = mod["damage_multiplier_override"]
             if mod.get("ignore_counter"):
                 ignore_counter = True
@@ -344,6 +360,10 @@ def resolve_damage(attacker, target, weapon, game_state,
 
     result["target_hp"] = target.hp
 
+    # 记录攻击前的CC状态，用于后续电磁步枪震荡判定
+    pre_attack_stunned = getattr(target, 'is_stunned', False)
+    pre_attack_shocked = getattr(target, 'is_shocked', False)
+
     # ---- 第6步：眩晕/死亡判定 ----
     if target.hp <= 0:
         prevented = _talent_death_check(target, attacker, game_state)
@@ -403,7 +423,7 @@ def resolve_damage(attacker, target, weapon, game_state,
     # 注意：只有攻击成功且目标未死亡时才施加震荡
     if (weapon.special_tags and "stun_on_hit" in weapon.special_tags
             and result["success"] and not result["killed"]):
-        already_cc = getattr(target, 'is_stunned', False) or getattr(target, 'is_shocked', False)
+        already_cc = pre_attack_stunned or pre_attack_shocked
         if not already_cc:
             prevent_shock = False
             if target.talent and hasattr(target.talent, 'prevent_stun'):
@@ -467,10 +487,22 @@ def resolve_area_damage(attacker, weapon, location, game_state,
 def _select_armor_target(target, target_layer, target_armor_attr):
     """选择被攻击的护甲"""
     if target_layer is not None and target_armor_attr is not None:
-        piece = target.armor.get_piece(target_layer, target_armor_attr)
-        if piece:
-            return piece
+        # 校验：外层未全部击破时，不可选择攻击内层
+        if target_layer == ArmorLayer.INNER:
+            outer_active = target.armor.get_active(ArmorLayer.OUTER)
+            if outer_active:
+                # 外层仍有存活护甲，不允许直接攻击内层，回退到自动选择
+                pass  # fall through to auto-selection below
+            else:
+                piece = target.armor.get_piece(target_layer, target_armor_attr)
+                if piece:
+                    return piece
+        else:
+            piece = target.armor.get_piece(target_layer, target_armor_attr)
+            if piece:
+                return piece
 
+    # 自动选择：外层优先
     outer = target.armor.get_active(ArmorLayer.OUTER)
     if outer:
         outer.sort(key=lambda a: a.priority, reverse=True)
@@ -481,7 +513,8 @@ def _select_armor_target(target, target_layer, target_armor_attr):
     return None
 
 def _redirect_overflow_damage(target, broken_armor, overflow,
-                                 weapon_attribute, result):
+                                 weapon_attribute, result,
+                                 ignore_last_inner_absorb=False):
     """
     将溢出伤害重定向到其他护甲。
     遵循用户指定的规则：
@@ -492,40 +525,26 @@ def _redirect_overflow_damage(target, broken_armor, overflow,
     """
     from models.equipment import ArmorLayer
     import random
-    
-    is_outer = False
-    is_inner = False
-    
-    outer_list = target.armor.get_active(ArmorLayer.OUTER)
-    if broken_armor in outer_list:
-        is_outer = True
-    else:
-        inner_list = target.armor.get_active(ArmorLayer.INNER)
-        if broken_armor in inner_list:
-            is_inner = True
-        else:
-            if hasattr(broken_armor, 'layer'):
-                if broken_armor.layer == ArmorLayer.OUTER:
-                    is_outer = True
-                else:
-                    is_inner = True
-    
+
+    # broken_armor 已被标记为 is_broken，get_active() 不会包含它，
+    # 直接使用 broken_armor.layer 属性判断所属层
+    is_outer = (broken_armor.layer == ArmorLayer.OUTER)
+    is_inner = not is_outer
+
     candidates = []
-    
+
     if is_outer:
+        outer_list = target.armor.get_active(ArmorLayer.OUTER)
         for armor in outer_list:
-            if armor is not broken_armor and not armor.is_broken:
-                candidates.append((armor, "外层"))
+            candidates.append((armor, "外层"))
         if not candidates:
             inner_list = target.armor.get_active(ArmorLayer.INNER)
             for armor in inner_list:
-                if not armor.is_broken:
-                    candidates.append((armor, "内层"))
+                candidates.append((armor, "内层"))
     else:
         inner_list = target.armor.get_active(ArmorLayer.INNER)
         for armor in inner_list:
-            if armor is not broken_armor and not armor.is_broken:
-                candidates.append((armor, "内层"))
+            candidates.append((armor, "内层"))
     
     effective_candidates = []
     if weapon_attribute is None:
@@ -547,7 +566,7 @@ def _redirect_overflow_damage(target, broken_armor, overflow,
     
     return _apply_damage_to_armor(
         target, selected_armor, overflow,
-        False, result, weapon_attribute
+        ignore_last_inner_absorb, result, weapon_attribute
     )
 
 def _apply_damage_to_armor(target, armor_piece, damage,
@@ -582,7 +601,8 @@ def _apply_damage_to_armor(target, armor_piece, damage,
         else:
             return _redirect_overflow_damage(
                 target, armor_piece, overflow,
-                weapon_attribute, result
+                weapon_attribute, result,
+                ignore_last_inner_absorb
             )
     else:
         armor_piece.current_hp -= damage
