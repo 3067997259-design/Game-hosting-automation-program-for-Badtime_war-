@@ -79,10 +79,6 @@ class ArmorSlots:
         result.extend(self.get_active(ArmorLayer.INNER))
         return result
 
-    def get_all_pieces(self):
-        """get_all_active的别名，兼容"""
-        return self.get_all_active()
-
     def is_last_inner(self, piece):
         """判断某护甲是否是最后一件内层护甲"""
         if piece.layer != ArmorLayer.INNER:
@@ -167,6 +163,7 @@ class Player:
         return self.is_awake and self.location is not None
 
     def can_be_targeted(self):
+        # TODO: Replace scattered is_alive() + is_on_map() checks with this method
         return self.is_alive() and self.is_on_map()
 
     def get_d4_bonus(self):
@@ -174,6 +171,7 @@ class Player:
         if self.no_action_streak >= 3:
             bonus += min(self.no_action_streak - 2, 3)
         # 天赋加成
+        # 预留接口：未来天赋可实现 on_d4_bonus(player) 来修改D4加成
         if self.talent:
             talent_bonus = self.talent.on_d4_bonus(self) if hasattr(self.talent, 'on_d4_bonus') else 0
             bonus += talent_bonus
