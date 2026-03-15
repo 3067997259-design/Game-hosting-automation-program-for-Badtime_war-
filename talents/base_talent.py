@@ -54,6 +54,8 @@ class BaseTalent:
         返回T0阶段可用的天赋选项，None表示无。
         返回格式：{"name": 显示名, "description": 描述} 或 None
         """
+        if getattr(player, '_eternity_blocked', False):
+            return None
         return None
 
     def execute_t0(self, player):
