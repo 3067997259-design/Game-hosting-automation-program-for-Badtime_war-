@@ -43,7 +43,7 @@ def _check_electric_immunity(target):
 def _resolve_weaponless_damage(attacker, target, game_state, result,
                                 raw_damage, damage_attribute_str):
     """
-    无武器伤害结算（命运之诗等外部伤害源）。
+    无武器伤害结算（爱与记忆之诗等外部伤害源）。
     走护甲结算但不涉及武器天赋修正。
     """
     from utils.attribute import Attribute
@@ -206,7 +206,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         "details": [],
     }
 
-    # ======== 无武器模式（命运之诗等外部伤害源） ========
+    # ======== 无武器模式（爱与记忆之诗等外部伤害源） ========
     if weapon is None:
         return _resolve_weaponless_damage(
             attacker, target, game_state, result,

@@ -100,7 +100,11 @@ class ActionTurnManager:
         # ---- 天赋T0选项 ----
         # ══ BUG FIX：choice 变量未定义问题修复 ══
         if player.talent and player.is_awake:
-            t0_option = player.talent.get_t0_option(player)
+            # 永恒之诗增强：被拉入者禁用主动天赋
+            if getattr(player, '_eternity_blocked', False):
+                t0_option = None
+            else:
+                t0_option = player.talent.get_t0_option(player)
             if t0_option:
                 # 防御性兼容：字符串→字典
                 if isinstance(t0_option, str):

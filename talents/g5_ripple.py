@@ -29,7 +29,8 @@ class Ripple(BaseTalent):
 
     POEM_MAP = {
         "一刀缭断": "游侠",
-        "你给路打油": "游侠",
+        "你给路打油": "隐者",
+        "神话之外": "永恒",
         "天星": "群星",
         "朝阳好市民": "律法",
         "不良少年": "诡计",
@@ -1408,6 +1409,10 @@ class Ripple(BaseTalent):
 
         if poem_type == "游侠":
             msg = self._poem_ranger(target)
+        elif poem_type == "隐者":
+            msg = self._poem_hermit(target)
+        elif poem_type == "永恒":
+            msg = self._poem_eternity(target)
         elif poem_type == "群星":
             msg = self._poem_stars(target)
         elif poem_type == "律法":
@@ -1455,19 +1460,34 @@ class Ripple(BaseTalent):
                 "talent", "g5ripple.poem_ranger_oneslash_fallback",
                 default="⚔️ {target_name} 的一刀缭断已增强！+1次数。"
             ).format(target_name=target.name)
-        elif talent.name == "你给路打油":
-            if hasattr(talent, 'reset_all_triggers'):
-                talent.reset_all_triggers()
-            if hasattr(talent, 'max_global_triggers'):
-                talent.max_global_triggers += 2
-            return prompt_manager.get_prompt(
-                "talent", "g5ripple.poem_ranger_oiltheroad",
-                default="🛤️ {target_name} 的「你给路打油」所有地点触发重置，全局上限+2！"
-            ).format(target_name=target.name)
         return prompt_manager.get_prompt(
             "talent", "g5ripple.poem_ranger_default",
             default="效果已生效。"
         )
+
+    def _poem_hermit(self, target):
+        """献予「隐者」之诗：你给路打油增强"""
+        talent = target.talent
+        if hasattr(talent, 'reset_all_triggers'):
+            talent.reset_all_triggers()
+        if hasattr(talent, 'max_global_triggers'):
+            talent.max_global_triggers += 2
+        return prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_ranger_oiltheroad",
+            default="🛤️ {target_name} 的「你给路打油」所有地点触发重置，全局上限+2！"
+        ).format(target_name=target.name)
+
+    def _poem_eternity(self, target):
+        """献予「永恒」之诗：神话之外增强——被拉入者不能发动主动天赋"""
+        talent = target.talent
+        if hasattr(talent, 'poem_eternity_enhanced'):
+            talent.poem_eternity_enhanced = True
+        else:
+            talent.poem_eternity_enhanced = True
+        return prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_eternity",
+            default="🌀 {target_name} 的「神话之外」被涟漪增强！\n  幻想乡展开后，被拉入的玩家不允许发动所有可主动发动的天赋。"
+        ).format(target_name=target.name)
 
     def _poem_stars(self, target):
         talent = target.talent
