@@ -50,8 +50,63 @@ def _check_barrier_block(player, action_type, game_state):
         return reason
     return None
 
+def _is_police_crime_blocked(player, parsed, game_state):
+    """[Issue 5] 检查警察成员（非队长）是否因犯罪限制被阻止执行该行动。
+    README 10.8.1: 加入警察后不能犯罪，违法条目视为不允许执行。"""
+    if not getattr(player, 'is_police', False) or getattr(player, 'is_captain', False):
+        return None  # 非警察或队长不受限制
+
+    action = parsed.get("action")
+
+    # 1. 攻击其他玩家 = 犯罪
+    if action == "attack":
+        target_str = parsed.get("target", "")
+        if target_str:
+            return "你是警察成员，不能执行违法行为（伤害其他玩家/攻击警察）"
+
+    # 2. 无凭证购物/手术
+    if action == "interact":
+        item = parsed.get("item", "")
+        if getattr(player, 'location', '') == "商店" and not getattr(player, 'has_voucher', False):
+            return "你是警察成员，不能执行违法行为（无凭证购物）"
+        if getattr(player, 'location', '') == "医院" and item == "手术" and not getattr(player, 'has_voucher', False):
+            return "你是警察成员，不能执行违法行为（无凭证手术）"
+
+    # 3. 朝阳好市民扩展条目（检查是否有朝阳好市民天赋生效）
+    has_citizen_talent = False
+    for pid in game_state.player_order:
+        p = game_state.get_player(pid)
+        if p and p.talent and getattr(p.talent, 'name', '') == '朝阳好市民':
+            has_citizen_talent = True
+            break
+
+    if has_citizen_talent:
+        if action == "move":
+            dest = parsed.get("destination", "")
+            # 进入其他玩家的家
+            for p in game_state.players:
+                if p.player_id != player.player_id:
+                    home = getattr(p, 'home_location', f"{p.name}的家")
+                    if dest == home:
+                        return "你是警察成员，不能执行违法行为（进入他人住宅）"
+            # 进入军事基地
+            if dest == "军事基地":
+                return "你是警察成员，不能执行违法行为（进入军事基地）"
+
+        # 释放病毒
+        if action == "special" and parsed.get("operation") == "释放病毒":
+            return "你是警察成员，不能执行违法行为（释放病毒）"
+
+    return None
+
+
 def validate(parsed, player, game_state):
     action = parsed.get("action")
+
+    # [Issue 5] 警察成员犯罪限制前置检查
+    crime_block = _is_police_crime_blocked(player, parsed, game_state)
+    if crime_block:
+        return False, crime_block
 
     if action == "wake":
         return validate_wake(player)
@@ -387,14 +442,12 @@ def validate_track_guide(player, game_state):
     barrier_msg = _check_barrier_block(player, "track_guide", game_state)
     if barrier_msg:
         return False, barrier_msg
+    # [Issue 11] 使用can_track_guide代替不存在的is_tracking属性
     if not game_state.police_engine:
         return False, "警察系统未初始化"
-    police = game_state.police
-    if police.reporter_id != player.player_id:
-        return False, "只有举报者才能指引追踪"
-    tracking = any(unit.is_tracking for unit in police.units if unit.is_alive())
-    if not tracking:
-        return False, "当前没有警队在追踪中"
+    can, reason = game_state.police_engine.can_track_guide(player.player_id)
+    if not can:
+        return False, reason
     return True, ""
 
 def validate_recruit(player, game_state):
