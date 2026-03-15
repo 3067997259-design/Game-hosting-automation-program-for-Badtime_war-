@@ -2110,8 +2110,7 @@ class BasicAIController(PlayerController):
         situation = {
             "is_captain": False,
             "police_count": 0,
-            "individual_units": [],
-            "teams": [],
+            "units": [],  # 统一警察单位列表（ver1.9新模型）
             "captain_id": None,
             "authority": 0,
             "report_phase": None,

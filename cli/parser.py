@@ -97,10 +97,6 @@ def parse(raw_input, player_id):
             return None
         return {"action": "designate", "target": parts[1]}
 
-    # ---- 队长拆分 ----
-    if cmd in ("split", "拆分"):
-        team_id = parts[1] if len(parts) >= 2 else "alpha"
-        return {"action": "split", "team": team_id}
 
     # ---- 研究性学习 ----
     if cmd in ("study", "研究", "研究性学习"):
@@ -149,6 +145,10 @@ def parse(raw_input, player_id):
             target = parts[3]
             return {"action": "police_command", "subcommand": "attack",
                     "police_id": police_id, "target": target}
+        elif sub_cmd == "wake":
+            # police wake <police_id> - 唤醒处于debuff状态的警察单位
+            return {"action": "police_command", "subcommand": "wake",
+                    "police_id": police_id}
         else:
             return None
 

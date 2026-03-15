@@ -110,7 +110,7 @@ def _get_police_actions(player, game_state):
 
     # 追踪指引（举报者、有警队在追踪）
     if police.reporter_id == player.player_id:
-        tracking = any(t.is_tracking for t in police.teams if not t.is_eliminated())
+        tracking = any(unit.is_tracking for unit in police.units if unit.is_alive())
         if tracking:
             actions.append({
                 "name": "追踪指引", "usage": "track",
@@ -143,13 +143,6 @@ def _get_police_actions(player, game_state):
             "description": "指定警察执法目标",
         })
 
-        active_teams = [t for t in police.teams if not t.is_eliminated()]
-        if len(active_teams) < police.max_teams and police.splits_this_round < 1:
-            team_ids = ", ".join(t.team_id for t in active_teams)
-            actions.append({
-                "name": "拆分警队", "usage": "split <警队ID>",
-                "description": f"拆分警队。可选：{team_ids}",
-            })
 
         if player.location == "警察局":
             actions.append({

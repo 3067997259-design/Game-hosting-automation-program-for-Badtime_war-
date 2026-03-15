@@ -79,8 +79,6 @@ def validate(parsed, player, game_state):
         return validate_election(player, game_state)
     elif action == "designate":
         return validate_designate(player, parsed.get("target"), game_state)
-    elif action == "split":
-        return validate_split(player, game_state)
     elif action == "study":
         return validate_study(player, game_state)
     elif action == "police_command":
@@ -361,7 +359,7 @@ def validate_track_guide(player, game_state):
     police = game_state.police
     if police.reporter_id != player.player_id:
         return False, "只有举报者才能指引追踪"
-    tracking = any(t.is_tracking for t in police.teams if not t.is_eliminated())
+    tracking = any(unit.is_tracking for unit in police.units if unit.is_alive())
     if not tracking:
         return False, "当前没有警队在追踪中"
     return True, ""
@@ -419,22 +417,6 @@ def validate_designate(player, target_str, game_state):
         return False, f"{target_str} 已死亡"
     return True, ""
 
-def validate_split(player, game_state):
-    if not player.is_awake:
-        return False, "你还没起床！"
-    if not player.is_captain:
-        return False, "只有队长才能拆分警队"
-    # 结界限制
-    barrier_msg = _check_barrier_block(player, "split", game_state)
-    if barrier_msg:
-        return False, barrier_msg
-    police = game_state.police
-    active = [t for t in police.teams if not t.is_eliminated()]
-    if len(active) >= police.max_teams:
-        return False, f"警队数量已达上限（{police.max_teams}支）"
-    if police.splits_this_round >= 1:
-        return False, "本轮已拆分过一次"
-    return True, ""
 
 def validate_study(player, game_state):
     if not player.is_awake:
@@ -468,7 +450,12 @@ def validate_police_command(player, parsed, game_state):
     police_id = parsed.get("police_id")
     if not subcommand or not police_id:
         return False, "命令格式错误"
-    # 基本验证：警察单位是否存在（具体验证由警察引擎执行）
+    # 基本验证：警察单位是否存在
+    police = game_state.police
+    unit = police.get_unit(police_id)
+    if not unit:
+        return False, f"找不到警察单位 {police_id}"
+    # 具体验证由警察引擎执行
     return True, ""
 
 

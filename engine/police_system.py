@@ -151,20 +151,34 @@ class PoliceEngine:
     # ============================================  
     #  追踪指引  
     # ============================================  
-  
+
+    # [FIX] 重写 can_track_guide：不再依赖不存在的 is_tracking 属性
+    # 追踪指引的前提：有存活的警察单位不在目标所在地点
     def can_track_guide(self, player_id):  
         """检查是否可以执行追踪指引"""  
         if self.police.permanently_disabled:  
             return False, "警察系统已永久关闭"  
         if self.police.reporter_id != player_id:  
             return False, "只有举报者可以执行追踪指引"  
-        # 检查是否有警察在追踪中  
-        tracking_units = [u for u in self.police.alive_units()  
-                          if u.is_tracking]  
-        if not tracking_units:  
-            return False, "没有正在追踪的警察单位"  
+        if self.police.report_phase not in ("assembled", "dispatched"):
+            return False, "警察尚未集结完成"
+
+        target_id = self.police.reported_target_id
+        target = self.state.get_player(target_id)
+        if not target or not target.is_alive():
+            return False, "执法目标已不存在"
+
+        # 检查是否有存活的警察单位不在目标位置（即需要追踪的单位）
+        units_needing_track = [
+            u for u in self.police.alive_units()
+            if u.is_on_map() and u.location != target.location
+        ]
+        if not units_needing_track:  
+            return False, "所有警察单位已在目标位置，无需追踪指引"  
         return True, ""  
-  
+
+    # [FIX] 重写 do_track_guide：不再使用 is_tracking / tracking_countdown / can_attack_this_round
+    # 方式A：举报者花1回合指引 → 警察立刻到达目标位置，本轮可攻击
     def do_track_guide(self, player_id):  
         """举报者花1回合指引追踪 → 警察立刻到达目标位置"""  
         ok, reason = self.can_track_guide(player_id)  
@@ -176,99 +190,48 @@ class PoliceEngine:
         if not target or not target.is_alive():  
             return "❌ 执法目标已不存在"  
   
-        # 所有追踪中的警察立刻到达目标位置  
+        # [FIX] 所有不在目标位置的存活警察单位立刻到达
+        guided_units = []
         for unit in self.police.alive_units():  
-            if unit.is_tracking:  
+            if unit.is_on_map() and unit.location != target.location:
                 unit.location = target.location  
-                unit.is_tracking = False  
-                unit.tracking_countdown = 0  
-                unit.can_attack_this_round = True  # 方式A：本轮可攻击  
+                guided_units.append(unit.unit_id)
+
+        if self.police.report_phase == "assembled":
+            self.police.report_phase = "dispatched"
   
         self.state.log_event("track_guide", reporter=player_id, target=target_id)  
-        return f"🔍 追踪指引成功！警察已到达 {target.name} 所在地点 {target.location}。"  
-    
+        guided_str = "、".join(guided_units)
+        return f"🔍 追踪指引成功！{guided_str} 已到达 {target.name} 所在地点 {target.location}，本轮可执行攻击。"
+
     def _dispatch_police(self):  
-            """警察出动：移动到目标位置，建立面对面"""  
-            target_id = self.police.reported_target_id  
-            target = self.state.get_player(target_id)  
-            if not target or not target.is_alive():  
-                self.police.report_phase = "idle"  
-                return "🚔 执法目标已不存在，警察撤回。"  
-    
-            target_loc = target.location  
-    
-            # 移动所有存活警察单位到目标位置  
-            for unit in self.police.alive_units():  
-                unit.location = target_loc  
-    
-            self.police.report_phase = "dispatched"  
-            self.state.log_event("police_dispatch", target=target_id, location=target_loc)  
-            return f"🚔 警察出动！已抵达{target_loc}，与{target.name}面对面！"
+        """警察出动：移动到目标位置"""  
+        target_id = self.police.reported_target_id  
+        target = self.state.get_player(target_id)  
+        if not target or not target.is_alive():  
+            self.police.report_phase = "idle"  
+            return "🚔 执法目标已不存在，警察撤回。"  
   
+        target_loc = target.location  
+  
+        # 移动所有存活警察单位到目标位置  
+        for unit in self.police.alive_units():  
+            unit.location = target_loc  
+  
+        self.police.report_phase = "dispatched"  
+        self.state.log_event("police_dispatch", target=target_id, location=target_loc)  
+        return f"🚔 警察出动！已抵达{target_loc}，与{target.name}面对面！"
+
     # ============================================  
     #  执法攻击（轮末结算）  
     # ============================================  
-  
-    def _get_enforcement_target(self):  
-        """获取当前执法目标"""  
-        # 队长指定目标优先  
-        for unit in self.police.alive_units():  
-            if unit.enforcement_target:  
-                return unit.enforcement_target  
-        # 否则用举报目标  
-        return self.police.reported_target_id  
-  
-    def _enforcement_attack(self):  
-        """轮末执法攻击结算"""  
-        messages = []  
-        target_id = self._get_enforcement_target()  
-        if not target_id:  
-            return messages  
-  
-        target = self.state.get_player(target_id)  
-        if not target or not target.is_alive():  
-            return messages  
-  
-        for unit in self.police.active_units():  
-            if unit.location != target.location:  
-                continue  
-            # 方式B追踪到达的单位本轮不攻击  
-            if hasattr(unit, 'can_attack_this_round') and not unit.can_attack_this_round:  
-                unit.can_attack_this_round = True  # 下轮可以攻击了  
-                messages.append(f"🚔 {unit.unit_id} 刚到达，本轮不执行攻击。")  
-                continue  
-  
-            # 执行攻击  
-            weapon = make_weapon(unit.weapon_name)  
-            if not weapon:  
-                weapon = make_weapon("警棍")  
-            if weapon is None:  
-                return  
-  
-            # 高斯步枪强制不蓄力  
-            if weapon.name == "高斯步枪" and weapon.requires_charge:  
-                weapon.is_charged = False  
-  
-            result = self._resolve_police_attack_on_player(weapon, target)  
-            messages.append(f"🚔 {unit.unit_id} 对 {target.name} 执法攻击 → {result}")  
-  
-            # 威信检查：攻击从未犯过法的玩家  
-# 在 _enforcement_attack 的循环中，攻击成功后：  
-            if not self.police.is_criminal(target_id):  
-                self.police.authority -= 1  
-                self.police.last_innocent_attacked = target_id  
-                messages.append(f"⚠️ 攻击无辜者！威信-1（当前：{self.police.authority}）")  
-                if self.police.authority <= 0:  
-                    zero_msg = self._on_authority_zero()  
-                    messages.append(zero_msg)  
-                    break  # 威信归零后停止所有执法
-  
-            # 记录最后被攻击的无辜者（用于威信归零时）  
-            if not self.police.is_criminal(target_id):  
-                self.police.last_innocent_attacked = target_id  
-  
-        return messages  
-  
+
+    # [FIX] 删除 _get_enforcement_target：不再依赖不存在的 unit.enforcement_target
+    # 直接使用 self.police.reported_target_id（队长通过 captain_designate_target 已设置）
+
+    # [FIX] 删除旧的 _enforcement_attack 方法（从未被调用，且内部引用不存在的属性）
+    # 其功能已完全由 process_end_of_round 的阶段3实现
+
     def _resolve_police_attack_on_player(self, weapon, target):  
         """  
         警察对玩家的攻击结算。  
@@ -570,12 +533,12 @@ class PoliceEngine:
         self.state.markers.add(player.player_id, "IS_CAPTAIN")  
         self._on_captain_elected()  
   
-    
+  
   
     # ============================================  
     #  队长指令：指定目标  
     # ============================================  
-  
+
 
   
     # ============================================  
@@ -660,9 +623,11 @@ class PoliceEngine:
     # ============================================  
     #  队长指令：命令攻击  
     # ============================================  
-  
 
-    
+  
+    # [FIX] captain_attack 不再调用 _resolve_police_attack_on_target（该方法内部已做威信检查），
+    # 改为调用 _resolve_police_attack_on_player 以避免双重扣威信。
+    # 威信检查统一在 captain_attack 外层做。
     def captain_attack(self, captain_id, police_id, target_id):  
         """队长命令一个警察单位攻击指定目标（实际执行）"""  
         if self.police.captain_id != captain_id:  
@@ -682,8 +647,19 @@ class PoliceEngine:
         if unit.location != target.location:  
             return f"❌ {police_id} 与 {target.name} 不在同一地点（{police_id}在{unit.location}，目标在{target.location}）"  
   
-        # 执行攻击  
-        result = self._resolve_police_attack_on_target(unit, target)  
+        # [FIX] 构建武器并直接用 _resolve_police_attack_on_player 结算
+        weapon = make_weapon(unit.weapon_name)
+        if not weapon:
+            weapon = make_weapon("警棍")
+        if weapon is None:
+            return f"⚠️ {unit.unit_id} 无法创建武器，攻击取消"
+
+        # 高斯步枪强制不蓄力
+        if weapon.name == "高斯步枪" and weapon.requires_charge:
+            weapon.is_charged = False
+
+        atk_result = self._resolve_police_attack_on_player(weapon, target)
+        result = f"🚔 {unit.unit_id} 对 {target.name} 执法攻击（{weapon.name}）→ {atk_result}"
   
         # 威信检查：攻击从未犯过法的玩家  
         if not self.police.is_criminal(target_id):  
@@ -836,48 +812,48 @@ class PoliceEngine:
     # ============================================  
   
     def process_poem_law_effect(self, target_player_id):  
-            """  
-            [已废弃] 献予律法之诗的效果现在由 g5_ripple._poem_law() 直接处理。  
-            保留此方法仅为向后兼容。  
-            """  
-            return "⚠️ 请通过 _poem_law() 调用新版逻辑。"
-  
+        """  
+        [已废弃] 献予律法之诗的效果现在由 g5_ripple._poem_law() 直接处理。  
+        保留此方法仅为向后兼容。  
+        """  
+        return "⚠️ 请通过 _poem_law() 调用新版逻辑。"
+
     # ============================================  
     #  辅助方法  
     # ============================================  
   
     def summon_police_unit(self, location):  
-            """  
-            召唤一个新的默认装备警察单位到指定位置。  
-            用于献予律法之诗的朝阳好市民特殊效果。  
-            如果警察系统已永久禁用，同时解除禁用。  
-            """  
-            from models.police import PoliceUnit  
-    
-            # 生成新ID  
-            existing_ids = {u.unit_id for u in self.police.units}  
-            new_id = None  
-            for i in range(1, 10):  
-                candidate = f"police{i}"  
-                if candidate not in existing_ids:  
-                    new_id = candidate  
-                    break  
-            if not new_id:  
-                new_id = f"police{len(self.police.units) + 1}"  
-    
-            # 创建新单位（默认装备：警棍+盾牌）  
-            new_unit = PoliceUnit(new_id)  
-            new_unit.location = location  
-            self.police.units.append(new_unit)  
-    
-            # 解除永久禁用  
-            if self.police.permanently_disabled:  
-                self.police.permanently_disabled = False  
-    
-            self.state.log_event("police_summoned", unit_id=new_id, location=location)  
-            return f"🚔 新警察单位 {new_id} 在 {location} 被召唤！（默认装备：警棍+盾牌）"    
-    
-    
+        """  
+        召唤一个新的默认装备警察单位到指定位置。  
+        用于献予律法之诗的朝阳好市民特殊效果。  
+        如果警察系统已永久禁用，同时解除禁用。  
+        """  
+        from models.police import PoliceUnit  
+  
+        # 生成新ID  
+        existing_ids = {u.unit_id for u in self.police.units}  
+        new_id = None  
+        for i in range(1, 10):  
+            candidate = f"police{i}"  
+            if candidate not in existing_ids:  
+                new_id = candidate  
+                break  
+        if not new_id:  
+            new_id = f"police{len(self.police.units) + 1}"  
+  
+        # 创建新单位（默认装备：警棍+盾牌）  
+        new_unit = PoliceUnit(new_id)  
+        new_unit.location = location  
+        self.police.units.append(new_unit)  
+  
+        # 解除永久禁用  
+        if self.police.permanently_disabled:  
+            self.police.permanently_disabled = False  
+  
+        self.state.log_event("police_summoned", unit_id=new_id, location=location)  
+        return f"🚔 新警察单位 {new_id} 在 {location} 被召唤！（默认装备：警棍+盾牌）"    
+  
+  
     def _reset_enforcement(self):  
         """重置执法状态，所有存活单位返回警察局"""  
         self.police.report_phase = "idle"  
@@ -924,110 +900,112 @@ class PoliceEngine:
             return barrier.is_in_barrier(player_id)  
         return False
 
+    # [FIX] _resolve_police_attack_on_target 保留，但移除内部的威信检查逻辑
+    # 威信检查统一由调用方负责（captain_attack 或 process_end_of_round）
     def _resolve_police_attack_on_target(self, unit, target):  
-            """  
-            单个警察单位对玩家目标执行一次攻击。  
-            返回结果消息字符串。  
-            """  
-            weapon = make_weapon(unit.weapon_name)  
-            if not weapon:  
-                weapon = make_weapon("警棍")  
-            if weapon is None:  
-                return f"⚠️ {unit.unit_id} 无法创建武器，攻击取消"  
-    
-            # 高斯步枪强制不蓄力  
-            if weapon.name == "高斯步枪" and weapon.requires_charge:  
-                weapon.is_charged = False  
-    
-            # 使用 resolve_damage 进行伤害结算  
-            result = resolve_damage(  
-                attacker=None,      # 警察不是玩家  
-                target=target,  
-                weapon=weapon,  
-                game_state=self.state,  
-            )  
-    
-            # 构建消息  
-            msg_parts = [f"🚔 {unit.unit_id} 对 {target.name} 执法攻击（{weapon.name}）"]  
-            if result.get("success"):  
-                msg_parts.append(f"  → 造成 {result.get('final_damage', 0)} 伤害")  
-                if result.get("armor_hit"):  
-                    msg_parts.append(f"  → 命中护甲：{result['armor_hit']}")  
-                if result.get("armor_broken"):  
-                    msg_parts.append(f"  → 护甲被击破！")  
-                if result.get("killed"):  
-                    msg_parts.append(f"  → 💀 {target.name} 被击杀！")  
-                elif result.get("stunned"):  
-                    msg_parts.append(f"  → 💫 {target.name} 陷入眩晕！")  
-            else:  
-                reason = result.get("reason", "未知原因")  
-                msg_parts.append(f"  → 攻击无效：{reason}")  
-    
-            # 威信检查：攻击无辜者  
-            target_id = target.player_id  
-            if not self.police.is_criminal(target_id):  
-                self.police.authority -= 1  
-                self.police.last_innocent_attacked = target_id  
-                msg_parts.append(f"  ⚠️ 攻击无辜者！威信-1（当前：{self.police.authority}）")  
-                if self.police.authority <= 0:  
-                    zero_msg = self._on_authority_zero()  
-                    msg_parts.append(zero_msg)  
-    
-            return "\n".join(msg_parts)
-    
+        """  
+        单个警察单位对玩家目标执行一次攻击。  
+        返回结果消息字符串。  
+        注意：此方法不做威信检查，由调用方负责。
+        """  
+        weapon = make_weapon(unit.weapon_name)  
+        if not weapon:  
+            weapon = make_weapon("警棍")  
+        if weapon is None:  
+            return f"⚠️ {unit.unit_id} 无法创建武器，攻击取消"  
+  
+        # 高斯步枪强制不蓄力  
+        if weapon.name == "高斯步枪" and weapon.requires_charge:  
+            weapon.is_charged = False  
+  
+        # 使用 resolve_damage 进行伤害结算  
+        result = resolve_damage(  
+            attacker=None,      # 警察不是玩家  
+            target=target,  
+            weapon=weapon,  
+            game_state=self.state,  
+        )  
+  
+        # 构建消息  
+        msg_parts = [f"🚔 {unit.unit_id} 对 {target.name} 执法攻击（{weapon.name}）"]  
+        if result.get("success"):  
+            msg_parts.append(f"  → 造成 {result.get('final_damage', 0)} 伤害")  
+            if result.get("armor_hit"):  
+                msg_parts.append(f"  → 命中护甲：{result['armor_hit']}")  
+            if result.get("armor_broken"):  
+                msg_parts.append(f"  → 护甲被击破！")  
+            if result.get("killed"):  
+                msg_parts.append(f"  → 💀 {target.name} 被击杀！")  
+            elif result.get("stunned"):  
+                msg_parts.append(f"  → 💫 {target.name} 陷入眩晕！")  
+        else:  
+            reason = result.get("reason", "未知原因")  
+            msg_parts.append(f"  → 攻击无效：{reason}")  
+  
+        # [FIX] 移除此处的威信检查，由调用方统一处理
+
+        return "\n".join(msg_parts)
+
+    # [FIX] 重写 process_end_of_round：
+    # - 移除 _just_arrived 临时属性，改用局部 set 追踪本轮刚到达的单位
+    # - 阶段3中统一做威信检查
     def process_end_of_round(self):  
-            """  
-            全局轮次结束时的警察系统结算。  
-            按顺序处理：出动 → 追踪到达 → 执法攻击。  
-            """  
-            if self.police.permanently_disabled:  
-                return []  
-    
-            messages = []  
-    
-            # 阶段1：如果处于"assembled"状态，执行出动  
-            if self.police.report_phase == "assembled":  
-                dispatch_msg = self._dispatch_police()  
-                if dispatch_msg:  
-                    messages.append(dispatch_msg)  
-                self.police.report_phase = "dispatched"  
-    
-            # 阶段2：处理追踪中的警察（方式B：自动赶到目标位置，本轮不攻击）  
-            target_id = self.police.reported_target_id  
-            if target_id:  
-                target = self.state.get_player(target_id)  
-                if target and target.is_alive():  
-                    for unit in self.police.alive_units():  
-                        if unit.is_on_map() and unit.location != target.location:  
-                            # 标记为"刚到达"，本轮不攻击（方式B）  
-                            if not hasattr(unit, '_just_arrived'):  
-                                unit._just_arrived = False  
-                            if unit.location is not None and unit.location != target.location:  
-                                unit.location = target.location  
-                                unit._just_arrived = True  
-                                messages.append(  
-                                    f"🚔 {unit.unit_id} 追踪到达 {target.location}"  
-                                )  
-    
-            # 阶段3：执法攻击（只有已在目标位置且非"刚到达"的单位才攻击）  
-            if self.police.report_phase == "dispatched" and target_id:  
-                target = self.state.get_player(target_id)  
-                if target and target.is_alive():  
-                    for unit in self.police.active_units():  
-                        if unit.location == target.location:  
-                            # 方式B的单位本轮不攻击  
-                            just_arrived = getattr(unit, '_just_arrived', False)  
-                            if just_arrived:  
-                                unit._just_arrived = False  
-                                continue  
-                            atk_msg = self._resolve_police_attack_on_target(unit, target)  
-                            messages.append(atk_msg)  
-                            # 威信归零后停止  
-                            if self.police.authority <= 0 and self.police.has_captain():  
-                                break  
-    
-            # 阶段4：检查全灭  
-            if self.police.check_all_dead():  
-                messages.append("⚠️ 所有警察单位已被消灭！警察局所有交互永久禁用。")  
-    
-            return messages
+        """  
+        全局轮次结束时的警察系统结算。  
+        按顺序处理：出动 → 追踪到达 → 执法攻击。  
+        """  
+        if self.police.permanently_disabled:  
+            return []  
+  
+        messages = []  
+        # [FIX] 用局部集合代替临时属性 _just_arrived
+        just_arrived_ids = set()
+
+        # 阶段1：如果处于"assembled"状态，执行出动  
+        if self.police.report_phase == "assembled":  
+            dispatch_msg = self._dispatch_police()  
+            if dispatch_msg:  
+                messages.append(dispatch_msg)  
+            # [FIX] 不再重复设置 report_phase，_dispatch_police 内部已设置  
+  
+        # 阶段2：处理追踪中的警察（方式B：自动赶到目标位置，本轮不攻击）  
+        target_id = self.police.reported_target_id  
+        if target_id:  
+            target = self.state.get_player(target_id)  
+            if target and target.is_alive():  
+                for unit in self.police.alive_units():  
+                    if unit.is_on_map() and unit.location != target.location:  
+                        # 方式B：自动赶到，标记为刚到达  
+                        unit.location = target.location  
+                        just_arrived_ids.add(unit.unit_id)
+                        messages.append(  
+                            f"🚔 {unit.unit_id} 追踪到达 {target.location}（方式B，本轮不攻击）"  
+                        )  
+  
+        # 阶段3：执法攻击（只有已在目标位置且非"刚到达"的单位才攻击）  
+        if self.police.report_phase == "dispatched" and target_id:  
+            target = self.state.get_player(target_id)  
+            if target and target.is_alive():  
+                for unit in self.police.active_units():  
+                    if unit.location == target.location:  
+                        # [FIX] 方式B的单位本轮不攻击，用局部集合判断
+                        if unit.unit_id in just_arrived_ids:
+                            continue  
+                        atk_msg = self._resolve_police_attack_on_target(unit, target)  
+                        messages.append(atk_msg)  
+
+                        # [FIX] 威信检查统一在这里做（因为 _resolve_police_attack_on_target 不再检查）
+                        if not self.police.is_criminal(target_id):
+                            self.police.authority -= 1
+                            self.police.last_innocent_attacked = target_id
+                            messages.append(f"  ⚠️ 攻击无辜者！威信-1（当前：{self.police.authority}）")
+                            if self.police.authority <= 0 and self.police.has_captain():
+                                zero_msg = self._on_authority_zero()
+                                messages.append(zero_msg)
+                                break  # 威信归零后停止所有执法
+
+        # 阶段4：检查全灭  
+        if self.police.check_all_dead():  
+            messages.append("⚠️ 所有警察单位已被消灭！警察局所有交互永久禁用。")  
+  
+        return messages
