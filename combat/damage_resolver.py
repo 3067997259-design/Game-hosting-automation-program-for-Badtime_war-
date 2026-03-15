@@ -71,6 +71,18 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         damage=raw, attribute=damage_attribute_str
     ))
 
+    # ---- 全息影像：目标在影像内额外+0.5 ----
+    hologram_bonus = _get_hologram_bonus(target, game_state)
+    if hologram_bonus > 0:
+        raw += hologram_bonus
+        hologram_text = prompt_manager.get_prompt(
+            "combat", "hologram_vulnerability",
+            default="👁️ 全息影像易伤：+{hologram_bonus}"
+        )
+        result["details"].append(hologram_text.format(
+            hologram_bonus=hologram_bonus
+        ))
+
     final_damage = quantize_damage(raw)
     result["final_damage"] = final_damage
     remaining = final_damage
