@@ -111,8 +111,8 @@ def _get_police_actions(player, game_state):
     # 追踪指引（举报者、有警察在追踪中）
     # ver1.9: 使用police_engine的can_track_guide方法
     if police.reporter_id == player.player_id:
-        tracking = any(unit.is_tracking for unit in police.units if unit.is_alive())
-        if tracking:
+        can_track, _ = pe.can_track_guide(player.player_id)
+        if can_track:
             actions.append({
                 "name": "追踪指引", "usage": "track",
                 "description": "指引警察追踪目标（立刻到达）",

@@ -58,3 +58,10 @@ def execute(player, parsed, game_state):
             target_id=target  
         )  
         return result, {}
+    
+    elif subcommand == "wake":
+        result = police_engine.wake_police(
+            player_id=player.player_id,
+            police_id=police_id
+        )
+        return result, {}

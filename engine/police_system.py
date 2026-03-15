@@ -660,6 +660,15 @@ class PoliceEngine:
 
         atk_result = self._resolve_police_attack_on_player(weapon, target)
         result = f"🚔 {unit.unit_id} 对 {target.name} 执法攻击（{weapon.name}）→ {atk_result}"
+
+        # 威信检查：攻击从未犯过法的玩家  
+        if not self.police.is_criminal(target_id):  
+            self.police.authority -= 1  
+            self.police.last_innocent_attacked = target_id  
+            result += f"\n⚠️ 攻击无辜者！威信-1（当前：{self.police.authority}）"  
+            if self.police.authority <= 0:  
+                zero_msg = self._on_authority_zero()  
+                result += "\n" + zero_msg  
   
         self.state.log_event("captain_attack", captain=captain_id,  
                              police=police_id, target=target_id)  

@@ -366,6 +366,19 @@ class ActionTurnManager:
                     context={"phase": "T1", "situation": "recruit_pick_2"}
                 )
                 # ══ CONTROLLER 改动结束 ══
+                # 实际发放奖励
+                from models.equipment import make_weapon as _mw, make_armor as _ma
+                for choice in [choice1, choice2]:
+                    if choice == "购买凭证":
+                        player.vouchers += 1
+                    elif choice == "警棍":
+                        w = _mw("警棍")
+                        if w:
+                            player.add_weapon(w)
+                    elif choice == "盾牌":
+                        a = _ma("盾牌")
+                        if a:
+                            player.add_armor(a)
                 msg += f"\n选择了：{choice1}、{choice2}"
             return msg, "recruit"
 

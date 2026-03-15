@@ -392,9 +392,9 @@ def validate_track_guide(player, game_state):
     police = game_state.police
     if police.reporter_id != player.player_id:
         return False, "只有举报者才能指引追踪"
-    tracking = any(unit.is_tracking for unit in police.units if unit.is_alive())
-    if not tracking:
-        return False, "当前没有警队在追踪中"
+    can_track, reason = game_state.police_engine.can_track_guide(player.player_id)
+    if not can_track:
+        return False, reason
     return True, ""
 
 def validate_recruit(player, game_state):
