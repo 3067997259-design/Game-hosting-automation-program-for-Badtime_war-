@@ -1,4 +1,4 @@
-"""行动注册表（Phase 3 完整版）：新增警察相关行动"""
+"""行动注册表（Phase 3 完整版 - ver1.9适配新警察模型）"""
 
 from actions import move, interact, special_op
 from models.equipment import WeaponRange
@@ -78,7 +78,7 @@ def get_available_actions(player, game_state):
 
 
 def _get_police_actions(player, game_state):
-    """获取当前可用的警察相关行动"""
+    """获取当前可用的警察相关行动 - ver1.9适配新警察模型"""
     actions = []
     pe = game_state.police_engine
     if not pe:
@@ -108,7 +108,8 @@ def _get_police_actions(player, game_state):
             "description": "集结警察出动",
         })
 
-    # 追踪指引（举报者、有警队在追踪）
+    # 追踪指引（举报者、有警察在追踪中）
+    # ver1.9: 使用police_engine的can_track_guide方法
     if police.reporter_id == player.player_id:
         tracking = any(unit.is_tracking for unit in police.units if unit.is_alive())
         if tracking:
@@ -134,6 +135,21 @@ def _get_police_actions(player, game_state):
         actions.append({
             "name": "竞选队长", "usage": "election",
             "description": f"竞选进度：{progress}/3",
+        })
+
+    # 唤醒警察（ver1.9新增：任何玩家可唤醒同地点处于debuff的警察单位）
+    wakeable_units = []
+    for unit in police.alive_units():
+        if unit.is_disabled() and unit.location == player.location:
+            # 检查沉沦+全息影像限制
+            if unit.is_submerged and pe._is_in_hologram_range(unit.location):
+                continue  # 沉沦且在全息影像范围内，不可唤醒
+            wakeable_units.append(unit)
+    if wakeable_units:
+        unit_ids = ", ".join(u.unit_id for u in wakeable_units)
+        actions.append({
+            "name": "唤醒警察", "usage": "wake <警察ID>",
+            "description": f"可唤醒：{unit_ids}",
         })
 
     # 队长专属

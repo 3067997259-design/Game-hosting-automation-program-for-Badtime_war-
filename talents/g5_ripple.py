@@ -38,7 +38,7 @@ class Ripple(BaseTalent):
         "火萤Ⅳ型-完全燃烧": "纷争",
         "请一直，注视着我": "追光",
         "愿负世，照拂黎明": "负世",
-        "往世的涟漪": "命运",
+        "往世的涟漪": "爱与记忆",
     }
 
     def __init__(self, player_id, game_state):
@@ -1424,7 +1424,7 @@ class Ripple(BaseTalent):
             msg = self._poem_light(target)
         elif poem_type == "负世":
             msg = self._poem_bear(target)
-        elif poem_type == "命运":
+        elif poem_type == "爱与记忆":
             msg = self._poem_destiny(caster)
         else:
             msg = prompt_manager.get_prompt(
@@ -1708,13 +1708,13 @@ class Ripple(BaseTalent):
             talent.enhance_by_ripple()
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_light_enhanced",
-                default="👁️ {target_name} 的「请一直，注视着我」增强！\n   持续时间-1轮 | 易伤+1.0 | 可用次数+1"
+                default="👁️ {target_name} 的「请一直，注视着我」增强！\n   易伤+1.0 | 可用次数+1"
             ).format(target_name=target.name)
         else:
             talent.ripple_enhanced = True
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_light_fallback",
-                default="👁️ {target_name} 的全息影像已增强！\n   DM请手动调整效果。"
+                default="👁️ {target_name} 的全息影像已增强！\n"
             ).format(target_name=target.name)
 
     def _poem_bear(self, target):  
@@ -1748,7 +1748,7 @@ class Ripple(BaseTalent):
     
     def _poem_destiny(self, caster):
         """
-        献予「命运」之诗（自身）
+        献予「爱与记忆」之诗（自身）
         选4个单体单位，各受1点伤害（科技/普通/魔法/无视属性克制各一次）
         """
         DAMAGE_TYPES = ["科技", "普通", "魔法", "无视属性克制"]
@@ -1757,7 +1757,7 @@ class Ripple(BaseTalent):
         display.show_info(
             prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_destiny_header",
-                default="\n🌊 献予「命运」之诗！\n   选择4个单体单位（可重复），分别承受：\n   科技/普通/魔法/无视属性克制 各1点伤害\n   四种类型必须各使用一次。"
+                default="\n🌊 献予「爱与记忆」之诗！\n   选择4个单体单位（可重复），分别承受：\n   科技/普通/魔法/无视属性克制 各1点伤害\n   四种类型必须各使用一次。"
             )
         )
 
@@ -1794,7 +1794,7 @@ class Ripple(BaseTalent):
         # 执行伤害
         lines = [prompt_manager.get_prompt(
             "talent", "g5ripple.poem_destiny_settlement_header",
-            default="\n🌊 命运之诗——伤害结算："
+            default="\n🌊 爱与记忆之诗——伤害结算："
         )]
 
         for target, dtype in damage_assignments:
@@ -1838,9 +1838,9 @@ class Ripple(BaseTalent):
                 self.state.markers.on_player_death(target.player_id)
                 lines.append(prompt_manager.get_prompt(
                     "talent", "g5ripple.poem_destiny_killed",
-                    default="   💀 {target_name} 被命运之诗击杀！"
+                    default="   💀 {target_name} 被爱与记忆之诗击杀！"
                 ).format(target_name=target.name))
-                display.show_death(target.name, "命运之诗")
+                display.show_death(target.name, "爱与记忆之诗")
             elif stunned:
                 if not target.is_stunned:
                     target.is_stunned = True

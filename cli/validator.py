@@ -1,5 +1,5 @@
 """
-合法性校验器（Phase 3 完整版）
+合法性校验器（Phase 3 完整版 - ver1.9适配）
 """
 
 from actions.move import get_all_valid_locations
@@ -55,6 +55,8 @@ def validate(parsed, player, game_state):
 
     if action == "wake":
         return validate_wake(player)
+    elif action == "wake_police":
+        return validate_wake_police(player, parsed.get("police_id"), game_state)
     elif action == "move":
         return validate_move(player, parsed.get("destination"), game_state)
     elif action == "interact":
@@ -98,6 +100,36 @@ def validate(parsed, player, game_state):
 def validate_wake(player):
     if player.is_awake:
         return False, "你已经起床了！"
+    return True, ""
+
+def validate_wake_police(player, police_id, game_state):
+    """校验唤醒警察操作 - 对应README 10.7节
+    条件：玩家与处于debuff的警察单位在同一地点，不需要找到步骤"""
+    if not player.is_awake:
+        return False, "你还没起床！"
+    ok, reason = _check_not_disabled(player, game_state)
+    if not ok:
+        return False, reason
+    if police_id is None:
+        return False, "请指定要唤醒的警察单位ID。用法：wake <警察ID>"
+    if not game_state.police_engine:
+        return False, "警察系统未初始化"
+    police = game_state.police
+    if police.permanently_disabled:
+        return False, "警察系统已永久关闭"
+    unit = police.get_unit(police_id)
+    if not unit:
+        return False, f"找不到警察单位「{police_id}」"
+    if not unit.is_alive():
+        return False, f"{police_id} 已被击杀，无法唤醒"
+    if not unit.is_disabled():
+        return False, f"{police_id} 没有处于需要唤醒的状态"
+    if unit.location != player.location:
+        return False, f"你与 {police_id} 不在同一地点"
+    # 沉沦+全息影像限制
+    if unit.is_submerged:
+        if game_state.police_engine._is_in_hologram_range(unit.location):
+            return False, f"{police_id} 处于沉沦状态且在全息影像范围内，无法被唤醒"
     return True, ""
 
 def validate_move(player, destination, game_state):
@@ -300,7 +332,7 @@ def validate_special(player, op_name, game_state):
 
 
 # ============================================
-#  警察相关校验（全部加结界拦截）
+#  警察相关校验（全部加结界拦截）- ver1.9适配
 # ============================================
 
 def validate_report(player, target_str, game_state):
@@ -345,6 +377,7 @@ def validate_assemble(player, game_state):
     return True, ""
 
 def validate_track_guide(player, game_state):
+    """校验追踪指引 - ver1.9适配新警察模型"""
     if not player.is_awake:
         return False, "你还没起床！"
     ok, reason = _check_not_disabled(player, game_state)
@@ -376,7 +409,7 @@ def validate_recruit(player, game_state):
         return False, barrier_msg
     if not game_state.police_engine:
         return False, "警察系统未初始化"
-    can, reason = game_state.police_engine.can_join_police(player.player_id)
+    can, reason = game_state.police_engine.can_recruit(player.player_id)
     if not can:
         return False, reason
     return True, ""
@@ -393,7 +426,7 @@ def validate_election(player, game_state):
         return False, barrier_msg
     if not game_state.police_engine:
         return False, "警察系统未初始化"
-    can, reason = game_state.police_engine.can_start_election(player.player_id)
+    can, reason = game_state.police_engine.can_election(player.player_id)
     if not can:
         return False, reason
     return True, ""

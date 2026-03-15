@@ -116,7 +116,7 @@
       "expire_police_recover": " 👮 警察小队解除「沉沦」，恢复行动！",
       "expire_disengage": " 📎 {player1_name} 与 {player2_name} 的面对面关系解除。",
       "expire_lock_clear": " 📎 锁定关系解除。",
-      "ripple_enhance": "👁️ {name} 的全息影像被涟漪增强！易伤+1（替代+0.5）| 可用次数+1（注意：下次展开持续时间-1轮=2轮）"
+      "ripple_enhance": "👁️ {name} 的全息影像被涟漪增强！易伤+1（替代+0.5）| 可用次数+1 "
     },
     "g3mythland": {
       "lore": [
@@ -262,8 +262,8 @@
       "poem_shore": "💀✨ {target_name} 的「死者苏生」增强！\n 复活后可获得全游戏任意一件物品或法术\n （不含扩展/天赋物品，不含抽象权能）",
       "poem_strife_immediate_action": "🔥 {target_name} 获得一次立刻行动！",
       "poem_strife_completion": "🔥 {target_name} 完成立刻行动！\n 获得特殊物品「炽愿」（可抵扣1次debuff效果结算）",
-      "poem_light_enhanced": "👁️ {target_name} 的「请一直，注视着我」增强！\n 持续时间-1轮 | 易伤+1.0 | 可用次数+1",
-      "poem_light_fallback": "👁️ {target_name} 的全息影像已增强！\n DM请手动调整效果。",
+      "poem_light_enhanced": "👁️ {target_name} 的「请一直，注视着我」增强！\n 易伤+1.0 | 可用次数+1",
+      "poem_light_fallback": "👁️ {target_name} 的全息影像已增强！\n ",
       "poem_bear": "🌅 {target_name} 的「愿负世」增强！\n 额外+2神性（当前：{divinity}）\n 新增：可花1回合主动启动（启动后获1额外行动）\n 被动触发时再+2神性",
       "poem_destiny_header": "\n🌊 献予「命运」之诗！\n 选择4个单体单位（可重复），分别承受：\n 科技/普通/魔法/无视属性克制 各1点伤害\n 四种类型必须各使用一次。",
       "poem_destiny_no_targets": "❌ 没有存活的目标。",

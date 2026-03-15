@@ -1,4 +1,4 @@
-"""命令解析器（Phase 3 完整版）"""
+"""命令解析器（Phase 3 完整版 - ver1.9适配）"""
 
 
 def parse(raw_input, player_id):
@@ -11,7 +11,19 @@ def parse(raw_input, player_id):
 
     # ---- 起床 ----
     if cmd in ("wake", "起床", "w"):
+        # 区分唤醒警察和自己起床
+        if len(parts) >= 2:
+            target = parts[1].lower()
+            # 如果第二个参数看起来像警察ID，则解析为唤醒警察
+            if target.startswith("police") or target.startswith("警察"):
+                return {"action": "wake_police", "police_id": parts[1]}
         return {"action": "wake"}
+
+    # ---- 唤醒警察（专用命令） ----
+    if cmd in ("wake_police", "唤醒警察", "唤醒"):
+        if len(parts) < 2:
+            return None
+        return {"action": "wake_police", "police_id": parts[1]}
 
     # ---- 移动 ----
     if cmd in ("move", "移动", "m", "go"):
@@ -22,7 +34,6 @@ def parse(raw_input, player_id):
             dest = f"home_{player_id}"
         return {"action": "move", "destination": dest}
 
-    # ---- 交互 ----
     # ---- 交互 ----
     if cmd in ("interact", "交互", "i", "get", "拿", "学", "做", "买"):
         if len(parts) < 2:
