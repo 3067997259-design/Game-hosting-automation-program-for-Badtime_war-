@@ -124,7 +124,8 @@
         "「这个世界也不例外，在时空的尽头，正有这么一方天地，正在静静流淌」",
         "「它漠视九重天下的人子—不歌颂他们的伟大，也不嗤笑他们的挣扎。」"
       ],
-      "activate": "「神代天赋3：神话之外」{player_name}展开「遗世独立的幻想乡」..."
+      "activate": "「神代天赋3：神话之外」{player_name}展开「遗世独立的幻想乡」...",
+      "eternity_talent_blocked": "  🌀✨ 永恒之诗生效：{actor_name} 无法发动主动天赋！"
     },
     "g4savior": {
       "lore": [
@@ -265,13 +266,14 @@
       "poem_light_enhanced": "👁️ {target_name} 的「请一直，注视着我」增强！\n 易伤+1.0 | 可用次数+1",
       "poem_light_fallback": "👁️ {target_name} 的全息影像已增强！\n ",
       "poem_bear": "🌅 {target_name} 的「愿负世」增强！\n 额外+2神性（当前：{divinity}）\n 新增：可花1回合主动启动（启动后获1额外行动）\n 被动触发时再+2神性",
-      "poem_destiny_header": "\n🌊 献予「命运」之诗！\n 选择4个单体单位（可重复），分别承受：\n 科技/普通/魔法/无视属性克制 各1点伤害\n 四种类型必须各使用一次。",
+      "poem_eternity": "🌀 {target_name} 的「神话之外」被涟漪增强！\n  幻想乡展开后，被拉入的玩家不允许发动所有可主动发动的天赋。",
+      "poem_destiny_header": "\n🌊 献予「爱与记忆」之诗！\n 选择4个单体单位（可重复），分别承受：\n 科技/普通/魔法/无视属性克制 各1点伤害\n 四种类型必须各使用一次。",
       "poem_destiny_no_targets": "❌ 没有存活的目标。",
       "poem_destiny_damage_selection": "\n 选择承受「{damage_type}」1点伤害的目标：",
-      "poem_destiny_settlement_header": "\n🌊 命运之诗——伤害结算：",
+      "poem_destiny_settlement_header": "\n🌊 爱与记忆之诗——伤害结算：",
       "poem_destiny_target_dead": " → {target_name}（{damage_type}）：目标已死亡，跳过。",
       "poem_destiny_damage_result": " → {target_name}（{damage_type}）： HP {old_hp} → {new_hp}",
-      "poem_destiny_killed": " 💀 {target_name} 被命运之诗击杀！",
+      "poem_destiny_killed": " 💀 {target_name} 被爱与记忆之诗击杀！",
       "poem_destiny_stunned": " 💫 {target_name} 进入眩晕！",
       "death_check_during_anchor": "\n🌊💀 {player_name} 在锚定期间死亡！\n 锚定立即失败，无法回溯复活。",
       "barrier_end_resume": "🌊▶️ 结界已结束，{caster_name} 的锚定监控恢复（剩余{remaining_rounds}轮）",

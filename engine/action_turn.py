@@ -41,7 +41,7 @@ class ActionTurnManager:
             self.state.markers.on_stun_recover(player.player_id)
             display.show_info(f"{player.name} 从眩晕中苏醒！HP恢复至 {player.hp}")
 
-        # ---- 天赋被动T0（如萤火0.5血自愈）----
+        # ---- 天赋被动T0（如萤火0.5血自愈） ----
         if player.talent and hasattr(player.talent, 'on_turn_start'):
             player.talent.on_turn_start(player)
 
@@ -100,7 +100,11 @@ class ActionTurnManager:
         # ---- 天赋T0选项 ----
         # ══ BUG FIX：choice 变量未定义问题修复 ══
         if player.talent and player.is_awake:
-            t0_option = player.talent.get_t0_option(player)
+            # 永恒之诗增强：被拉入者禁用主动天赋
+            if getattr(player, '_eternity_blocked', False):
+                t0_option = None
+            else:
+                t0_option = player.talent.get_t0_option(player)
             if t0_option:
                 # 防御性兼容：字符串→字典
                 if isinstance(t0_option, str):
@@ -249,7 +253,7 @@ class ActionTurnManager:
             )
             # ══ CONTROLLER 结束 ══
 
-            # ---- 查看类指令（不消耗行动）----
+            # ---- 查看类指令（不消耗行动） ----
             raw_lower = raw.strip().lower()
             if raw_lower == "help":
                 display.show_help()
@@ -436,14 +440,8 @@ class ActionTurnManager:
         if "missile" in weapon.special_tags:
             self.state.markers.remove(player.player_id, "MISSILE_CTRL")
 
-        if (weapon.weapon_range == WeaponRange.MELEE
-                and result.get("success") and player.is_invisible):
-            engaged = self.state.markers.has_relation(
-                player.player_id, "ENGAGED_WITH", target_id)
-            if engaged:
-                self.state.markers.on_engaged_melee_attack_by_invisible(
-                    player.player_id, target_id)
-                msg += f"\n   ⚠️ {player.name} 因面对面近战暂时暴露！"
+        if result.get("stealth_suppressed"):
+            msg += f"\n   ⚠️ {player.name} 因面对面近战暂时暴露！"
 
         target = self.state.get_player(target_id)
         if result.get("killed") and target:

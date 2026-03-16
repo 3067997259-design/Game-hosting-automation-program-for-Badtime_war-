@@ -342,128 +342,109 @@ class PoliceAISimulation:
         print(f"    📝 记录攻击警察行为到文件")
     
     def _show_police_status(self, game_state):
-        """显示警察状态"""
+        """[Issue 13] 显示警察状态（使用当前PoliceData模型）"""
         if not hasattr(game_state, 'police') or not game_state.police:
             print("    当前无警察系统数据")
             return
-        
+
         police = game_state.police
         print("    👮 警察系统状态：")
-        
+
         # 队长信息
-        if hasattr(police, 'captain_id') and police.captain_id:
+        if police.captain_id:
             captain = None
             for player in game_state.players:
                 if player.player_id == police.captain_id:
                     captain = player
                     break
             if captain:
-                authority = getattr(police, 'captain_authority', 'N/A')
-                print(f"      队长: {captain.name} (威信: {authority})")
+                print(f"      队长: {captain.name} (威信: {police.authority})")
         else:
             print("      队长: 无")
-        
-        # 警察数量
-        total_police = 0
-        if hasattr(police, 'teams'):
-            for team in police.teams:
-                alive = len([p for p in team.members if getattr(p, 'hp', 0) > 0]) if hasattr(team, 'members') else 0
-                total_police += alive
-                location = getattr(team, 'location', '未知')
-                print(f"      警队: {team.team_id} - 存活: {alive} - 位置: {location}")
-        
-        # 独立警察
-        if hasattr(police, 'individual_units'):
-            for unit in police.individual_units:
-                if getattr(unit, 'hp', 0) > 0:
-                    total_police += 1
-                    location = getattr(unit, 'location', '未知')
-                    weapon = getattr(unit, 'weapon_name', '警棍')
-                    print(f"      独立警察: {unit.unit_id} - 位置: {location} - 武器: {weapon}")
-        
-        print(f"      总计存活警察: {total_police}")
-        
+
+        # 警察单位
+        total_police = len(police.units)
+        alive_police = len(police.alive_units())
+        print(f"      总计警察: {total_police}, 存活: {alive_police}")
+
+        for unit in police.units:
+            if unit.is_alive():
+                location = unit.location if unit.location else "不在地图上"
+                weapon = unit.weapon_name
+                status = "可行动" if unit.is_active() else "debuff中"
+                print(f"      {unit.unit_id} - 位置: {location} - 武器: {weapon} - {status}")
+
         # 举报状态
-        if hasattr(police, 'report_phase') and police.report_phase != 'idle':
-            target_id = getattr(police, 'reported_target_id', '未知')
-            print(f"      举报状态: {police.report_phase} - 目标: {target_id}")
+        if police.report_phase != 'idle':
+            print(f"      举报状态: {police.report_phase} - 目标: {police.reported_target_id}")
     
     def _show_simulation_summary(self, game_state):
-        """显示模拟总结"""
+        """[Issue 13] 显示模拟总结（使用当前PoliceData模型）"""
         print("\n" + "=" * 70)
         print("📊 警察系统AI博弈模拟总结")
         print("=" * 70)
-        
+
         # 玩家状态
         print("\n👥 玩家状态:")
         for i, player in enumerate(game_state.players):
             status = "存活" if player.is_alive() else "死亡"
             location = getattr(player, 'location', '未知')
             hp = getattr(player, 'hp', 0)
-            
-            # 犯罪记录
-            crime_count = getattr(player, 'crime_record', 0)
+
+            # 犯罪记录（从police.crime_records获取）
+            crime_count = 0
+            if hasattr(game_state, 'police') and game_state.police:
+                crimes_set = game_state.police.crime_records.get(player.player_id, set())
+                crime_count = len(crimes_set)
             crimes = f"犯罪{crime_count}次" if crime_count > 0 else "无犯罪"
-            
+
             # 击杀数
             kills = getattr(player, 'kill_count', 0)
-            
+
             print(f"  {i+1}. {player.name} ({status}) - HP: {hp} - 位置: {location}")
             print(f"     击杀: {kills} - {crimes}")
-        
+
         # 警察系统总结
         print("\n👮 警察系统总结:")
         if hasattr(game_state, 'police') and game_state.police:
             police = game_state.police
-            
+
             # 警察存活情况
-            total_police = 0
-            alive_police = 0
-            
-            if hasattr(police, 'teams'):
-                for team in police.teams:
-                    for cop in getattr(team, 'members', []):
-                        total_police += 1
-                        if getattr(cop, 'hp', 0) > 0:
-                            alive_police += 1
-            
-            if hasattr(police, 'individual_units'):
-                for unit in police.individual_units:
-                    total_police += 1
-                    if getattr(unit, 'hp', 0) > 0:
-                        alive_police += 1
-            
+            total_police = len(police.units)
+            alive_police = len(police.alive_units())
+
             print(f"  警察总数: {total_police}")
             print(f"  存活警察: {alive_police}")
             print(f"  被击杀警察: {total_police - alive_police}")
-            
+
             # 队长信息
-            if hasattr(police, 'captain_id') and police.captain_id:
+            if police.captain_id:
                 captain_name = "未知"
                 for player in game_state.players:
                     if player.player_id == police.captain_id:
                         captain_name = player.name
                         break
-                authority = getattr(police, 'captain_authority', 'N/A')
-                print(f"  当前队长: {captain_name} (威信: {authority})")
+                print(f"  当前队长: {captain_name} (威信: {police.authority})")
             else:
                 print(f"  当前队长: 无")
-            
-            # 犯罪统计
-            if hasattr(police, 'crime_records'):
-                crimes = len(police.crime_records)
-                police_crimes = [c for c in police.crime_records if c.get('crime') == '攻击执法单位']
-                print(f"  总犯罪记录: {crimes}")
-                print(f"  攻击警察记录: {len(police_crimes)}")
+
+            # 犯罪统计（crime_records是dict: player_id -> set）
+            total_crime_players = sum(1 for pid, crimes in police.crime_records.items() if crimes)
+            attack_police_count = sum(
+                1 for pid, crimes in police.crime_records.items()
+                if "攻击警察" in crimes
+            )
+            print(f"  有犯罪记录的玩家数: {total_crime_players}")
+            print(f"  攻击警察记录: {attack_police_count}")
         else:
             print("  警察系统未启用")
-        
+
         # 天赋使用情况
         print("\n🎯 天赋使用情况:")
         for i, (name, talent) in enumerate(zip(self.player_names, self.selected_talents)):
             used = "未知"  # 实际中需要从游戏状态获取
             print(f"  {name}: {talent} ({used})")
-        
+
         print("\n📈 关键指标:")
         # 从日志文件读取攻击警察的次数
         try:
@@ -474,7 +455,7 @@ class PoliceAISimulation:
                 print(f"  最后一次攻击: {attacks[-1].strip()}")
         except FileNotFoundError:
             print("  攻击警察次数: 0")
-        
+
         print("\n✅ 模拟完成！")
 
 
