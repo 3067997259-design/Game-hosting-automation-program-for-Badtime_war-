@@ -996,7 +996,7 @@ class BasicAIController(PlayerController):
                           available: List[str]) -> List[str]:
         """
         Bug6修复核心：根据武器类型检查前置条件
-        - 近战：需要 ENGAGED_WITH → 没有则先 find
+        - 近战：需要 ENGAGED_WITH → 没有则先find
         - 远程：需要 LOCKED_BY → 没有则先 lock
         - 区域：检查同地点有目标
         """
@@ -1005,7 +1005,7 @@ class BasicAIController(PlayerController):
         weapon_range = self._get_weapon_range(weapon)
 
         if weapon_range == "melee":
-            # 近战：需要先 find（建立 ENGAGED_WITH）
+            # 近战：需要先 find（建立ENGAGED_WITH）
             is_engaged = False
             if markers and hasattr(markers, 'has_relation'):
                 is_engaged = markers.has_relation(
@@ -1022,13 +1022,13 @@ class BasicAIController(PlayerController):
                         if target_loc and "move" in available:
                             commands.append(f"move {target_loc}")
                         commands.append(f"find {target.name}")
-                    return commands
+                        return commands
                 else:
-                    return commands  # find 不可用
+                    return commands# find 不可用
 
-            # 已 ENGAGED_WITH，可以攻击
+            # 已ENGAGED_WITH，可以攻击
             if "attack" in available:
-                layer, attr = self._pick_attack_layer(self,player,target)
+                layer, attr = self._pick_attack_layer(player, target, weapon)
                 commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
             return commands
 
@@ -1048,7 +1048,7 @@ class BasicAIController(PlayerController):
 
             # 已 LOCKED_BY，可以攻击
             if "attack" in available:
-                layer, attr = self._pick_attack_layer(target, weapon)
+                layer, attr = self._pick_attack_layer(player, target, weapon)
                 commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
             return commands
 
@@ -1057,14 +1057,14 @@ class BasicAIController(PlayerController):
             if "attack" in available:
                 same_loc_targets = self._get_same_location_targets(player, state)
                 if same_loc_targets:
-                    layer, attr = self._pick_attack_layer(target, weapon)
+                    layer, attr = self._pick_attack_layer(player, target, weapon)
                     commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
             return commands
 
         else:
             # 未知类型，按近战处理
             if "attack" in available:
-                layer, attr = self._pick_attack_layer(target, weapon)
+                layer, attr = self._pick_attack_layer(player, target, weapon)
                 commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
             return commands
 
@@ -1435,8 +1435,8 @@ class BasicAIController(PlayerController):
         sorted_weapons = sorted(weapons, key=lambda w: self._get_weapon_damage(w), reverse=True)
         return sorted_weapons[0]
 
-    def _pick_attack_layer(self, player, target, weapon) -> str:
-        """选择攻击层：外层/内层/hp"""
+    def _pick_attack_layer(self, player, target, weapon) -> tuple:
+        """选择攻击层和属性，返回 (layer, attr)"""
         from models.equipment import ArmorLayer
         from utils.attribute import Attribute
         
@@ -1448,20 +1448,15 @@ class BasicAIController(PlayerController):
             inner_active = armor.get_active(ArmorLayer.INNER)
         
         w_attr = weapon.attribute if weapon else Attribute.ORDINARY
+        # 属性字符串（用于命令）
+        attr_str = w_attr.value if hasattr(w_attr, 'value') else str(w_attr)
         
         if outer_active:
-            # 外层未全部击破时，不可选择攻击内层
-            # 检查是否有能有效打击的外层护甲
-            from utils.attribute import is_effective
-            for a in outer_active:
-                if is_effective(w_attr, a.attribute):
-                    return "外层"
-            # 所有外层都克制我，仍然只能打外层
-            return "外层"
+            return ("外层", attr_str)
         elif inner_active:
-            return "内层"
+            return ("内层", attr_str)
         else:
-            return "hp"
+            return ("hp", attr_str)
 
     def _pick_counter_attr(self, target_armor_attr) -> 'Attribute':
         """根据目标护甲属性，选择克制它的武器属性"""
@@ -1624,7 +1619,7 @@ class BasicAIController(PlayerController):
         commands = []
         if "talent_activate" in available:
             # 在发育完成后使用
-            if self._is_development_complete(player):
+            if self._is_development_complete(player, state):
                 commands.append("talent_activate")
         return commands
 
@@ -2166,6 +2161,11 @@ class BasicAIController(PlayerController):
 
     def get_debug_info(self, player) -> dict:
         """获取AI调试信息"""
+        # _is_development_complete 需要 state，这里用缓存的 _game_state
+        dev_complete = False
+        if player and self._game_state:
+            dev_complete = self._is_development_complete(player, self._game_state)
+        
         return {
             "personality": self.personality,
             "phase": self._current_phase,
@@ -2174,12 +2174,11 @@ class BasicAIController(PlayerController):
             "in_combat": self._in_combat,
             "combat_target": self._combat_target,
             "been_attacked_by": list(self._been_attacked_by),
-            "virus_active": self._virus_active,
-                        "last_commands": self._last_commands[:],
+            "virus_active": getattr(self, '_virus_active', False),
+            "last_commands": self._last_commands[:],
             "police_cache": self._police_cache,
-            "development_complete": self._is_development_complete(player) if player else False,
-        }
-
+            "development_complete": dev_complete,}
+    
     def __repr__(self) -> str:
         return (f"BasicAIController(personality={self.personality}, "
                 f"phase={self._current_phase}, round={self._round_number})")
