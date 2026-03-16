@@ -817,7 +817,7 @@ def test_group_4(T):
         assert r.reminiscence == 24
 
     def test_poem_destiny_self():
-        """献予命运之诗（自身4次伤害）"""
+        """献予爱与记忆之诗（自身4次伤害）"""
         gs, ps = make_test_env(4)
         r = T['Ripple']("p0", gs)
         ps[0].talent = r
@@ -888,7 +888,7 @@ def test_group_4(T):
         assert getattr(b, 'can_active_start', False) == True
 
     run_test("献诗取消", test_poem_cancel)
-    run_test("命运之诗（自身伤害）", test_poem_destiny_self)
+    run_test("爱与记忆之诗（自身伤害）", test_poem_destiny_self)
     run_test("阴阳之诗（六爻增强）", test_poem_hexagram)
     run_test("负世之诗", test_poem_bearworld)
 
@@ -1571,7 +1571,7 @@ def test_group_12(T):
         assert r.anchor_active == False
 
     def test_resolve_damage_all_four_types():
-        """命运之诗场景：四种属性各一次"""
+        """爱与记忆之诗场景：四种属性各一次"""
         gs, ps = make_test_env(5)
         types = ["科技", "普通", "魔法", "无视属性克制"]
         for i, dtype in enumerate(types):

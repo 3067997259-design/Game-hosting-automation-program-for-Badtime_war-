@@ -66,6 +66,7 @@ class GameState:
         return [p for p in self.players.values() if p.is_alive()]
 
     def awake_alive_players(self):
+        # TODO: Use this in D4 phase and other places that need awake+alive filtering
         return [p for p in self.players.values()
                 if p.is_alive() and p.is_awake]
 
@@ -82,12 +83,21 @@ class GameState:
         return None
 
     def log_event(self, event_type, **kwargs):
-        self.event_log.append({
+        event = {
             "round": self.current_round,
             "phase": self.current_phase,
             "type": event_type,
             **kwargs
-        })
+        }
+        self.event_log.append(event)
+        # 广播事件到所有玩家控制器
+        for pid in self.player_order:
+            p = self.get_player(pid)
+            if p and hasattr(p, 'controller') and p.controller:
+                try:
+                    p.controller.on_event(event)
+                except Exception:
+                    pass  # 不让控制器错误影响游戏流程
 
     @property
     def response_window(self):

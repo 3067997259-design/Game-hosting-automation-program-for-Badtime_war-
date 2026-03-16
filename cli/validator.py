@@ -50,8 +50,63 @@ def _check_barrier_block(player, action_type, game_state):
         return reason
     return None
 
+def _is_police_crime_blocked(player, parsed, game_state):
+    """[Issue 5] 检查警察成员（非队长）是否因犯罪限制被阻止执行该行动。
+    README 10.8.1: 加入警察后不能犯罪，违法条目视为不允许执行。"""
+    if not getattr(player, 'is_police', False) or getattr(player, 'is_captain', False):
+        return None  # 非警察或队长不受限制
+
+    action = parsed.get("action")
+
+    # 1. 攻击其他玩家 = 犯罪
+    if action == "attack":
+        target_str = parsed.get("target", "")
+        if target_str:
+            return "你是警察成员，不能执行违法行为（伤害其他玩家/攻击警察）"
+
+    # 2. 无凭证购物/手术
+    if action == "interact":
+        item = parsed.get("item", "")
+        if getattr(player, 'location', '') == "商店" and not getattr(player, 'has_voucher', False):
+            return "你是警察成员，不能执行违法行为（无凭证购物）"
+        if getattr(player, 'location', '') == "医院" and item == "手术" and not getattr(player, 'has_voucher', False):
+            return "你是警察成员，不能执行违法行为（无凭证手术）"
+
+    # 3. 朝阳好市民扩展条目（检查是否有朝阳好市民天赋生效）
+    has_citizen_talent = False
+    for pid in game_state.player_order:
+        p = game_state.get_player(pid)
+        if p and p.talent and getattr(p.talent, 'name', '') == '朝阳好市民':
+            has_citizen_talent = True
+            break
+
+    if has_citizen_talent:
+        if action == "move":
+            dest = parsed.get("destination", "")
+            # 进入其他玩家的家
+            for p in game_state.players:
+                if p.player_id != player.player_id:
+                    home = getattr(p, 'home_location', f"{p.name}的家")
+                    if dest == home:
+                        return "你是警察成员，不能执行违法行为（进入他人住宅）"
+            # 进入军事基地
+            if dest == "军事基地":
+                return "你是警察成员，不能执行违法行为（进入军事基地）"
+
+        # 释放病毒
+        if action == "special" and parsed.get("operation") == "释放病毒":
+            return "你是警察成员，不能执行违法行为（释放病毒）"
+
+    return None
+
+
 def validate(parsed, player, game_state):
     action = parsed.get("action")
+
+    # [Issue 5] 警察成员犯罪限制前置检查
+    crime_block = _is_police_crime_blocked(player, parsed, game_state)
+    if crime_block:
+        return False, crime_block
 
     if action == "wake":
         return validate_wake(player)
@@ -146,6 +201,11 @@ def validate_move(player, destination, game_state):
         return False, f"「{destination}」不是有效地点。可用：{', '.join(valid)}"
     if destination == player.location:
         return False, "你已经在这里了！"
+    # 军事基地：无通行证时提示可强买或花回合办理
+    if destination == "军事基地" and not player.has_military_pass:
+        if player.vouchers >= 1:
+            pass  # 允许移动，到达后在 move.execute 中提供强买选项
+        # 无凭证也允许移动，到达后需花回合办理通行证
     return True, ""
 
 def validate_interact(player, item_name, game_state):
@@ -196,6 +256,11 @@ def validate_lock(player, target_str, game_state):
         target_id, player.player_id, player.has_detection)
     if not visible:
         return False, f"{target.name} 对你不可见"
+
+    # 探测能力发现隐身目标：添加 DETECTED_BY 关系
+    if player.has_detection and game_state.markers.has(target_id, "INVISIBLE"):
+        game_state.markers.on_player_detected(player.player_id, target_id)
+
     already = game_state.markers.has_relation(
         target_id, "LOCKED_BY", player.player_id)
     if already:
@@ -236,6 +301,11 @@ def validate_find(player, target_str, game_state):
         target_id, player.player_id, player.has_detection)
     if not visible:
         return False, f"{target.name} 对你不可见"
+
+    # 探测能力发现隐身目标：添加 DETECTED_BY 关系
+    if player.has_detection and game_state.markers.has(target_id, "INVISIBLE"):
+        game_state.markers.on_player_detected(player.player_id, target_id)
+
     already = game_state.markers.has_relation(
         player.player_id, "ENGAGED_WITH", target_id)
     if already:
@@ -387,6 +457,7 @@ def validate_track_guide(player, game_state):
     barrier_msg = _check_barrier_block(player, "track_guide", game_state)
     if barrier_msg:
         return False, barrier_msg
+    # [Issue 11] 使用can_track_guide代替不存在的is_tracking属性
     if not game_state.police_engine:
         return False, "警察系统未初始化"
     police = game_state.police

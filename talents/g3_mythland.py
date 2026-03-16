@@ -51,6 +51,7 @@ class Mythland(BaseTalent):
         self.barrier_round = 0
         self.max_barrier_rounds = 5
         self.barrier_location = None
+        self.poem_eternity_enhanced = False  # 涟漪献诗增强：被拉入者禁用主动天赋
 
     # ============================================
     #  T0选项
@@ -347,8 +348,25 @@ class Mythland(BaseTalent):
                 display.show_info(skip_petrified)
                 return
 
+        # 永恒之诗增强：被拉入者禁用主动天赋
+        talent_blocked = False
+        if (actor.player_id != self.player_id
+                and self.poem_eternity_enhanced
+                and actor.talent):
+            actor._eternity_blocked = True
+            talent_blocked = True
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g3mythland.eternity_talent_blocked",
+                    default="  🌀✨ 永恒之诗生效：{actor_name} 无法发动主动天赋！"
+                ).format(actor_name=actor.name)
+            )
+
         atm = ActionTurnManager(self.state)
         atm.execute_single_action(actor)
+
+        if talent_blocked:
+            actor._eternity_blocked = False
 
     def _enforce_barrier_face_to_face(self):
         alive = self._get_alive_barrier_players()

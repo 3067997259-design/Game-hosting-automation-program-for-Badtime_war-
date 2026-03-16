@@ -54,11 +54,13 @@ class PoliceEngine:
             player.has_police_protection = False  
             self.state.markers.remove(player_id, "POLICE_PROTECT")  
   
-        # 队长犯罪扣威信  
-        if player.is_captain:  
-            self.police.authority -= 1  
-            if self.police.authority <= 0:  
-                self._on_authority_zero()  
+        # 队长犯罪扣威信
+        if player.is_captain:
+            self.police.authority -= 1
+            if self.police.authority <= 0:
+                zero_msg = self._on_authority_zero()
+                # [Issue 9] 记录威信归零详细信息到事件系统
+                self.state.log_event("authority_zero_detail", message=zero_msg)  
   
         self.state.log_event("crime", player=player_id, crime_type=crime_type)  
         return True  
@@ -301,56 +303,73 @@ class PoliceEngine:
   
         return f"⚔️ {attacker.name} 用「{attack_method}」攻击警察！\n" + "\n".join(messages)  
   
-    def _resolve_attack_on_police(self, weapon, unit):  
-        """  
-        对警察单位的伤害结算（自定义，不走 resolve_damage）。  
-        警察护甲模型：最多1外层 + 1内层，简化结算。  
-        """  
-        raw_damage = weapon.get_effective_damage()  
-        final_damage = quantize_damage(raw_damage)  
-        remaining = final_damage  
-  
-        # 外层护甲优先  
-        if unit.outer_armor and not unit.outer_armor.is_broken:  
-            armor = unit.outer_armor  
-            # 属性克制检查  
-            if not is_effective(weapon.attribute, armor.attribute):  
-                return f"武器「{weapon.attribute.value}」被护甲「{armor.name}({armor.attribute.value})」克制，无效！"  
-            # 扣减护甲  
-            if remaining >= armor.current_hp:  
-                remaining -= armor.current_hp  
-                armor.current_hp = 0  
-                armor.is_broken = True  
-                # 外层破碎后继续检查内层  
-            else:  
-                armor.current_hp -= remaining  
-                return f"护甲「{armor.name}」剩余 {armor.current_hp}/{armor.max_hp}"  
-  
-        # 内层护甲  
-        if remaining > 0 and unit.inner_armor and not unit.inner_armor.is_broken:  
-            armor = unit.inner_armor  
-            if not is_effective(weapon.attribute, armor.attribute):  
-                # 内层克制，剩余伤害直接打HP  
-                pass  # 继续到HP扣减  
-            elif remaining >= armor.current_hp:  
-                # 最后内层吸收溢出（除非无视克制）  
-                armor.current_hp = 0  
-                armor.is_broken = True  
-                remaining = 0  # 最后内层吸收  
-            else:  
-                armor.current_hp -= remaining  
-                return f"内层护甲「{armor.name}」剩余 {armor.current_hp}/{armor.max_hp}"  
-  
-        # 扣减HP  
-        if remaining > 0:  
-            unit.hp = max(0, unit.hp - remaining)  
-  
-        if unit.hp <= 0:  
-            return f"💀 {unit.unit_id} 被击杀！"  
-        elif unit.hp <= 0.5 and not unit.is_stunned:  
-            unit.is_stunned = True  
-            return f"💫 {unit.unit_id} 进入眩晕！HP: {unit.hp}"  
-        else:  
+    def _resolve_attack_on_police(self, weapon, unit, raw_damage_override=None, ignore_counter=False):
+        """
+        对警察单位的伤害结算（自定义，不走 resolve_damage）。
+        警察护甲模型：最多1外层 + 1内层，简化结算。
+        
+        参数：
+          weapon: 武器对象，为None时使用raw_damage_override作为原始伤害（weaponless模式）
+          unit: 警察单位
+          raw_damage_override: 当weapon为None时使用的原始伤害值（默认1.0）
+          ignore_counter: 为True时跳过属性克制检查（天星无视属性克制）
+        """
+        if weapon is not None:
+            raw_damage = weapon.get_effective_damage()
+        else:
+            raw_damage = raw_damage_override if raw_damage_override is not None else 1.0
+        final_damage = quantize_damage(raw_damage)
+        remaining = final_damage
+
+        # 外层护甲优先
+        if unit.outer_armor and not unit.outer_armor.is_broken:
+            armor = unit.outer_armor
+            # 属性克制检查（ignore_counter时跳过）
+            if not ignore_counter and weapon is not None and not is_effective(weapon.attribute, armor.attribute):
+                return f"武器「{weapon.attribute.value}」被护甲「{armor.name}({armor.attribute.value})」克制，无效！"
+            # 扣减护甲
+            if remaining >= armor.current_hp:
+                remaining -= armor.current_hp
+                armor.current_hp = 0
+                armor.is_broken = True
+                # 外层破碎后继续检查内层
+            else:
+                armor.current_hp -= remaining
+                return f"护甲「{armor.name}」剩余 {armor.current_hp}/{armor.max_hp}"
+
+        # 内层护甲
+        if remaining > 0 and unit.inner_armor and not unit.inner_armor.is_broken:
+            armor = unit.inner_armor
+            if not ignore_counter and weapon is not None and not is_effective(weapon.attribute, armor.attribute):
+                # [Issue 2 FIX] 内层克制时，剩余伤害无效（与外层行为一致）
+                return f"武器「{weapon.attribute.value}」被内层护甲「{armor.name}({armor.attribute.value})」克制，剩余伤害无效！"
+            elif remaining >= armor.current_hp:
+                # 最后内层吸收溢出（除非无视克制）
+                armor.current_hp = 0
+                armor.is_broken = True
+                remaining = 0  # 最后内层吸收
+            else:
+                armor.current_hp -= remaining
+                return f"内层护甲「{armor.name}」剩余 {armor.current_hp}/{armor.max_hp}"
+
+        # 扣减HP
+        if remaining > 0:
+            unit.hp = max(0, unit.hp - remaining)
+
+        # [Issue 6] 电磁步枪震荡效果（weaponless模式跳过）
+        if weapon is not None and weapon.special_tags and "stun_on_hit" in weapon.special_tags:
+            if unit.is_alive() and unit.hp > 0:
+                already_cc = unit.is_stunned or getattr(unit, 'is_shocked', False)
+                if not already_cc:
+                    unit.is_shocked = True
+                    return f"⚡ {unit.unit_id} 进入震荡状态！HP: {unit.hp}"
+
+        if unit.hp <= 0:
+            return f"💀 {unit.unit_id} 被击杀！"
+        elif unit.hp <= 0.5 and not unit.is_stunned:
+            unit.is_stunned = True
+            return f"💫 {unit.unit_id} 进入眩晕！HP: {unit.hp}"
+        else:
             return f"HP: {unit.hp}"  
   
     # ============================================  
@@ -688,10 +707,10 @@ class PoliceEngine:
             return f"❌ 目标不存在或已死亡"  
   
         self.police.reported_target_id = target_id  
-        if self.police.report_phase == "idle":  
-            self.police.report_phase = "assembled"  
-  
-        self.state.log_event("captain_designate", captain=captain_id, target=target_id)  
+        if self.police.report_phase == "idle":
+            self.police.report_phase = "dispatched"  # [Issue 12] 队长场景下直接进入执法状态，不触发自动出动
+
+        self.state.log_event("captain_designate", captain=captain_id, target=target_id)
         return f"👑 队长指定执法目标：{target.name}"  
   
     # ============================================  
@@ -777,11 +796,18 @@ class PoliceEngine:
         self.police.captain_id = None  
         self.police.authority = 0  
   
-        # 3. 原队长成为唯一违法者  
-        self.police.clear_all_crimes_except(captain_id)  
-        if captain:  
-            captain.is_criminal = True  
-        self.police.add_crime(captain_id, "队长失职")  
+        # 3. 原队长成为唯一违法者
+        self.police.clear_all_crimes_except(captain_id)
+        if captain:
+            captain.is_criminal = True
+        self.police.add_crime(captain_id, "队长失职")
+
+        # [Issue 4] 清除其他玩家的 is_criminal 标志
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and pid != captain_id:
+                p.is_criminal = False
+
         messages.append(f"📋 {captain.name if captain else captain_id} 被记录为唯一违法者，其他人犯罪记录清空。")  
   
         # 4. 最后被攻击的无辜者成为举报者，自动启动执法流程  
@@ -806,17 +832,6 @@ class PoliceEngine:
         self.state.log_event("authority_zero", captain=captain_id)  
         return "\n".join(messages)  
   
-    # ============================================  
-    #  献予律法之诗效果  
-    # ============================================  
-  
-    def process_poem_law_effect(self, target_player_id):  
-        """  
-        [已废弃] 献予律法之诗的效果现在由 g5_ripple._poem_law() 直接处理。  
-        保留此方法仅为向后兼容。  
-        """  
-        return "⚠️ 请通过 _poem_law() 调用新版逻辑。"
-
     # ============================================  
     #  辅助方法  
     # ============================================  
@@ -874,18 +889,6 @@ class PoliceEngine:
     def get_police_status(self):  
         """获取警察系统状态描述（用于 police status 命令）"""  
         return self.police.describe()  
-  
-    def is_hologram_active_at(self, location):  
-        """  
-        检查指定地点是否有活跃的全息影像（用于位置限制豁免）。  
-        由天赋系统提供，这里做安全检查。  
-        """  
-        if not hasattr(self.state, 'active_hologram'):  
-            return False  
-        hologram = self.state.active_hologram  
-        if hologram and hasattr(hologram, 'location') and hasattr(hologram, 'is_active'):  
-            return hologram.is_active and hologram.location == location  
-        return False  
   
     def is_in_mythland(self, player_id):  
         """  
@@ -967,9 +970,10 @@ class PoliceEngine:
                 messages.append(dispatch_msg)  
             # [FIX] 不再重复设置 report_phase，_dispatch_police 内部已设置  
   
-        # 阶段2：处理追踪中的警察（方式B：自动赶到目标位置，本轮不攻击）  
+        # [Issue 7] 阶段2：处理追踪中的警察（方式B：自动赶到目标位置，本轮不攻击）
+        # 仅在无队长时自动追踪，有队长时由队长手动部署
         target_id = self.police.reported_target_id  
-        if target_id:  
+        if target_id and not self.police.has_captain():  
             target = self.state.get_player(target_id)  
             if target and target.is_alive():  
                 for unit in self.police.alive_units():  
@@ -993,12 +997,12 @@ class PoliceEngine:
                         atk_msg = self._resolve_police_attack_on_target(unit, target)  
                         messages.append(atk_msg)  
 
-                        # [FIX] 威信检查统一在这里做（因为 _resolve_police_attack_on_target 不再检查）
-                        if not self.police.is_criminal(target_id):
+                        # [Issue 10] 仅在有队长时才扣威信（威信仅在队长系统中有意义）
+                        if self.police.has_captain() and not self.police.is_criminal(target_id):
                             self.police.authority -= 1
                             self.police.last_innocent_attacked = target_id
                             messages.append(f"  ⚠️ 攻击无辜者！威信-1（当前：{self.police.authority}）")
-                            if self.police.authority <= 0 and self.police.has_captain():
+                            if self.police.authority <= 0:
                                 zero_msg = self._on_authority_zero()
                                 messages.append(zero_msg)
                                 break  # 威信归零后停止所有执法
