@@ -263,7 +263,7 @@ class PromptManager:
         except Exception as e:
             return default if default is not None else f"[Error: {category}.{key} - {e}]"
     
-    def show(self, category: str, key: str, level: PromptLevel = None, **kwargs):
+    def show(self, category: str, key: str, level: Optional[PromptLevel] = None, **kwargs):
         """
         显示提示（如果级别足够）
         
@@ -284,8 +284,8 @@ class PromptManager:
         if text and not text.startswith("[") and not text.startswith("{"):
             self._output(text, level)
     
-    def show_formatted(self, title: str, content: Union[str, List[str]], 
-                      level: PromptLevel = None, border_char: str = "═"):
+    def show_formatted(self, title: str, content: Union[str, List[str]],   
+                    level: Optional[PromptLevel] = None, border_char: str = "═"):
         """
         显示带格式的提示
         
@@ -311,7 +311,7 @@ class PromptManager:
         output = f"\n{border}\n  {title}\n{border}\n{content}\n{border}"
         self._output(output, level)
     
-    def show_talent_lore(self, talent_key: str, level: PromptLevel = None):
+    def show_talent_lore(self, talent_key: str, level: Optional[PromptLevel] = None):
         """
         显示天赋的叙事文案
         
