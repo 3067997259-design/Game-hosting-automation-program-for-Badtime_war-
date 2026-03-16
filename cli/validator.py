@@ -84,7 +84,7 @@ def _is_police_crime_blocked(player, parsed, game_state):
         if action == "move":
             dest = parsed.get("destination", "")
             # 进入其他玩家的家
-            for p in game_state.players:
+            for p in game_state.players.values():
                 if p.player_id != player.player_id:
                     home = getattr(p, 'home_location', f"{p.name}的家")
                     if dest == home:
