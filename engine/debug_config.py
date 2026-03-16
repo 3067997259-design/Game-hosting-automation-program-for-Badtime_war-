@@ -9,7 +9,7 @@ import sys
 from typing import Any, Optional
 
 # 导入提示管理器
-from engine.prompt_manager import prompt_manager, PromptLevel
+from engine.prompt_manager import prompt_manager,PromptLevel
 
 # ============================================================================
 # 全局调试配置

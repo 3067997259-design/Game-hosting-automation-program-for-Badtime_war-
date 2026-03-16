@@ -143,8 +143,10 @@ class Hologram(BaseTalent):
         # 警察系统
         if hasattr(self.state, 'police') and self.state.police:
             police = self.state.police
-            for unit in police.units:
-                if not unit.is_alive():
+            for unit in police.units:  
+                if not unit.is_alive():  
+                    continue  
+                if not unit.is_on_map():  
                     continue
 
                 # 强制移动到影像位置
