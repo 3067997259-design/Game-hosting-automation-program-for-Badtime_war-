@@ -113,7 +113,7 @@ def debug_warning(message: str, **kwargs):
         **kwargs: 传递给print的其他参数
     """
     # 使用提示管理器的警告显示，确保与其他警告统一
-    prompt_manager.show_warning("debug", "warning", message=message, **kwargs)
+    prompt_manager.show_important("debug", "warning", message=message, **kwargs)
 
 def debug_error(message: str, **kwargs):
     """
@@ -124,7 +124,7 @@ def debug_error(message: str, **kwargs):
         **kwargs: 传递给print的其他参数
     """
     # 使用提示管理器的错误显示，确保与其他错误统一
-    prompt_manager.show_error("debug", "error", message=message, **kwargs)
+    prompt_manager.show_critical("debug", "error", message=message, **kwargs)
 
 def debug_info(message: str, **kwargs):
     """
@@ -135,7 +135,7 @@ def debug_info(message: str, **kwargs):
         **kwargs: 传递给print的其他参数
     """
     # 使用提示管理器的信息显示
-    prompt_manager.show_info("debug", "info", message=message, **kwargs)
+    prompt_manager.show_normal("debug", "info", message=message, **kwargs)
 
 # ============================================================================
 # 详细的AI调试函数（支持不同级别）
