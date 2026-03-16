@@ -80,17 +80,17 @@ def _is_police_crime_blocked(player, parsed, game_state):
             has_citizen_talent = True
             break
 
-    if has_citizen_talent:
-        if action == "move":
-            dest = parsed.get("destination", "")
-            # 进入其他玩家的家
-            for p in game_state.players.values():
-                if p.player_id != player.player_id:
-                    home = getattr(p, 'home_location', f"{p.name}的家")
-                    if dest == home:
-                        return "你是警察成员，不能执行违法行为（进入他人住宅）"
-            # 进入军事基地
-            if dest == "军事基地":
+    if has_citizen_talent:  
+        if action == "move":  
+            dest = parsed.get("destination", "")  
+            # 进入其他玩家的家  
+            for p in game_state.players.values():                    # 修复: .values()  
+                if p.player_id != player.player_id:  
+                    home = f"home_{p.player_id}"                     # 修复: 匹配 parser 格式  
+                    if dest == home:  
+                        return "你是警察成员，不能执行违法行为（进入他人住宅）"  
+            # 进入军事基地  
+            if dest == "军事基地":  
                 return "你是警察成员，不能执行违法行为（进入军事基地）"
 
         # 释放病毒
