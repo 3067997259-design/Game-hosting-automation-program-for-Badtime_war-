@@ -22,7 +22,7 @@ v2.0 重写修复清单：
   Bug 18: _been_attacked_by 清理死亡玩家
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Optional, Any, Set, Tuple
 from controllers.base import PlayerController
 import random
 
@@ -109,6 +109,9 @@ class BasicAIController(PlayerController):
 
         # 警察状态缓存
         self._police_cache: Optional[Dict] = None
+        self._current_phase: str = "development"   # 当前阶段：development / combat / endgame
+        self._last_commands: List[str] = []         # 最近执行的命令历史
+        self._should_become_captain_flag: bool = False  # 是否应该竞选队长
 
     # ════════════════════════════════════════════════════════
     #  安全工具方法
@@ -982,7 +985,7 @@ class BasicAIController(PlayerController):
         commands.extend(cmds)
 
         debug_ai_attack_generation(player.name,
-            f"攻击命令: {commands} (目标={target.name}, 武器={weapon.name})")
+            weapon.name, f"攻击命令: {commands} (目标={target.name})")
         return commands
 
     def _build_attack_cmd(self, player, target, weapon, state,
@@ -1274,7 +1277,59 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
     #  目标选择
     # ════════════════════════════════════════════════════════
+    def _should_become_captain(self, player, state) -> bool:
+        """判断是否应该竞选警察队长"""
+        if self.personality == "political":
+            return True
+        #如果没有队长且自己是警察
+        police = getattr(state, 'police', None)
+        if police and getattr(player, 'is_police', False):
+            captain = getattr(police, 'captain', None)
+            if captain is None:
+                return True
+        return False
 
+    def _update_threat_scores(self, player, state):
+        """更新威胁分数（_update_threat_assessment的别名）"""
+        self._update_threat_assessment(player, state)
+
+    def _cleanup_dead_players(self, state):
+        """清理已死亡玩家的相关数据"""
+        dead_names = []
+        for pid in state.player_order:
+            target = state.get_player(pid)
+            if target and not target.is_alive():
+                dead_names.append(target.name)
+        for name in dead_names:
+            if name in self._threat_scores:
+                del self._threat_scores[name]
+            self._been_attacked_by.discard(name)
+
+    def _count_locked_by(self, player, state) -> int:
+        """计算有多少人锁定了自己"""
+        count = 0
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            target = state.get_player(pid)
+            if target and target.is_alive():
+                locked = getattr(target, 'locked_target', None)
+                if locked and (locked == player.name or locked == player.player_id):
+                    count += 1
+        return count
+
+    def _best_weapon_damage(self, player) -> float:
+        """获取玩家最强武器的伤害值"""
+        weapons = getattr(player, 'weapons', [])
+        if not weapons:
+            return 0.0
+        best =0.0
+        for w in weapons:
+            dmg = self._get_weapon_damage(w)
+            if dmg > best:
+                best = dmg
+        return best
+    
     def _pick_target(self, player, state) -> Optional[Any]:
         """选择最佳攻击目标"""
         candidates = []
@@ -2136,54 +2191,6 @@ EFFECTIVE_AGAINST = {
 }
 
 
-# ════════════════════════════════════════════════════════════════
-#  调试辅助函数
-# ════════════════════════════════════════════════════════════════
-
-def debug_ai_basic(player_name: str, msg: str):
-    """AI基础调试输出"""
-    try:
-        from engine.debug_config import get_debug_level
-        if get_debug_level() >= 2:
-            print(f"  [AI-Basic][{player_name}] {msg}")
-    except ImportError:
-        pass
-
-def debug_ai_phase(player_name: str, msg: str):
-    """AI阶段调试输出"""
-    try:
-        from engine.debug_config import get_debug_level
-        if get_debug_level() >= 2:
-            print(f"  [AI-Phase][{player_name}] {msg}")
-    except ImportError:
-        pass
-
-def debug_ai_development_plan(player_name: str, msg: str):
-    """AI发育计划调试输出"""
-    try:
-        from engine.debug_config import get_debug_level
-        if get_debug_level() >= 3:
-            print(f"  [AI-DevPlan][{player_name}] {msg}")
-    except ImportError:
-        pass
-
-def debug_ai_attack_generation(player_name: str, msg: str):
-    """AI攻击生成调试输出"""
-    try:
-        from engine.debug_config import get_debug_level
-        if get_debug_level() >= 2:
-            print(f"  [AI-Attack][{player_name}] {msg}")
-    except ImportError:
-        pass
-
-def debug_ai_combat(player_name: str, msg: str):
-    """AI战斗调试输出"""
-    try:
-        from engine.debug_config import get_debug_level
-        if get_debug_level() >= 2:
-            print(f"  [AI-Combat][{player_name}] {msg}")
-    except ImportError:
-        pass
 
 
 # ════════════════════════════════════════════════════════════════
