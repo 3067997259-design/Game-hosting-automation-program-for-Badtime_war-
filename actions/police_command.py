@@ -58,14 +58,10 @@ def execute(player, parsed, game_state):
             target_id=target  
         )  
         return result, {}
-
-    # [Issue 8] designate 子命令
-    elif subcommand == "designate":
-        target = parsed.get("target")
-        if not target:
-            return "❌ 请指定执法目标", {}
-        result = police_engine.captain_designate_target(
-            captain_id=player.player_id,
-            target_id=target
+    
+    elif subcommand == "wake":
+        result = police_engine.wake_police(
+            player_id=player.player_id,
+            police_id=police_id
         )
         return result, {}

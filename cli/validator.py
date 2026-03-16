@@ -460,8 +460,11 @@ def validate_track_guide(player, game_state):
     # [Issue 11] 使用can_track_guide代替不存在的is_tracking属性
     if not game_state.police_engine:
         return False, "警察系统未初始化"
-    can, reason = game_state.police_engine.can_track_guide(player.player_id)
-    if not can:
+    police = game_state.police
+    if police.reporter_id != player.player_id:
+        return False, "只有举报者才能指引追踪"
+    can_track, reason = game_state.police_engine.can_track_guide(player.player_id)
+    if not can_track:
         return False, reason
     return True, ""
 

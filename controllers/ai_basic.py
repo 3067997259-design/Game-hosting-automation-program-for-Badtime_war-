@@ -1,13 +1,25 @@
 """
-BasicAIController —— 基础AI控制器（修复版：战斗指令生成）
+BasicAIController —— 基础AI控制器（v2.0 全面重写版）
 ═══════════════════════════════════════════════════
-修复致命问题：AI能识别击杀机会和进入战斗模式，但无法生成进攻候选指令
-
-问题分析：
-1. _pick_best_weapon_against 可能返回None，导致攻击命令生成失败
-2. _pick_attack_layer 对无护甲目标处理不当
-3. 战斗状态下的移动/攻击优先级逻辑有问题
-4. 武器属性检测不完整
+v2.0 重写修复清单：
+  Bug 1:  choose() 中 self._player/self._game_state 初始化防御
+  Bug 2:  _needs_virus_cure 增加 virus 为 None 的防御
+  Bug 3:  警察缓存使用 police.units (flat list)，不再引用 teams/individual_units
+  Bug 4:  _calculate_combat_power 使用 get_effective_damage() 而非 w.damage
+  Bug 5:  发育阶段2 修复 if/elif 链
+  Bug 6:  攻击前置检查：近战需 ENGAGED_WITH，远程需 LOCKED_BY
+  Bug 7:  aggressive AI 不再无条件攻击警察
+  Bug 8:  队长命令：检查 "police_command" in available_actions，生成正确格式
+  Bug 9:  默认攻击层处理修正
+  Bug 10: confirm() 上下文感知
+  Bug 11: location 类型处理统一
+  Bug 12: 导弹冷却递减安全
+  Bug 13: 警察缓存使用 police.units 正确读取
+  Bug 14: _aggressive_survival_strategy 检查 target is None
+  Bug 15: 击杀机会判定考虑护甲
+  Bug 16: _virus_cure_commands 接收 available_actions
+  Bug 17: choose_multi 尊重 min_count
+  Bug 18: _been_attacked_by 清理死亡玩家
 """
 
 from typing import List, Optional, Dict, Any
@@ -17,7 +29,7 @@ import random
 # 导入调试系统
 from engine.debug_config import (
     debug_ai, debug_ai_basic, debug_ai_detailed, debug_ai_full,
-    debug_ai_combat_state, debug_ai_kill_opportunity, 
+    debug_ai_combat_state, debug_ai_kill_opportunity,
     debug_ai_missile_attack, debug_ai_candidate_commands,
     debug_ai_attack_generation, debug_ai_development_plan,
     debug_ai_talent_selection, debug_system, debug_warning,
@@ -25,12 +37,11 @@ from engine.debug_config import (
 )
 
 # ════════════════════════════════════════════════════════
-#  常量：地点名、交互项目、克制关系
+#  SECTION 1: 常量
 # ════════════════════════════════════════════════════════
 
 LOCATIONS = ["home", "商店", "魔法所", "医院", "军事基地", "警察局"]
 
-# 各地点可交互的项目（用于生成 interact 命令）
 LOCATION_ITEMS = {
     "home": ["凭证", "小刀", "盾牌"],
     "商店": ["打工", "小刀", "磨刀石", "隐身衣", "热成像仪", "陶瓷护甲", "防毒面具"],
@@ -40,7 +51,7 @@ LOCATION_ITEMS = {
             "防毒面具", "释放病毒"],
     "军事基地": ["通行证", "AT力场", "电磁步枪", "导弹", "高斯步枪",
                "雷达", "隐形涂层"],
-    "警察局": [],  # 警察局的行动走 recruit/election/report 等专用命令
+    "警察局": [],
 }
 
 # 属性克制：attacker_attr → 能有效打的 armor_attr 集合
@@ -50,111 +61,79 @@ EFFECTIVE_AGAINST = {
     "科技": {"普通", "科技"},
 }
 
-# 护甲层标识（用于生成 attack 命令的层+属性参数）
-ARMOR_LAYERS = [
-    ("外层", "普通"), ("外层", "魔法"), ("外层", "科技"),
-    ("内层", "普通"), ("内层", "魔法"), ("内层", "科技"),
-]
-
 # 警察相关常量
 POLICE_AOE_WEAPONS = {"地震", "地动山摇", "电磁步枪", "天星"}
-POLICE_ALLOWED_WEAPONS = {"警棍", "高斯步枪", "地震", "地动山摇"}
-POLICE_ALLOWED_ARMOR = {"盾牌", "陶瓷护甲", "魔法护盾", "AT力场"}
-POLICE_FORBIDDEN_WEAPONS = {"电磁步枪"}  # 蓄力武器不能用
+
+# 法术前置
+SPELL_PREREQUISITES = {
+    "远程魔法弹幕": ["魔法弹幕"],
+    "地动山摇": ["地震"],
+    "地震": [],
+    "魔法弹幕": [],
+    "探测魔法": [],
+    "魔法护盾": [],
+    "封闭": [],
+    "隐身术": [],
+}
 
 
 class BasicAIController(PlayerController):
     """
     基础AI：按阶段判定 + 候选命令优先级 + validate 过滤。
+    6种人格: balanced, aggressive, defensive, political, assassin, builder
     """
 
-    # 物品名 → (层类型, 属性) 映射（仅限护甲类物品）
-    _ARMOR_ITEM_MAP = {
-        "盾牌": ("外层", "普通"),
-        "陶瓷护甲": ("外层", "普通"),  # 修正：陶瓷护甲是普通属性，不是科技属性
-        "魔法护盾": ("外层", "魔法"),
-        "AT力场": ("外层", "科技"),
-        "晶化皮肤手术": ("内层", "科技"),   # 晶化皮肤：科技属性内层护甲
-        "额外心脏手术": ("内层", "普通"),
-        "不老泉手术": ("内层", "魔法"),
-        # 可根据实际游戏扩展
-    }
-
     def __init__(self, personality: str = "balanced"):
-        """
-        personality: 人格参数，影响各阶段权重。
-          "balanced"    - 均衡
-          "aggressive"  - 偏进攻
-          "defensive"   - 偏防守
-          "political"   - 偏政治（警察/举报）
-          "assassin"    - 偏隐身暗杀
-          "builder"     - 偏长线发育
-        """
         self.personality = personality
         self.event_log: List[Dict] = []
 
-        # ── 内部记忆 ──
-        self._threat_scores: Dict[str, float] = {}   # 玩家名 → 威胁分
-        self._been_attacked_by: set = set()           # 打过我的人
+        # 内部记忆
+        self._threat_scores: Dict[str, float] = {}
+        self._been_attacked_by: set = set()
         self._my_kills: int = 0
-        self._consecutive_forfeits: int = 0           # 连续放弃计数（防摆烂）
+        self._consecutive_forfeits: int = 0
         self._last_action: Optional[str] = None
-        self._develop_plan: List[str] = []            # 当前发育计划缓存
-        self._attempt_index: int = 0                  # 当前 get_command 重试时的候选索引
-        self.player_name: Optional[str] = None        # 当前玩家名，用于事件比较
-        self._my_id: Optional[str] = None              # 当前玩家ID（备用）
-        self._combat_target = None  # 当前战斗目标
-        self._in_combat = False  # 是否处于战斗状态
-        self._last_combat_turn = -1  # 上次战斗的回合数
-        
-        # 导弹相关状态（新增）
-        self._missile_cooldown = 0  # 导弹冷却回合数
-        self._last_missile_turn = -1  # 上次使用导弹的回合
-        self._missile_attempt_failed = False  # 导弹尝试是否失败
-        
-        # 探测装备列表
-        self._detection_items = ["热成像仪", "雷达", "探测魔法"]
-        
-        # 警察系统状态缓存（新增）
-        self._police_situation_cache = None
-        self._last_police_check_turn = -1
+        self._develop_plan: List[str] = []
+        self._attempt_index: int = 0
+        self.player_name: Optional[str] = None
+        self._my_id: Optional[str] = None
+        self._combat_target = None
+        self._in_combat = False
 
-        # ========== 新增：类型安全辅助方法 ==========
-    def _safe_player_name(self) -> str:
-        """安全获取玩家名称，确保返回字符串"""
-        return self.player_name or "Unknown"
-    
-    def _safe_float(self, value) -> float:
-        """安全转换为float，处理各种类型"""
+        # 导弹相关
+        self._missile_cooldown = 0
+
+        # 引用缓存（在 _generate_candidates 中赋值，用于 choose）
+        self._player = None
+        self._game_state = None
+
+        # 警察状态缓存
+        self._police_cache: Optional[Dict] = None
+
+    # ════════════════════════════════════════════════════════
+    #  安全工具方法
+    # ════════════════════════════════════════════════════════
+
+    def _pname(self) -> str:
+        return self.player_name or "AI"
+
+    @staticmethod
+    def _safe_float(value) -> float:
         if value is None:
             return 0.0
         try:
             return float(value)
         except (ValueError, TypeError):
             return 0.0
-    
-    def _safe_debug_basic(self, message: str) -> None:
-        """安全调用 debug_ai_basic"""
-        debug_ai_basic(self._safe_player_name(), message)
-    
-    def _safe_debug_full(self, message: str) -> None:
-        """安全调用 debug_ai_full"""
-        debug_ai_full(self._safe_player_name(), message)
-    
-    def _safe_debug_detailed(self, message: str) -> None:
-        """安全调用 debug_ai_detailed"""
-        debug_ai_detailed(self._safe_player_name(), message)
+
 
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command
     # ════════════════════════════════════════════════════════
 
     def get_command(
-        self,
-        player: Any,
-        game_state: Any,
-        available_actions: List[str],
-        context: Optional[Dict] = None
+        self, player: Any, game_state: Any,
+        available_actions: List[str], context: Optional[Dict] = None
     ) -> str:
         self.player_name = player.name
         self._my_id = player.player_id
@@ -165,7 +144,8 @@ class BasicAIController(PlayerController):
                 player, game_state, available_actions
             )
             self._attempt_index = 0
-            debug_ai_candidate_commands(self._safe_player_name(), [f"候选命令列表（共{len(self._candidates)}条）"])
+            debug_ai_candidate_commands(self._pname(),
+                [f"候选命令列表（共{len(self._candidates)}条）"])
             for i, cmd in enumerate(self._candidates, 1):
                 debug_ai_detailed(player.name, f"   {i}. {cmd}")
         else:
@@ -182,59 +162,68 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
     #  接口实现：choose
     # ════════════════════════════════════════════════════════
+
     def choose(
-        self,
-        prompt: str,
-        options: List[str],
+        self, prompt: str, options: List[str],
         context: Optional[Dict] = None
     ) -> str:
         situation = (context or {}).get("situation", "")
+
         # ---- 猜拳 ----
         if situation in ("hexagram_my_choice", "hexagram_opp_choice", "mythland_rps"):
             return random.choice(options)
+
         # ---- 结界选目标 ----
         if situation == "mythland_pick_target":
             player_opts = [o for o in options if o != "不拉人"]
             if player_opts:
                 return max(player_opts, key=lambda name: self._threat_scores.get(name, 0))
             return "不拉人"
+
         # ---- 石化 ----
         if situation == "petrified":
             for opt in options:
                 if "解除" in opt:
                     return opt
             return options[0]
+
         # ---- 一刀缭断 ----
         if situation == "oneslash_pick_weapon":
             return options[0]
         if situation == "oneslash_pick_target":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+
         # ---- 天赋T0 ----
         if situation == "talent_t0":
             for opt in options:
                 if "发动" in opt:
                     return opt
             return options[0]
+
         # ---- 加入警察 ----
         if situation in ("recruit_pick_1", "recruit_pick_2"):
-            # 根据人格选择入队装备
             if self.personality == "aggressive":
                 priority = ["警棍", "盾牌", "凭证"]
             elif self.personality == "defensive":
                 priority = ["盾牌", "警棍", "凭证"]
             elif self.personality == "political":
-                priority = ["凭证", "警棍", "盾牌"]  # 政治型优先凭证
+                priority = ["凭证", "警棍", "盾牌"]
             else:
                 priority = ["盾牌", "凭证", "警棍"]
-            
             for preferred in priority:
                 if preferred in options:
                     return preferred
             return options[0]
-        # ---- 竞选队长相关 ----
+
+        # ---- 竞选队长（Bug1修复：安全引用 self._player/self._game_state）----
         if situation == "captain_election":
-            # 是否竞选队长
-            if self._should_become_captain(self._player, self._game_state):
+            should = False
+            if self._player is not None and self._game_state is not None:
+                should = self._should_become_captain(self._player, self._game_state)
+            else:
+                # 没有缓存时，political 默认竞选
+                should = (self.personality == "political")
+            if should:
                 for opt in options:
                     if "竞选" in opt:
                         return opt
@@ -243,6 +232,7 @@ class BasicAIController(PlayerController):
                     if "不竞选" in opt or "放弃" in opt:
                         return opt
             return options[0]
+
         # ---- 六爻 ----
         if situation == "hexagram_thunder_target":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
@@ -254,6 +244,7 @@ class BasicAIController(PlayerController):
             return options[0]
         if situation == "hexagram_pick_opponent":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+
         # ---- 涟漪 ----
         if situation == "ripple_choose_method":
             for opt in options:
@@ -303,28 +294,30 @@ class BasicAIController(PlayerController):
                 if "天雷" in opt:
                     return opt
             return options[0]
+
         # ---- 默认 ----
         return options[0]
 
     # ════════════════════════════════════════════════════════
-    #  接口实现：choose_multi
+    #  接口实现：choose_multi  （Bug17修复：尊重 min_count）
     # ════════════════════════════════════════════════════════
 
     def choose_multi(
-        self,
-        prompt: str,
-        options: List[str],
-        max_count: int,
-        min_count: int = 0,
+        self, prompt: str, options: List[str],
+        max_count: int, min_count: int = 0,
         context: Optional[Dict] = None
     ) -> List[str]:
         if not options:
             return []
-        sorted_opts = sorted(options, key=lambda name: self._threat_scores.get(name, 0), reverse=True)
-        return sorted_opts[:max_count]
+        sorted_opts = sorted(
+            options, key=lambda name: self._threat_scores.get(name, 0), reverse=True
+        )
+        # 取 min_count 和 max_count 之间的合理数量
+        count = max(min_count, min(max_count, len(sorted_opts)))
+        return sorted_opts[:count]
 
     # ════════════════════════════════════════════════════════
-    #  接口实现：confirm
+    #  接口实现：confirm  （Bug10修复：上下文感知）
     # ════════════════════════════════════════════════════════
 
     def confirm(self, prompt: str, context: Optional[Dict] = None) -> bool:
@@ -334,9 +327,11 @@ class BasicAIController(PlayerController):
         if situation == "response_window":
             talent_name = context.get("talent_name", "")
             action_type = context.get("action_type", "")
+            # 你给路打油：在被攻击/特殊操作时确认（对自己有利）
             if talent_name == "你给路打油" and action_type in ("attack", "special"):
                 return True
-            return True
+            # 其他天赋的响应窗口，默认不确认（防止对自己不利）
+            return False
         return False
 
     # ════════════════════════════════════════════════════════
@@ -358,2211 +353,1888 @@ class BasicAIController(PlayerController):
                 self._threat_scores[killer] = self._threat_scores.get(killer, 0) + 30
 
     # ════════════════════════════════════════════════════════
-    #  核心：候选命令生成（修复版：重点修复战斗指令生成）
+    #  核心：候选命令生成
     # ════════════════════════════════════════════════════════
 
     def _generate_candidates(self, player, state, available_actions: List[str]) -> List[str]:
         self._my_id = player.player_id
         self.player_name = player.name
-        self._update_threat_scores(player, state)
-        
-        # 保存当前玩家和状态引用（用于choose方法）
+        # 保存引用供 choose 使用（Bug1修复）
         self._player = player
         self._game_state = state
-        
-        # 更新警察状态缓存
-        self._update_police_situation_cache(state)
-        
-        # 更新战斗状态
+
+        self._update_threat_scores(player, state)
+        self._read_police_state(state)
         self._update_combat_status(player, state)
-        
-        # 更新导弹冷却
+        self._cleanup_dead_players(state)  # Bug18
+
+        # 导弹冷却（安全递减）
         if self._missile_cooldown > 0:
             self._missile_cooldown -= 1
-        
+
         candidates = []
-        
-        # 如果未起床，返回wake
+
+        # 未起床
         if not player.is_awake:
             return ["wake"]
-        
-        # ========== 队长指挥优先级最高 ==========
-        # 如果是队长，优先指挥警察
-        if self._is_captain(player, state):
+
+        # ===== 队长指挥（最高优先） =====
+        if getattr(player, 'is_captain', False) and "police_command" in available_actions:
             debug_ai_basic(player.name, "作为队长，优先指挥警察")
-            captain_cmds = self._generate_captain_commands(player, state, available_actions)
+            captain_cmds = self._cmd_captain(player, state, available_actions)
             if captain_cmds:
                 candidates.extend(captain_cmds)
-                # 队长指挥优先级高，直接返回
                 candidates.append("forfeit")
                 return candidates
-        
-        # ========== 战斗状态优先级高 ==========
-        if self._in_combat and self._combat_target:
-            debug_ai_combat_state(player.name, f"处于战斗状态，目标: {self._combat_target.name}")
-            
-            # 检查是否应该继续战斗
-            if not self._should_continue_combat(player, self._combat_target):
-                debug_ai_basic(player.name, "需要撤退，退出战斗状态")
-                self._in_combat = False
-                self._combat_target = None
-            else:
-                # 生成战斗攻击命令（重点修复）
-                combat_cmds = self._combat_attack_commands(player, state, available_actions, self._combat_target)
-                if combat_cmds:
-                    debug_ai_attack_generation(player.name, "战斗攻击命令生成", str(combat_cmds))
-                    # 战斗状态下，攻击优先级最高
-                    candidates.extend(combat_cmds)
-                    
-                    # 如果不在同一地点，检查是否有远程武器
-                    if player.location != self._combat_target.location:
-                        # 如果有远程武器，可以尝试远程攻击而不是移动
-                        if self._has_ranged_weapon(player):
-                            debug_ai_basic(player.name, "有远程武器，优先远程攻击而不是移动")
-                        else:
-                            # 没有远程武器，添加移动命令
-                            if f"move {self._combat_target.location}" not in candidates:
-                                candidates.append(f"move {self._combat_target.location}")
-                    
-                    # 只添加一个紧急发育命令作为后备
-                    if len(candidates) < 2:  # 如果攻击命令不够，添加发育命令
-                        develop = self._develop_commands(player, state, available_actions)
-                        if develop:
-                            candidates.append(develop[0])
-                    
-                    candidates.append("forfeit")
-                    return candidates
-        
-        # ========== 攻击警察决策（新增） ==========
-        # 检查是否应该攻击警察
-        if self._should_attack_police(player, state):
-            police_target = self._find_police_target(player, state)
-            if police_target and self._has_suitable_aoe_weapon(player):
-                debug_ai_basic(player.name, f"决定攻击警察 {police_target}")
-                police_attack_cmds = self._police_attack_commands(player, state, available_actions, police_target)
-                if police_attack_cmds:
-                    candidates.extend(police_attack_cmds)
-                    candidates.append("forfeit")
-                    return candidates
-        
-        # ========== 导弹攻击逻辑优化 ==========
-        # 检查导弹冷却
-        if self._missile_cooldown <= 0:
-            if self._needs_missile_attack(player, state):
-                debug_ai_missile_attack(player.name, "需要导弹攻击")
-                missile_cmds = self._missile_attack_commands(player, state, available_actions)
-                if missile_cmds:
-                    candidates.extend(missile_cmds)
-                    debug_ai_missile_attack(player.name, f"导弹攻击候选：{missile_cmds}")
-                    # 设置导弹冷却
-                    self._missile_cooldown = 3
-                    candidates.append("forfeit")
-                    return candidates
-        
-        # ========== 极危险情况处理（增强版）==========
+
+        # ===== 极危险情况 =====
         if self._is_critical(player, state):
-            danger_type = self._get_danger_type(player, state)
-            debug_ai_basic(player.name, f"进入极危模式，危险类型: {danger_type}")
-            
-            # 根据不同危险类型采取不同策略
-            if danger_type == "police_surrounded":
-                debug_ai_basic(player.name, "被警察围攻，寻求群攻手段")
-                candidates.extend(self._police_survival_commands(player, state, available_actions))
-            elif danger_type == "anchored":
-                debug_ai_basic(player.name, "被锚定，采取破坏性行动")
-                candidates.extend(self._anchor_survival_commands(player, state, available_actions))
-            else:
-                # 通用生存命令
-                candidates.extend(self._survival_commands(player, state, available_actions))
-            
-            debug_ai_detailed(player.name, f"极危候选：{candidates}")
+            debug_ai_basic(player.name, "进入极危模式")
+            candidates.extend(self._cmd_survival(player, state, available_actions))
             if candidates:
+                candidates.append("forfeit")
                 return candidates
-        
+
+        # ===== 病毒应急 =====
         if self._needs_virus_cure(player, state):
             debug_ai_basic(player.name, "进入病毒应急模式")
-            candidates.extend(self._virus_cure_commands(player, state))
-            debug_ai_detailed(player.name, f"病毒候选：{candidates}")
+            candidates.extend(self._cmd_virus(player, state, available_actions))
             if candidates:
+                candidates.append("forfeit")
                 return candidates
-        
-        # ========== 修复：优先处理击杀机会 ==========
-        # 这里特别重要：即使不在战斗状态，有击杀机会也要攻击
-        if self._has_kill_opportunity(player, state):
-            debug_ai_basic(player.name, f"有击杀机会！")
-            kill_attack_cmds = self._attack_commands(player, state, available_actions)
-            if kill_attack_cmds:
-                candidates.extend(kill_attack_cmds)
-                debug_ai_attack_generation(player.name, "击杀攻击命令生成", "击杀机会目标")
-                # 击杀机会优先级很高，直接返回
-                if kill_attack_cmds:
-                    # 添加发育命令作为后备
-                    develop = self._develop_commands(player, state, available_actions)
-                    if develop:
-                        candidates.append(develop[0])
+
+        # ===== 战斗状态 =====
+        if self._in_combat and self._combat_target:
+            if self._should_continue_combat(player, self._combat_target):
+                debug_ai_combat_state(player.name, f"战斗目标: {self._combat_target.name}")
+                combat_cmds = self._cmd_attack(player, state, available_actions, self._combat_target)
+                if combat_cmds:
+                    candidates.extend(combat_cmds)
                     candidates.append("forfeit")
                     return candidates
-        
-        # 生成发育命令
+            else:
+                debug_ai_basic(player.name, "退出战斗状态")
+                self._in_combat = False
+                self._combat_target = None
+
+        # ===== 击杀机会 =====
+        if self._has_kill_opportunity(player, state):
+            debug_ai_basic(player.name, "发现击杀机会！")
+            kill_cmds = self._cmd_attack(player, state, available_actions)
+            if kill_cmds:
+                candidates.extend(kill_cmds)
+                # 备用发育
+                dev = self._cmd_develop(player, state, available_actions)
+                if dev:
+                    candidates.append(dev[0])
+                candidates.append("forfeit")
+                return candidates
+
+        # ===== 发育 =====
         debug_ai_development_plan(player.name, "进入发育模式")
-        develop = self._develop_commands(player, state, available_actions)
-        debug_ai_development_plan(player.name, f"发育候选：{develop}")
+        develop = self._cmd_develop(player, state, available_actions)
         candidates.extend(develop)
-        
-        # 检查发育是否完成，如果完成则优先攻击
+
+        # ===== 发育完成后主动进攻 =====
         if self._is_development_complete(player):
-            debug_ai_basic(player.name, "发育完成，尝试生成find/攻击命令")
-            
-            # 检查同地点是否有其他玩家
-            same_location_targets = []
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                target = state.get_player(pid)
-                if target and target.is_alive() and target.location == player.location:
-                    same_location_targets.append(target)
-            
-            if same_location_targets:
-                debug_ai_detailed(player.name, f"同地点发现玩家: {[t.name for t in same_location_targets]}")
-                
-                # 选择威胁最大的目标
-                best_target = max(same_location_targets, 
-                                key=lambda t: self._threat_scores.get(t.name, 0))
-                
-                # 如果还没有建立find关系，先find
-                markers = state.markers
-                needs_find = False
-                if hasattr(markers, 'has_relation'):
-                    needs_find = not markers.has_relation(player.player_id, "ENGAGED_WITH", best_target.player_id)
-                else:
-                    # 保守估计需要find
-                    needs_find = True
-                
-                if needs_find and "find" in available_actions:
-                    find_cmd = f"find {best_target.name}"
-                    if find_cmd not in candidates:
-                        candidates.insert(0, find_cmd)
-                        debug_ai_basic(player.name, f"插入优先find命令: {find_cmd}")
-                elif "attack" in available_actions:
-                    # 如果已经有find关系，直接攻击
-                    attack_cmds = self._attack_commands(player, state, available_actions)
-                    if attack_cmds and attack_cmds[0] not in candidates:
-                        # 将攻击命令插入到发育命令之前
-                        candidates.insert(0, attack_cmds[0])
-                        debug_ai_basic(player.name, f"插入优先攻击命令: {attack_cmds[0]}")
-        
-        # 政治型玩家：警察相关行动
+            debug_ai_basic(player.name, "发育完成，尝试进攻")
+            attack_cmds = self._cmd_attack(player, state, available_actions)
+            for cmd in attack_cmds:
+                if cmd not in candidates:
+                    candidates.insert(0, cmd)
+
+        # ===== 政治型 =====
         if self.personality == "political":
-            debug_ai_basic(player.name, "进入政治模式")
-            political = self._political_commands(player, state, available_actions)
-            debug_ai_detailed(player.name, f"政治候选：{political}")
+            political = self._cmd_police_political(player, state, available_actions)
             candidates.extend(political)
-        
-        # ========== 修复：常规攻击命令 ==========
-        # 确保总是尝试生成攻击命令
-        if "attack" in available_actions:
-            debug_ai_attack_generation(player.name, "常规进攻命令", "未指定目标")
-            attack = self._attack_commands(player, state, available_actions)
-            debug_ai_detailed(player.name, f"进攻候选：{attack}")
-            # 避免重复添加相同的攻击命令
+
+        # ===== 常规攻击补充 =====
+        if "attack" in available_actions or "find" in available_actions or "lock" in available_actions:
+            attack = self._cmd_attack(player, state, available_actions)
             for cmd in attack:
                 if cmd not in candidates:
                     candidates.append(cmd)
-        
-        # 如果没有攻击命令，尝试生成find命令
-        if "find" in available_actions and not any("attack" in cmd for cmd in candidates):
-            target = self._pick_best_target(player, state)
-            if target and target.location == player.location:
-                find_cmd = f"find {target.name}"
-                if find_cmd not in candidates:
-                    candidates.append(find_cmd)
-                    debug_ai_basic(player.name, f"添加find命令: {find_cmd}")
-        
+
         candidates.append("forfeit")
+        # 去重
         seen = set()
-        deduped = [cmd for cmd in candidates if not (cmd in seen or seen.add(cmd))]
-        debug_ai_candidate_commands(self._safe_player_name(), [f"最终候选（去重后）：{deduped}"])
+        deduped = []
+        for cmd in candidates:
+            if cmd not in seen:
+                seen.add(cmd)
+                deduped.append(cmd)
         return deduped
 
     # ════════════════════════════════════════════════════════
-    #  阶段判定（增强版）
+    #  警察缓存读取（Bug3/Bug13修复：正确使用 police.units）
+    # ════════════════════════════════════════════════════════
+
+    def _read_police_state(self, state) -> Dict:
+        """读取警察系统状态，使用 ver1.9 的 PoliceData.units"""
+        cache = {
+            "has_police": False,
+            "captain_id": None,
+            "is_captain": False,
+            "authority": 0,
+            "report_phase": "idle",
+            "report_target": None,
+            "units": [],  # [{id, location, hp, weapon, is_active, is_alive}]
+            "alive_count": 0,
+            "active_count": 0,
+        }
+
+        if not hasattr(state, 'police') or not state.police:
+            self._police_cache = cache
+            return cache
+
+        police = state.police
+        cache["has_police"] = True
+
+        # 队长
+        cache["captain_id"] = getattr(police, 'captain_id', None)
+        cache["is_captain"] = (cache["captain_id"] == self._my_id)
+
+        # 威信（Bug3修复：用 police.authority 而非 captain_authority）
+        cache["authority"] = getattr(police, 'authority', 0)
+
+        # 举报
+        cache["report_phase"] = getattr(police, 'report_phase', "idle")
+        cache["report_target"] = getattr(police, 'reported_target_id', None)
+
+        # 警察单位（Bug3/Bug13修复：直接读 police.units 扁平列表）
+        units_info = []
+        alive_count = 0
+        active_count = 0
+        for unit in getattr(police, 'units', []):
+            alive = unit.is_alive() if hasattr(unit, 'is_alive') else False
+            active = unit.is_active() if hasattr(unit, 'is_active') else False
+            info = {
+                "id": getattr(unit, 'unit_id', 'unknown'),
+                "location": getattr(unit, 'location', None),
+                "hp": getattr(unit, 'hp', 0),
+                "weapon": getattr(unit, 'weapon_name', '警棍'),
+                "is_alive": alive,
+                "is_active": active,
+            }
+            units_info.append(info)
+            if alive:
+                alive_count += 1
+            if active:
+                active_count += 1
+
+        cache["units"] = units_info
+        cache["alive_count"] = alive_count
+        cache["active_count"] = active_count
+
+        self._police_cache = cache
+        debug_ai_detailed(self._pname(), f"警察缓存: alive={alive_count} active={active_count}")
+        return cache
+
+    # ════════════════════════════════════════════════════════
+    #  阶段评估
     # ════════════════════════════════════════════════════════
 
     def _is_critical(self, player, state) -> bool:
-        """判断是否处于极危险情况"""
-        # 血量极低
         if player.hp <= 0.5:
             return True
-        # 被警察围攻
-        if (state.police_engine
-                and hasattr(state.police, 'reported_target_id')
-                and state.police.reported_target_id == player.player_id
-                and hasattr(state.police, 'report_phase')
-                and state.police.report_phase in ("dispatched", "enforcing")):
-            return True
+        # 被警察围攻（Bug修复：只检查 "dispatched"，不检查不存在的 "enforcing"）
+        pc = self._police_cache or {}
+        if pc.get("report_target") == player.player_id:
+            phase = pc.get("report_phase", "idle")
+            if phase == "dispatched":
+                return True
         # 被多人锁定
-        lock_count = self._count_locked_by(player, state)
-        if lock_count >= 2:
+        if self._count_locked_by(player, state) >= 2:
             return True
-        # 被锚定（检查涟漪锚定标记）
+        # 被锚定
         if self._is_anchored(player, state):
             return True
         return False
-    
-    def _get_danger_type(self, player, state) -> str:
-        """获取具体的危险类型"""
-        # 检查是否被警察围攻
-        if (state.police_engine
-                and hasattr(state.police, 'reported_target_id')
-                and state.police.reported_target_id == player.player_id
-                and hasattr(state.police, 'report_phase')
-                and state.police.report_phase in ("dispatched", "enforcing")):
-            return "police_surrounded"
-        # 检查是否被锚定
-        if self._is_anchored(player, state):
-            return "anchored"
-        # 默认危险
-        return "general"
-    
+
     def _is_anchored(self, player, state) -> bool:
-        """检查是否被涟漪天赋锚定"""
-        # 方法1：检查涟漪天赋的锚定标记
         markers = getattr(state, 'markers', None)
-        if markers:
-            # 检查是否有ANCHORED_BY关系
-            if hasattr(markers, 'has_relation'):
-                # 查找所有与玩家有ANCHORED_BY关系的玩家
-                for pid in state.player_order:
-                    if pid == player.player_id:
-                        continue
-                    if markers.has_relation(player.player_id, "ANCHORED_BY", pid):
-                        return True
-            # 方法2：检查涟漪天赋的锚定状态
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                target = state.get_player(pid)
-                if target and target.talent and hasattr(target.talent, 'is_anchoring'):
-                    if target.talent.is_anchoring(player):
-                        return True
-        return False
-    
-    def _update_combat_status(self, player, state):
-        """更新战斗状态"""
-        markers = state.markers if hasattr(state, 'markers') else None
-        
-        # 检查是否有战斗关系
-        current_combat_target = None
+        if not markers or not hasattr(markers, 'has_relation'):
+            return False
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            if markers.has_relation(player.player_id, "ANCHORED_BY", pid):
+                return True
+        # 备用检查
         for pid in state.player_order:
             if pid == player.player_id:
                 continue
             target = state.get_player(pid)
-            if target and target.is_alive():
-                # 检查是否有ENGAGED_WITH关系
-                if markers and hasattr(markers, 'has_relation'):
-                    if markers.has_relation(player.player_id, "ENGAGED_WITH", pid):
-                        current_combat_target = target
-                        break
-        
-        if current_combat_target:
-            # 进入或保持战斗状态
-            self._in_combat = True
-            self._combat_target = current_combat_target
-            debug_ai_combat_state(player.name, f"与 {current_combat_target.name} 进入战斗状态")
-        else:
-            # 没有战斗关系，退出战斗状态
-            if self._in_combat:
-                debug_ai_basic(player.name, "退出战斗状态")
-            self._in_combat = False
-            self._combat_target = None
-
-    def _should_continue_combat(self, player, target):
-        """判断是否应该继续战斗"""
-        if not target or not target.is_alive():
-            return False
-        
-        # 政治型玩家：挨打就跑
-        if self.personality == "political":
-            # 检查自己是否处于劣势
-            if self._is_at_disadvantage(player, target):
-                return False
-            return True
-        
-        # 其他类型玩家：检查护甲和血量
-        my_armor_health = self._calculate_armor_health(player)
-        target_armor_health = self._calculate_armor_health(target)
-        
-        # 如果自己护甲严重不足（低于20%）且目标护甲还很多，考虑撤退
-        if my_armor_health < 0.2 and target_armor_health > 0.5:
-            return False
-        
-        # 如果自己血量很低，撤退
-        if player.hp < 0.3:
-            return False
-        
-        return True
-
-    # ════════════════════════════════════════════════════════
-    #  核心修复：战斗攻击命令生成
-    # ════════════════════════════════════════════════════════
-
-    def _combat_attack_commands(self, player, state, available_actions, target):
-        """生成战斗攻击命令（重点修复版本）"""
-        cmds = []
-        
-        if not target:
-            debug_warning(f"[{player.name}] 战斗攻击命令：目标无效")
-            return cmds
-        
-        debug_ai_attack_generation(player.name, "战斗攻击命令", target.name)
-        
-        # 检查攻击前提条件
-        if not self._has_attack_prerequisite(player, target, state):
-            debug_ai_basic(player.name, f"无法攻击 {target.name}，不满足攻击前提条件")
-            # 如果不满足攻击条件，尝试建立关系
-            if "find" in available_actions and player.location == target.location:
-                cmds.append(f"find {target.name}")
-                debug_ai_basic(player.name, "添加find命令建立战斗关系")
-            return cmds
-        
-        # 检查是否在同一地点
-        if player.location != target.location:
-            debug_ai_detailed(player.name, f"与目标 {target.name} 不在同一地点 ({player.location} vs {target.location})")
-            
-            # 检查是否有远程武器
-            if self._has_ranged_weapon(player):
-                debug_ai_basic(player.name, "拥有远程武器，尝试远程攻击")
-                # 尝试生成远程攻击命令
-                attack_cmd = self._generate_attack_command(player, target, available_actions)
-                if attack_cmd:
-                    cmds.append(attack_cmd)
-                    debug_ai_attack_generation(player.name, "远程攻击命令生成", target.name)
-                else:
-                    debug_ai_basic(player.name, "无法生成远程攻击命令")
-                    # 无法远程攻击，移动到目标地点
-                    if "move" in available_actions:
-                        cmds.append(f"move {target.location}")
-                        debug_ai_basic(player.name, f"添加移动命令到 {target.location}")
-            else:
-                debug_ai_basic(player.name, "没有远程武器，移动到目标地点")
-                # 没有远程武器，移动到目标地点
-                if "move" in available_actions:
-                    cmds.append(f"move {target.location}")
-                    debug_ai_basic(player.name, f"添加移动命令到 {target.location}")
-        else:
-            # 在同一地点，直接攻击
-            debug_ai_detailed(player.name, f"与目标 {target.name} 在同一地点，直接攻击")
-            
-            if "attack" in available_actions:
-                attack_cmd = self._generate_attack_command(player, target, available_actions)
-                if attack_cmd:
-                    cmds.append(attack_cmd)
-                    debug_ai_attack_generation(player.name, "近战攻击命令生成", target.name)
-                else:
-                    debug_ai_basic(player.name, "无法生成攻击命令")
-                    # 如果无法生成攻击命令，尝试find
-                    if "find" in available_actions:
-                        markers = getattr(state, 'markers', None)
-                        needs_find = True
-                        if markers and hasattr(markers, 'has_relation'):
-                            needs_find = not markers.has_relation(player.player_id, "ENGAGED_WITH", target.player_id)
-                        
-                        if needs_find:
-                            cmds.append(f"find {target.name}")
-                            debug_ai_basic(player.name, "添加find命令")
-            elif "find" in available_actions:
-                # 如果没有攻击选项，尝试find
-                markers = getattr(state, 'markers', None)
-                needs_find = True
-                if markers and hasattr(markers, 'has_relation'):
-                    needs_find = not markers.has_relation(player.player_id, "ENGAGED_WITH", target.player_id)
-                
-                if needs_find:
-                    cmds.append(f"find {target.name}")
-                    debug_ai_basic(player.name, "添加find命令")
-        
-        return cmds
+            if target and target.talent and hasattr(target.talent, 'is_anchoring'):
+                if target.talent.is_anchoring(player):
+                    return True
+        return False
 
     def _needs_virus_cure(self, player, state) -> bool:
-        if not state.virus.is_active:
+        """Bug2修复：防御 state.virus 为 None"""
+        virus = getattr(state, 'virus', None)
+        if virus is None:
+            return False
+        if not getattr(virus, 'is_active', False):
             return False
         if self._has_virus_immunity(player):
             return False
         return True
 
     def _has_kill_opportunity(self, player, state) -> bool:
-        best_weapon_dmg = self._best_weapon_damage(player)
-        if best_weapon_dmg <= 0:
+        """Bug15修复：击杀机会需考虑护甲"""
+        best_dmg = self._best_weapon_damage(player)
+        if best_dmg <= 0:
             return False
-        
-        debug_ai_basic(player.name, f"检查击杀机会，最佳武器伤害: {best_weapon_dmg}")
-        
+
         for pid in state.player_order:
             if pid == player.player_id:
                 continue
             target = state.get_player(pid)
             if not target or not target.is_alive():
                 continue
-            
-            debug_ai_kill_opportunity(player.name, target.name, target.hp)
-            
-            if target.hp <= best_weapon_dmg:
-                debug_ai_basic(player.name, f"目标 {target.name} 血量({target.hp}) <= 武器伤害({best_weapon_dmg})")
-                if self._has_attack_prerequisite(player, target, state):
-                    debug_ai_basic(player.name, "满足攻击前提条件，有击杀机会！")
-                    return True
-                else:
-                    debug_ai_basic(player.name, f"目标 {target.name} 血量低但不满足攻击前提条件")
-        
+
+            # Bug15修复：必须考虑护甲
+            outer_count = self._count_outer_armor(target)
+            inner_count = self._count_inner_armor(target)
+
+            # 只有在无护甲时，才比较 hp vs damage
+            if outer_count == 0 and inner_count == 0:
+                if target.hp <= best_dmg:
+                    if self._can_attack_target(player, target, state):
+                        debug_ai_basic(player.name,
+                            f"击杀机会: {target.name} HP={target.hp} 无护甲 dmg={best_dmg}")
+                        return True
+            # 有护甲时，需要更高伤害穿透
+            elif outer_count == 0 and inner_count > 0:
+                # 外层清了只剩内层，如果伤害足够打破最后内层+hp
+                if target.hp <= 0.5 and best_dmg >= 1.0:
+                    if self._can_attack_target(player, target, state):
+                        return True
+
         return False
 
-    # ════════════════════════════════════════════════════════
-    #  生存模式命令（增强版：针对不同危险类型）
-    # ════════════════════════════════════════════════════════
-
-    def _survival_commands(self, player, state, available) -> List[str]:
-        """通用生存命令：获取护甲、隐身、回血等"""
-        cmds = []
-        loc = player.location
-        if "move" in available:
-            safe_loc = self._find_safest_location(player, state)
-            if safe_loc and safe_loc != loc:
-                cmds.append(f"move {safe_loc}")
-        if loc == "home" and "interact" in available:
-            if self._can_take_item(player, "盾牌"):
-                cmds.append("interact 盾牌")
-        if "interact" in available and loc in LOCATION_ITEMS:
-            for item in LOCATION_ITEMS.get(loc, []):
-                if item in ("盾牌", "魔法护盾", "AT力场", "陶瓷护甲"):
-                    if self._can_take_item(player, item):
-                        cmds.append(f"interact {item}")
-                if item in ("隐身衣", "隐身术", "隐形涂层"):
-                    if self._can_take_item(player, item):
-                        cmds.append(f"interact {item}")
-                if item == "防毒面具" and self._needs_virus_cure(player, state):
-                    if self._can_take_item(player, item):
-                        cmds.append(f"interact {item}")
-        if "special" in available:
-            for item in player.items:
-                if hasattr(item, 'name') and "隐身" in item.name:
-                    cmds.append(f"special {item.name}")
-        return cmds
-
-    def _police_survival_commands(self, player, state, available_actions) -> List[str]:
-        """警察围攻生存命令（增强版）"""
-        cmds = []
-        loc = player.location
-        
-        # 获取警察状态
-        police_situation = self._get_police_situation(player, state)
-        
-        # 如果被警察围攻
-        if police_situation.get("report_target") == player.player_id:
-            debug_ai_basic(player.name, "被警察围攻！")
-            
-            # 检查警察保护状态（同地点警察时免疫单体伤害）
-            if self._has_police_protection(player, state):
-                debug_ai_basic(player.name, "拥有警察保护，免疫单体伤害")
-                # 可以采取更激进的策略
-                cmds.extend(self._aggressive_survival_strategy(player, state, available_actions))
-            else:
-                # 无保护，采取防守策略
-                cmds.extend(self._defensive_survival_strategy(player, state, available_actions))
-        
-        # 如果警察在附近但未围攻
-        elif self._are_police_nearby(player, state):
-            debug_ai_basic(player.name, "警察在附近，小心行事")
-            
-            # 避免违法行为
-            if self._is_about_to_commit_crime(player, available_actions):
-                debug_ai_basic(player.name, "放弃违法行为以避免警察注意")
-                cmds.append("forfeit")
-            else:
-                # 正常行动，但更小心
-                cmds.extend(self._cautious_actions(player, state, available_actions))
-        
-        return cmds
-
-    def _anchor_survival_commands(self, player, state, available) -> List[str]:
-        """被锚定生存命令：获取护甲或尝试击杀发动者"""
-        cmds = []
-        loc = player.location
-        
-        # 1. 尝试找到锚定发动者
-        anchor_caster = None
+    def _update_combat_status(self, player, state):
         markers = getattr(state, 'markers', None)
+        current_target = None
         if markers and hasattr(markers, 'has_relation'):
             for pid in state.player_order:
                 if pid == player.player_id:
                     continue
-                if markers.has_relation(player.player_id, "ANCHORED_BY", pid):
-                    anchor_caster = state.get_player(pid)
-                    break
-        
-        # 2. 如果找到发动者且护甲足够，尝试击杀
-        if anchor_caster and anchor_caster.is_alive():
-            # 检查护甲是否足够（至少1件外层护甲）
-            if self._count_outer_armor(player) > 0:
-                debug_ai_basic(player.name, f"护甲足够，尝试反击锚定发动者 {anchor_caster.name}")
-                # 生成攻击命令
-                attack_cmds = self._attack_commands(player, state, available)
-                if attack_cmds:
-                    cmds.extend(attack_cmds)
-                    return cmds
-        
-        # 3. 否则，获取护甲（优先去发动者不在的地方）
-        safe_locations = ["商店", "魔法所", "军事基地", "医院"]
-        if anchor_caster:
-            # 避免去发动者所在的地点
-            safe_locations = [loc for loc in safe_locations if loc != anchor_caster.location]
-        
-        if loc in safe_locations:
-            # 在当前安全地点获取护甲
-            if "interact" in available:
-                for item in LOCATION_ITEMS.get(loc, []):
-                    if item in ("盾牌", "陶瓷护甲", "魔法护盾", "AT力场"):
-                        if self._can_take_item(player, item):
-                            cmds.append(f"interact {item}")
-                            break
-                if not cmds and "move" in available and safe_locations:
-                    # 如果当前地点没有护甲，移动到其他安全地点
-                    target_loc = next((l for l in safe_locations if l != loc), safe_locations[0])
-                    cmds.append(f"move {target_loc}")
-        elif "move" in available and safe_locations:
-            # 移动到安全地点
-            target_loc = safe_locations[0]
-            cmds.append(f"move {target_loc}")
-        
-        # 4. 如果没有其他命令，添加通用生存命令
-        if not cmds:
-            cmds.extend(self._survival_commands(player, state, available))
-        
-        return cmds
-
-    # ════════════════════════════════════════════════════════
-    #  病毒应急命令
-    # ════════════════════════════════════════════════════════
-
-    def _virus_cure_commands(self, player, state) -> List[str]:
-        cmds = []
-        loc = player.location
-        if loc == "商店" or loc == "医院":
-            if self._can_take_item(player, "防毒面具"):
-                cmds.append("interact 防毒面具")
-        if loc != "商店":
-            cmds.append("move 商店")
-        if loc != "医院":
-            cmds.append("move 医院")
-        if loc == "魔法所" and not self._has_virus_immunity(player):
-            cmds.append("interact 封闭")
-        return cmds
-
-    # ════════════════════════════════════════════════════════
-    #  进攻模式命令（常规攻击）
-    # ════════════════════════════════════════════════════════
-
-    def _attack_commands(self, player, state, available) -> List[str]:
-        """生成常规攻击命令（重点修复）"""
-        cmds = []
-        
-        # 选择最佳目标
-        target = self._pick_best_target(player, state)
-        if not target:
-            debug_ai_basic(player.name, "攻击命令：没有找到合适的目标")
-            return cmds
-        
-        target_name = target.name
-        debug_ai_attack_generation(player.name, "选择目标", target_name)
-        
-        # 选择最佳武器（重点修复）
-        weapon = self._pick_best_weapon_against(player, target)
-        if not weapon:
-            debug_ai_basic(player.name, f"攻击命令：无法选择武器攻击 {target_name}")
-            # 即使没有最佳武器，也尝试使用默认武器
-            if player.weapons and len(player.weapons) > 0:
-                weapon = player.weapons[0]
-                debug_ai_basic(player.name, f"使用默认武器: {weapon.name}")
-            else:
-                return cmds
-        
-        weapon_name = weapon.name
-        debug_ai_attack_generation(player.name, weapon_name, target_name)
-        
-        # 生成攻击命令
-        if "attack" in available:
-            layer_attr = self._pick_attack_layer(weapon, target)
-            if layer_attr:
-                layer_str, attr_str = layer_attr
-                attack_cmd = f"attack {target_name} {weapon_name} {layer_str} {attr_str}"
-                cmds.append(attack_cmd)
-                debug_ai_attack_generation(player.name, "生成攻击命令", target_name)
-            else:
-                # 如果无法确定攻击层，使用默认值
-                attack_cmd = f"attack {target_name} {weapon_name} 外层 普通"
-                cmds.append(attack_cmd)
-                debug_ai_basic(player.name, f"使用默认攻击命令: {attack_cmd}")
-        
-        # 附加命令：find, lock, move
-        if "find" in available and target.location == player.location:
-            cmds.append(f"find {target_name}")
-            debug_ai_basic(player.name, "添加find命令")
-        
-        if "lock" in available:
-            cmds.append(f"lock {target_name}")
-            debug_ai_basic(player.name, "添加lock命令")
-        
-        if "move" in available and target.location != player.location and target.location:
-            cmds.append(f"move {target.location}")
-            debug_ai_basic(player.name, f"添加move命令到 {target.location}")
-        
-        return cmds
-
-    # ════════════════════════════════════════════════════════
-    #  发育模式命令
-    # ════════════════════════════════════════════════════════
-
-    def _develop_commands(self, player, state, available) -> List[str]:
-        cmds = []
-        loc = player.location
-        if "interact" not in available and "move" not in available:
-            return cmds
-
-        has_credential = self._has_credential(player)
-        has_outer_armor = self._count_outer_armor(player) > 0
-        has_good_weapon = self._best_weapon_damage(player) >= 1.0
-        has_detection = getattr(player, 'has_detection', False)
-        has_inner_armor = self._count_inner_armor(player) > 0
-        has_military_pass = getattr(player, 'has_military_pass', False)
-        
-        debug_ai_development_plan(player.name, 
-            f"has_credential={has_credential} has_outer={has_outer_armor} "
-            f"has_weapon={has_good_weapon}(dmg={self._best_weapon_damage(player)}) "
-            f"has_detect={has_detection} has_inner={has_inner_armor} "
-            f"has_pass={has_military_pass}")
-        
-        plan: list = []
-
-        def is_at(location_name):
-            return loc == location_name or loc == f"home_{player.player_id}"
-
-        # ══════ 阶段1：拿凭证 ══════
-        if not has_credential:
-            if is_at("home"):
-                plan.append("interact 凭证")
-            elif loc == "商店":
-                plan.append("interact 打工")
-            elif loc == "医院":
-                plan.append("interact 打工")
-            else:
-                plan.append("move 商店")
-
-        # ══════ 阶段2：拿护甲 ══════
-        elif not has_outer_armor:
-            if is_at("home"):
-                plan.append("interact 盾牌")
-            if loc == "商店":
-                plan.append("interact 陶瓷护甲")
-            elif loc == "魔法所":
-                plan.append("interact 魔法护盾")
-            elif loc == "军事基地":
-                if not has_military_pass:
-                    plan.append("interact 办理通行证")
-                else:
-                    plan.append("interact AT力场")
-            else:
-                plan.append("move 商店")
-
-        # ══════ 阶段3：拿武器 ══════
-        elif not has_good_weapon:
-            if is_at("home"):
-                if not self._has_weapon_named(player, "小刀"):
-                    plan.append("interact 小刀")
-                else:
-                    plan.append("move 魔法所")
-            elif loc == "商店":
-                if not self._has_weapon_named(player, "小刀"):
-                    plan.append("interact 小刀")
-                else:
-                    plan.append("move 魔法所")
-            elif loc == "魔法所":
-                if self._can_learn(player, "魔法弹幕"):
-                    plan.append("interact 魔法弹幕")
-                elif self._can_learn(player, "远程魔法弹幕"):
-                    plan.append("interact 远程魔法弹幕")
-                else:
-                    plan.append("move 军事基地")
-            elif loc == "军事基地":
-                if not has_military_pass:
-                    plan.append("interact 办理通行证")
-                elif not self._has_weapon_named(player, "高斯步枪"):
-                    plan.append("interact 高斯步枪")
-                else:
-                    plan.append("move 魔法所")
-            else:
-                plan.append("move 商店")
-
-        # ══════ 阶段4：拿探测 ══════
-        elif not has_detection:
-            if loc == "商店":
-                if not self._has_item_named(player, "热成像仪"):
-                    plan.append("interact 热成像仪")
-                else:
-                    plan.append("move 魔法所")
-            elif loc == "魔法所":
-                if self._can_learn(player, "探测魔法"):
-                    plan.append("interact 探测魔法")
-                else:
-                    plan.append("move 军事基地")
-            elif loc == "军事基地":
-                if not has_military_pass:
-                    plan.append("interact 办理通行证")
-                elif not self._has_item_named(player, "雷达"):
-                    plan.append("interact 雷达")
-                else:
-                    plan.append("move 商店")
-            else:
-                plan.append("move 魔法所")
-
-        # ══════ 阶段5：内层护甲 ══════
-        elif not has_inner_armor:
-            # 如果在魔法所，优先学习其他有用的魔法
-            if loc == "魔法所":
-                # 检查是否有其他重要魔法可以学习
-                other_spells = ["魔法弹幕", "远程魔法弹幕", "地震", "地动山摇", "魔法护盾", "封闭"]
-                spell_learned = False
-                for spell in other_spells:
-                    if self._can_learn(player, spell):
-                        plan.append(f"interact {spell}")
-                        spell_learned = True
-                        debug_ai_development_plan(player.name, f"在魔法所，优先学习 {spell}")
+                target = state.get_player(pid)
+                if target and target.is_alive():
+                    if markers.has_relation(player.player_id, "ENGAGED_WITH", pid):
+                        current_target = target
                         break
-                if not spell_learned:
-                    # 没有其他魔法可学，去医院（但需要凭证）
-                    if has_credential:  # 有凭证才去医院做手术
-                        plan.append("move 医院")
-                        debug_ai_development_plan(player.name, "有凭证，前往医院做手术")
-                    else:
-                        # 没有凭证，继续发育其他项目
-                        plan.append("move 商店")
-                        debug_ai_development_plan(player.name, "没有凭证，不去医院，去商店发育")
-            elif loc == "医院":
-                if has_credential:  # 有凭证才做手术
-                    plan.append("interact 晶化皮肤手术")
-                    debug_ai_development_plan(player.name, "在医院且有凭证，进行手术")
-                else:
-                    # 没有凭证，离开医院
-                    plan.append("move 商店")
-                    debug_ai_development_plan(player.name, "在医院但没有凭证，离开医院")
-            else:
-                # 不在魔法所或医院，检查是否有凭证
-                if has_credential:
-                    plan.append("move 医院")
-                    debug_ai_development_plan(player.name, "有凭证，前往医院")
-                else:
-                    # 没有凭证，先去获取凭证或发育
-                    plan.append("move 商店")
-                    debug_ai_development_plan(player.name, "没有凭证，先不去医院")
 
-        # ══════ 阶段6：额外发育 ══════
+        if current_target:
+            self._in_combat = True
+            self._combat_target = current_target
         else:
-            extras = self._extra_develop_commands(player, state)
-            plan.extend(extras)
+            if self._in_combat:
+                debug_ai_basic(player.name, "退出战斗状态（目标丢失）")
+            self._in_combat = False
+            self._combat_target = None
 
-        cmds.extend(plan)
+    def _should_continue_combat(self, player, target) -> bool:
+        if not target or not target.is_alive():
+            return False
+        if player.hp <= 0.5 and self.personality != "aggressive":
+            return False
+        if self._is_at_disadvantage(player, target) and self.personality == "defensive":
+            return False
+        return True
 
-        if not cmds and "move" in available:
-            cmds.append("move 军事基地")
+    def _is_development_complete(self, player) -> bool:
+        """判断发育是否完成"""
+        weapons = getattr(player, 'weapons', [])
+        has_weapon = len(weapons) > 0
+        outer = self._count_outer_armor(player)
+        inner = self._count_inner_armor(player)
 
-        return cmds
+        if self.personality == "builder":
+            return has_weapon and outer >= 2 and inner >= 1
+        elif self.personality == "aggressive":
+            return has_weapon  # 有武器就够了
+        elif self.personality == "assassin":
+            return has_weapon and self._has_stealth(player)
+        elif self.personality == "defensive":
+            return has_weapon and outer >= 2
+        elif self.personality == "political":
+            return has_weapon and getattr(player, 'is_police', False)
+        else:  # balanced
+            return has_weapon and outer >= 1
+
+    # ════════════════════════════════════════════════════════
+    #  命令生成器：起床
+    # ════════════════════════════════════════════════════════
+
+    def _cmd_wake(self) -> List[str]:
+        return ["wake"]
+
+    # ════════════════════════════════════════════════════════
+    #  命令生成器：发育
+    # ════════════════════════════════════════════════════════
+
+    def _cmd_develop(self, player, state, available: List[str]) -> List[str]:
+        commands = []
+        loc = self._get_location_str(player)
+        weapons = getattr(player, 'weapons', [])
+        has_weapon = len(weapons) > 0
+        outer = self._count_outer_armor(player)
+        inner = self._count_inner_armor(player)
+        vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+        has_detection = getattr(player, 'has_detection', False)
+
+        # 获取发育计划
+        plan = self._make_develop_plan(player, state)
+        debug_ai_development_plan(player.name, f"发育计划: {plan}")
+
+        if "interact" in available:
+            # ---- 阶段1：在home拿凭证/盾牌 ----
+            if loc == "home" or self._is_at_home(player):
+                if vouchers < 2:
+                    commands.append("interact 凭证")
+                if outer == 0:
+                    commands.append("interact 盾牌")
+                if not has_weapon:
+                    commands.append("interact 小刀")
+
+            # ---- Bug5修复：用 elif 确保不重复 ----
+            elif loc == "商店":
+                if not has_weapon:
+                    commands.append("interact 小刀")
+                if vouchers >= 2 and not has_detection:
+                    commands.append("interact 热成像仪")
+                if vouchers >= 1 and outer < 2:
+                    commands.append("interact 陶瓷护甲")
+                if self.personality == "assassin" and vouchers >= 2:
+                    commands.append("interact 隐身衣")
+                if has_weapon and self._has_melee_only(player):
+                    commands.append("interact 磨刀石")
+                if vouchers < 2:
+                    commands.append("interact 打工")
+
+            elif loc == "魔法所":
+                if "study" in available:
+                    # 学法术
+                    learned = self._get_learned_spells(player)
+                    if "魔法弹幕" not in learned and not has_weapon:
+                        commands.append("study 魔法弹幕")
+                    if "魔法弹幕" in learned and "远程魔法弹幕" not in learned:
+                        commands.append("study 远程魔法弹幕")
+                    if "魔法护盾" not in learned and outer < 2:
+                        commands.append("study 魔法护盾")
+                    if "探测魔法" not in learned and not has_detection:
+                        commands.append("study 探测魔法")
+                    if "隐身术" not in learned and self.personality == "assassin":
+                        commands.append("study 隐身术")
+                    if "地震" not in learned:
+                        commands.append("study 地震")
+                    if "封闭" not in learned:
+                        commands.append("study 封闭")
+                if "interact" in available:
+                    if outer < 2:
+                        commands.append("interact 魔法护盾")
+                    if not has_weapon:
+                        commands.append("interact 魔法弹幕")
+
+            elif loc == "医院":
+                if inner == 0:
+                    if self.personality == "builder":
+                        commands.append("interact 晶化皮肤手术")
+                        commands.append("interact 额外心脏手术")
+                    else:
+                        commands.append("interact 晶化皮肤手术")
+                elif inner < 2 and self.personality in ("builder", "defensive"):
+                    commands.append("interact 额外心脏手术")
+                if not self._has_virus_immunity(player):
+                    commands.append("interact 防毒面具")
+                if vouchers < 2:
+                    commands.append("interact 打工")
+
+            elif loc == "军事基地":
+                if not has_pass and vouchers >= 1:
+                    commands.append("interact 通行证")
+                elif has_pass:
+                    if not has_weapon or self.personality in ("aggressive", "balanced"):
+                        commands.append("interact 电磁步枪")
+                        commands.append("interact 高斯步枪")
+                    if outer < 2:
+                        commands.append("interact AT力场")
+                    if not has_detection:
+                        commands.append("interact 雷达")
+                    if self.personality == "assassin":
+                        commands.append("interact 隐形涂层")
+                    # 导弹
+                    if self._missile_cooldown <= 0 and self.personality in ("aggressive", "balanced"):
+                        commands.append("interact 导弹")
+
+            elif loc == "警察局":
+                if self.personality == "political":
+                    if not getattr(player, 'is_police', False):
+                        if "recruit" in available:
+                            commands.append("recruit")
+                    elif getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
+                        if "election" in available:
+                            commands.append("election")
+
+        # ---- 移动到目标地点 ----
+        if "move" in available and not commands:
+            next_loc = self._pick_develop_destination(player, state)
+            if next_loc and next_loc != loc:
+                commands.append(f"move {next_loc}")
+
+        return commands
+
+    def _make_develop_plan(self, player, state) -> List[str]:
+        """根据人格生成发育计划"""
+        plan = []
+        weapons = getattr(player, 'weapons', [])
+        has_weapon = len(weapons) > 0
+        outer = self._count_outer_armor(player)
+        inner = self._count_inner_armor(player)
+        vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+        has_detection = getattr(player, 'has_detection', False)
+
+        if self.personality == "aggressive":
+            if vouchers < 1:
+                plan.append("home:凭证")
+            if not has_weapon:
+                plan.append("商店:小刀")
+            if outer < 1:
+                plan.append("home:盾牌")
+            plan.append("attack")
+
+        elif self.personality == "defensive":
+            if vouchers < 2:
+                plan.extend(["home:凭证", "home:凭证"])
+            if outer < 1:
+                plan.append("home:盾牌")
+            if outer < 2:
+                plan.append("商店:陶瓷护甲")
+            if not has_weapon:
+                plan.append("商店:小刀")
+            if not has_detection:
+                plan.append("商店:热成像仪")
+            if inner < 1:
+                plan.append("医院:晶化皮肤手术")
+
+        elif self.personality == "assassin":
+            if vouchers < 2:
+                plan.extend(["home:凭证", "home:凭证"])
+            if not has_weapon:
+                plan.append("商店:小刀")
+            if not self._has_stealth(player):
+                plan.append("商店:隐身衣")
+            if outer < 1:
+                plan.append("home:盾牌")
+
+        elif self.personality == "political":
+            if vouchers < 1:
+                plan.append("home:凭证")
+            if not has_weapon:
+                plan.append("home:小刀")
+            if outer < 1:
+                plan.append("home:盾牌")
+            if not getattr(player, 'is_police', False):
+                plan.append("警察局:recruit")
+
+        elif self.personality == "builder":
+            if vouchers < 2:
+                plan.extend(["home:凭证", "home:凭证"])
+            if outer < 1:
+                plan.append("home:盾牌")
+            if not has_weapon:
+                plan.append("商店:小刀")
+            if outer < 2:
+                plan.append("商店:陶瓷护甲")
+            if not has_detection:
+                plan.append("商店:热成像仪")
+            if inner < 1:
+                plan.append("医院:晶化皮肤手术")
+            if inner < 2:
+                plan.append("医院:额外心脏手术")
+            if not has_pass:
+                plan.append("军事基地:通行证")
+            plan.append("军事基地:AT力场")
+            plan.append("军事基地:电磁步枪")
+
+        else:  # balanced
+            if vouchers < 2:
+                plan.extend(["home:凭证"])
+            if outer < 1:
+                plan.append("home:盾牌")
+            if not has_weapon:
+                plan.append("商店:小刀")
+            if vouchers >= 2 and not has_detection:
+                plan.append("商店:热成像仪")
+            if outer < 2:
+                plan.append("商店:陶瓷护甲")
+
+        return plan
+
+    def _pick_develop_destination(self, player, state) -> Optional[str]:
+        """选择下一个发育目标地点"""
+        weapons = getattr(player, 'weapons', [])
+        has_weapon = len(weapons) > 0
+        outer = self._count_outer_armor(player)
+        inner = self._count_inner_armor(player)
+        vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+        has_detection = getattr(player, 'has_detection', False)
+        loc = self._get_location_str(player)
+
+        if self.personality == "aggressive":
+            if vouchers < 1 and loc != "home":
+                return "home"
+            if not has_weapon and loc != "商店":
+                return "商店"
+            if outer < 1 and loc != "home":
+                return "home"
+            # 开始找人打
+            return self._find_nearest_enemy_location(player, state)
+
+        elif self.personality == "defensive":
+            if vouchers < 2 and loc != "home":
+                return "home"
+            if outer < 1 and loc != "home":
+                return "home"
+            if outer < 2 and loc != "商店":
+                return "商店"
+            if not has_weapon and loc != "商店":
+                return "商店"
+            if not has_detection and loc != "商店":
+                return "商店"
+            if inner < 1 and loc != "医院":
+                return "医院"
+            return None
+
+        elif self.personality == "assassin":
+            if vouchers < 2 and loc != "home":
+                return "home"
+            if not has_weapon and loc != "商店":
+                return "商店"
+            if not self._has_stealth(player) and loc != "商店":
+                return "商店"
+            return self._find_nearest_enemy_location(player, state)
+
+        elif self.personality == "political":
+            if vouchers < 1 and loc != "home":
+                return "home"
+            if not has_weapon and loc != "home":
+                return "home"
+            if not getattr(player, 'is_police', False) and loc != "警察局":
+                return "警察局"
+            if getattr(player, 'is_police', False):
+                return "警察局"
+            return "商店"
+
+        elif self.personality == "builder":
+            if vouchers < 2 and loc != "home":
+                return "home"
+            if outer < 1 and loc != "home":
+                return "home"
+            if not has_weapon and loc != "商店":
+                return "商店"
+            if outer < 2 and loc != "商店":
+                return "商店"
+            if inner < 1 and loc != "医院":
+                return "医院"
+            if not has_pass and loc != "军事基地":
+                return "军事基地"
+            if has_pass and loc != "军事基地":
+                return "军事基地"
+            return None
+
+        else:  # balanced
+            if vouchers < 1 and loc != "home":
+                return "home"
+            if outer < 1 and loc != "home":
+                return "home"
+            if not has_weapon and loc != "商店":
+                return "商店"
+            if not has_detection and vouchers >= 2 and loc != "商店":
+                return "商店"
+            if outer < 2 and loc != "商店":
+                return "商店"
+            return self._find_nearest_enemy_location(player, state)
+
+    # ════════════════════════════════════════════════════════
+    #  命令生成器：攻击（Bug6修复：检查 ENGAGED_WITH/LOCKED_BY）
+    # ════════════════════════════════════════════════════════
+
+    def _cmd_attack(self, player, state, available: List[str],
+                    forced_target=None) -> List[str]:
+        commands = []
+        target = forced_target or self._pick_target(player, state)
+        if not target:
+            return commands
+
+        weapon = self._pick_weapon(player, target)
+        if not weapon:
+            # 没武器，尝试近战（拳头？）
+            return commands
+
+        cmds = self._build_attack_cmd(player, target, weapon, state, available)
+        commands.extend(cmds)
+
+        debug_ai_attack_generation(player.name,
+            f"攻击命令: {commands} (目标={target.name}, 武器={weapon.name})")
+        return commands
+
+    def _build_attack_cmd(self, player, target, weapon, state,
+                          available: List[str]) -> List[str]:
+        """
+        Bug6修复核心：根据武器类型检查前置条件
+        - 近战：需要 ENGAGED_WITH → 没有则先 find
+        - 远程：需要 LOCKED_BY → 没有则先 lock
+        - 区域：检查同地点有目标
+        """
+        commands = []
+        markers = getattr(state, 'markers', None)
+        weapon_range = self._get_weapon_range(weapon)
+
+        if weapon_range == "melee":
+            # 近战：需要先 find（建立 ENGAGED_WITH）
+            is_engaged = False
+            if markers and hasattr(markers, 'has_relation'):
+                is_engaged = markers.has_relation(
+                    player.player_id, "ENGAGED_WITH", target.player_id)
+
+            if not is_engaged:
+                if "find" in available:
+                    # 先确认在同一地点
+                    if self._same_location(player, target):
+                        commands.append(f"find {target.name}")
+                    else:
+                        # 需要先移动
+                        target_loc = self._get_location_str(target)
+                        if target_loc and "move" in available:
+                            commands.append(f"move {target_loc}")
+                        commands.append(f"find {target.name}")
+                    return commands
+                else:
+                    return commands  # find 不可用
+
+            # 已 ENGAGED_WITH，可以攻击
+            if "attack" in available:
+                layer, attr = self._pick_attack_layer(target, weapon)
+                commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
+            return commands
+
+        elif weapon_range == "ranged":
+            # 远程：需要先 lock（建立 LOCKED_BY）
+            is_locked = False
+            if markers and hasattr(markers, 'has_relation'):
+                is_locked = markers.has_relation(
+                    player.player_id, "LOCKED_BY", target.player_id)
+
+            if not is_locked:
+                if "lock" in available:
+                    commands.append(f"lock {target.name}")
+                    return commands
+                else:
+                    return commands  # lock 不可用
+
+            # 已 LOCKED_BY，可以攻击
+            if "attack" in available:
+                layer, attr = self._pick_attack_layer(target, weapon)
+                commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
+            return commands
+
+        elif weapon_range == "area":
+            # 区域武器：需要同地点有目标
+            if "attack" in available:
+                same_loc_targets = self._get_same_location_targets(player, state)
+                if same_loc_targets:
+                    layer, attr = self._pick_attack_layer(target, weapon)
+                    commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
+            return commands
+
+        else:
+            # 未知类型，按近战处理
+            if "attack" in available:
+                layer, attr = self._pick_attack_layer(target, weapon)
+                commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
+            return commands
+
+    # ════════════════════════════════════════════════════════
+    #  命令生成器：队长指挥（Bug8修复）
+    # ════════════════════════════════════════════════════════
+
+    def _cmd_captain(self, player, state, available: List[str]) -> List[str]:
+        """
+        Bug8修复：检查 "police_command" in available（不是 "police attack"）
+        生成格式："police move police1 商店" 等
+        """
+        commands = []
+
+        if "police_command" not in available:
+            return commands
+
+        pc = self._police_cache or {}
+        if not pc.get("is_captain"):
+            return commands
+
+        units = pc.get("units", [])
+        alive_units = [u for u in units if u.get("is_alive")]
+
+        if not alive_units:
+            debug_ai_basic(player.name, "无存活警察单位，跳过指挥")
+            return commands
+
+        # 策略：根据情况指挥
+        # 1) 如果有举报目标且已派遣，指挥攻击
+        report_target = pc.get("report_target")
+        if report_target and pc.get("report_phase") == "dispatched":
+            target_player = state.get_player(report_target)
+            if target_player and target_player.is_alive():
+                target_loc = self._get_location_str(target_player)
+                for unit in alive_units:
+                    uid = unit["id"]
+                    unit_loc = unit.get("location")
+                    if unit_loc != target_loc:
+                        commands.append(f"police move {uid} {target_loc}")
+                    else:
+                        commands.append(f"police attack {uid} {target_player.name}")
+                if commands:
+                    return commands
+
+        # 2) 如果没有目标，巡逻或寻找犯罪者
+        criminal_players = []
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            p = state.get_player(pid)
+            if p and p.is_alive():
+                if getattr(p, 'is_criminal', False):
+                    criminal_players.append(p)
+
+        if criminal_players:
+            primary = max(criminal_players,
+                         key=lambda p: self._threat_scores.get(p.name, 0))
+            target_loc = self._get_location_str(primary)
+            for unit in alive_units:
+                uid = unit["id"]
+                unit_loc = unit.get("location")
+                if unit_loc != target_loc:
+                    commands.append(f"police move {uid} {target_loc}")
+                else:
+                    commands.append(f"police attack {uid} {primary.name}")
+            if commands:
+                return commands
+
+        # 3) 给警察装备
+        for unit in alive_units:
+            uid = unit["id"]
+            current_weapon = unit.get("weapon", "警棍")
+            if current_weapon == "警棍":
+                # 升级武器
+                commands.append(f"police equip {uid} 高斯步枪")
+
+        # 4) 分散巡逻
+        if not commands:
+            patrol_locs = ["商店", "医院", "魔法所", "军事基地"]
+            for i, unit in enumerate(alive_units):
+                uid = unit["id"]
+                target_loc = patrol_locs[i % len(patrol_locs)]
+                if unit.get("location") != target_loc:
+                    commands.append(f"police move {uid} {target_loc}")
+
+        return commands
+
+    # ════════════════════════════════════════════════════════
+    #  命令生成器：政治行动
+    # ════════════════════════════════════════════════════════
+
+    def _cmd_police_political(self, player, state, available: List[str]) -> List[str]:
+        commands = []
+        loc = self._get_location_str(player)
+        is_police = getattr(player, 'is_police', False)
+        is_captain = getattr(player, 'is_captain', False)
+
+        # 举报犯罪者
+        if "report" in available and is_police:
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if target and target.is_alive():
+                    # Bug修复：使用 player.is_criminal 和 police.is_criminal()
+                    target_is_criminal = getattr(target, 'is_criminal', False)
+                    if not target_is_criminal:
+                        police = getattr(state, 'police', None)
+                        if police and hasattr(police, 'is_criminal'):
+                            target_is_criminal = police.is_criminal(target.player_id)
+                    if target_is_criminal:
+                        commands.append(f"report {target.name}")
+                        break
+
+        # 加入警察
+        if "recruit" in available and not is_police and loc == "警察局":
+            commands.append("recruit")
+
+        # 竞选队长
+        if "election" in available and is_police and not is_captain and loc == "警察局":
+            commands.append("election")
+
+        # 指定继任者
+        if "designate" in available and is_captain:
+            # 找一个友好的警察
+            police = getattr(state, 'police', None)
+            if police:
+                for pid in state.player_order:
+                    if pid == player.player_id:
+                        continue
+                    target = state.get_player(pid)
+                    if target and target.is_alive() and getattr(target, 'is_police', False):
+                        commands.append(f"designate {target.name}")
+                        break
+
+        # 移动到警察局
+        if "move" in available and not commands and loc != "警察局":
+            if not is_police or (is_police and not is_captain):
+                commands.append("move 警察局")
+
+        return commands
+
+    # ════════════════════════════════════════════════════════
+    #  命令生成器：生存
+    # ════════════════════════════════════════════════════════
+
+    def _cmd_survival(self, player, state, available: List[str]) -> List[str]:
+        commands = []
+        loc = self._get_location_str(player)
+
+        # 1) 治疗
+        if loc == "医院" and "interact" in available:
+            commands.append("interact 治疗")
+
+        # 2) 移动到医院治疗
+        if player.hp <= 1.0 and "move" in available and loc != "医院":
+            commands.append("move 医院")
+
+        # Bug14修复：_aggressive_survival_strategy 安全检查
+        if self.personality == "aggressive":
+            aggressive_cmds = self._aggressive_survival_strategy(player, state, available)
+            commands.extend(aggressive_cmds)
+
+        # 3) 逃跑（如果被攻击）
+        if "move" in available:
+            safe_loc = self._find_safe_location(player, state)
+            if safe_loc and safe_loc != loc:
+                commands.append(f"move {safe_loc}")
+
+        # 4) 使用隐身
+        if self._has_stealth(player) and "special" in available:
+            commands.append("special 隐身")
+
+        return commands
+
+    def _aggressive_survival_strategy(self, player, state, available: List[str]) -> List[str]:
+        """Bug14修复：检查 target is None"""
+        commands = []
+        target = self._pick_target(player, state)
+        if target is None:
+            return commands
+
+        # 在同一地点，反击
+        if self._same_location(player, target):
+            attack_cmds = self._cmd_attack(player, state, available, target)
+            commands.extend(attack_cmds)
+        else:
+            # 去找目标
+            target_loc = self._get_location_str(target)
+            if target_loc and "move" in available:
+                commands.append(f"move {target_loc}")
+
+        return commands
+
+    # ════════════════════════════════════════════════════════
+    #  命令生成器：病毒应急（Bug16修复：接收 available_actions）
+    # ════════════════════════════════════════════════════════
+
+    def _cmd_virus(self, player, state, available: List[str]) -> List[str]:
+        commands = []
+        loc = self._get_location_str(player)
+
+        # 买防毒面具
+        if loc == "商店" and "interact" in available:
+            commands.append("interact 防毒面具")
+        elif loc == "医院" and "interact" in available:
+            commands.append("interact 防毒面具")
+        elif "move" in available:
+            commands.append("move 商店")
+
+        return commands
+
+    # ════════════════════════════════════════════════════════
+    #  目标选择
+    # ════════════════════════════════════════════════════════
+
+    def _pick_target(self, player, state) -> Optional[Any]:
+        """选择最佳攻击目标"""
+        candidates = []
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            target = state.get_player(pid)
+            if not target or not target.is_alive():
+                continue
+            # 警察成员不攻击普通玩家（Bug修复：警察犯罪限制）
+            if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
+                if not getattr(target, 'is_criminal', False):
+                    continue
+            candidates.append(target)
+
+        if not candidates:
+            return None
+
+        # 评分
+        def score(t):
+            s = 0
+            s += self._threat_scores.get(t.name, 0) * 2
+            if t.name in self._been_attacked_by:
+                s += 50  # 优先反击
+            if self._same_location(player, t):
+                s += 30
+            # 低血优先
+            s += max(0, 5 - t.hp) * 10
+            # 护甲少优先
+            s -= self._count_outer_armor(t) * 15
+            s -= self._count_inner_armor(t) * 10
+            # assassin偏好低血目标
+            if self.personality == "assassin":
+                s += max(0, 3 - t.hp) * 20
+            return s
+
+        candidates.sort(key=score, reverse=True)
+        return candidates[0]
+
+    def _can_attack_target(self, player, target, state) -> bool:
+        """检查是否可能攻击目标（考虑距离和武器）"""
+        weapons = getattr(player, 'weapons', [])
+        if not weapons:
+            return False
+
+        for w in weapons:
+            wr = self._get_weapon_range(w)
+            if wr == "area":
+                if self._same_location(player, target):
+                    return True
+            elif wr == "ranged":
+                return True  # 远程不需要同地点
+            elif wr == "melee":
+                if self._same_location(player, target):
+                    return True
+        return False
+
+    # ════════════════════════════════════════════════════════
+    #  武器选择
+    # ════════════════════════════════════════════════════════
+
+    def _pick_weapon(self, player, target) -> Optional[Any]:
+        """选择最佳武器"""
+        weapons = getattr(player, 'weapons', [])
+        if not weapons:
+            return None
+
+        target_outer_attr = self._get_outer_armor_attr(target)
+
+        def weapon_score(w):
+            s = 0
+            # Bug4修复：使用 get_effective_damage()
+            dmg = self._get_weapon_damage(w)
+            s += dmg * 10
+
+            # 属性克制
+            w_attr = self._get_weapon_attr(w)
+            if target_outer_attr and w_attr in EFFECTIVE_AGAINST:
+                if target_outer_attr in EFFECTIVE_AGAINST[w_attr]:
+                    s += 20
+
+            # 如果在同地点，近战优先（不需要lock）
+            wr = self._get_weapon_range(w)
+            if self._same_location(player, target):
+                if wr == "melee":
+                    s += 10  # 同地点近战有优势
+            else:
+                if wr == "ranged":
+                    s += 15  # 不同地点远程有优势
+                elif wr == "melee":
+                    s -= 20  # 不同地点近战劣势
+
+            return s
+
+        weapons.sort(key=weapon_score, reverse=True)
+        return weapons[0]
+
+    def _pick_attack_layer(self, target, weapon) -> Tuple[str, str]:
+        """
+        选择攻击层和属性
+        Bug4修复：根据目标护甲情况选择攻击层
+        """
+        outer = self._count_outer_armor(target)
+        inner = self._count_inner_armor(target)
+        w_attr = self._get_weapon_attr(weapon)
+
+        if outer > 0:
+            # 有外甲，攻击外甲
+            target_outer_attr = self._get_outer_armor_attr(target)
+            # 选择克制属性
+            best_attr = self._pick_counter_attr(target_outer_attr, w_attr)
+            return "outer", best_attr
+        elif inner > 0:
+            # 无外甲有内甲，攻击内甲
+            target_inner_attr = self._get_inner_armor_attr(target)
+            best_attr = self._pick_counter_attr(target_inner_attr, w_attr)
+            return "inner", best_attr
+        else:
+            # 无甲，直接攻击HP
+            return "hp", w_attr
+
+    def _pick_counter_attr(self, target_attr: Optional[str],
+                           weapon_attr: str) -> str:
+        """选择克制属性"""
+        if not target_attr:
+            return weapon_attr
+
+        # 属性克制关系
+        counter_map = {
+            "物理": "魔法",
+            "魔法": "科技",
+            "科技": "物理",
+        }
+        counter = counter_map.get(target_attr)
+        if counter:
+            return counter
+        return weapon_attr
+
+    # ════════════════════════════════════════════════════════
+    #  天赋相关决策
+    # ════════════════════════════════════════════════════════
+
+    def _cmd_talent(self, player, state, available: List[str]) -> List[str]:
+        """天赋相关的行动命令"""
+        commands = []
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return commands
+
+        talent_name = getattr(talent, 'name', '')
+
+        # 各天赋的特殊行动
+        if talent_name == "一刀缭断":
+            cmds = self._talent_one_slash(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "你给路打油":
+            cmds = self._talent_oil(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "天星":
+            cmds = self._talent_star(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "六爻":
+            cmds = self._talent_hexagram(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "不良少年":
+            cmds = self._talent_delinquent(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "朝阳好市民":
+            cmds = self._talent_good_citizen(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "死者苏生":
+            cmds = self._talent_resurrection(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "火萤Ⅳ型-完全燃烧":
+            cmds = self._talent_firefly(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "请一直，注视着我":
+            cmds = self._talent_hologram(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "遗世独立的幻想乡":
+            cmds = self._talent_mythland(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "愿负世，照拂黎明":
+            cmds = self._talent_savior(player, state, available)
+            commands.extend(cmds)
+        elif talent_name == "往世的涟漪":
+            cmds = self._talent_ripple(player, state, available)
+            commands.extend(cmds)
+
+        return commands
+
+    def _talent_one_slash(self, player, state, available) -> List[str]:
+        """一刀缭断：强化近战攻击"""
+        commands = []
+        if "talent_activate" in available:
+            target = self._pick_target(player, state)
+            if target and self._same_location(player, target):
+                # 判断是否值得使用天赋（目标HP较高时使用）
+                if target.hp >= 2.0:
+                    commands.append(f"talent_activate {target.name}")
+        return commands
+
+    def _talent_oil(self, player, state, available) -> List[str]:
+        """你给路打油：设置陷阱"""
+        commands = []
+        if "talent_activate" in available:
+            # 在关键地点设置陷阱
+            loc = self._get_location_str(player)
+            high_traffic = ["商店", "医院", "魔法所"]
+            if loc in high_traffic:
+                commands.append("talent_activate")
+        return commands
+
+    def _talent_star(self, player, state, available) -> List[str]:
+        """天星：远程攻击强化"""
+        commands = []
+        if "talent_activate" in available:
+            target = self._pick_target(player, state)
+            if target:
+                commands.append(f"talent_activate {target.name}")
+        return commands
+
+    def _talent_hexagram(self, player, state, available) -> List[str]:
+        """六爻：预知/占卜"""
+        commands = []
+        if "talent_activate" in available:
+            # 在需要情报时使用
+            if self._round_number <= 3:
+                commands.append("talent_activate")
+        return commands
+
+    def _talent_delinquent(self, player, state, available) -> List[str]:
+        """不良少年：战斗强化"""
+        commands = []
+        if "talent_activate" in available:
+            target = self._pick_target(player, state)
+            if target and self._same_location(player, target):
+                commands.append(f"talent_activate {target.name}")
+        return commands
+
+    def _talent_good_citizen(self, player, state, available) -> List[str]:
+        """朝阳好市民：政治强化"""
+        commands = []
+        if "talent_activate" in available:
+            if getattr(player, 'is_police', False):
+                commands.append("talent_activate")
+        return commands
+
+    def _talent_resurrection(self, player, state, available) -> List[str]:
+        """死者苏生：复活能力"""
+        commands = []
+        if "talent_activate" in available:
+            # 检查是否有已死亡的友方
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if target and not target.is_alive():
+                    # 可以复活
+                    commands.append(f"talent_activate {target.name}")
+                    break
+        return commands
+
+    def _talent_firefly(self, player, state, available) -> List[str]:
+        """火萤Ⅳ型-完全燃烧：自爆/强化攻击"""
+        commands = []
+        if "talent_activate" in available:
+            # 低血量时使用（同归于尽策略）
+            if player.hp <= 1.0:
+                targets_nearby = self._get_same_location_targets(player, state)
+                if targets_nearby:
+                    commands.append("talent_activate")
+        return commands
+
+    def _talent_hologram(self, player, state, available) -> List[str]:
+        """请一直，注视着我：分身/嘲讽"""
+        commands = []
+        if "talent_activate" in available:
+            # 被多人攻击时使用
+            attackers = len(self._been_attacked_by)
+            if attackers >= 2:
+                commands.append("talent_activate")
+        return commands
+
+    def _talent_mythland(self, player, state, available) -> List[str]:
+        """遗世独立的幻想乡：创建领域"""
+        commands = []
+        if "talent_activate" in available:
+            # 在发育完成后使用
+            if self._is_development_complete(player):
+                commands.append("talent_activate")
+        return commands
+
+    def _talent_savior(self, player, state, available) -> List[str]:
+        """愿负世，照拂黎明：保护/治疗他人"""
+        commands = []
+        if "talent_activate" in available:
+            # 找到低血量的友方
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if target and target.is_alive() and target.hp <= 1.5:
+                    if self._same_location(player, target):
+                        commands.append(f"talent_activate {target.name}")
+                        break
+        return commands
+
+    def _talent_ripple(self, player, state, available) -> List[str]:
+        """往世的涟漪：时间回溯"""
+        commands = []
+        if "talent_activate" in available:
+            # 在关键时刻使用（自己或目标即将死亡）
+            if player.hp <= 0.5:
+                commands.append("talent_activate self")
+            else:
+                # 检查是否有刚死亡的敌人可以回溯
+                target = self._pick_target(player, state)
+                if target and target.hp <= 0.5:
+                    commands.append(f"talent_activate {target.name}")
+        return commands
+
+    # ════════════════════════════════════════════════════════
+    #  辅助方法：装备计数与查询
+    # ════════════════════════════════════════════════════════
+
+    def _count_outer_armor(self, player) -> int:
+        """计算外甲数量"""
+        armor_list = getattr(player, 'outer_armor', [])
+        if isinstance(armor_list, list):
+            return len(armor_list)
+        return 0
+
+    def _count_inner_armor(self, player) -> int:
+        """计算内甲数量"""
+        armor_list = getattr(player, 'inner_armor', [])
+        if isinstance(armor_list, list):
+            return len(armor_list)
+        return 0
+
+    def _get_outer_armor_attr(self, player) -> Optional[str]:
+        """获取外甲属性"""
+        armor_list = getattr(player, 'outer_armor', [])
+        if armor_list and len(armor_list) > 0:
+            first = armor_list[0]
+            return getattr(first, 'attribute', None)
+        return None
+
+    def _get_inner_armor_attr(self, player) -> Optional[str]:
+        """获取内甲属性"""
+        armor_list = getattr(player, 'inner_armor', [])
+        if armor_list and len(armor_list) > 0:
+            first = armor_list[0]
+            return getattr(first, 'attribute', None)
+        return None
+
+    def _get_weapon_damage(self, weapon) -> float:
+        """Bug4修复：使用 get_effective_damage() 如果可用"""
+        if hasattr(weapon, 'get_effective_damage'):
+            return weapon.get_effective_damage()
+        return getattr(weapon, 'damage', 1.0)
+
+    def _get_weapon_range(self, weapon) -> str:
+        """获取武器射程类型"""
+        w_range = getattr(weapon, 'range_type', None)
+        if w_range:
+            return w_range
+        name = getattr(weapon, 'name', '')
+        if name in ('电磁步枪', '高斯步枪', '远程魔法弹幕', '导弹'):
+            return "ranged"
+        elif name in ('地震',):
+            return "area"
+        else:
+            return "melee"
+
+    def _get_weapon_attr(self, weapon) -> str:
+        """获取武器属性"""
+        return getattr(weapon, 'attribute', '物理')
+
+    def _has_melee_only(self, player) -> bool:
+        """是否只有近战武器"""
+        weapons = getattr(player, 'weapons', [])
+        for w in weapons:
+            if self._get_weapon_range(w) != "melee":
+                return False
+        return True
+
+    def _has_stealth(self, player) -> bool:
+        """是否有隐身能力"""
+        if hasattr(player, 'has_stealth') and player.has_stealth:
+            return True
+        # 检查装备
+        equipment = getattr(player, 'equipment', [])
+        if isinstance(equipment, list):
+            for e in equipment:
+                name = getattr(e, 'name', '')
+                if name in ('隐身衣', '隐形涂层'):
+                    return True
+        # 检查法术
+        spells = getattr(player, 'spells', [])
+        if isinstance(spells, list):
+            for s in spells:
+                name = getattr(s, 'name', str(s))
+                if name == '隐身术':
+                    return True
+        return False
+
+    def _has_virus_immunity(self, player) -> bool:
+        """是否有防毒面具"""
+        equipment = getattr(player, 'equipment', [])
+        if isinstance(equipment, list):
+            for e in equipment:
+                name = getattr(e, 'name', '')
+                if name == '防毒面具':
+                    return True
+        return False
+
+    def _get_learned_spells(self, player) -> List[str]:
+        """获取已学法术列表"""
+        spells = getattr(player, 'spells', [])
+        result = []
+        if isinstance(spells, list):
+            for s in spells:
+                name = getattr(s, 'name', str(s))
+                result.append(name)
+        return result
+
+    # ════════════════════════════════════════════════════════
+    #  辅助方法：位置相关
+    # ════════════════════════════════════════════════════════
+
+    def _get_location_str(self, player) -> str:
+        """获取玩家位置字符串"""
+        loc = getattr(player, 'location', None)
+        if loc is None:
+            return "unknown"
+        if isinstance(loc, str):
+            return loc
+        if hasattr(loc, 'name'):
+            return loc.name
+        return str(loc)
+
+    def _is_at_home(self, player) -> bool:
+        """是否在自己家"""
+        loc = self._get_location_str(player)
+        pid = getattr(player, 'player_id', '')
+        return loc == "home" or loc == f"home_{pid}" or "家" in loc
+
+    def _same_location(self, player1, player2) -> bool:
+        """两个玩家是否在同一地点"""
+        loc1 = self._get_location_str(player1)
+        loc2 = self._get_location_str(player2)
+        return loc1 == loc2 and loc1 != "unknown"
+
+    def _get_same_location_targets(self, player, state) -> List[Any]:
+        """获取同地点的敌方玩家"""
+        result = []
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            target = state.get_player(pid)
+            if target and target.is_alive() and self._same_location(player, target):
+                result.append(target)
+        return result
+
+    def _find_nearest_enemy_location(self, player, state) -> Optional[str]:
+        """找到最近的敌人所在位置"""
+        candidates = []
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            target = state.get_player(pid)
+            if target and target.is_alive():
+                target_loc = self._get_location_str(target)
+                threat = self._threat_scores.get(target.name, 0)
+                candidates.append((target_loc, threat))
+
+        if not candidates:
+            return None
+
+        # 按威胁分排序
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return candidates[0][0]
+
+    def _find_safe_location(self, player, state) -> Optional[str]:
+        """找到安全的位置"""
+        loc = self._get_location_str(player)
+        # 检查当前位置有多少敌人
+        enemies_here = len(self._get_same_location_targets(player, state))
+
+        if enemies_here == 0:
+            return None  # 已经安全
+
+        # 尝试回家
+        if loc != "home":
+            return "home"
+
+        # 找没人的地方
+        all_locations = ["商店", "医院", "魔法所", "军事基地", "警察局"]
+        for test_loc in all_locations:
+            enemies_at = 0
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if target and target.is_alive():
+                    if self._get_location_str(target) == test_loc:
+                        enemies_at += 1
+            if enemies_at == 0:
+                return test_loc
+
+        return "home"  # 默认回家
 
     # ════════════════════════════════════════════════════════
     #  辅助方法：威胁评估
     # ════════════════════════════════════════════════════════
 
-    def _update_threat_scores(self, player, state):
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            target = state.get_player(pid)
-            if not target or not target.is_alive():
-                if target:
-                    self._threat_scores.pop(target.name, None)
-                continue
-            score = self._threat_scores.get(target.name, 0)
-            t_dmg = self._best_weapon_damage_of(target)
-            score = max(score, t_dmg * 10)
-            score += target.hp * 5
-            score += self._count_outer_armor_of(target) * 5
-            score += self._count_inner_armor_of(target) * 5
-            if target.location == player.location:
-                score += 15
-            self._threat_scores[target.name] = score
+    def _is_at_disadvantage(self, player, target) -> bool:
+        """是否处于劣势"""
+        my_power = self._estimate_power(player)
+        enemy_power = self._estimate_power(target)
+        return my_power < enemy_power * 0.7
 
-    def _pick_best_target(self, player, state):
-        """选择最佳攻击目标（修复版）"""
-        best_target = None
-        best_score = -1
-        
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            target = state.get_player(pid)
-            if not target or not target.is_alive():
-                continue
-            
-            score = self._threat_scores.get(target.name, 0)
-            my_dmg = self._best_weapon_damage(player)
-            
-            # 击杀机会优先
-            if target.hp <= my_dmg and self._has_attack_prerequisite(player, target, state):
-                score += 100
-                debug_ai_basic(player.name, f"目标 {target.name} 有击杀机会，分数+100")
-            
-            # 同地点优先
-            if target.location == player.location:
-                score += 20
-                debug_ai_basic(player.name, f"目标 {target.name} 同地点，分数+20")
-            
-            # 低血量优先
-            if target.hp <= 0.5:
-                score += 30
-                debug_ai_basic(player.name, f"目标 {target.name} 低血量，分数+30")
-            
-            if score > best_score:
-                best_score = score
-                best_target = target
-        
-        if best_target:
-            debug_ai_attack_generation(player.name, "选择最佳目标", best_target.name)
-        else:
-            debug_ai_basic(player.name, "没有找到合适的目标")
-        
-        return best_target
+    def _estimate_power(self, player) -> float:
+        """估算玩家战力"""
+        power = 0.0
+        power += player.hp * 10
 
-    # ════════════════════════════════════════════════════════
-    #  核心修复：武器与攻击层选择
-    # ══════════════════════════════════════��═════════════════
-
-    def _has_weapon_named(self, player, name: str) -> bool:
-        """检查玩家是否已拥有指定名称的武器"""
-        for w in getattr(player, 'weapons', []):
-            if getattr(w, 'name', '') == name:
-                return True
-        return False
-
-    def _has_item_named(self, player, name: str) -> bool:
-        """检查玩家是否已拥有指定名称的物品"""
-        for item in getattr(player, 'items', []):
-            if getattr(item, 'name', '') == name:
-                return True
-        return False
-
-    def _best_weapon_damage(self, player) -> float:
-        """获取最佳武器伤害（完全类型安全版）"""
-        max_dmg = 0.0
-        
-        # 确保有武器列表
         weapons = getattr(player, 'weapons', [])
-        if not weapons:
-            debug_ai_full(self._safe_player_name(), "最佳武器伤害: 0.5 (无武器)")
-            return 0.5
-        
         for w in weapons:
-            # 初始化伤害值
-            dmg_val = 0.0
-            
-            # 方法1：尝试 get_effective_damage
-            if hasattr(w, 'get_effective_damage') and callable(w.get_effective_damage):
-                try:
-                    result = w.get_effective_damage()
-                    # 安全转换为float
-                    dmg_val = self._safe_float(result)
-                except Exception:
-                    pass  # 方法调用失败
-            
-            # 方法2：尝试 base_damage 属性
-            if dmg_val <= 0.0 and hasattr(w, 'base_damage'):
-                base_dmg = w.base_damage
-                # 安全处理各种类型
-                dmg_val = self._safe_float(base_dmg)
-            
-            # 方法3：根据武器名称推断
-            if dmg_val <= 0.0 and hasattr(w, 'name'):
-                weapon_name = getattr(w, 'name', '').lower()
-                
-                # 使用类型安全的字符串判断
-                if "小刀" in weapon_name:
-                    dmg_val = 0.5
-                elif "魔法弹幕" in weapon_name:
-                    dmg_val = 1.0
-                elif "高斯步枪" in weapon_name or "电磁步枪" in weapon_name:
-                    dmg_val = 1.5
-                elif "导弹" in weapon_name:
-                    dmg_val = 2.0
-            
-            # 方法4：尝试其他可能的伤害属性
-            if dmg_val <= 0.0:
-                # 检查其他常见的伤害属性名
-                for attr_name in ['damage', 'dmg', 'attack_damage', 'attack_value']:
-                    if hasattr(w, attr_name):
-                        attr_value = getattr(w, attr_name)
-                        temp_dmg = self._safe_float(attr_value)
-                        if temp_dmg > dmg_val:
-                            dmg_val = temp_dmg
-            
-            # 比较伤害值（使用类型安全的比较）
-            if dmg_val > max_dmg:
-                max_dmg = dmg_val
-        
-        # 确保有最小伤害值
-        if max_dmg <= 0.0:
-            max_dmg = 0.5
-    
-        # 最终返回float
-        debug_ai_full(self._safe_player_name(), f"最佳武器伤害: {max_dmg}")
-        return float(max_dmg)
-    
-    # 类属性：前置条件
-    SPELL_PREREQUISITES = {
-        "远程魔法弹幕": ["魔法弹幕"],
-        "地动山摇": ["地震"],
-        "地震": ["魔法弹幕"],
-        # 无前置
-        "魔法弹幕": [],
-        "探测魔法": [],
-        "魔法护盾": [],
-    }
+            power += self._get_weapon_damage(w) * 15
 
-    def _can_learn(self, player, spell_name: str) -> bool:
-        """检查：没学过 + 满足前置"""
-        # 武器类法术
-        if self._has_weapon_named(player, spell_name):
-            return False
-        # 护甲类（魔法护盾）
-        if spell_name == "魔法护盾":
-            return self._count_outer_armor(player) == 0
-        # 检查前置
-        prereqs = self.SPELL_PREREQUISITES.get(spell_name, [])
-        for prereq in prereqs:
-            if not self._has_weapon_named(player, prereq):
-                return False
-        return True
+        outer = self._count_outer_armor(player)
+        inner = self._count_inner_armor(player)
+        power += outer * 20
+        power += inner * 15
 
-    def _has_detection(self, player) -> bool:
-        """检查是否有任何探测能力"""
-        detect_items = {"热成像仪", "雷达", "探测魔法"}
-        for item in getattr(player, 'items', []):
-            name = getattr(item, 'name', '')
-            if name in detect_items:
-                return True
-            effect = getattr(item, 'effect', {})
-            if isinstance(effect, dict) and effect.get('grant') == 'detect':
-                return True
-        return False
-        
-    def _best_weapon_damage_of(self, target) -> float:
-        return self._best_weapon_damage(target)
+        if self._has_stealth(player):
+            power += 10
 
-    def _pick_best_weapon_against(self, player, target):
-        """选择最佳武器攻击目标（类型安全版）"""
-        if not hasattr(player, 'weapons') or not player.weapons:
-            debug_ai_basic(self._safe_player_name(), "没有武器")
-            return None
-        
-        debug_ai_attack_generation(self._safe_player_name(), "选择武器攻击目标", target.name)
-        
-        best = None
-        best_score = -1.0  # 使用float类型
-        
-        for w in player.weapons:
-            debug_ai_full(self._safe_player_name(), f"检查武器: {getattr(w, 'name', '未知')}")
-            
-            # 初始化伤害值并确保类型安全
-            damage_val = 0.0
-            
-            # 方法1：尝试 get_effective_damage
-            if hasattr(w, 'get_effective_damage') and callable(w.get_effective_damage):
-                try:
-                    result = w.get_effective_damage()
-                    damage_val = self._safe_float(result)
-                except Exception:
-                    pass  # 方法调用失败
-            
-            # 方法2：尝试 base_damage 属性
-            if damage_val <= 0.0 and hasattr(w, 'base_damage'):
-                base_dmg = w.base_damage
-                # 安全处理各种类型
-                damage_val = self._safe_float(base_dmg)
-            
-            # 方法3：根据武器名称推断
-            if damage_val <= 0.0:
-                weapon_name = getattr(w, 'name', '').lower()
-                
-                # 使用类型安全的字符串判断
-                if "小刀" in weapon_name:
-                    damage_val = 0.5
-                elif "魔法弹幕" in weapon_name:
-                    damage_val = 1.0
-                elif "高斯步枪" in weapon_name or "电磁步枪" in weapon_name:
-                    damage_val = 1.5
-                elif "导弹" in weapon_name:
-                    damage_val = 2.0
-                else:
-                    damage_val = 0.5  # 默认值
-            
-            # 方法4：尝试其他可能的伤害属性
-            if damage_val <= 0.0:
-                # 检查其他常见的伤害属性名
-                for attr_name in ['damage', 'dmg', 'attack_damage', 'attack_value']:
-                    if hasattr(w, attr_name):
-                        attr_value = getattr(w, attr_name)
-                        temp_dmg = self._safe_float(attr_value)
-                        if temp_dmg > damage_val:
-                            damage_val = temp_dmg
-            
-            # 获取武器属性
-            weapon_attr = "普通"
-            if hasattr(w, 'attribute'):
-                _attr = w.attribute
-                if hasattr(_attr, 'value'):
-                    weapon_attr = _attr.value
-                elif isinstance(_attr, str) and _attr in ["普通", "魔法", "科技"]:
-                    weapon_attr = _attr
-            
-            debug_ai_full(self._safe_player_name(), f"武器 {getattr(w, 'name', '未知')} 伤害: {damage_val}, 属性: {weapon_attr}")
-            
-            # 计算分数（全部使用类型安全的数值）
-            score = damage_val * 10.0  # 基础分数
-            
-            # 属性克制加分
-            if self._can_damage_any_armor(weapon_attr, target):
-                score += 15.0
-                debug_ai_full(self._safe_player_name(), "武器属性克制，分数+15")
-            
-            # 高伤害武器额外加分
-            if damage_val >= 1.0:
-                score += 10.0
-                debug_ai_full(self._safe_player_name(), "高伤害武器，分数+10")
-            
-            # 远程武器对远处目标加分
-            if player.location != target.location:
-                weapon_name = getattr(w, 'name', '').lower()
-                if "远程" in weapon_name or "导弹" in weapon_name or "弹幕" in weapon_name:
-                    score += 20.0
-                    debug_ai_full(self._safe_player_name(), "远程武器对远处目标，分数+20")
-            
-            debug_ai_full(self._safe_player_name(), f"武器 {getattr(w, 'name', '未知')} 最终分数: {score}")
-            
-            if score > best_score:
-                best_score = score
-                best = w
-        
-        if best:
-            debug_ai_attack_generation(self._safe_player_name(), "选择武器", getattr(best, 'name', '未知'))
-        else:
-            debug_ai_basic(self._safe_player_name(), "没有找到合适的武器")
-        
-        return best
-
-    def _pick_attack_layer(self, weapon, target):
-        """选择攻击层和属性（修复版）"""
-        # 直接读取 weapon.attribute.value（Attribute 枚举的字符串展示层）
-        weapon_attr = "普通"
-        if hasattr(weapon, 'attribute'):
-            _attr = weapon.attribute
-            if hasattr(_attr, 'value'):
-                weapon_attr = _attr.value
-            elif isinstance(_attr, str) and _attr in ["普通", "魔法", "科技"]:
-                weapon_attr = _attr
-        
-        debug_ai_full(self._safe_player_name(), f"选择攻击层，武器属性: {weapon_attr}")
-        
-        effective_set = EFFECTIVE_AGAINST.get(weapon_attr, set())
-        
-        # 检查目标是否有护甲
-        if hasattr(target, 'armor'):
-            debug_ai_full(self._safe_player_name(), "目标有护甲，检查有效攻击层")
-            
-            # 优先攻击有效的护甲层
-            for attr in ["普通", "魔法", "科技"]:
-                if attr in effective_set and self._target_has_armor_layer(target, "外层", attr):
-                    debug_ai_full(self._safe_player_name(), f"选择外层 {attr} 护甲")
-                    return ("外层", attr)
-            
-            # 如果没有有效的护甲层，检查是否有外层护甲
-            if not self._target_has_any_outer(target):
-                debug_ai_full(self._safe_player_name(), "目标没有外层护甲，检查内层")
-                for attr in ["普通", "魔法", "科技"]:
-                    if attr in effective_set and self._target_has_armor_layer(target, "内层", attr):
-                        debug_ai_full(self._safe_player_name(), f"选择内层 {attr} 护甲")
-                        return ("内层", attr)
-        
-        debug_ai_basic(self._safe_player_name(), f"使用默认攻击层: 外层 {weapon_attr}")
-        return ("外层", weapon_attr)
-
-    def _can_damage_any_armor(self, weapon_attr: str, target) -> bool:
-        """检查武器是否能伤害目标的任何护甲"""
-        effective_set = EFFECTIVE_AGAINST.get(weapon_attr, set())
-        
-        if not hasattr(target, 'armor'):
-            debug_ai_full(self._safe_player_name(), "目标没有护甲，任何武器都能伤害")
-            return True
-        
-        # 检查是否有任何有效的护甲层
-        for layer_type in ["外层", "内层"]:
-            for attr in ["普通", "魔法", "科技"]:
-                if attr in effective_set and self._target_has_armor_layer(target, layer_type, attr):
-                    debug_ai_full(self._safe_player_name(), f"武器属性 {weapon_attr} 能伤害 {layer_type} {attr} 护甲")
-                    return True
-        
-        debug_ai_basic(self._safe_player_name(), f"武器属性 {weapon_attr} 不能伤害目标的任何护甲")
-        return False
-
-    # ========== 增强的护甲检测（更新版：支持新的ArmorSlots列表结构） ==========
-    def _target_has_armor_layer(self, target, layer_type: str, attribute: str) -> bool:
-        if not hasattr(target, 'armor'):
-            return False
-        
-        armor = target.armor
-        debug_ai_full(self._safe_player_name(), f"检查目标 {target.name} 的 {layer_type} {attribute} 护甲")
-        
-        # 获取对应层的列表
-        layer_list = armor.outer if layer_type == "外层" else armor.inner
-        
-        # 遍历列表中的护甲
-        for piece in layer_list:
-            if piece is not None and not piece.is_broken:
-                piece_attr = str(piece.attribute).lower()
-                target_attr = attribute.lower()
-                
-                # 检查属性匹配
-                if target_attr in piece_attr or (attribute == "普通" and "普通" in piece_attr):
-                    debug_ai_full(self._safe_player_name(), f"找到 {layer_type} {attribute} 护甲: {piece.name}")
-                    return True
-        
-        debug_ai_full(self._safe_player_name(), f"没有找到 {layer_type} {attribute} 护甲")
-        return False
-        
-    def _target_has_any_outer(self, target) -> bool:
-        for attr in ["普通", "魔法", "科技"]:
-            if self._target_has_armor_layer(target, "外层", attr):
-                return True
-        return False
-
-    def _has_armor_by_name(self, player, item_name: str) -> bool:
-        """检查玩家护甲中是否有指定名称的护甲层（精确匹配）"""
-        if not hasattr(player, 'armor'):
-            return False
-        armor = player.armor
-        
-        # 检查外层和内层
-        for piece in armor.outer + armor.inner:
-            if piece is not None and not piece.is_broken:
-                piece_name = getattr(piece, 'name', str(piece))
-                if piece_name == item_name:
-                    return True
-        
-        return False
-
-    def _has_item(self, player, item_name: str) -> bool:
-        for item in getattr(player, 'items', []):
-            name = getattr(item, 'name', str(item))
-            if item_name == name:
-                return True
-        return False
-
-    def _can_take_item(self, player, item_name: str) -> bool:
-        """判断玩家是否能够获取指定物品"""
-        # 只检查同名护甲层，不检查属性匹配
-        if self._has_armor_by_name(player, item_name):
-            return False
-        # 检查物品列表
-        if self._has_item(player, item_name):
-            return False
-        return True
-
-    # ====================================
-
-    # ════════════════════════════════════════════════════════
-    #  辅助方法：状态查询（更新版：支持新的ArmorSlots列表结构）
-    # ════════════════════════════════════════════════════════
-
-    def _has_credential(self, player) -> bool:
-        vouchers = getattr(player, 'vouchers', 0)
-        if vouchers > 0:
-            return True
-        credentials = getattr(player, 'credentials', 0)
-        if credentials > 0:
-            return True
-        if hasattr(player, 'has_credential') and callable(player.has_credential):
-            return bool(player.has_credential())
-        for item in getattr(player, 'items', []):
-            name = getattr(item, 'name', str(item))
-            if '凭证' in name or '山姆' in name:
-                return True
-        return False
-
-    def _has_virus_immunity(self, player) -> bool:
-        if hasattr(player, 'virus_immune') and player.virus_immune:
-            return True
-        for item in getattr(player, 'items', []):
-            name = getattr(item, 'name', str(item))
-            if '防毒' in name or '封闭' in name:
-                return True
-        return False
-
-    def _count_outer_armor(self, player) -> int:
-        """计算外层护甲数量（更新版：支持列表结构）"""
-        if not hasattr(player, 'armor'):
-            return 0
-        armor = player.armor
-        
-        # 如果outer是字典（旧结构）
-        if hasattr(armor, 'outer') and isinstance(armor.outer, dict):
-            return sum(1 for v in armor.outer.values() if v is not None)
-        # 如果outer是列表（新结构）
-        elif hasattr(armor, 'outer') and isinstance(armor.outer, list):
-            return sum(1 for piece in armor.outer if piece is not None and not piece.is_broken)
-        return 0
-        
-    def _count_inner_armor(self, player) -> int:
-        """计算内层护甲数量（更新版：支持列表结构）"""
-        if not hasattr(player, 'armor'):
-            return 0
-        armor = player.armor
-        
-        # 如果inner是字典（旧结构）
-        if hasattr(armor, 'inner') and isinstance(armor.inner, dict):
-            return sum(1 for v in armor.inner.values() if v is not None)
-        # 如果inner是列表（新结构）
-        elif hasattr(armor, 'inner') and isinstance(armor.inner, list):
-            return sum(1 for piece in armor.inner if piece is not None and not piece.is_broken)
-        return 0
-    
-    def _count_outer_armor_of(self, target) -> int:
-        return self._count_outer_armor(target)
-
-    def _count_inner_armor_of(self, target) -> int:
-        return self._count_inner_armor(target)
-
-    def _count_locked_by(self, player, state) -> int:
-        count = 0
-        if hasattr(state.markers, 'get_all_relations'):
-            relations = state.markers.get_all_relations(player.player_id)
-            for rel in relations:
-                if 'LOCKED' in str(rel).upper():
-                    count += 1
-        elif hasattr(state.markers, 'count_locked_by'):
-            count = state.markers.count_locked_by(player.player_id)
-        return count
-
-    def _has_attack_prerequisite(self, player, target, state) -> bool:
-        """判断是否可以攻击目标"""
-        # 如果在同一地点，可以直接攻击
-        if player.location == target.location:
-            debug_ai_basic(player.name, f"与目标 {target.name} 在同一地点，可以攻击")
-            return True
-    
-        # 远程攻击：需要已锁定且目标可见
-        markers = state.markers
-        if hasattr(markers, 'has_relation'):
-            is_locked = markers.has_relation(player.player_id, "LOCKED", target.player_id)
-            if is_locked:
-                has_detection = getattr(player, 'has_detection', False)
-                if hasattr(markers, 'is_visible_to'):
-                    is_visible = markers.is_visible_to(target.player_id, player.player_id, has_detection)
-                    debug_ai_basic(player.name, f"目标 {target.name} 已锁定，可见性: {is_visible}")
-                    return is_visible
-                else:
-                    debug_ai_basic(player.name, f"目标 {target.name} 已锁定，默认可见")
-                    return True
-        
-        debug_ai_basic(player.name, f"无法攻击目标 {target.name}，不满足攻击前提条件")
-        return False
-
-    def _extra_develop_commands(self, player, state):
-        cmds = []
-        loc = player.location
-
-        # 检查是否需要导弹控制权
-        has_missile_control = self._has_weapon_named(player, "导弹控制权")
-        
-        # 检查是否有高威胁远程目标
-        needs_missile_for_target = False
-        if not has_missile_control:
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                target = state.get_player(pid)
-                if not target or not target.is_alive() or target.location == player.location:
-                    continue
-                threat_score = self._threat_scores.get(target.name, 0)
-                if threat_score > 70:
-                    needs_missile_for_target = True
-                    break
-
-        if loc == "魔法所":
-            for spell in ["魔法弹幕", "远程魔法弹幕", "地震", "地动山摇"]:
-                if self._can_learn(player, spell):
-                    cmds.append(f"interact {spell}")
-                    break
-            if not cmds:
-                cmds.append("move 军事基地")
-
-        elif loc == "军事基地":
-            if not getattr(player, 'has_military_pass', False):
-                cmds.append("interact 办理通行证")
-            else:
-                weapon_priority = ["高斯步枪", "电磁步枪"]
-                if needs_missile_for_target:
-                    weapon_priority.insert(0, "导弹控制权")
-                
-                for weapon in weapon_priority:
-                    if not self._has_weapon_named(player, weapon):
-                        cmds.append(f"interact {weapon}")
-                        break
-                if not cmds:
-                    cmds.append("move 商店")
-
-        elif loc == "商店":
-            for item in ["磨刀石", "隐身衣", "防毒面具"]:
-                if not self._has_item_named(player, item):
-                    cmds.append(f"interact {item}")
-                    break
-            if not cmds:
-                cmds.append("move 魔法所")
-
-        elif loc == "医院":
-            cmds.append("move 魔法所")
-
-        else:
-            cmds.append("move 魔法所")
-
-        return cmds
-
-    def _find_safest_location(self, player, state) -> Optional[str]:
-        best_loc = None
-        min_enemies = 999
-        all_locs = list(LOCATIONS)
-        if player.location not in all_locs:
-            all_locs.append(player.location)
-        for loc in all_locs:
-            enemy_count = 0
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                p = state.get_player(pid)
-                if p and p.is_alive() and p.location == loc:
-                    enemy_count += 1
-            if enemy_count < min_enemies:
-                min_enemies = enemy_count
-                best_loc = loc
-        return best_loc
-    
-    def _political_commands(self, player, state, available) -> List[str]:
-        cmds = []
-        loc = player.location.name if hasattr(player.location, 'name') else str(player.location)
-
-        if "recruit" in available:
-            cmds.append("recruit")
-
-        if "report" in available:
-            if loc == "警察局":
-                target = self._pick_report_target(player, state)
-                if target:
-                    cmds.append(f"report {target.name}")
-
-        if "vote" in available:
-            target = self._pick_best_target(player, state)
-            if target:
-                cmds.append(f"vote {target.name}")
-
-        # 新增：队长竞选
-        if "election" in available and loc == "警察局":
-            if self._should_become_captain(player, state):
-                cmds.append("election")
-                debug_ai_basic(player.name, "决定竞选队长")
-
-        return cmds
-
-    def _pick_report_target(self, player, state):
-        """只举报确实有犯罪记录的人"""
-        for p in state.players.values():
-            if p.player_id == player.player_id:
-                continue
-            if getattr(p, 'crime_record', False) or getattr(p, 'wanted', False):
-                return p
-        return None
-    
-    def _is_development_complete(self, player) -> bool:
-        """根据AI人格判断发育是否完成"""
-        has_credential = self._has_credential(player)
-        has_outer_armor = self._count_outer_armor(player) > 0
-        has_good_weapon = self._best_weapon_damage(player) >= 1.0
-        has_detection = getattr(player, 'has_detection', False)
-        has_inner_armor = self._count_inner_armor(player) > 0
-        
-        if self.personality == "aggressive":
-            debug_ai_development_plan(player.name, f"进攻型发育检查：武器伤害={self._best_weapon_damage(player)}，完成={has_good_weapon}")
-            return has_good_weapon
-        elif self.personality == "balanced":
-            result = has_credential and has_outer_armor and has_good_weapon
-            debug_ai_development_plan(player.name, f"均衡型发育检查：凭证={has_credential}，外层={has_outer_armor}，武器={has_good_weapon}，完成={result}")
-            return result
-        elif self.personality == "defensive" or self.personality == "builder":
-            result = (has_credential and has_outer_armor and has_good_weapon and 
-                    has_detection and has_inner_armor)
-            debug_ai_development_plan(player.name, f"发育型检查：凭证={has_credential}，外层={has_outer_armor}，武器={has_good_weapon}，探测={has_detection}，内层={has_inner_armor}，完成={result}")
-            return result
-        else:
-            debug_ai_development_plan(player.name, "政治型，不需要发育完成")
-            return False
-
-    # ========== 导弹攻击逻辑优化 ==========
-    
-    def _needs_missile_attack(self, player, state):
-        """判断是否需要使用导弹攻击"""
-        if self._in_combat and self._combat_target:
-            return self._needs_missile_in_combat(player, state, self._combat_target)
-        
-        has_missile_control = self._has_weapon_named(player, "导弹控制权")
-        
-        if player.location != "军事基地" and not has_missile_control:
-            return False
-        
-        best_target = None
-        best_threat = -1
-        
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            
-            target = state.get_player(pid)
-            if not target or not target.is_alive():
-                continue
-            
-            if target.location == player.location:
-                continue
-            
-            is_invisible = getattr(target, 'is_invisible', False)
-            if is_invisible:
-                if not self._has_detection_capability(player):
-                    continue
-            
-            threat_score = self._threat_scores.get(target.name, 0)
-            
-            if threat_score > 80 and threat_score > best_threat:
-                best_threat = threat_score
-                best_target = target
-        
-        if best_target and best_threat > 80:
-            debug_ai_missile_attack(player.name, f"检测到高威胁远程目标 {best_target.name}，威胁分数 {best_threat}")
-            return True
-        
-        return False
-
-    def _needs_missile_in_combat(self, player, state, combat_target):
-        """战斗状态下是否需要导弹攻击"""
-        if player.location == combat_target.location:
-            return False
-        
-        has_missile_control = self._has_weapon_named(player, "导弹控制权")
-        
-        if not has_missile_control:
-            return player.location == "军事基地"
-        
-        threat_score = self._threat_scores.get(combat_target.name, 0)
-        
-        is_invisible = getattr(combat_target, 'is_invisible', False)
-        if is_invisible and not self._has_detection_capability(player):
-            return False
-            
-        return threat_score > 80
-
-    def _missile_attack_commands(self, player, state, available_actions, specific_target=None):
-        """生成导弹攻击命令序列"""
-        cmds = []
-        
-        target = specific_target
-        if not target:
-            target = self._find_best_missile_target(player, state)
-            if not target:
-                return cmds
-        
-        target_name = target.name
-        has_missile_control = self._has_weapon_named(player, "导弹控制权")
-        
-        debug_ai_missile_attack(player.name, f"导弹攻击目标：{target_name}，已有控制权：{has_missile_control}")
-        
-        is_invisible = getattr(target, 'is_invisible', False)
-        if is_invisible:
-            if not self._has_detection_capability(player):
-                debug_ai_missile_attack(player.name, "目标隐身且无探测能力，无法使用导弹")
-                return cmds
-        
-        if not has_missile_control:
-            if player.location == "军事基地" and "interact" in available_actions:
-                if not self._should_avoid_military_base(player, state):
-                    cmds.append("interact 导弹控制权")
-                    debug_ai_missile_attack(player.name, "需要获取导弹控制权")
-                else:
-                    debug_ai_missile_attack(player.name, "太多玩家在军事基地，暂不获取导弹")
-                    cmds.append("move 商店")
-            else:
-                cmds.append("move 军事基地")
-                debug_ai_missile_attack(player.name, "前往军事基地获取导弹")
-            return cmds
-        
-        markers = state.markers
-        is_locked = False
-        if hasattr(markers, 'has_relation'):
-            is_locked = markers.has_relation(player.player_id, "LOCKED", target.player_id)
-        
-        if not is_locked and "lock" in available_actions:
-            cmds.append(f"lock {target_name}")
-            debug_ai_missile_attack(player.name, f"需要锁定目标 {target_name}")
-            return cmds
-        
-        if "attack" in available_actions:
-            missile_weapon = None
-            for w in getattr(player, 'weapons', []):
-                if hasattr(w, 'name') and "导弹" in w.name:
-                    missile_weapon = w
-                    break
-            
-            if missile_weapon:
-                layer_attr = self._pick_attack_layer(missile_weapon, target)
-                if layer_attr:
-                    layer_str, attr_str = layer_attr
-                    attack_cmd = f"attack {target_name} {missile_weapon.name} {layer_str} {attr_str}"
-                    cmds.append(attack_cmd)
-                    debug_ai_missile_attack(player.name, f"发射导弹攻击 {target_name}")
-                else:
-                    attack_cmd = f"attack {target_name} {missile_weapon.name} 外层 普通"
-                    cmds.append(attack_cmd)
-                    debug_ai_missile_attack(player.name, "使用默认参数发射导弹")
-        
-        return cmds
-
-    def _should_avoid_military_base(self, player, state):
-        """判断是否应该避免去军事基地"""
-        count = 0
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            other = state.get_player(pid)
-            if other and other.is_alive() and other.location == "军事基地":
-                count += 1
-                if self._has_weapon_named(other, "导弹控制权"):
-                    return True
-        return count >= 2
-
-    def _has_detection_capability(self, player):
-        """检查是否有探测能力"""
-        for item_name in self._detection_items:
-            if self._has_item_named(player, item_name):
-                return True
-        
-        if self._has_weapon_named(player, "探测魔法"):
-            return True
-        
         if getattr(player, 'has_detection', False):
-            return True
-        
-        return False
-    
-    def _has_ranged_weapon(self, player):
-        """检查是否有远程武器"""
-        if not hasattr(player, 'weapons'):
-            return False
-        
-        ranged_keywords = ["导弹", "远程", "弹幕", "步枪"]
-        for w in player.weapons:
-            if hasattr(w, 'name'):
-                weapon_name = w.name.lower()
-                for keyword in ranged_keywords:
-                    if keyword in weapon_name:
-                        return True
-        return False
+            power += 5
 
-    def _is_at_disadvantage(self, player, target):
-        """判断是否处于劣势"""
-        my_power = self._calculate_combat_power(player)
-        target_power = self._calculate_combat_power(target)
-        return my_power < target_power * 0.7
-
-    def _calculate_combat_power(self, player):
-        """计算战斗战力"""
-        power = 0
-        
-        if hasattr(player, 'weapons'):
-            for w in player.weapons:
-                if hasattr(w, 'damage'):
-                    power += w.damage * 10
-        
-        armor_health = self._calculate_armor_health(player)
-        power *= (1 + armor_health)
-        
         return power
-    
-    def _generate_attack_command(self, player, target, available_actions):
-        """生成攻击命令字符串"""
-        weapon = self._pick_best_weapon_against(player, target)
-        if not weapon:
-            return None
-        
-        weapon_name = weapon.name
-        target_name = target.name
-        
-        layer_attr = self._pick_attack_layer(weapon, target)
-        if not layer_attr:
-            return None
-        
-        layer_str, attr_str = layer_attr
-        return f"attack {target_name} {weapon_name} {layer_str} {attr_str}"
 
-    def _find_best_missile_target(self, player, state):
-        """找到最佳的导弹攻击目标"""
-        best_target = None
-        best_threat = -1
-        
+    # ════════════════════════════════════════════════════════
+    #  轮次事件处理
+    # ════════════════════════════════════════════════════════
+
+    def on_round_start(self, player, state, round_number: int):
+        """轮次开始时调用"""
+        self._round_number = round_number
+        self._action_used = False
+        self._missile_cooldown = max(0, self._missile_cooldown - 1)
+
+        # 更新威胁评估
+        self._update_threat_assessment(player, state)
+
+        # 更新缓存
+        self._update_caches(player, state)
+
+        debug_ai_basic(player.name,
+            f"轮次{round_number}开始，人格={self.personality}，"
+            f"阶段={self._current_phase}")
+
+    def on_round_end(self, player, state, round_number: int):
+        """轮次结束时调用"""
+        self._been_attacked_by.clear()
+
+    def on_damaged(self, player, attacker_name: str, damage: float):
+        """被攻击时调用"""
+        self._been_attacked_by.add(attacker_name)
+        # 增加攻击者威胁
+        self._threat_scores[attacker_name] = \
+            self._threat_scores.get(attacker_name, 0) + damage * 10
+        debug_ai_basic(player.name,
+            f"被 {attacker_name} 攻击，伤害={damage}")
+
+    def on_player_killed(self, player, killed_name: str, killer_name: str):
+        """有玩家被杀时调用"""
+        if killed_name in self._threat_scores:
+            del self._threat_scores[killed_name]
+        if killer_name and killer_name != player.name:
+            self._threat_scores[killer_name] = \
+                self._threat_scores.get(killer_name, 0) + 30
+        debug_ai_basic(player.name,
+            f"玩家 {killed_name} 被 {killer_name} 杀死")
+
+    def _update_threat_assessment(self, player, state):
+        """更新威胁评估"""
         for pid in state.player_order:
             if pid == player.player_id:
                 continue
-            
             target = state.get_player(pid)
             if not target or not target.is_alive():
+                if target and target.name in self._threat_scores:
+                    del self._threat_scores[target.name]
                 continue
-            
-            if target.location == player.location:
-                continue
-            
-            is_invisible = getattr(target, 'is_invisible', False)
-            if is_invisible:
-                if not self._has_detection_capability(player):
-                    continue
-            
-            threat_score = self._threat_scores.get(target.name, 0)
-            
-            if threat_score > best_threat:
-                best_threat = threat_score
-                best_target = target
-        
-        return best_target
+            power = self._estimate_power(target)
+            existing = self._threat_scores.get(target.name, 0)
+            # 衰减历史威胁 + 新威胁
+            self._threat_scores[target.name] = existing * 0.8 + power * 0.2
 
-    def _calculate_armor_health(self, player):
-        """计算护甲健康度（0-1）"""
-        if not hasattr(player, 'armor'):
-            return 0.0
-        
-        try:
-            armor = player.armor
-            total_pieces = 0
-            active_pieces = 0
-            
-            # 检查外层护甲
-            if hasattr(armor, 'outer'):
-                outer_list = armor.outer
-                if isinstance(outer_list, list):
-                    for piece in outer_list:
-                        if piece is not None:
-                            total_pieces += 1
-                            if not piece.is_broken:
-                                active_pieces += 1
-                elif isinstance(outer_list, dict):
-                    for key, val in outer_list.items():
-                        total_pieces += 1
-                        if val is not None and not val.is_broken:
-                            active_pieces += 1
-            
-            # 检查内层护甲
-            if hasattr(armor, 'inner'):
-                inner_list = armor.inner
-                if isinstance(inner_list, list):
-                    for piece in inner_list:
-                        if piece is not None:
-                            total_pieces += 1
-                            if not piece.is_broken:
-                                active_pieces += 1
-                elif isinstance(inner_list, dict):
-                    for key, val in inner_list.items():
-                        total_pieces += 1
-                        if val is not None and not val.is_broken:
-                            active_pieces += 1
-            
-            if total_pieces == 0:
-                return 0.0
-            return active_pieces / total_pieces
-        except Exception as e:
-            debug_error(f"计算护甲健康度时出错: {e}")
-            return 0.0
-
-    # ════════════════════════════════════════════════════════
-    #  警察系统AI交互机制（新增）
-    # ════════════════════════════════════════════════════════
-
-    def _update_police_situation_cache(self, state):
-        """更新警察状态缓存"""
-        if not hasattr(state, 'police') or not state.police:
-            self._police_situation_cache = None
-            return
-        
-        situation = {
-            "is_captain": False,
-            "police_count": 0,
-            "units": [],  # 统一警察单位列表（ver1.9新模型）
-            "captain_id": None,
-            "authority": 0,
-            "report_phase": None,
-            "report_target": None
-        }
-        
-        police = state.police
-        
-        # 队长状态
-        if hasattr(police, 'captain_id'):
-            situation["captain_id"] = police.captain_id
-            situation["is_captain"] = (police.captain_id == self._my_id)
-        
-        # 威信
-        if hasattr(police, 'captain_authority'):
-            situation["authority"] = police.captain_authority
-        
-        # 举报状态
-        if hasattr(police, 'report_phase'):
-            situation["report_phase"] = police.report_phase
-            situation["report_target"] = police.reported_target_id
-        
-        # 警察数量
-        total_police = 0
-        individual_units = []
-        
-        # 警队成员
-        if hasattr(police, 'teams'):
-            for team in police.teams:
-                alive = len(team.get_alive_members()) if hasattr(team, 'get_alive_members') else 0
-                total_police += alive
-                situation["teams"].append({
-                    "id": getattr(team, 'team_id', 'unknown'),
-                    "alive": alive,
-                    "location": getattr(team, 'location', '警察局')
-                })
-        
-        # 独立警察
-        if hasattr(police, 'individual_units'):
-            for unit in police.individual_units:
-                if hasattr(unit, 'is_alive') and unit.is_alive():
-                    total_police += 1
-                    individual_units.append({
-                        "id": getattr(unit, 'unit_id', 'unknown'),
-                        "location": getattr(unit, 'location', '警察局'),
-                        "weapon": getattr(unit, 'weapon_name', '警棍')
+    def _update_caches(self, player, state):
+        """更新缓存信息"""
+        # 更新警察缓存
+        police = getattr(state, 'police', None)
+        if police:
+            is_police = getattr(player, 'is_police', False)
+            is_captain = getattr(player, 'is_captain', False)
+            units = []
+            if hasattr(police, 'units'):
+                for u in police.units:
+                    units.append({
+                        "id": getattr(u, 'id', ''),
+                        "is_alive": getattr(u, 'is_alive', True),
+                        "location": self._get_location_str(u) if hasattr(u, 'location') else None,
+                        "weapon": getattr(u, 'weapon', '警棍'),
                     })
-        
-        situation["police_count"] = total_police
-        situation["individual_units"] = individual_units
-        
-        self._police_situation_cache = situation
-        debug_ai_detailed(self._safe_player_name(), f"警察状态更新: {situation}")
-
-    def _get_police_situation(self, player, state):
-        """获取警察状态信息"""
-        if self._police_situation_cache:
-            return self._police_situation_cache
-        
-        self._update_police_situation_cache(state)
-        return self._police_situation_cache or {}
-
-    def _is_captain(self, player, state):
-        """检查是否是队长"""
-        situation = self._get_police_situation(player, state)
-        return situation.get("is_captain", False)
-
-    def _should_become_captain(self, player, state):
-        """判断是否应该竞选队长"""
-        # 1. 政治型人格优先
-        if self.personality == "political":
-            return True
-        
-        # 2. 有犯罪记录或高威胁目标
-        if hasattr(player, 'crime_record') and player.crime_record > 0:
-            return True  # 有犯罪记录的人需要警察豁免权
-        
-        # 3. 需要警察力量支持
-        if self._needs_police_assistance(player, state):
-            return True
-        
-        # 4. 威望高的玩家
-        kills = getattr(player, 'kill_count', 0)
-        if kills >= 2:
-            return True
-        
-        # 5. 当前没有队长或队长威信低
-        situation = self._get_police_situation(player, state)
-        if situation.get("captain_id") is None:  # 没有队长
-            return True
-        if situation.get("authority", 3) <= 1:  # 队长威信低
-            return True
-        
-        return False
-
-    def _generate_captain_commands(self, player, state, available_actions):
-        """生成队长指挥命令"""
-        commands = []
-        
-        if not self._is_captain(player, state):
-            return commands
-        
-        # 检查是否有police命令可用
-        has_police_command = any(action.startswith("police") for action in available_actions)
-        if not has_police_command:
-            debug_ai_basic(player.name, "队长但没有police命令可用")
-            return commands
-        
-        # 1. 检查是否需要拆分警察
-        if self._should_split_police(player, state) and "police split" in available_actions:
-            commands.append("police split")
-        
-        # 2. 指挥警察攻击高威胁目标
-        target = self._pick_best_target(player, state)
-        if target and "police attack" in available_actions:
-            # 选择可用的警察单位
-            police_id = self._get_available_police_unit(player, state)
-            if police_id:
-                # 移动警察到目标位置（如果需要）
-                if target.location != self._get_police_location(police_id, state):
-                    commands.append(f"police move {police_id} {target.location}")
-                # 命令警察攻击
-                commands.append(f"police attack {police_id} {target.name}")
-        
-        # 3. 为警察装备
-        if self._needs_police_equipment(player, state) and "police equip" in available_actions:
-            police_id = self._get_available_police_unit(player, state)
-            if police_id:
-                equipment = self._pick_police_equipment(player, state)
-                commands.append(f"police equip {police_id} {equipment}")
-        
-        debug_ai_basic(player.name, f"队长命令生成: {commands}")
-        return commands
-
-    def _should_split_police(self, player, state):
-        """判断是否应该拆分警察"""
-        situation = self._get_police_situation(player, state)
-        
-        # 只有政治型和进攻型会考虑拆分
-        if self.personality not in ["political", "aggressive"]:
-            return False
-        
-        # 检查警察数量
-        police_count = situation.get("police_count", 0)
-        individual_count = len(situation.get("individual_units", []))
-        
-        # 如果总警察数>=2且独立单位少于3，可以考虑拆分
-        if police_count >= 2 and individual_count < 3:
-            # 政治型更倾向于拆分以增加控制力
-            if self.personality == "political":
-                return True
-            # 进攻型在有高威胁目标时拆分
-            elif self.personality == "aggressive":
-                target = self._pick_best_target(player, state)
-                if target and self._threat_scores.get(target.name, 0) > 80:
-                    return True
-        
-        return False
-
-    def _needs_police_assistance(self, player, state):
-        """判断是否需要警察援助"""
-        # 检查是否有高威胁目标
-        target = self._pick_best_target(player, state)
-        if target and self._threat_scores.get(target.name, 0) > 100:
-            return True
-        
-        # 检查是否被围攻
-        if self._is_critical(player, state):
-            return True
-        
-        return False
-
-    def _get_available_police_unit(self, player, state):
-        """获取可用的警察单位ID"""
-        situation = self._get_police_situation(player, state)
-        
-        # 优先使用独立警察单位
-        for unit in situation.get("individual_units", []):
-            if unit.get("location") == player.location:
-                return unit.get("id")
-        
-        # 如果没有独立单位，使用第一个警察
-        if situation.get("police_count", 0) > 0:
-            return "police1"
-        
-        return None
-
-    def _get_police_location(self, police_id, state):
-        """获取警察单位的位置"""
-        situation = self._police_situation_cache or {}
-        
-        # 检查独立单位
-        for unit in situation.get("individual_units", []):
-            if unit.get("id") == police_id:
-                return unit.get("location", "警察局")
-        
-        # 默认位置
-        return "警察局"
-
-    def _needs_police_equipment(self, player, state):
-        """判断是否需要为警察装备"""
-        situation = self._get_police_situation(player, state)
-        
-        # 检查警察是否有好装备
-        for unit in situation.get("individual_units", []):
-            weapon = unit.get("weapon", "警棍")
-            if weapon == "警棍":  # 只有基础装备
-                return True
-        
-        return False
-
-    def _pick_police_equipment(self, player, state):
-        """为警察选择装备"""
-        # 警察装备优先级（根据AI人格）
-        if self.personality == "aggressive":
-            equipment_priority = ["高斯步枪", "地震", "地动山摇", "警棍", "盾牌"]
-        elif self.personality == "defensive":
-            equipment_priority = ["盾牌", "魔法护盾", "AT力场", "警棍", "高斯步枪"]
-        elif self.personality == "balanced":
-            equipment_priority = ["高斯步枪", "盾牌", "地震", "警棍", "魔法护盾"]
-        elif self.personality == "political":
-            equipment_priority = ["盾牌", "警棍", "高斯步枪"]  # 政治型更注重控制
+            report_target = getattr(police, 'current_report_target', None)
+            report_phase = getattr(police, 'report_phase', None)
+            self._police_cache = {
+                "is_police": is_police,
+                "is_captain": is_captain,
+                "units": units,
+                "report_target": report_target,
+                "report_phase": report_phase,
+            }
         else:
-            equipment_priority = ["警棍", "盾牌", "高斯步枪"]
-        
-        # 移除警察不能用的装备
-        equipment_priority = [e for e in equipment_priority if e not in POLICE_FORBIDDEN_WEAPONS]
-        
-        # 选择玩家拥有的装备
-        for equipment in equipment_priority:
-            if equipment in POLICE_ALLOWED_WEAPONS or equipment in POLICE_ALLOWED_ARMOR:
-                # 检查玩家是否有这个装备（简化版）
-                if equipment == "警棍" or equipment == "盾牌":
-                    return equipment  # 基础装备总是可用
-                # 对于其他装备，需要玩家实际拥有
-                if self._has_item_named(player, equipment) or self._has_weapon_named(player, equipment):
-                    return equipment
-        
-        return "警棍"  # 默认
+            self._police_cache = {}
 
-    def _should_attack_police(self, player, state):
-        """判断是否应该攻击警察"""
-        # 1. 自卫情况：被警察围攻
-        situation = self._get_police_situation(player, state)
-        if situation.get("report_target") == player.player_id:
-            return True
-        
-        # 2. 清除障碍：警察阻碍了重要行动
-        if self._are_police_blocking_path(player, state):
-            return True
-        
-        # 3. 战略目标：需要削弱警察力量
-        if self._has_strategic_need_to_weaken_police(player, state):
-            return True
-        
-        # 4. 有合适的AOE武器
-        if self._has_suitable_aoe_weapon(player):
-            # 进攻型人格更可能攻击警察
-            if self.personality == "aggressive":
-                return True
-        
-        return False
+        # 更新病毒缓存
+        virus = getattr(state, 'virus', None)
+        if virus:
+            self._virus_active = getattr(virus, 'is_active', False)
+            self._virus_location = self._get_location_str(virus) if hasattr(virus, 'location') else None
+        else:
+            self._virus_active = False
+            self._virus_location = None
 
-    def _find_police_target(self, player, state):
-        """寻找警察攻击目标"""
-        situation = self._get_police_situation(player, state)
-        
-        # 检查同地点的独立警察单位
-        for unit in situation.get("individual_units", []):
-            if unit.get("location") == player.location:
-                return unit.get("id")
-        
-        # 检查同地点的警队
-        for team in situation.get("teams", []):
-            if team.get("location") == player.location and team.get("alive", 0) > 0:
-                return "police"  # 攻击整个警队
-        
-        return None
+    # ════════════════════════════════════════════════════════
+    #  响应窗口方法
+    # ════════════════════════════════════════════════════════
 
-    def _has_suitable_aoe_weapon(self, player):
-        """检查是否有合适的AOE武器"""
-        for weapon in getattr(player, 'weapons', []):
-            weapon_name = getattr(weapon, 'name', '')
-            if weapon_name in POLICE_AOE_WEAPONS:
-                return True
-        return False
+    def respond_to_event(self, player, state, event_type: str,
+                         event_data: dict) -> Optional[str]:
+        """
+        响应窗口事件处理
+        Bug12修复：确保返回合法响应
+        """
+        debug_ai_basic(player.name,
+            f"响应事件: type={event_type}, data={event_data}")
 
-    def _police_attack_commands(self, player, state, available_actions, police_target):
-        """生成攻击警察命令"""
-        cmds = []
-        
-        if not police_target:
-            return cmds
-        
-        # 检查是否有AOE武器
-        aoe_weapon = None
-        for weapon in getattr(player, 'weapons', []):
-            weapon_name = getattr(weapon, 'name', '')
-            if weapon_name in POLICE_AOE_WEAPONS:
-                aoe_weapon = weapon_name
-                break
-        
-        if not aoe_weapon:
-            debug_ai_basic(player.name, "没有合适的AOE武器攻击警察")
-            return cmds
-        
-        # 生成攻击命令
-        if "attack" in available_actions:
-            attack_cmd = f"attack {police_target} {aoe_weapon}"
-            cmds.append(attack_cmd)
-            debug_ai_basic(player.name, f"生成攻击警察命令: {attack_cmd}")
-        
-        return cmds
+        if event_type == "被攻击":
+            return self._respond_attacked(player, state, event_data)
+        elif event_type == "举报":
+            return self._respond_report(player, state, event_data)
+        elif event_type == "天赋触发":
+            return self._respond_talent(player, state, event_data)
+        elif event_type == "投票":
+            return self._respond_vote(player, state, event_data)
+        elif event_type == "警察行动":
+            return self._respond_police_action(player, state, event_data)
+        elif event_type == "病毒":
+            return self._respond_virus(player, state, event_data)
+        else:
+            debug_ai_basic(player.name, f"未知事件类型: {event_type}")
+            return None
 
-    def _has_police_protection(self, player, state):
-        """检查是否有警察保护状态"""
-        situation = self._get_police_situation(player, state)
-        
-        # 检查同地点是否有警察
-        for unit in situation.get("individual_units", []):
-            if unit.get("location") == player.location:
-                return True
-        
-        for team in situation.get("teams", []):
-            if team.get("location") == player.location:
-                return True
-        
-        return False
+    def _respond_attacked(self, player, state, data) -> Optional[str]:
+        """被攻击时的响应"""
+        attacker = data.get("attacker")
+        if not attacker:
+            return None
 
-    def _are_police_nearby(self, player, state):
-        """检查警察是否在附近"""
-        situation = self._get_police_situation(player, state)
-        
-        # 检查同地点或相邻地点是否有警察
-        for unit in situation.get("individual_units", []):
-            if unit.get("location") == player.location:
-                return True
-        
-        for team in situation.get("teams", []):
-            if team.get("location") == player.location:
-                return True
-        
-        return False
+        # 记录被攻击
+        self._been_attacked_by.add(attacker)
 
-    def _is_about_to_commit_crime(self, player, available_actions):
-        """检查是否即将进行违法行为"""
-        # 简化版：攻击玩家通常不是犯罪，除非攻击警察或无犯罪记录目标
-        # 这里需要根据实际游戏规则完善
-        return False
+        # 检查是否有防御选项
+        options = data.get("options", [])
+        if "dodge" in options and self.personality in ("assassin", "defensive"):
+            return "dodge"
+        if "block" in options:
+            return "block"
+        if "counter" in options and self.personality == "aggressive":
+            return "counter"
 
-    def _aggressive_survival_strategy(self, player, state, available_actions):
-        """激进生存策略（有警察保护时）"""
-        cmds = []
-        
-        # 有警察保护时可以更激进
-        target = self._pick_best_target(player, state)
-        if target and target.location == player.location:
-            # 直接攻击
-            attack_cmds = self._attack_commands(player, state, available_actions)
-            if attack_cmds:
-                cmds.extend(attack_cmds)
-        
-        return cmds if cmds else self._defensive_survival_strategy(player, state, available_actions)
+        return options[0] if options else None
 
-    def _defensive_survival_strategy(self, player, state, available_actions):
-        """防守生存策略（无警察保护时）"""
-        cmds = []
-        loc = player.location
-        
-        # 尝试获取AOE武器对抗警察
-        if loc == "魔法所" and "interact" in available_actions:
-            for spell in ["地震", "地动山摇"]:
-                if self._can_learn(player, spell):
-                    cmds.append(f"interact {spell}")
+    def _respond_report(self, player, state, data) -> Optional[str]:
+        """举报事件响应"""
+        reporter = data.get("reporter")
+        target = data.get("target")
+        options = data.get("options", [])
+
+        if target == player.name:
+            # 自己被举报
+            if "deny" in options:
+                return "deny"
+            return options[0] if options else None
+
+        # 别人被举报，投票
+        if "support" in options and "oppose" in options:
+            target_player = None
+            for pid in state.player_order:
+                p = state.get_player(pid)
+                if p and p.name == target:
+                    target_player = p
                     break
-        
-        # 尝试获取护甲
-        if not cmds and "interact" in available_actions:
-            for item in ["盾牌", "陶瓷护甲", "魔法护盾", "AT力场"]:
-                if self._can_take_item(player, item):
-                    cmds.append(f"interact {item}")
-                    break
-        
-        # 如果当前地点危险，移动
-        if not cmds and "move" in available_actions:
-            safe_loc = self._find_safest_location(player, state)
-            if safe_loc and safe_loc != loc:
-                cmds.append(f"move {safe_loc}")
-        
-        return cmds
 
-    def _cautious_actions(self, player, state, available_actions):
-        """警察附近的谨慎行动"""
-        cmds = []
-        
-        # 优先发育，避免战斗
-        develop = self._develop_commands(player, state, available_actions)
-        if develop:
-            cmds.extend(develop[:2])  # 只取前2个发育命令
-        
-        # 如果没有发育命令，考虑移动
-        if not cmds and "move" in available_actions:
-            # 移动到没有警察的地点
-            police_locations = set()
-            situation = self._get_police_situation(player, state)
-            
-            for unit in situation.get("individual_units", []):
-                police_locations.add(unit.get("location"))
-            for team in situation.get("teams", []):
-                police_locations.add(team.get("location"))
-            
-            safe_locations = [loc for loc in LOCATIONS if loc not in police_locations]
-            if safe_locations:
-                target_loc = safe_locations[0]
-                if target_loc != player.location:
-                    cmds.append(f"move {target_loc}")
-        
-        return cmds
+            if target_player:
+                threat = self._threat_scores.get(target, 0)
+                if threat > 30:
+                    return "support"
+                elif self.personality == "political":
+                    return "support"
+                else:
+                    return "oppose"
 
-    def _are_police_blocking_path(self, player, state):
-        """检查警察是否阻碍路径"""
-        # 简化版：检查警察是否在玩家想去的重要地点
-        important_locations = ["魔法所", "军事基地", "商店"]
-        situation = self._get_police_situation(player, state)
-        
-        for loc in important_locations:
-            if loc == player.location:
-                continue
-            
-            # 检查该地点是否有警察
-            for unit in situation.get("individual_units", []):
-                if unit.get("location") == loc:
-                    return True
-            for team in situation.get("teams", []):
-                if team.get("location") == loc:
-                    return True
-        
-        return False
+        return options[0] if options else None
 
-    def _has_strategic_need_to_weaken_police(self, player, state):
-        """检查是否有战略需要削弱警察"""
-        # 进攻型和政治型人格可能考虑削弱警察
-        if self.personality not in ["aggressive", "political"]:
+    def _respond_talent(self, player, state, data) -> Optional[str]:
+        """天赋触发响应"""
+        options = data.get("options", [])
+        talent_type = data.get("talent_type", "")
+
+        # 默认接受
+        if "accept" in options:
+            return "accept"
+        if "activate" in options:
+            return "activate"
+
+        return options[0] if options else None
+
+    def _respond_vote(self, player, state, data) -> Optional[str]:
+        """投票响应"""
+        options = data.get("options", [])
+        candidate = data.get("candidate")
+
+        if candidate:
+            # 如果候选人是自己的盟友
+            threat = self._threat_scores.get(candidate, 0)
+            if threat < 20 and "support" in options:
+                return "support"
+            elif "oppose" in options:
+                return "oppose"
+
+        return options[0] if options else None
+
+    def _respond_police_action(self, player, state, data) -> Optional[str]:
+        """警察行动响应"""
+        options = data.get("options", [])
+        action = data.get("action", "")
+
+        if action == "arrest" and player.name == data.get("target"):
+            if "resist" in options and self.personality == "aggressive":
+                return "resist"
+            if "surrender" in options:
+                return "surrender"
+
+        return options[0] if options else None
+
+    def _respond_virus(self, player, state, data) -> Optional[str]:
+        """病毒事件响应"""
+        options = data.get("options", [])
+        if "use_mask" in options:
+            return "use_mask"
+        if "flee" in options:
+            return "flee"
+        return options[0] if options else None
+
+    # ════════════════════════════════════════════════════════
+    #  命令格式化与验证
+    # ════════════════════════════════════════════════════════
+
+    def _format_command(self, raw_cmd: str) -> str:
+        """格式化命令"""
+        return raw_cmd.strip()
+
+    def _validate_command(self, cmd: str, available: List[str]) -> bool:
+        """验证命令是否合法"""
+        if not cmd:
             return False
-        
-        situation = self._get_police_situation(player, state)
-        
-        # 如果警察数量多且队长威信高，可能需要削弱
-        police_count = situation.get("police_count", 0)
-        authority = situation.get("authority", 0)
-        
-        if police_count >= 2 and authority >= 2:
+        parts = cmd.split()
+        if not parts:
+            return False
+
+        action = parts[0]
+        # 检查行动类型是否可用
+        if action in available:
             return True
-        
+        # 特殊命令
+        if action in ("police", "talent_activate", "special"):
+            return True
         return False
+
+    def _fallback_command(self, player, state, available: List[str]) -> str:
+        """
+        Bug15修复：所有策略都失败时的兜底命令
+        优先选择安全的行动
+        """
+        debug_ai_basic(player.name, "使用兜底命令")
+
+        # 1) forfeit（放弃行动）永远合法
+        if "forfeit" in available:
+            return "forfeit"
+
+        # 2) 移动到安全位置
+        if "move" in available:
+            safe = self._find_safe_location(player, state)
+            if safe:
+                return f"move {safe}"
+            return "move home"
+
+        # 3) 起床
+        if "wake" in available:
+            return "wake"
+
+        # 4) 交互
+        if "interact" in available:
+            return "interact"
+
+        # 5) 实在没办法
+        return "forfeit"
+
+    # ════════════════════════════════════════════════════════
+    #  调试输出
+    # ════════════════════════════════════════════════════════
+
+    def get_debug_info(self, player) -> dict:
+        """获取AI调试信息"""
+        return {
+            "personality": self.personality,
+            "phase": self._current_phase,
+            "round": self._round_number,
+            "threat_scores": dict(self._threat_scores),
+            "in_combat": self._in_combat,
+            "combat_target": self._combat_target,
+            "been_attacked_by": list(self._been_attacked_by),
+            "virus_active": self._virus_active,
+                        "last_commands": self._last_commands[:],
+            "police_cache": self._police_cache,
+            "development_complete": self._is_development_complete(player) if player else False,
+        }
+
+    def __repr__(self) -> str:
+        return (f"BasicAIController(personality={self.personality}, "
+                f"phase={self._current_phase}, round={self._round_number})")
+
+
+# ════════════════════════════════════════════════════════════════
+#  属性克制常量表
+# ════════════════════════════════════════════════════════════════
+
+EFFECTIVE_AGAINST = {
+    "物理": ["科技"],      # 物理克科技
+    "魔法": ["物理"],      # 魔法克物理
+    "科技": ["魔法"],      # 科技克魔法
+}
+
+
+# ════════════════════════════════════════════════════════════════
+#  调试辅助函数
+# ════════════════════════════════════════════════════════════════
+
+def debug_ai_basic(player_name: str, msg: str):
+    """AI基础调试输出"""
+    try:
+        from engine.debug_config import get_debug_level
+        if get_debug_level() >= 2:
+            print(f"  [AI-Basic][{player_name}] {msg}")
+    except ImportError:
+        pass
+
+def debug_ai_phase(player_name: str, msg: str):
+    """AI阶段调试输出"""
+    try:
+        from engine.debug_config import get_debug_level
+        if get_debug_level() >= 2:
+            print(f"  [AI-Phase][{player_name}] {msg}")
+    except ImportError:
+        pass
+
+def debug_ai_development_plan(player_name: str, msg: str):
+    """AI发育计划调试输出"""
+    try:
+        from engine.debug_config import get_debug_level
+        if get_debug_level() >= 3:
+            print(f"  [AI-DevPlan][{player_name}] {msg}")
+    except ImportError:
+        pass
+
+def debug_ai_attack_generation(player_name: str, msg: str):
+    """AI攻击生成调试输出"""
+    try:
+        from engine.debug_config import get_debug_level
+        if get_debug_level() >= 2:
+            print(f"  [AI-Attack][{player_name}] {msg}")
+    except ImportError:
+        pass
+
+def debug_ai_combat(player_name: str, msg: str):
+    """AI战斗调试输出"""
+    try:
+        from engine.debug_config import get_debug_level
+        if get_debug_level() >= 2:
+            print(f"  [AI-Combat][{player_name}] {msg}")
+    except ImportError:
+        pass
+
+
+# ════════════════════════════════════════════════════════════════
+#  工厂函数
+# ════════════════════════════════════════════════════════════════
+
+def create_ai_controller(personality: str = "balanced",
+                         player_name: str = "",
+                         **kwargs) -> BasicAIController:
+    """
+    创建AI控制器的工厂函数
+    
+    参数:
+        personality: AI人格类型
+            - "aggressive": 激进型，优先攻击
+            - "defensive": 防御型，优先发育和防守
+            - "assassin": 刺客型，隐身突袭
+            - "balanced": 均衡型，攻守兼备
+            - "builder": 建设型，追求全面发育
+            - "political": 政治型，利用警察系统
+        player_name: 玩家名称（用于调试）
+        **kwargs: 其他参数
+    
+    返回:
+        BasicAIController 实例
+    """
+    valid_personalities = [
+        "aggressive", "defensive", "assassin",
+        "balanced", "builder", "political"
+    ]
+    if personality not in valid_personalities:
+        debug_ai_basic(player_name,
+            f"未知人格类型 '{personality}'，使用 'balanced'")
+        personality = "balanced"
+
+    controller = BasicAIController(personality=personality)
+    debug_ai_basic(player_name,
+        f"创建AI控制器: personality={personality}")
+    return controller
+
+
+def create_random_ai_controller(player_name: str = "",
+                                 **kwargs) -> BasicAIController:
+    """创建随机人格的AI控制器"""
+    import random
+    personalities = [
+        "aggressive", "defensive", "assassin",
+        "balanced", "builder", "political"
+    ]
+    # 权重：balanced和aggressive更常见
+    weights = [25, 15, 15, 30, 10, 5]
+    personality = random.choices(personalities, weights=weights, k=1)[0]
+    return create_ai_controller(personality=personality,
+                                player_name=player_name, **kwargs)
