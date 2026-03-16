@@ -21,7 +21,7 @@ v2.0 重写修复清单：
   Bug 17: choose_multi 尊重 min_count
   Bug 18: _been_attacked_by 清理死亡玩家
 """
-
+from utils.attribute import Attribute
 from typing import List, Dict, Optional, Any, Set, Tuple
 from controllers.base import PlayerController
 import random
@@ -56,9 +56,10 @@ LOCATION_ITEMS = {
 
 # 属性克制：attacker_attr → 能有效打的 armor_attr 集合
 EFFECTIVE_AGAINST = {
-    "普通": {"魔法", "普通"},
-    "魔法": {"科技", "魔法"},
-    "科技": {"普通", "科技"},
+    Attribute.ORDINARY: {Attribute.ORDINARY, Attribute.MAGIC},
+    Attribute.MAGIC: {Attribute.MAGIC, Attribute.TECH},
+    Attribute.TECH: {Attribute.TECH, Attribute.ORDINARY},
+    Attribute.TRUE: {Attribute.ORDINARY, Attribute.MAGIC, Attribute.TECH},
 }
 
 # 警察相关常量
@@ -86,6 +87,7 @@ class BasicAIController(PlayerController):
     def __init__(self, personality: str = "balanced"):
         self.personality = personality
         self.event_log: List[Dict] = []
+        self._round_number = 0
 
         # 内部记忆
         self._threat_scores: Dict[str, float] = {}
@@ -362,7 +364,7 @@ class BasicAIController(PlayerController):
     def _generate_candidates(self, player, state, available_actions: List[str]) -> List[str]:
         self._my_id = player.player_id
         self.player_name = player.name
-        # 保存引用供 choose 使用（Bug1修复）
+        # 保存引用供choose使用（Bug1修复）
         self._player = player
         self._game_state = state
 
@@ -439,12 +441,17 @@ class BasicAIController(PlayerController):
         candidates.extend(develop)
 
         # ===== 发育完成后主动进攻 =====
-        if self._is_development_complete(player):
+        if self._is_development_complete(player, state):
             debug_ai_basic(player.name, "发育完成，尝试进攻")
             attack_cmds = self._cmd_attack(player, state, available_actions)
             for cmd in attack_cmds:
                 if cmd not in candidates:
                     candidates.insert(0, cmd)
+
+        # ===== 天赋命令 =====
+        talent_cmds = self._cmd_talent(player, state, available_actions)
+        if talent_cmds:
+            candidates.extend(talent_cmds)
 
         # ===== 政治型 =====
         if self.personality == "political":
@@ -648,25 +655,23 @@ class BasicAIController(PlayerController):
             return False
         return True
 
-    def _is_development_complete(self, player) -> bool:
+    def _is_development_complete(self, player, state) -> bool:
         """判断发育是否完成"""
-        weapons = getattr(player, 'weapons', [])
-        has_weapon = len(weapons) > 0
-        outer = self._count_outer_armor(player)
-        inner = self._count_inner_armor(player)
-
-        if self.personality == "builder":
-            return has_weapon and outer >= 2 and inner >= 1
-        elif self.personality == "aggressive":
-            return has_weapon  # 有武器就够了
-        elif self.personality == "assassin":
-            return has_weapon and self._has_stealth(player)
+        if self.personality == "aggressive":
+            # 排除拳击，检查是否有真正的武器
+            real_weapons = [w for w in player.weapons if w and w.name != "拳击"]
+            has_real_weapon = len(real_weapons) > 0
+            has_armor = self._count_outer_armor(player) > 0
+            return has_real_weapon and has_armor
         elif self.personality == "defensive":
-            return has_weapon and outer >= 2
-        elif self.personality == "political":
-            return has_weapon and getattr(player, 'is_police', False)
+            has_armor = self._count_outer_armor(player) >= 2
+            has_inner = self._count_inner_armor(player) >= 1
+            return has_armor and has_inner
         else:  # balanced
-            return has_weapon and outer >= 1
+            real_weapons = [w for w in player.weapons if w and w.name != "拳击"]
+            has_real_weapon = len(real_weapons) > 0
+            has_armor = self._count_outer_armor(player) >= 1
+            return has_real_weapon and has_armor
 
     # ════════════════════════════════════════════════════════
     #  命令生成器：起床
@@ -720,24 +725,23 @@ class BasicAIController(PlayerController):
                     commands.append("interact 打工")
 
             elif loc == "魔法所":
-                if "study" in available:
-                    # 学法术
+                if "interact" in available:
+                    # 学法术（通过交互）
                     learned = self._get_learned_spells(player)
                     if "魔法弹幕" not in learned and not has_weapon:
-                        commands.append("study 魔法弹幕")
+                        commands.append("interact 魔法弹幕")
                     if "魔法弹幕" in learned and "远程魔法弹幕" not in learned:
-                        commands.append("study 远程魔法弹幕")
-                    if "魔法护盾" not in learned and outer < 2:
-                        commands.append("study 魔法护盾")
+                        commands.append("interact 远程魔法弹幕")
+                    if "魔法护盾" not in learned and outer< 2:
+                        commands.append("interact 魔法护盾")
                     if "探测魔法" not in learned and not has_detection:
-                        commands.append("study 探测魔法")
+                        commands.append("interact 探测魔法")
                     if "隐身术" not in learned and self.personality == "assassin":
-                        commands.append("study 隐身术")
+                        commands.append("interact 隐身术")
                     if "地震" not in learned:
-                        commands.append("study 地震")
+                        commands.append("interact 地震")
                     if "封闭" not in learned:
-                        commands.append("study 封闭")
-                if "interact" in available:
+                        commands.append("interact 封闭")
                     if outer < 2:
                         commands.append("interact 魔法护盾")
                     if not has_weapon:
@@ -1024,7 +1028,7 @@ class BasicAIController(PlayerController):
 
             # 已 ENGAGED_WITH，可以攻击
             if "attack" in available:
-                layer, attr = self._pick_attack_layer(target, weapon)
+                layer, attr = self._pick_attack_layer(self,player,target)
                 commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
             return commands
 
@@ -1279,15 +1283,19 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
     def _should_become_captain(self, player, state) -> bool:
         """判断是否应该竞选警察队长"""
-        if self.personality == "political":
-            return True
-        #如果没有队长且自己是警察
+        if not getattr(player, 'is_police', False):
+            return False
         police = getattr(state, 'police', None)
-        if police and getattr(player, 'is_police', False):
-            captain = getattr(police, 'captain', None)
-            if captain is None:
-                return True
-        return False
+        if not police:
+            return False
+        # 检查是否已有队长
+        captain_id = getattr(police, 'captain_id', None)
+        if captain_id is not None:
+            return False
+        # 检查警察系统是否永久禁用
+        if getattr(police, 'permanently_disabled', False):
+            return False
+        return True
 
     def _update_threat_scores(self, player, state):
         """更新威胁分数（_update_threat_assessment的别名）"""
@@ -1424,49 +1432,46 @@ class BasicAIController(PlayerController):
 
             return s
 
-        weapons.sort(key=weapon_score, reverse=True)
-        return weapons[0]
+        sorted_weapons = sorted(weapons, key=lambda w: self._get_weapon_damage(w), reverse=True)
+        return sorted_weapons[0]
 
-    def _pick_attack_layer(self, target, weapon) -> Tuple[str, str]:
-        """
-        选择攻击层和属性
-        Bug4修复：根据目标护甲情况选择攻击层
-        """
-        outer = self._count_outer_armor(target)
-        inner = self._count_inner_armor(target)
-        w_attr = self._get_weapon_attr(weapon)
-
-        if outer > 0:
-            # 有外甲，攻击外甲
-            target_outer_attr = self._get_outer_armor_attr(target)
-            # 选择克制属性
-            best_attr = self._pick_counter_attr(target_outer_attr, w_attr)
-            return "outer", best_attr
-        elif inner > 0:
-            # 无外甲有内甲，攻击内甲
-            target_inner_attr = self._get_inner_armor_attr(target)
-            best_attr = self._pick_counter_attr(target_inner_attr, w_attr)
-            return "inner", best_attr
+    def _pick_attack_layer(self, player, target, weapon) -> str:
+        """选择攻击层：外层/内层/hp"""
+        from models.equipment import ArmorLayer
+        from utils.attribute import Attribute
+        
+        outer_active = []
+        inner_active = []
+        armor = getattr(target, 'armor', None)
+        if armor and hasattr(armor, 'get_active'):
+            outer_active = armor.get_active(ArmorLayer.OUTER)
+            inner_active = armor.get_active(ArmorLayer.INNER)
+        
+        w_attr = weapon.attribute if weapon else Attribute.ORDINARY
+        
+        if outer_active:
+            # 外层未全部击破时，不可选择攻击内层
+            # 检查是否有能有效打击的外层护甲
+            from utils.attribute import is_effective
+            for a in outer_active:
+                if is_effective(w_attr, a.attribute):
+                    return "外层"
+            # 所有外层都克制我，仍然只能打外层
+            return "外层"
+        elif inner_active:
+            return "内层"
         else:
-            # 无甲，直接攻击HP
-            return "hp", w_attr
+            return "hp"
 
-    def _pick_counter_attr(self, target_attr: Optional[str],
-                           weapon_attr: str) -> str:
-        """选择克制属性"""
-        if not target_attr:
-            return weapon_attr
-
-        # 属性克制关系
+    def _pick_counter_attr(self, target_armor_attr) -> 'Attribute':
+        """根据目标护甲属性，选择克制它的武器属性"""
+        from utils.attribute import Attribute
         counter_map = {
-            "物理": "魔法",
-            "魔法": "科技",
-            "科技": "物理",
+            Attribute.ORDINARY: Attribute.TECH,    # 科技克普通
+            Attribute.MAGIC: Attribute.ORDINARY,    # 普通克魔法
+            Attribute.TECH: Attribute.MAGIC,        # 魔法克科技
         }
-        counter = counter_map.get(target_attr)
-        if counter:
-            return counter
-        return weapon_attr
+        return counter_map.get(target_armor_attr, Attribute.ORDINARY)
 
     # ════════════════════════════════════════════════════════
     #  天赋相关决策
@@ -1657,34 +1662,36 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
 
     def _count_outer_armor(self, player) -> int:
-        """计算外甲数量"""
-        armor_list = getattr(player, 'outer_armor', [])
-        if isinstance(armor_list, list):
-            return len(armor_list)
+        """统计玩家活跃的外层护甲数量"""
+        armor = getattr(player, 'armor', None)
+        if armor and hasattr(armor, 'get_active'):
+            from models.equipment import ArmorLayer
+            return len(armor.get_active(ArmorLayer.OUTER))
         return 0
 
     def _count_inner_armor(self, player) -> int:
-        """计算内甲数量"""
-        armor_list = getattr(player, 'inner_armor', [])
-        if isinstance(armor_list, list):
-            return len(armor_list)
+        """统计玩家活跃的内层护甲数量"""
+        armor = getattr(player, 'armor', None)
+        if armor and hasattr(armor, 'get_active'):
+            from models.equipment import ArmorLayer
+            return len(armor.get_active(ArmorLayer.INNER))
         return 0
 
-    def _get_outer_armor_attr(self, player) -> Optional[str]:
-        """获取外甲属性"""
-        armor_list = getattr(player, 'outer_armor', [])
-        if armor_list and len(armor_list) > 0:
-            first = armor_list[0]
-            return getattr(first, 'attribute', None)
-        return None
+    def _get_outer_armor_attr(self, player) -> list:
+        """获取玩家所有活跃外层护甲的属性列表"""
+        armor = getattr(player, 'armor', None)
+        if armor and hasattr(armor, 'get_active'):
+            from models.equipment import ArmorLayer
+            return [a.attribute for a in armor.get_active(ArmorLayer.OUTER)]
+        return []
 
-    def _get_inner_armor_attr(self, player) -> Optional[str]:
-        """获取内甲属性"""
-        armor_list = getattr(player, 'inner_armor', [])
-        if armor_list and len(armor_list) > 0:
-            first = armor_list[0]
-            return getattr(first, 'attribute', None)
-        return None
+    def _get_inner_armor_attr(self, player) -> list:
+        """获取玩家所有活跃内层护甲的属性列表"""
+        armor = getattr(player, 'armor', None)
+        if armor and hasattr(armor, 'get_active'):
+            from models.equipment import ArmorLayer
+            return [a.attribute for a in armor.get_active(ArmorLayer.INNER)]
+        return []
 
     def _get_weapon_damage(self, weapon) -> float:
         """Bug4修复：使用 get_effective_damage() 如果可用"""
@@ -1693,17 +1700,18 @@ class BasicAIController(PlayerController):
         return getattr(weapon, 'damage', 1.0)
 
     def _get_weapon_range(self, weapon) -> str:
-        """获取武器射程类型"""
-        w_range = getattr(weapon, 'range_type', None)
-        if w_range:
-            return w_range
-        name = getattr(weapon, 'name', '')
-        if name in ('电磁步枪', '高斯步枪', '远程魔法弹幕', '导弹'):
-            return "ranged"
-        elif name in ('地震',):
-            return "area"
-        else:
+        """获取武器的射程类型"""
+        from models.equipment import WeaponRange
+        if not weapon:
             return "melee"
+        wr = getattr(weapon, 'weapon_range', None)
+        if wr == WeaponRange.MELEE:
+            return "melee"
+        elif wr == WeaponRange.RANGED:
+            return "ranged"
+        elif wr == WeaponRange.AREA:
+            return "area"
+        return "melee"
 
     def _get_weapon_attr(self, weapon) -> str:
         """获取武器属性"""
@@ -1718,45 +1726,42 @@ class BasicAIController(PlayerController):
         return True
 
     def _has_stealth(self, player) -> bool:
-        """是否有隐身能力"""
-        if hasattr(player, 'has_stealth') and player.has_stealth:
+        """检查玩家是否有隐身能力"""
+        # 检查隐身状态
+        if getattr(player, 'is_invisible', False):
             return True
-        # 检查装备
-        equipment = getattr(player, 'equipment', [])
-        if isinstance(equipment, list):
-            for e in equipment:
-                name = getattr(e, 'name', '')
-                if name in ('隐身衣', '隐形涂层'):
-                    return True
-        # 检查法术
-        spells = getattr(player, 'spells', [])
-        if isinstance(spells, list):
-            for s in spells:
-                name = getattr(s, 'name', str(s))
-                if name == '隐身术':
-                    return True
+        # 检查物品（player.items 列表）
+        items = getattr(player, 'items', [])
+        for item in items:
+            name = getattr(item, 'name', '')
+            if name in ("隐身衣", "隐形涂层"):
+                return True
+        # 检查已学法术（player.learned_spells 是set）
+        learned = getattr(player, 'learned_spells', set())
+        if "隐身术" in learned:
+            return True
         return False
-
+    
     def _has_virus_immunity(self, player) -> bool:
-        """是否有防毒面具"""
-        equipment = getattr(player, 'equipment', [])
-        if isinstance(equipment, list):
-            for e in equipment:
-                name = getattr(e, 'name', '')
-                if name == '防毒面具':
-                    return True
+        """检查玩家是否有病毒免疫"""
+        # 检查物品
+        items = getattr(player, 'items', [])
+        for item in items:
+            name = getattr(item, 'name', '')
+            if name == "防毒面具":
+                return True
+        # 检查已学法术
+        learned = getattr(player, 'learned_spells', set())
+        if "封闭" in learned:
+            return True
+        # 检查 has_seal 标记
+        if getattr(player, 'has_seal', False):
+            return True
         return False
-
-    def _get_learned_spells(self, player) -> List[str]:
-        """获取已学法术列表"""
-        spells = getattr(player, 'spells', [])
-        result = []
-        if isinstance(spells, list):
-            for s in spells:
-                name = getattr(s, 'name', str(s))
-                result.append(name)
-        return result
-
+    
+    def _get_learned_spells(self, player) -> set:
+        """获取玩家已学法术集合"""
+        return getattr(player, 'learned_spells', set())
     # ════════════════════════════════════════════════════════
     #  辅助方法：位置相关
     # ════════════════════════════════════════════════════════
@@ -2184,11 +2189,6 @@ class BasicAIController(PlayerController):
 #  属性克制常量表
 # ════════════════════════════════════════════════════════════════
 
-EFFECTIVE_AGAINST = {
-    "物理": ["科技"],      # 物理克科技
-    "魔法": ["物理"],      # 魔法克物理
-    "科技": ["魔法"],      # 科技克魔法
-}
 
 
 
