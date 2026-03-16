@@ -465,15 +465,17 @@ def resolve_damage(attacker, target, weapon, game_state,
                     target_name=target.name
                 ))
 
-    # ---- 近战攻击造成伤害后：隐身失效（README 9.3.3） ----
+    # ---- 近战攻击造成伤害后：隐身临时失效（README 9.3.3） ----
+    # 面对面关系解除前隐身失效，解除后恢复
     if (attacker and game_state
             and weapon.weapon_range == WeaponRange.MELEE
             and result["success"] and result.get("final_damage", 0) > 0
             and game_state.markers.has(attacker.player_id, "INVISIBLE")
             and game_state.markers.has_relation(
                 attacker.player_id, "ENGAGED_WITH", target.player_id)):
-        game_state.markers.on_player_lose_invisible(attacker.player_id)
-        attacker.is_invisible = False
+        game_state.markers.on_engaged_melee_attack_by_invisible(
+            attacker.player_id, target.player_id)
+        result["stealth_suppressed"] = True
 
     # ---- 愿负世：被攻击时积累神性 ----
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
