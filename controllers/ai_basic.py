@@ -115,6 +115,9 @@ class BasicAIController(PlayerController):
         self._last_commands: List[str] = []         # 最近执行的命令历史
         self._should_become_captain_flag: bool = False  # 是否应该竞选队长
 
+        self._virus_active: bool = False  
+        self._virus_location: Optional[str] = None
+
     # ════════════════════════════════════════════════════════
     #  安全工具方法
     # ════════════════════════════════════════════════════════
@@ -361,12 +364,18 @@ class BasicAIController(PlayerController):
     #  核心：候选命令生成
     # ════════════════════════════════════════════════════════
 
-    def _generate_candidates(self, player, state, available_actions: List[str]) -> List[str]:
-        self._my_id = player.player_id
-        self.player_name = player.name
-        # 保存引用供choose使用（Bug1修复）
-        self._player = player
-        self._game_state = state
+    def _generate_candidates(self, player, state, available_actions: List[str]) -> List[str]:  
+        self._my_id = player.player_id  
+        self.player_name = player.name  
+        self._player = player  
+        self._game_state = state  
+    
+        # 只在正常 T1 阶段递增轮次（避免特殊调用路径重复递增）  
+        # 通过检查 state.current_round 来同步，而非自增  
+        current_round = getattr(state, 'current_round', 0)  
+        if current_round > self._round_number:  
+            self._round_number = current_round  
+
 
         self._update_threat_scores(player, state)
         self._read_police_state(state)
@@ -1016,6 +1025,7 @@ class BasicAIController(PlayerController):
                     # 先确认在同一地点
                     if self._same_location(player, target):
                         commands.append(f"find {target.name}")
+                        return commands 
                     else:
                         # 需要先移动
                         target_loc = self._get_location_str(target)
@@ -1027,10 +1037,12 @@ class BasicAIController(PlayerController):
                     return commands# find 不可用
 
             # 已ENGAGED_WITH，可以攻击
-            if "attack" in available:
-                layer, attr = self._pick_attack_layer(player, target, weapon)
-                commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
-            return commands
+            if "attack" in available:  
+                layer, attr = self._pick_attack_layer(player, target, weapon)  
+                if layer and attr:  
+                    commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")  
+                else:  
+                    commands.append(f"attack {target.name} {weapon.name}")
 
         elif weapon_range == "ranged":
             # 远程：需要先 lock（建立 LOCKED_BY）
@@ -1047,26 +1059,36 @@ class BasicAIController(PlayerController):
                     return commands  # lock 不可用
 
             # 已 LOCKED_BY，可以攻击
-            if "attack" in available:
-                layer, attr = self._pick_attack_layer(player, target, weapon)
-                commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
-            return commands
+            if "attack" in available:  
+                layer, attr = self._pick_attack_layer(player, target, weapon)  
+                if layer and attr:  
+                    commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")  
+                else:  
+                    commands.append(f"attack {target.name} {weapon.name}")
 
         elif weapon_range == "area":
             # 区域武器：需要同地点有目标
             if "attack" in available:
                 same_loc_targets = self._get_same_location_targets(player, state)
                 if same_loc_targets:
-                    layer, attr = self._pick_attack_layer(player, target, weapon)
-                    commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
+                    layer, attr = self._pick_attack_layer(player, target, weapon)  
+                    if layer and attr:  
+                        commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")  
+                    else:  
+                        commands.append(f"attack {target.name} {weapon.name}")
             return commands
 
         else:
             # 未知类型，按近战处理
             if "attack" in available:
-                layer, attr = self._pick_attack_layer(player, target, weapon)
-                commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
+                layer, attr = self._pick_attack_layer(player, target, weapon)  
+                if layer and attr:  
+                    commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")  
+                else:  
+                    commands.append(f"attack {target.name} {weapon.name}")
             return commands
+        
+        return commands
 
     # ════════════════════════════════════════════════════════
     #  命令生成器：队长指挥（Bug8修复）
@@ -1399,65 +1421,85 @@ class BasicAIController(PlayerController):
     #  武器选择
     # ════════════════════════════════════════════════════════
 
-    def _pick_weapon(self, player, target) -> Optional[Any]:
-        """选择最佳武器"""
-        weapons = getattr(player, 'weapons', [])
-        if not weapons:
-            return None
-
-        target_outer_attr = self._get_outer_armor_attr(target)
-
-        def weapon_score(w):
-            s = 0
-            # Bug4修复：使用 get_effective_damage()
-            dmg = self._get_weapon_damage(w)
-            s += dmg * 10
-
-            # 属性克制
-            w_attr = self._get_weapon_attr(w)
-            if target_outer_attr and w_attr in EFFECTIVE_AGAINST:
-                if target_outer_attr in EFFECTIVE_AGAINST[w_attr]:
-                    s += 20
-
-            # 如果在同地点，近战优先（不需要lock）
-            wr = self._get_weapon_range(w)
-            if self._same_location(player, target):
-                if wr == "melee":
-                    s += 10  # 同地点近战有优势
-            else:
-                if wr == "ranged":
-                    s += 15  # 不同地点远程有优势
-                elif wr == "melee":
-                    s -= 20  # 不同地点近战劣势
-
-            return s
-
-        sorted_weapons = sorted(weapons, key=lambda w: self._get_weapon_damage(w), reverse=True)
+    def _pick_weapon(self, player, target) -> Optional[Any]:  
+        """选择最佳武器"""  
+        weapons = getattr(player, 'weapons', [])  
+        if not weapons:  
+            return None  
+    
+        target_outer_attrs = self._get_outer_armor_attr(target)  # List[Attribute]  
+    
+        def weapon_score(w):  
+            s = 0  
+            dmg = self._get_weapon_damage(w)  
+            s += dmg * 10  
+    
+            # 属性克制：检查武器属性是否能有效打击目标的任一外甲  
+            w_attr = self._get_weapon_attr(w)  
+            if target_outer_attrs and w_attr in EFFECTIVE_AGAINST:  
+                effective_set = EFFECTIVE_AGAINST[w_attr]  
+                for armor_attr in target_outer_attrs:  
+                    if armor_attr in effective_set:  
+                        s += 20  
+                        break  
+    
+            # 射程适配  
+            wr = self._get_weapon_range(w)  
+            if self._same_location(player, target):  
+                if wr == "melee":  
+                    s += 10  
+            else:  
+                if wr == "ranged":  
+                    s += 15  
+                elif wr == "melee":  
+                    s -= 20  
+    
+            return s  
+    
+        # 使用 weapon_score 排序  
+        sorted_weapons = sorted(weapons, key=weapon_score, reverse=True)  
         return sorted_weapons[0]
 
-    def _pick_attack_layer(self, player, target, weapon) -> tuple:
-        """选择攻击层和属性，返回 (layer, attr)"""
-        from models.equipment import ArmorLayer
-        from utils.attribute import Attribute
+    def _pick_attack_layer(self, player, target, weapon) -> tuple:  
+        """选择攻击层和属性，返回 (layer_str, armor_attr_str)  
         
-        outer_active = []
-        inner_active = []
-        armor = getattr(target, 'armor', None)
-        if armor and hasattr(armor, 'get_active'):
-            outer_active = armor.get_active(ArmorLayer.OUTER)
-            inner_active = armor.get_active(ArmorLayer.INNER)
-        
-        w_attr = weapon.attribute if weapon else Attribute.ORDINARY
-        # 属性字符串（用于命令）
-        attr_str = w_attr.value if hasattr(w_attr, 'value') else str(w_attr)
-        
-        if outer_active:
-            return ("外层", attr_str)
-        elif inner_active:
-            return ("内层", attr_str)
-        else:
-            return ("hp", attr_str)
-
+        layer_str: "外层" / "内层" / None（无甲直接打HP）  
+        armor_attr_str: 目标护甲的属性字符串（如 "魔法"），用于指定攻击哪件护甲  
+        """  
+        from models.equipment import ArmorLayer  
+        from utils.attribute import Attribute  
+    
+        outer_active = []  
+        inner_active = []  
+        armor = getattr(target, 'armor', None)  
+        if armor and hasattr(armor, 'get_active'):  
+            outer_active = armor.get_active(ArmorLayer.OUTER)  
+            inner_active = armor.get_active(ArmorLayer.INNER)  
+    
+        w_attr = weapon.attribute if weapon else Attribute.ORDINARY  
+    
+        if outer_active:  
+            # 优先攻击能被武器克制的外甲  
+            best_piece = self._pick_best_armor_target(outer_active, w_attr)  
+            armor_attr_str = best_piece.attribute.value if hasattr(best_piece.attribute, 'value') else str(best_piece.attribute)  
+            return ("外层", armor_attr_str)  
+        elif inner_active:  
+            best_piece = self._pick_best_armor_target(inner_active, w_attr)  
+            armor_attr_str = best_piece.attribute.value if hasattr(best_piece.attribute, 'value') else str(best_piece.attribute)  
+            return ("内层", armor_attr_str)  
+        else:  
+            # 无甲，不指定层和属性  
+            return (None, None)
+    def _pick_best_armor_target(self, armor_pieces, weapon_attr) -> Any:  
+        """从护甲列表中选择最佳攻击目标：优先选能被武器克制的"""  
+        effective_set = EFFECTIVE_AGAINST.get(weapon_attr, set())  
+        # 优先选能被克制的护甲  
+        for piece in armor_pieces:  
+            if piece.attribute in effective_set:  
+                return piece  
+        # 没有可克制的，选第一个  
+        return armor_pieces[0]
+    
     def _pick_counter_attr(self, target_armor_attr) -> 'Attribute':
         """根据目标护甲属性，选择克制它的武器属性"""
         from utils.attribute import Attribute
@@ -1688,11 +1730,13 @@ class BasicAIController(PlayerController):
             return [a.attribute for a in armor.get_active(ArmorLayer.INNER)]
         return []
 
-    def _get_weapon_damage(self, weapon) -> float:
-        """Bug4修复：使用 get_effective_damage() 如果可用"""
-        if hasattr(weapon, 'get_effective_damage'):
-            return weapon.get_effective_damage()
-        return getattr(weapon, 'damage', 1.0)
+    def _get_weapon_damage(self, weapon) -> float:  
+        """获取武器有效伤害"""  
+        if not weapon:  
+            return 0.0  
+        if hasattr(weapon, 'get_effective_damage'):  
+            return weapon.get_effective_damage()  
+        return getattr(weapon, 'base_damage', 1.0)
 
     def _get_weapon_range(self, weapon) -> str:
         """获取武器的射程类型"""
@@ -1708,9 +1752,13 @@ class BasicAIController(PlayerController):
             return "area"
         return "melee"
 
-    def _get_weapon_attr(self, weapon) -> str:
-        """获取武器属性"""
-        return getattr(weapon, 'attribute', '物理')
+    def _get_weapon_attr(self, weapon):  
+        """获取武器属性（返回 Attribute 枚举）"""  
+        from utils.attribute import Attribute  
+        attr = getattr(weapon, 'attribute', None)  
+        if isinstance(attr, Attribute):  
+            return attr  
+        return Attribute.ORDINARY
 
     def _has_melee_only(self, player) -> bool:
         """是否只有近战武器"""
