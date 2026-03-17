@@ -35,7 +35,7 @@
     "stunned": " 💫 {target} 被眩晕！",
     "critical_hit": " 💢 暴击！伤害翻倍！",
     "hologram_vulnerability": "✨全息影像易伤：+{hologram_bonus}",
-    "death_prevented": "💫 记忆令毁灭的骄阳愈发明亮，不会落下…… HP → {target_hp}",
+    "death_prevented": "💫 记忆令骄阳绽放耀眼的金色，照亮黑夜！ HP → {target_hp}",
     "killed": "💀 {target_name} 被击杀！",
     "stunned_full": "💫 {target_name} 进入眩晕状态！",
     "stun_prevented": "🔥 {target_name} 从不因为孱弱的攻击而倒下！",
@@ -133,7 +133,7 @@
         "「直到生命尽头，我才知道，我注定不会有自己的愿望。我只想要……■■■■■」",
         "「这个世界未竟的道路，就由我来担负着她走下去吧。」"
       ],
-      "activate": "「神代天赋4：愿负世，照拂黎明」{player_name}的神性觉醒..."
+      "activate": "「神代天赋4：愿负世，照拂黎明」{player_name}再次踏上了轮回..."
     },
     "g5ripple": {
       "lore": [
@@ -351,7 +351,7 @@
         "「所以，制裁你的人，是我」",
         "「DO YOU UNDERSTAND?」"
       ],
-      "activate": "「原初天赋5：不良少年」{player_name}开始搞事情！",
+      "activate": "「原初天赋5：不良少年」{player_name}试图加入意大利不知名黑帮&……！",
       "crime_trigger": "🔥 不良少年：首次触发犯罪「{crime_type}」→ 获得额外行动回合！"
     },
     "t6goodcitizen": {
@@ -360,7 +360,7 @@
         "「军情六处闻之伤心，FBI们见之落泪」",
         "「你想惹他们？你确定他们背后没几个大人物？」"
       ],
-      "activate": "「原初天赋6：朝阳好市民」{player_name}向警方又双叒贡献了三等功出来"
+      "activate": "「原初天赋6：朝阳好市民」{player_name}为警方又双叒贡献了n个三等功出来"
     },
     "t7resurrection": {
       "lore": [
