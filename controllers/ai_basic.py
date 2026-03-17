@@ -1665,7 +1665,7 @@ class BasicAIController(PlayerController):
         elif talent_name == "死者苏生":
             cmds = self._talent_resurrection(player, state, available)
             commands.extend(cmds)
-        elif talent_name == "火萤Ⅳ型-完全燃烧":
+        elif talent_name == "火萤IV型-完全燃烧":
             cmds = self._talent_firefly(player, state, available)
             commands.extend(cmds)
         elif talent_name == "请一直，注视着我":
@@ -1756,7 +1756,7 @@ class BasicAIController(PlayerController):
         return commands
 
     def _talent_firefly(self, player, state, available) -> List[str]:
-        """火萤Ⅳ型-完全燃烧：自爆/强化攻击"""
+        """火萤IV型-完全燃烧：自爆/强化攻击"""
         commands = []
         if "talent_activate" in available:
             # 低血量时使用（同归于尽策略）

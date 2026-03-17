@@ -1,5 +1,5 @@
 """
-神代天赋1：火萤Ⅳ型-完全燃烧
+神代天赋1：火萤IV型-完全燃烧
 
 效果A 强化（常驻）：
   - 造成的所有伤害 +100%
@@ -22,7 +22,7 @@ from engine.debug_config import debug_ai
 
 
 class G1MythFire(BaseTalent):
-    name = "火萤Ⅳ型-完全燃烧"
+    name = "火萤IV型-完全燃烧"
     description = "常驻：伤害+100%/受伤-50%/0.5不眩晕。后期debuff扣护甲。"
     tier = "神代"
 
