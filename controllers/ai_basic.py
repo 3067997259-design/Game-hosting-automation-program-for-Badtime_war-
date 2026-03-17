@@ -26,6 +26,17 @@ from typing import List, Dict, Optional, Any, Set, Tuple
 from controllers.base import PlayerController
 import random
 
+EQUIPMENT_LOCATION = {  
+    "警棍": {"警察局"},  
+    "高斯步枪": {"军事基地"},  
+    "地震": {"魔法所"},  
+    "地动山摇": {"魔法所"},  
+    "盾牌": {"商店", "home"},  
+    "陶瓷护甲": {"商店"},  
+    "魔法护盾": {"魔法所"},  
+    "AT力场": {"军事基地"},  
+}
+
 # 导入调试系统
 from engine.debug_config import (
     debug_ai, debug_ai_basic, debug_ai_detailed, debug_ai_full,
@@ -382,24 +393,20 @@ class BasicAIController(PlayerController):
         self._update_combat_status(player, state)
         self._cleanup_dead_players(state)  # Bug18
 
-        # 导弹冷却（安全递减）
-        if self._missile_cooldown > 0:
-            self._missile_cooldown -= 1
-
         candidates = []
 
         # 未起床
         if not player.is_awake:
             return ["wake"]
 
-        # ===== 队长指挥（最高优先） =====
-        if getattr(player, 'is_captain', False) and "police_command" in available_actions:
-            debug_ai_basic(player.name, "作为队长，优先指挥警察")
-            captain_cmds = self._cmd_captain(player, state, available_actions)
-            if captain_cmds:
-                candidates.extend(captain_cmds)
-                candidates.append("forfeit")
-                return candidates
+        # ===== 队长指挥（高优先但不独占） =====  
+        if getattr(player, 'is_captain', False) and "police_command" in available_actions:  
+            debug_ai_basic(player.name, "作为队长，生成警察指挥命令")  
+            captain_cmds = self._cmd_captain(player, state, available_actions)  
+            if captain_cmds:  
+                # 只取第1条警察命令（每回合只能执行1条）  
+                candidates.append(captain_cmds[0])  
+            # 不再 return，继续生成其他候选命令
 
         # ===== 极危险情况 =====
         if self._is_critical(player, state):
@@ -456,11 +463,6 @@ class BasicAIController(PlayerController):
             for cmd in attack_cmds:
                 if cmd not in candidates:
                     candidates.insert(0, cmd)
-
-        # ===== 天赋命令 =====
-        talent_cmds = self._cmd_talent(player, state, available_actions)
-        if talent_cmds:
-            candidates.extend(talent_cmds)
 
         # ===== 政治型 =====
         if self.personality == "political":
@@ -697,7 +699,7 @@ class BasicAIController(PlayerController):
         commands = []
         loc = self._get_location_str(player)
         weapons = getattr(player, 'weapons', [])
-        has_weapon = len(weapons) > 0
+        has_weapon = any(w for w in weapons if w and getattr(w, 'name', '') != "拳击")
         outer = self._count_outer_armor(player)
         inner = self._count_inner_armor(player)
         vouchers = getattr(player, 'vouchers', 0)
@@ -710,13 +712,13 @@ class BasicAIController(PlayerController):
 
         if "interact" in available:
             # ---- 阶段1：在home拿凭证/盾牌 ----
-            if loc == "home" or self._is_at_home(player):
-                if vouchers < 2:
+            if loc == "home" or self._is_at_home(player):  
+                if outer == 0 and not self._has_armor_by_name(player, "盾牌"):  
+                    commands.append("interact 盾牌")  
+                if not has_weapon:  
+                    commands.append("interact 小刀")  
+                if vouchers < 1:  
                     commands.append("interact 凭证")
-                if outer == 0:
-                    commands.append("interact 盾牌")
-                if not has_weapon:
-                    commands.append("interact 小刀")
 
             # ---- Bug5修复：用 elif 确保不重复 ----
             elif loc == "商店":
@@ -730,7 +732,7 @@ class BasicAIController(PlayerController):
                     commands.append("interact 隐身衣")
                 if has_weapon and self._has_melee_only(player):
                     commands.append("interact 磨刀石")
-                if vouchers < 2:
+                if vouchers < 1:
                     commands.append("interact 打工")
 
             elif loc == "魔法所":
@@ -751,10 +753,7 @@ class BasicAIController(PlayerController):
                         commands.append("interact 地震")
                     if "封闭" not in learned:
                         commands.append("interact 封闭")
-                    if outer < 2:
-                        commands.append("interact 魔法护盾")
-                    if not has_weapon:
-                        commands.append("interact 魔法弹幕")
+
 
             elif loc == "医院":
                 if inner == 0:
@@ -767,7 +766,7 @@ class BasicAIController(PlayerController):
                     commands.append("interact 额外心脏手术")
                 if not self._has_virus_immunity(player):
                     commands.append("interact 防毒面具")
-                if vouchers < 2:
+                if vouchers < 1:
                     commands.append("interact 打工")
 
             elif loc == "军事基地":
@@ -808,7 +807,7 @@ class BasicAIController(PlayerController):
         """根据人格生成发育计划"""
         plan = []
         weapons = getattr(player, 'weapons', [])
-        has_weapon = len(weapons) > 0
+        has_weapon = any(w for w in weapons if w and getattr(w, 'name', '') != "拳击")
         outer = self._count_outer_armor(player)
         inner = self._count_inner_armor(player)
         vouchers = getattr(player, 'vouchers', 0)
@@ -825,7 +824,7 @@ class BasicAIController(PlayerController):
             plan.append("attack")
 
         elif self.personality == "defensive":
-            if vouchers < 2:
+            if vouchers < 1:
                 plan.extend(["home:凭证", "home:凭证"])
             if outer < 1:
                 plan.append("home:盾牌")
@@ -839,7 +838,7 @@ class BasicAIController(PlayerController):
                 plan.append("医院:晶化皮肤手术")
 
         elif self.personality == "assassin":
-            if vouchers < 2:
+            if vouchers < 1:
                 plan.extend(["home:凭证", "home:凭证"])
             if not has_weapon:
                 plan.append("商店:小刀")
@@ -859,7 +858,7 @@ class BasicAIController(PlayerController):
                 plan.append("警察局:recruit")
 
         elif self.personality == "builder":
-            if vouchers < 2:
+            if vouchers < 1:
                 plan.extend(["home:凭证", "home:凭证"])
             if outer < 1:
                 plan.append("home:盾牌")
@@ -879,7 +878,7 @@ class BasicAIController(PlayerController):
             plan.append("军事基地:电磁步枪")
 
         else:  # balanced
-            if vouchers < 2:
+            if vouchers < 1:
                 plan.extend(["home:凭证"])
             if outer < 1:
                 plan.append("home:盾牌")
@@ -895,7 +894,7 @@ class BasicAIController(PlayerController):
     def _pick_develop_destination(self, player, state) -> Optional[str]:
         """选择下一个发育目标地点"""
         weapons = getattr(player, 'weapons', [])
-        has_weapon = len(weapons) > 0
+        has_weapon = any(w for w in weapons if w and getattr(w, 'name', '') != "拳击")
         outer = self._count_outer_armor(player)
         inner = self._count_inner_armor(player)
         vouchers = getattr(player, 'vouchers', 0)
@@ -914,7 +913,7 @@ class BasicAIController(PlayerController):
             return self._find_nearest_enemy_location(player, state)
 
         elif self.personality == "defensive":
-            if vouchers < 2 and loc != "home":
+            if vouchers < 1 and loc != "home":
                 return "home"
             if outer < 1 and loc != "home":
                 return "home"
@@ -929,7 +928,7 @@ class BasicAIController(PlayerController):
             return None
 
         elif self.personality == "assassin":
-            if vouchers < 2 and loc != "home":
+            if vouchers < 1 and loc != "home":
                 return "home"
             if not has_weapon and loc != "商店":
                 return "商店"
@@ -949,7 +948,7 @@ class BasicAIController(PlayerController):
             return "商店"
 
         elif self.personality == "builder":
-            if vouchers < 2 and loc != "home":
+            if vouchers < 1 and loc != "home":
                 return "home"
             if outer < 1 and loc != "home":
                 return "home"
@@ -1108,7 +1107,8 @@ class BasicAIController(PlayerController):
         if not pc.get("is_captain"):
             return commands
 
-        units = pc.get("units", [])
+        units = pc.get("units", [])  
+        active_units = [u for u in units if u.get("is_alive") and u.get("is_active", True)]  
         alive_units = [u for u in units if u.get("is_alive")]
 
         if not alive_units:
@@ -1117,18 +1117,22 @@ class BasicAIController(PlayerController):
 
         # 策略：根据情况指挥
         # 1) 如果有举报目标且已派遣，指挥攻击
-        report_target = pc.get("report_target")
-        if report_target and pc.get("report_phase") == "dispatched":
-            target_player = state.get_player(report_target)
-            if target_player and target_player.is_alive():
+        report_target = pc.get("report_target")  
+        if report_target and pc.get("report_phase") == "dispatched":  
+            target_player = state.get_player(report_target)  
+            if not target_player or not target_player.is_alive():  
+                # Target died — look for new criminal targets instead of being stuck  
+                pass  # Fall through to criminal search below  
+            elif target_player.is_alive():  
+                # existing attack logic, but only for ONE unit 
                 target_loc = self._get_location_str(target_player)
-                for unit in alive_units:
-                    uid = unit["id"]
-                    unit_loc = unit.get("location")
-                    if unit_loc != target_loc:
-                        commands.append(f"police move {uid} {target_loc}")
-                    else:
-                        commands.append(f"police attack {uid} {target_player.name}")
+                for unit in active_units:  
+                    uid = unit["id"]  
+                    unit_loc = unit.get("location")  
+                    if unit_loc != target_loc:  
+                        return [f"police move {uid} {target_loc}"]  
+                    else:  
+                        return [f"police attack {uid} {target_player.name}"]
                 if commands:
                     return commands
 
@@ -1157,12 +1161,22 @@ class BasicAIController(PlayerController):
                 return commands
 
         # 3) 给警察装备
-        for unit in alive_units:
-            uid = unit["id"]
-            current_weapon = unit.get("weapon", "警棍")
-            if current_weapon == "警棍":
-                # 升级武器
-                commands.append(f"police equip {uid} 高斯步枪")
+        EQUIP_LOCATION_MAP = {  
+            "高斯步枪": "军事基地",  
+            "地震": "魔法所",  
+            "地动山摇": "魔法所",  
+        }  
+        for unit in active_units:  
+            uid = unit["id"]  
+            current_weapon = unit.get("weapon", "警棍")  
+            if current_weapon == "警棍":  
+                target_equip = "高斯步枪"  
+                required_loc = EQUIP_LOCATION_MAP.get(target_equip, "军事基地")  
+                unit_loc = unit.get("location")  
+                if unit_loc != required_loc:  
+                    return [f"police move {uid} {required_loc}"]  
+                else:  
+                    return [f"police equip {uid} {target_equip}"]
 
         # 4) 分散巡逻
         if not commands:
@@ -1210,18 +1224,29 @@ class BasicAIController(PlayerController):
         if "election" in available and is_police and not is_captain and loc == "警察局":
             commands.append("election")
 
-        # 指定继任者
-        if "designate" in available and is_captain:
-            # 找一个友好的警察
-            police = getattr(state, 'police', None)
-            if police:
-                for pid in state.player_order:
-                    if pid == player.player_id:
-                        continue
-                    target = state.get_player(pid)
-                    if target and target.is_alive() and getattr(target, 'is_police', False):
-                        commands.append(f"designate {target.name}")
-                        break
+        # 指定执法目标  
+        if "designate" in available and is_captain:  
+            # 找威胁最高的犯罪者或敌人  
+            best_target = None  
+            best_score = -1  
+            for pid in state.player_order:  
+                if pid == player.player_id:  
+                    continue  
+                target = state.get_player(pid)  
+                if target and target.is_alive():  
+                    target_is_criminal = getattr(target, 'is_criminal', False)  
+                    if not target_is_criminal:  
+                        police = getattr(state, 'police', None)  
+                        if police and hasattr(police, 'is_criminal'):  
+                            target_is_criminal = police.is_criminal(target.player_id)  
+                    score = self._threat_scores.get(target.name, 0)  
+                    if target_is_criminal:  
+                        score += 100  # 优先犯罪者  
+                    if score > best_score:  
+                        best_score = score  
+                        best_target = target  
+            if best_target:  
+                commands.append(f"designate {best_target.name}")
 
         # 移动到警察局
         if "move" in available and not commands and loc != "警察局":
@@ -1698,6 +1723,15 @@ class BasicAIController(PlayerController):
     #  辅助方法：装备计数与查询
     # ════════════════════════════════════════════════════════
 
+    def _has_armor_by_name(self, player, armor_name: str) -> bool:  
+        """检查玩家是否已有指定名称的活跃护甲"""  
+        armor = getattr(player, 'armor', None)  
+        if armor and hasattr(armor, 'get_all_active'):  
+            for piece in armor.get_all_active():  
+                if piece.name == armor_name:  
+                    return True  
+        return False
+
     def _count_outer_armor(self, player) -> int:
         """统计玩家活跃的外层护甲数量"""
         armor = getattr(player, 'armor', None)
@@ -1990,13 +2024,14 @@ class BasicAIController(PlayerController):
             is_captain = getattr(player, 'is_captain', False)
             units = []
             if hasattr(police, 'units'):
-                for u in police.units:
-                    units.append({
-                        "id": getattr(u, 'id', ''),
-                        "is_alive": getattr(u, 'is_alive', True),
-                        "location": self._get_location_str(u) if hasattr(u, 'location') else None,
-                        "weapon": getattr(u, 'weapon', '警棍'),
-                    })
+                for u in police.units:  
+                    units.append({  
+                        "id": getattr(u, 'unit_id', ''),           # was 'id'  
+                        "is_alive": u.is_alive() if callable(getattr(u, 'is_alive', None)) else True,  # was getattr(u, 'is_alive', True)  
+                        "location": self._get_location_str(u) if hasattr(u, 'location') else None,  
+                        "weapon": getattr(u, 'weapon_name', '警棍'),  # was 'weapon'  
+                    })  
+            report_target = getattr(police, 'reported_target_id', None)  # was 'current_report_target'
             report_target = getattr(police, 'current_report_target', None)
             report_phase = getattr(police, 'report_phase', None)
             self._police_cache = {
