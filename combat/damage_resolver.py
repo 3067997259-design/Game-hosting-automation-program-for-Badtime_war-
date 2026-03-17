@@ -578,9 +578,18 @@ def _redirect_overflow_damage(target, broken_armor, overflow,
             if is_effective(weapon_attribute, armor.attribute):
                 effective_candidates.append((armor, layer_type))
     
-    if not effective_candidates:
-        result["details"].append(f"溢出伤害 {overflow} 没有合适的护甲可承受，直接作用到生命")
-        return overflow
+    if not effective_candidates:  
+        if candidates:  
+            # 有护甲但全部免疫 → 伤害被克制，无效化  
+            immune_names = "、".join(f"「{a.name}({a.attribute.value})」" for a, _ in candidates)  
+            result["details"].append(  
+                f"溢出伤害 {overflow} 被剩余护甲 {immune_names} 的属性克制，无效！"  
+            )  
+            return 0  
+        else:  
+            # 确实没有护甲了 → 伤害转移到生命  
+            result["details"].append(f"溢出伤害 {overflow} 没有护甲可承受，直接作用到生命")  
+            return overflow
     
     selected_armor, selected_layer = random.choice(effective_candidates)
     

@@ -413,17 +413,24 @@ class BasicAIController(PlayerController):
     #  接口实现：confirm  （Bug10修复：上下文感知）
     # ════════════════════════════════════════════════════════
 
-    # L416-436 整段替换为：  
     def confirm(self, prompt: str, context: Optional[Dict] = None) -> bool:  
+        # 强买通行证：当prompt包含"强买通行证"且AI需要去军事基地时同意  
+        if "强买通行证" in prompt:  
+            # 如果AI手上所有武器都是普通属性，需要去军事基地拿科技武器  
+            if self._player and not self._has_non_ordinary_weapon(self._player):  
+                return True  
+            # 其他情况（如builder正常发育路线）也可以同意  
+            if self.personality == "builder":  
+                return True  
+            return False  
+    
         if not context:  
             return False  
         situation = context.get("phase", "")  
         if situation == "response_window":  
             talent_name = context.get("talent_name", "")  
             action_type = context.get("action_type", "")  
-            # 你给路打油：在被攻击/特殊操作时确认（对自己有利）  
             if talent_name == "你给路打油" and action_type in ("attack", "special"):  
-                # 只在真正危险时触发，保留使用次数  
                 if self._player:  
                     hp = self._player.hp  
                     outer = self._count_outer_armor(self._player)  
@@ -432,8 +439,7 @@ class BasicAIController(PlayerController):
                     if outer == 0 and hp <= 1.5:  
                         return True  
                     return False  
-                return True  # 无法判断，保守触发  
-            # 其他天赋的响应窗口，默认不确认  
+                return True  
         return False
 
     def _is_in_savior_state(self, player) -> bool:  
@@ -556,20 +562,28 @@ class BasicAIController(PlayerController):
             if candidates:
                 candidates.append("forfeit")
                 return candidates
-
-        # ===== 战斗状态 =====
-        if self._in_combat and self._combat_target:
-            if self._should_continue_combat(player, self._combat_target):
-                debug_ai_combat_state(player.name, f"战斗目标: {self._combat_target.name}")
-                combat_cmds = self._cmd_attack(player, state, available_actions, self._combat_target)
-                if combat_cmds:
-                    candidates.extend(combat_cmds)
-                    candidates.append("forfeit")
-                    return candidates
-            else:
-                debug_ai_basic(player.name, "退出战斗状态")
-                self._in_combat = False
-                self._combat_target = None
+        # ===== 战斗状态 =====  
+        if self._in_combat and self._combat_target:  
+            if self._should_continue_combat(player, self._combat_target):  
+                debug_ai_combat_state(player.name, f"战斗目标: {self._combat_target.name}")  
+                combat_cmds = self._cmd_attack(player, state, available_actions, self._combat_target)  
+                if combat_cmds:  
+                    candidates.extend(combat_cmds)  
+                    candidates.append("forfeit")  
+                    return candidates  
+            else:  
+                debug_ai_basic(player.name, "退出战斗状态")  
+                self._in_combat = False  
+                target_ref = self._combat_target  
+                self._combat_target = None  
+                # 如果是因为武器被克制退出，优先去拿新武器  
+                if target_ref and self._all_weapons_countered(player, target_ref):  
+                    debug_ai_basic(player.name, "所有武器被克制，寻找新武器")  
+                    rearm_cmds = self._cmd_rearm(player, state, available_actions)  
+                    if rearm_cmds:  
+                        candidates.extend(rearm_cmds)  
+                        candidates.append("forfeit")  
+                        return candidates
 
         # ===== 击杀机会 =====
         if self._has_kill_opportunity(player, state):
@@ -795,14 +809,7 @@ class BasicAIController(PlayerController):
             self._in_combat = False
             self._combat_target = None
 
-    def _should_continue_combat(self, player, target) -> bool:
-        if not target or not target.is_alive():
-            return False
-        if player.hp <= 0.5 and self.personality != "aggressive":
-            return False
-        if self._is_at_disadvantage(player, target) and self.personality == "defensive":
-            return False
-        return True
+
 
     def _is_development_complete(self, player, state) -> bool:  
         """判断发育是否完成"""  
@@ -1119,23 +1126,29 @@ class BasicAIController(PlayerController):
     #  命令生成器：攻击（Bug6修复：检查 ENGAGED_WITH/LOCKED_BY）
     # ════════════════════════════════════════════════════════
 
-    def _cmd_attack(self, player, state, available: List[str],
-                    forced_target=None) -> List[str]:
-        commands = []
-        target = forced_target or self._pick_target(player, state)
-        if not target:
-            return commands
-
-        weapon = self._pick_weapon(player, target)
-        if not weapon:
-            # 没武器，尝试近战（拳头？）
-            return commands
-
-        cmds = self._build_attack_cmd(player, target, weapon, state, available)
-        commands.extend(cmds)
-
-        debug_ai_attack_generation(player.name,
-            weapon.name, f"攻击命令: {commands} (目标={target.name})")
+    def _cmd_attack(self, player, state, available: List[str],  
+                    forced_target=None) -> List[str]:  
+        commands = []  
+        target = forced_target or self._pick_target(player, state)  
+        if not target:  
+            return commands  
+    
+        weapon = self._pick_weapon(player, target)  
+        if not weapon:  
+            return commands  
+    
+        # 检查武器是否被目标护甲克制  
+        if self._all_weapons_countered(player, target):  
+            # 所有武器都被克制，不生成攻击命令  
+            debug_ai_attack_generation(player.name,  
+                weapon.name, f"所有武器被目标 {target.name} 护甲克制，跳过攻击")  
+            return commands  
+    
+        cmds = self._build_attack_cmd(player, target, weapon, state, available)  
+        commands.extend(cmds)  
+    
+        debug_ai_attack_generation(player.name,  
+            weapon.name, f"攻击命令: {commands} (目标={target.name})")  
         return commands
 
     def _build_attack_cmd(self, player, target, weapon, state,
@@ -1185,8 +1198,8 @@ class BasicAIController(PlayerController):
             # 远程：需要先 lock（建立 LOCKED_BY）
             is_locked = False
             if markers and hasattr(markers, 'has_relation'):
-                is_locked = markers.has_relation(
-                    player.player_id, "LOCKED_BY", target.player_id)
+                is_locked = markers.has_relation(  
+                    target.player_id, "LOCKED_BY", player.player_id)
 
             if not is_locked:
                 if "lock" in available:
@@ -1541,21 +1554,21 @@ class BasicAIController(PlayerController):
             return None
 
         # 评分
-        def score(t):
-            s = 0
-            s += self._threat_scores.get(t.name, 0) * 2
-            if t.name in self._been_attacked_by:
-                s += 50  # 优先反击
-            if self._same_location(player, t):
-                s += 30
-            # 低血优先
-            s += max(0, 5 - t.hp) * 10
-            # 护甲少优先
-            s -= self._count_outer_armor(t) * 15
-            s -= self._count_inner_armor(t) * 10
-            # assassin偏好低血目标
-            if self.personality == "assassin":
-                s += max(0, 3 - t.hp) * 20
+        def score(t):  
+            s = 0  
+            s += self._threat_scores.get(t.name, 0) * 2  
+            if t.name in self._been_attacked_by:  
+                s += 50  
+            if self._same_location(player, t):  
+                s += 30  
+            s += max(0, 5 - t.hp) * 10  
+            s -= self._count_outer_armor(t) * 15  
+            s -= self._count_inner_armor(t) * 10  
+            if self.personality == "assassin":  
+                s += max(0, 3 - t.hp) * 20  
+            # 武器有效性：所有武器都被克制的目标大幅降分  
+            if self._all_weapons_countered(player, t):  
+                s -= 200  
             return s
 
         candidates.sort(key=score, reverse=True)
@@ -1595,16 +1608,19 @@ class BasicAIController(PlayerController):
             s = 0  
             dmg = self._get_weapon_damage(w)  
             s += dmg * 10  
-    
-            # 属性克制：检查武器属性是否能有效打击目标的任一外甲  
+        
             w_attr = self._get_weapon_attr(w)  
             if target_outer_attrs and w_attr in EFFECTIVE_AGAINST:  
                 effective_set = EFFECTIVE_AGAINST[w_attr]  
+                has_effective = False  
                 for armor_attr in target_outer_attrs:  
                     if armor_attr in effective_set:  
+                        has_effective = True  
                         s += 20  
                         break  
-    
+                if not has_effective:  
+                    s -= 50  # 所有外甲都克制这把武器，大幅降分  
+        
             # 射程适配  
             wr = self._get_weapon_range(w)  
             if self._same_location(player, target):  
@@ -1615,8 +1631,8 @@ class BasicAIController(PlayerController):
                     s += 15  
                 elif wr == "melee":  
                     s -= 20  
-    
-            return s  
+        
+            return s
     
         # 使用 weapon_score 排序  
         sorted_weapons = sorted(weapons, key=weapon_score, reverse=True)  
@@ -1888,6 +1904,144 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
     #  辅助方法：威胁评估
     # ════════════════════════════════════════════════════════
+
+    def _cmd_rearm(self, player, state, available: List[str]) -> List[str]:  
+        """近战中所有武器被克制后的换武器逻辑  
+        
+        1. 检查当前地点能否interact到非普通属性武器 → 直接拿  
+        2. 不能 → move到魔法所或军事基地  
+        - 有凭证且缺科技和魔法武器 → 选人少的  
+        - 选军事基地时强买通行证（通过confirm机制）  
+        - 没凭证 → 去魔法所  
+        """  
+        commands = []  
+        loc = self._get_location_str(player)  
+    
+        # 1) 当前地点能拿到非普通武器吗？  
+        if "interact" in available:  
+            interact_cmd = self._get_counter_weapon_interact_cmd(player)  
+            if interact_cmd:  
+                commands.append(interact_cmd)  
+                return commands  
+    
+        # 2) 当前地点拿不到，需要移动  
+        if "move" in available:  
+            dest = self._pick_counter_weapon_destination(player, state)  
+            if dest and dest != loc:  
+                commands.append(f"move {dest}")  
+    
+        return commands
+
+    def _all_weapons_countered(self, player, target) -> bool:  
+        """检查玩家所有武器是否都被目标外甲克制"""  
+        weapons = getattr(player, 'weapons', [])  
+        if not weapons:  
+            return True  # 没武器视为被克制  
+    
+        target_outer_attrs = self._get_outer_armor_attr(target)  
+        if not target_outer_attrs:  
+            return False  # 目标无外甲，任何武器都有效  
+    
+        for w in weapons:  
+            w_attr = self._get_weapon_attr(w)  
+            effective_set = EFFECTIVE_AGAINST.get(w_attr, set())  
+            for armor_attr in target_outer_attrs:  
+                if armor_attr in effective_set:  
+                    return False  # 至少有一把武器能打  
+        return True
+    
+    def _has_non_ordinary_weapon(self, player) -> bool:  
+        """检查玩家是否拥有非普通属性的武器（魔法或科技）"""  
+        for w in player.weapons:  
+            attr = self._get_weapon_attr(w)  
+            if attr in (Attribute.MAGIC, Attribute.TECH):  
+                return True  
+        return False
+    
+    def _get_counter_weapon_interact_cmd(self, player) -> Optional[str]:  
+        """在当前地点寻找可以interact获取的非普通属性武器，返回interact命令或None"""  
+        loc = self._get_location_str(player)  
+        learned = self._get_learned_spells(player)  
+        has_pass = getattr(player, 'has_military_pass', False)  
+    
+        if loc == "魔法所":  
+            # 魔法弹幕（近战魔法）→ 远程魔法弹幕（远程魔法）→ 地震（范围魔法）  
+            if "魔法弹幕" not in learned:  
+                return "interact 魔法弹幕"  
+            if "远程魔法弹幕" not in learned:  
+                return "interact 远程魔法弹幕"  
+            if "地震" not in learned:  
+                return "interact 地震"  
+            return None  
+    
+        elif loc == "军事基地" and has_pass:  
+            # 高斯步枪（近战科技）、电磁步枪（范围科技）  
+            has_gauss = any(w.name == "高斯步枪" for w in player.weapons)  
+            has_emr = any(w.name == "电磁步枪" for w in player.weapons)  
+            if not has_gauss:  
+                return "interact 高斯步枪"  
+            if not has_emr:  
+                return "interact 电磁步枪"  
+            return None  
+    
+        # home、商店、医院、警察局都没有非普通属性武器  
+        return None
+    
+    def _pick_counter_weapon_destination(self, player, state) -> str:  
+        """选择去哪里获取非普通属性武器  
+        
+        规则：  
+        - 有凭证且缺科技和魔法武器 → 选魔法所或军事基地中人少的  
+        - 如果选军事基地，到达时会触发强买通行证  
+        - 没凭证 → 去魔法所（免费）  
+        """  
+        vouchers = getattr(player, 'vouchers', 0)  
+        has_magic_weapon = any(  
+            self._get_weapon_attr(w) == Attribute.MAGIC  
+            for w in player.weapons  
+        )  
+        has_tech_weapon = any(  
+            self._get_weapon_attr(w) == Attribute.TECH  
+            for w in player.weapons  
+        )  
+    
+        if vouchers < 1:  
+            # 没凭证，只能去魔法所（免费学法术）  
+            return "魔法所"  
+    
+        # 有凭证，两个地方都可以去  
+        candidates = []  
+        if not has_magic_weapon:  
+            candidates.append("魔法所")  
+        if not has_tech_weapon:  
+            candidates.append("军事基地")  
+    
+        if not candidates:  
+            # 两种都有了但还是被克制？理论上不应该发生，保底去魔法所  
+            return "魔法所"  
+    
+        if len(candidates) == 1:  
+            return candidates[0]  
+    
+        # 两个都可以，选人少的  
+        enemies_magic = self._count_enemies_at("魔法所", player, state)  
+        enemies_military = self._count_enemies_at("军事基地", player, state)  
+        if enemies_military <= enemies_magic:  
+            return "军事基地"  
+        else:  
+            return "魔法所"
+        
+    def _should_continue_combat(self, player, target) -> bool:  
+        if not target or not target.is_alive():  
+            return False  
+        if player.hp <= 0.5 and self.personality != "aggressive":  
+            return False  
+        if self._is_at_disadvantage(player, target) and self.personality == "defensive":  
+            return False  
+        # 所有武器被目标护甲克制 → 退出近战  
+        if self._all_weapons_countered(player, target):  
+            return False  
+        return True
 
     def _is_at_disadvantage(self, player, target) -> bool:
         """是否处于劣势"""
