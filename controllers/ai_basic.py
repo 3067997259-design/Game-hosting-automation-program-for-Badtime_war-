@@ -212,11 +212,79 @@ class BasicAIController(PlayerController):
         if situation == "oneslash_pick_target":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
 
-        # ---- 天赋T0 ----
-        if situation == "talent_t0":
-            for opt in options:
-                if "发动" in opt:
-                    return opt
+        # ---- 天赋T0 ----  
+        if situation == "talent_t0":  
+            talent_name = (context or {}).get("talent_name", "")  
+              
+            # 愿负世（主动发动）：只在神性足够高时发动  
+            if "愿负世" in talent_name:  
+                talent = getattr(self._player, 'talent', None) if self._player else None  
+                divinity = getattr(talent, 'divinity', 0) if talent else 0  
+                if divinity >= 8:  
+                    for opt in options:  
+                        if "发动" in opt:  
+                            return opt  
+                elif self._player and self._player.hp <= 1.0 and divinity >= 4:  
+                    nearby = self._get_same_location_targets(self._player, self._game_state) if self._game_state else []  
+                    if nearby:  
+                        for opt in options:  
+                            if "发动" in opt:  
+                                return opt  
+                # Not worth activating — save for passive trigger (+2 bonus divinity)  
+                for opt in options:  
+                    if "不发动" in opt or "正常" in opt:  
+                        return opt  
+                return options[-1]  
+              
+            # 一刀缭断：只在有面对面的高血量目标时发动  
+            if talent_name == "一刀缭断":  
+                if self._player and self._game_state:  
+                    target = self._pick_target(self._player, self._game_state)  
+                    if target and self._same_location(self._player, target) and target.hp >= 2.0:  
+                        for opt in options:  
+                            if "发动" in opt:  
+                                return opt  
+                for opt in options:  
+                    if "不发动" in opt or "正常" in opt:  
+                        return opt  
+                return options[-1]  
+              
+            # 请一直，注视着我（全息影像）：被攻击或同地点有多个敌人时发动  
+            if "注视" in talent_name:  
+                attackers = len(self._been_attacked_by)  
+                if attackers >= 1:  
+                    for opt in options:  
+                        if "发动" in opt:  
+                            return opt  
+                if self._player and self._game_state:  
+                    nearby = self._get_same_location_targets(self._player, self._game_state)  
+                    if len(nearby) >= 2:  
+                        for opt in options:  
+                            if "发动" in opt:  
+                                return opt  
+                for opt in options:  
+                    if "不发动" in opt or "正常" in opt:  
+                        return opt  
+                return options[-1]  
+              
+            # 遗世独立的幻想乡/神话之外：发育完成且有目标时发动  
+            if "幻想乡" in talent_name or "神话之外" in talent_name:  
+                if self._player and self._game_state:  
+                    if self._is_development_complete(self._player, self._game_state):  
+                        nearby = self._get_same_location_targets(self._player, self._game_state)  
+                        if nearby:  
+                            for opt in options:  
+                                if "发动" in opt:  
+                                    return opt  
+                for opt in options:  
+                    if "不发动" in opt or "正常" in opt:  
+                        return opt  
+                return options[-1]  
+              
+            # 天星/六爻/往世的涟漪：默认发动（get_t0_option已做前置检查）  
+            for opt in options:  
+                if "发动" in opt:  
+                    return opt  
             return options[0]
 
         # ---- 加入警察 ----
@@ -313,6 +381,10 @@ class BasicAIController(PlayerController):
                 if "天雷" in opt:
                     return opt
             return options[0]
+        
+        # ---- 献予律法之诗：额外行动 ----  
+        if situation in ("poem_law_extra_action", "poem_law_police_action"):  
+            return options[0] if options else ""
 
         # ---- 默认 ----
         return options[0]
@@ -347,10 +419,18 @@ class BasicAIController(PlayerController):
             talent_name = context.get("talent_name", "")
             action_type = context.get("action_type", "")
             # 你给路打油：在被攻击/特殊操作时确认（对自己有利）
-            if talent_name == "你给路打油" and action_type in ("attack", "special"):
-                return True
+        if talent_name == "你给路打油" and action_type in ("attack", "special"):  
+                # 只在真正危险时触发，保留使用次数  
+                if self._player:  
+                    hp = self._player.hp  
+                    outer = self._count_outer_armor(self._player)  
+                    if hp <= 1.0:  
+                        return True  
+                    if outer == 0 and hp <= 1.5:  
+                        return True  
+                    return False  
+                return True  # 无法判断，保守触发
             # 其他天赋的响应窗口，默认不确认（防止对自己不利）
-            return False
         return False
 
     # ════════════════════════════════════════════════════════
@@ -555,8 +635,10 @@ class BasicAIController(PlayerController):
     #  阶段评估
     # ════════════════════════════════════════════════════════
 
-    def _is_critical(self, player, state) -> bool:
-        if player.hp <= 0.5:
+    def _is_critical(self, player, state) -> bool:  
+        if player.hp <= 0.5:  
+            return True  
+        if player.hp <= 1.0 and self._count_outer_armor(player) == 0:  
             return True
         # 被警察围攻（Bug修复：只检查 "dispatched"，不检查不存在的 "enforcing"）
         pc = self._police_cache or {}
@@ -565,7 +647,10 @@ class BasicAIController(PlayerController):
             if phase == "dispatched":
                 return True
         # 被多人锁定
-        if self._count_locked_by(player, state) >= 2:
+        locked_count = self._count_locked_by(player, state)  
+        if locked_count >= 2:  
+            return True  
+        if locked_count >= 1 and player.hp <= 1.0:  
             return True
         # 被锚定
         if self._is_anchored(player, state):
@@ -726,7 +811,7 @@ class BasicAIController(PlayerController):
                     commands.append("interact 小刀")
                 if vouchers >= 2 and not has_detection:
                     commands.append("interact 热成像仪")
-                if vouchers >= 1 and outer < 2:
+                if vouchers >= 1 and outer < 2 and not self._has_armor_by_name(player, "陶瓷护甲"):
                     commands.append("interact 陶瓷护甲")
                 if self.personality == "assassin" and vouchers >= 2:
                     commands.append("interact 隐身衣")
@@ -776,7 +861,7 @@ class BasicAIController(PlayerController):
                     if not has_weapon or self.personality in ("aggressive", "balanced"):
                         commands.append("interact 电磁步枪")
                         commands.append("interact 高斯步枪")
-                    if outer < 2:
+                    if outer < 2 and not self._has_armor_by_name(player, "AT力场"):
                         commands.append("interact AT力场")
                     if not has_detection:
                         commands.append("interact 雷达")
@@ -824,8 +909,8 @@ class BasicAIController(PlayerController):
             plan.append("attack")
 
         elif self.personality == "defensive":
-            if vouchers < 1:
-                plan.extend(["home:凭证", "home:凭证"])
+            if vouchers < 1:  
+                plan.append("home:凭证")
             if outer < 1:
                 plan.append("home:盾牌")
             if outer < 2:
@@ -838,8 +923,8 @@ class BasicAIController(PlayerController):
                 plan.append("医院:晶化皮肤手术")
 
         elif self.personality == "assassin":
-            if vouchers < 1:
-                plan.extend(["home:凭证", "home:凭证"])
+            if vouchers < 1:  
+                plan.append("home:凭证")
             if not has_weapon:
                 plan.append("商店:小刀")
             if not self._has_stealth(player):
@@ -858,8 +943,8 @@ class BasicAIController(PlayerController):
                 plan.append("警察局:recruit")
 
         elif self.personality == "builder":
-            if vouchers < 1:
-                plan.extend(["home:凭证", "home:凭证"])
+            if vouchers < 1:  
+                plan.append("home:凭证")
             if outer < 1:
                 plan.append("home:盾牌")
             if not has_weapon:
@@ -884,7 +969,7 @@ class BasicAIController(PlayerController):
                 plan.append("home:盾牌")
             if not has_weapon:
                 plan.append("商店:小刀")
-            if vouchers >= 2 and not has_detection:
+            if vouchers >= 1 and not has_detection:
                 plan.append("商店:热成像仪")
             if outer < 2:
                 plan.append("商店:陶瓷护甲")
@@ -1114,6 +1199,14 @@ class BasicAIController(PlayerController):
         if not alive_units:
             debug_ai_basic(player.name, "无存活警察单位，跳过指挥")
             return commands
+        # 2.5) 威信低时优先研究性学习  
+        authority = pc.get("authority", 0)  
+        if authority <= 2 and "study" in available:  
+            loc = self._get_location_str(player)  
+            if loc == "警察局":  
+                return ["study"]  
+            else:  
+                return [f"move 警察局"]
 
         # 策略：根据情况指挥
         # 1) 如果有举报目标且已派遣，指挥攻击
@@ -1123,7 +1216,20 @@ class BasicAIController(PlayerController):
             if not target_player or not target_player.is_alive():  
                 # Target died — look for new criminal targets instead of being stuck  
                 pass  # Fall through to criminal search below  
-            elif target_player.is_alive():  
+            elif target_player.is_alive(): 
+                # 威信检查：不攻击无辜者（威信低时）  
+                authority = pc.get("authority", 0)  
+                target_is_criminal = getattr(target_player, 'is_criminal', False)  
+                if not target_is_criminal:  
+                    police_obj = getattr(state, 'police', None)  
+                    if police_obj and hasattr(police_obj, 'is_criminal'):  
+                        target_is_criminal = police_obj.is_criminal(target_player.player_id)  
+                if not target_is_criminal and authority <= 1:  
+                    loc = self._get_location_str(player)  
+                    if loc == "警察局" and "study" in available:  
+                        return ["study"]  
+                    elif loc != "警察局":  
+                        return [f"move 警察局"] 
                 # existing attack logic, but only for ONE unit 
                 target_loc = self._get_location_str(target_player)
                 for unit in active_units:  
@@ -1199,22 +1305,29 @@ class BasicAIController(PlayerController):
         is_police = getattr(player, 'is_police', False)
         is_captain = getattr(player, 'is_captain', False)
 
-        # 举报犯罪者
-        if "report" in available and is_police:
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                target = state.get_player(pid)
-                if target and target.is_alive():
-                    # Bug修复：使用 player.is_criminal 和 police.is_criminal()
-                    target_is_criminal = getattr(target, 'is_criminal', False)
-                    if not target_is_criminal:
-                        police = getattr(state, 'police', None)
-                        if police and hasattr(police, 'is_criminal'):
-                            target_is_criminal = police.is_criminal(target.player_id)
-                    if target_is_criminal:
-                        commands.append(f"report {target.name}")
-                        break
+# 举报犯罪者（需要在警察局，除非有远程举报天赋）  
+        if "report" in available and is_police:  
+            can_remote = False  
+            talent = getattr(player, 'talent', None)  
+            if talent and hasattr(talent, 'can_remote_report'):  
+                can_remote = talent.can_remote_report()  
+            if loc != "警察局" and not can_remote:  
+                pass  # Skip report — not at police station  
+            else:
+                for pid in state.player_order:
+                    if pid == player.player_id:
+                        continue
+                    target = state.get_player(pid)
+                    if target and target.is_alive():
+                        # Bug修复：使用 player.is_criminal 和 police.is_criminal()
+                        target_is_criminal = getattr(target, 'is_criminal', False)
+                        if not target_is_criminal:
+                            police = getattr(state, 'police', None)
+                            if police and hasattr(police, 'is_criminal'):
+                                target_is_criminal = police.is_criminal(target.player_id)
+                        if target_is_criminal:
+                            commands.append(f"report {target.name}")
+                            break
 
         # 加入警察
         if "recruit" in available and not is_police and loc == "警察局":
@@ -2032,7 +2145,6 @@ class BasicAIController(PlayerController):
                         "weapon": getattr(u, 'weapon_name', '警棍'),  # was 'weapon'  
                     })  
             report_target = getattr(police, 'reported_target_id', None)  # was 'current_report_target'
-            report_target = getattr(police, 'current_report_target', None)
             report_phase = getattr(police, 'report_phase', None)
             self._police_cache = {
                 "is_police": is_police,

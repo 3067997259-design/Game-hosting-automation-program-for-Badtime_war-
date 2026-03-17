@@ -14,6 +14,17 @@ class PoliceEngine:
     def __init__(self, game_state):  
         self.state = game_state  
         self.police = game_state.police  
+        # 警察获得各种物品的地点
+        self.EQUIPMENT_LOCATION = {  
+            "警棍": {"警察局"},  
+            "高斯步枪": {"军事基地"},  
+            "地震": {"魔法所"},  
+            "地动山摇": {"魔法所"},  
+            "盾牌": {"商店", "home"},  
+            "陶瓷护甲": {"商店"},  
+            "魔法护盾": {"魔法所"},  
+            "AT力场": {"军事基地"},  
+        }
   
         # 允许攻击警察的AOE手段  
         self.ALLOWED_AOE = {"地震", "地动山摇", "电磁步枪", "天星"}  
@@ -211,8 +222,8 @@ class PoliceEngine:
         target_id = self.police.reported_target_id  
         target = self.state.get_player(target_id)  
         if not target or not target.is_alive():  
-            self.police.report_phase = "idle"  
-            return "🚔 执法目标已不存在，警察撤回。"  
+            self._reset_enforcement()  
+            return "🚔 执法目标已不存在，警察撤回。"
   
         target_loc = target.location  
   
@@ -617,6 +628,13 @@ class PoliceEngine:
         unit = self.police.get_unit(police_id)  
         if not unit or not unit.is_alive():  
             return f"❌ 找不到存活的警察单位 {police_id}"  
+        
+        # 检查警察单位是否在装备对应的获取地点  
+        required_locations = self.EQUIPMENT_LOCATION.get(equipment_name)  
+        if required_locations:  
+            unit_loc = unit.location  
+            if unit_loc not in required_locations:  
+                return f"❌ {police_id} 需要在 {'或'.join(required_locations)} 才能获取「{equipment_name}」（当前在 {unit_loc}）"
   
         # 尝试作为武器  
         if equipment_type in (None, "weapon"):  
@@ -984,6 +1002,13 @@ class PoliceEngine:
                         messages.append(  
                             f"🚔 {unit.unit_id} 追踪到达 {target.location}（方式B，本轮不攻击）"  
                         )  
+        # 阶段2.5：检查执法目标是否已死亡  
+        if self.police.report_phase == "dispatched" and target_id:  
+            target = self.state.get_player(target_id)  
+            if not target or not target.is_alive():  
+                self._reset_enforcement()  
+                messages.append("🚔 执法目标已死亡，警察撤回警察局。")  
+                return messages
   
         # 阶段3：执法攻击（只有已在目标位置且非"刚到达"的单位才攻击）  
         if self.police.report_phase == "dispatched" and target_id:  
