@@ -1728,13 +1728,13 @@ class Ripple(BaseTalent):
             talent.enhance_by_ripple()
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_light_enhanced",
-                default="👁️ {target_name} 的「请一直，注视着我」增强！\n   易伤+1.0 | 可用次数+1"
+                default="✨{target_name} 的「请一直，注视着我」增强！\n   易伤+1.0 | 可用次数+1"
             ).format(target_name=target.name)
         else:
             talent.ripple_enhanced = True
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_light_fallback",
-                default="👁️ {target_name} 的全息影像已增强！\n"
+                default="✨{target_name} 的全息影像已增强！\n"
             ).format(target_name=target.name)
 
     def _poem_bear(self, target):  

@@ -34,8 +34,8 @@
     "hp_damage": " ❤️ {target} 生命值减少 {damage} 点，剩余 {remaining_hp}",
     "stunned": " 💫 {target} 被眩晕！",
     "critical_hit": " 💢 暴击！伤害翻倍！",
-    "hologram_vulnerability": "👁️ 全息影像易伤：+{hologram_bonus}",
-    "death_prevented": "💫 记忆令毁灭的骄阳愈发明亮，不会落下…… HP → {target_hp}",
+    "hologram_vulnerability": "✨全息影像易伤：+{hologram_bonus}",
+    "death_prevented": "💫 记忆令骄阳绽放耀眼的金色，照亮黑夜！ HP → {target_hp}",
     "killed": "💀 {target_name} 被击杀！",
     "stunned_full": "💫 {target_name} 进入眩晕状态！",
     "stun_prevented": "🔥 {target_name} 从不因为孱弱的攻击而倒下！",
@@ -97,9 +97,9 @@
         "「全息影像的歌声戛然而止，怪物的咆哮由远及近。那是血？还是泪？」",
         "「别害怕……只要……请你一直注视着……再一次注视着我吧。」"
       ],
-      "activate": "「神代天赋2：请一直，注视着我」{player_name}展开全息影像...",
-      "already_active": "全息影像已经展开中。",
-      "activation_header": " 👁️ {player_name} 展开了「全息影像」！",
+      "activate": "「神代天赋2：请一直，注视着我」{player_name}踏上了血色的舞台...",
+      "already_active": "最后的演出已经开始了",
+      "activation_header": " ✨{player_name} 的舞台上，聚光灯刺眼地闪烁着……",
       "activation_location": " 📍 位置：{location}",
       "activation_duration": " ⏳ 持续：{remaining_rounds} 轮",
       "activation_effects": " 效果：隐身无效 | 受伤+{bonus_damage} | 禁锁定/找到",
@@ -107,16 +107,16 @@
       "police_stun_remove": " 👮 警察小队眩晕解除！",
       "police_submerge": " 👮 警察小队进入「沉沦」状态！",
       "no_npc_affected": " （当前无非玩家单位受影响）",
-      "stealth_removed": " 👁️ {player_name} 的隐身被全息影像破除！",
-      "caster_stealth_removed": " 👁️ {caster_name} 的隐身被全息影像破除！",
-      "auto_engaged": " 👁️ {player_name} 自动与 {caster_name} 建立面对面！",
-      "shock_from_stay": " 👁️⚡ {player_name} 在全息影像中停留2轮，进入震荡！",
-      "round_countdown": "👁️ {name} 的全息影像剩余 {remaining_rounds} 轮（位置：{location}）",
-      "expire_header": " 👁️ {name} 的全息影像消失了！",
+      "stealth_removed": " ✨{player_name} 的隐身被全息影像破除！",
+      "caster_stealth_removed": " ✨{caster_name} 的隐身被全息影像破除！",
+      "auto_engaged": " ✨{player_name} 自动与 {caster_name} 建立面对面！",
+      "shock_from_stay": " ✨⚡ {player_name} 在全息影像中停留2轮，进入震荡！",
+      "round_countdown": "✨{name} 的全息影像剩余 {remaining_rounds} 轮（位置：{location}）",
+      "expire_header": " ✨{name} 的演出结束了！",
       "expire_police_recover": " 👮 警察小队解除「沉沦」，恢复行动！",
       "expire_disengage": " 📎 {player1_name} 与 {player2_name} 的面对面关系解除。",
       "expire_lock_clear": " 📎 锁定关系解除。",
-      "ripple_enhance": "👁️ {name} 的全息影像被涟漪增强！易伤+1（替代+0.5）| 可用次数+1 "
+      "ripple_enhance": "✨{name} 的全息影像被涟漪增强！易伤+1（替代+0.5）| 可用次数+1 "
     },
     "g3mythland": {
       "lore": [
@@ -133,7 +133,7 @@
         "「直到生命尽头，我才知道，我注定不会有自己的愿望。我只想要……■■■■■」",
         "「这个世界未竟的道路，就由我来担负着她走下去吧。」"
       ],
-      "activate": "「神代天赋4：愿负世，照拂黎明」{player_name}的神性觉醒..."
+      "activate": "「神代天赋4：愿负世，照拂黎明」{player_name}再次踏上了轮回..."
     },
     "g5ripple": {
       "lore": [
@@ -263,9 +263,9 @@
       "poem_shore": "💀✨ {target_name} 的「死者苏生」增强！\n 复活后可获得全游戏任意一件物品或法术\n （不含扩展/天赋物品，不含抽象权能）",
       "poem_strife_immediate_action": "🔥 {target_name} 获得一次立刻行动！",
       "poem_strife_completion": "🔥 {target_name} 完成立刻行动！\n 获得特殊物品「炽愿」（可抵扣1次debuff效果结算）",
-      "poem_light_enhanced": "👁️ {target_name} 的「请一直，注视着我」增强！\n 易伤+1.0 | 可用次数+1",
-      "poem_light_fallback": "👁️ {target_name} 的全息影像已增强！\n ",
-      "poem_bear": "🌅 {target_name} 的「愿负世」增强！\n 额外+2神性（当前：{divinity}）\n 新增：可花1回合主动启动（启动后获1额外行动）\n 被动触发时再+2神性",
+      "poem_light_enhanced": "✨{target_name} 的「请一直，注视着我」增强！\n 易伤+1.0 | 可用次数+1",
+      "poem_light_fallback": "✨{target_name} 的全息影像已增强！\n ",
+      "poem_bear": "🌅 {target_name} 的「愿负世，照拂黎明」增强！\n 额外+2神性（当前：{divinity}）\n 新增：可花1回合主动启动（启动后获1额外行动）\n 被动触发时再+2神性",
       "poem_eternity": "🌀 {target_name} 的「神话之外」被涟漪增强！\n  幻想乡展开后，被拉入的玩家不允许发动所有可主动发动的天赋。",
       "poem_destiny_header": "\n🌊 献予「爱与记忆」之诗！\n 选择4个单体单位（可重复），分别承受：\n 科技/普通/魔法/无视属性克制 各1点伤害\n 四种类型必须各使用一次。",
       "poem_destiny_no_targets": "❌ 没有存活的目标。",
@@ -351,7 +351,7 @@
         "「所以，制裁你的人，是我」",
         "「DO YOU UNDERSTAND?」"
       ],
-      "activate": "「原初天赋5：不良少年」{player_name}开始搞事情！",
+      "activate": "「原初天赋5：不良少年」{player_name}试图加入意大利不知名黑帮&……！",
       "crime_trigger": "🔥 不良少年：首次触发犯罪「{crime_type}」→ 获得额外行动回合！"
     },
     "t6goodcitizen": {
@@ -360,7 +360,7 @@
         "「军情六处闻之伤心，FBI们见之落泪」",
         "「你想惹他们？你确定他们背后没几个大人物？」"
       ],
-      "activate": "「原初天赋6：朝阳好市民」{player_name}向警方又双叒贡献了三等功出来"
+      "activate": "「原初天赋6：朝阳好市民」{player_name}为警方又双叒贡献了n个三等功出来"
     },
     "t7resurrection": {
       "lore": [
@@ -368,11 +368,11 @@
         "「所以，孩子们，我打赢复活赛，杀穿冥界出来了」",
         "「啊？老大？而且不是seedance和sora生成的？！」"
       ],
-      "activate": "「原初天赋7：死者苏生」{player_name}瞬间打赢了复活赛！",
+      "activate": "「原初天赋7：死者苏生」{player_name}打赢了复活赛！",
       "learning_progress": "📖 {player_name} 正在学习「死者苏生」（进度：{progress}/2）",
       "learning_complete": "✨ {player_name} 学会了「死者苏生」！\n 下次行动回合可挂载到目标玩家身上。",
       "mount_success": "🔮 {player_name} 将「死者苏生」挂载到 {target_name} 身上！\n 当 {target_name} 死亡时，将在家中重生。",
-      "resurrection_trigger": "🌟 死者苏生触发！{player_name} 在家中重生！\n 保留所有物品，无需起床。"
+      "resurrection_trigger": "{player_name} 醒一醒！保持你的决心……\n 保留所有物品，无需起床。"
     },
     "deathdenier": {
       "lore": [

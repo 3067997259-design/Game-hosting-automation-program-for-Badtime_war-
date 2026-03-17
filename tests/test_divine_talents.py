@@ -1068,7 +1068,7 @@ def test_group_7(T):
 def test_group_8(T):
     if 'Hologram' not in T:
         return
-    print("\n👁️ 测试组8：全息影像")
+    print("\n✨测试组8：全息影像")
 
     def test_hologram_t0_option():
         """T0选项"""
