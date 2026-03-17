@@ -36,7 +36,7 @@ class Ripple(BaseTalent):
         "不良少年": "诡计",
         "六爻": "阴阳",
         "死者苏生": "彼岸",
-        "火萤Ⅳ型-完全燃烧": "纷争",
+        "火萤IV型-完全燃烧": "纷争",
         "请一直，注视着我": "追光",
         "愿负世，照拂黎明": "负世",
         "往世的涟漪": "爱与记忆",
@@ -1714,7 +1714,7 @@ class Ripple(BaseTalent):
         ).format(target_name=target.name)
 
     def _poem_strife(self, caster, target):
-        """纷争之诗：为火萤Ⅳ型-完全燃烧的持有者增强"""
+        """纷争之诗：为火萤IV型-完全燃烧的持有者增强"""
         display.show_info(prompt_manager.get_prompt(
             "talent", "g5ripple.poem_strife_immediate_action",
             default="🔥 {target_name} 获得一次立刻行动！"

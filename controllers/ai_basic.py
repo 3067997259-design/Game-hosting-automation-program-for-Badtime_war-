@@ -112,6 +112,8 @@ class BasicAIController(PlayerController):
         self._my_id: Optional[str] = None
         self._combat_target = None
         self._in_combat = False
+        # 危险状态持久化  
+        self._danger_mode = False  # 是否处于持续危险模式
 
         # 导弹相关
         self._missile_cooldown = 0
@@ -433,6 +435,12 @@ class BasicAIController(PlayerController):
             # 其他天赋的响应窗口，默认不确认（防止对自己不利）
         return False
 
+    def _is_in_savior_state(self, player) -> bool:  
+        """检查玩家是否处于救世主状态"""  
+        talent = getattr(player, 'talent', None)  
+        if talent and hasattr(talent, 'is_savior'):  
+            return talent.is_savior  
+        return False
     # ════════════════════════════════════════════════════════
     #  接口实现：on_event
     # ════════════════════════════════════════════════════════
@@ -450,6 +458,19 @@ class BasicAIController(PlayerController):
             killer = event.get("killer", "")
             if killer:
                 self._threat_scores[killer] = self._threat_scores.get(killer, 0) + 30
+
+    def _get_last_attacker(self, player, state) -> Optional[Any]:  
+        """获取最后一个攻击自己的存活玩家"""  
+        # 从 event_log 倒序查找最近的攻击事件  
+        for event in reversed(self.event_log):  
+            if event.get("type") == "attack" and event.get("target") == player.name:  
+                attacker_name = event.get("attacker", "")  
+                # 找到对应的存活玩家  
+                for pid in state.player_order:  
+                    target = state.get_player(pid)  
+                    if target and target.is_alive() and target.name == attacker_name:  
+                        return target  
+        return None
 
     # ════════════════════════════════════════════════════════
     #  核心：候选命令生成
@@ -488,13 +509,44 @@ class BasicAIController(PlayerController):
                 candidates.append(captain_cmds[0])  
             # 不再 return，继续生成其他候选命令
 
-        # ===== 极危险情况 =====
-        if self._is_critical(player, state):
-            debug_ai_basic(player.name, "进入极危模式")
-            candidates.extend(self._cmd_survival(player, state, available_actions))
-            if candidates:
-                candidates.append("forfeit")
+        # ===== 救世主状态：最高攻击优先级 =====  
+        if self._is_in_savior_state(player) and player.hp > 0.5:  
+            debug_ai_basic(player.name, "救世主状态激活，优先攻击")  
+            # 优先攻击最后一个攻击自己的人  
+            last_attacker = self._get_last_attacker(player, state)  
+            if last_attacker:  
+                attack_cmds = self._cmd_attack(player, state, available_actions, last_attacker)  
+                if attack_cmds:  
+                    candidates.extend(attack_cmds)  
+                    candidates.append("forfeit")  
+                    return candidates  
+            # 没有明确的攻击者，攻击威胁最高的目标  
+            attack_cmds = self._cmd_attack(player, state, available_actions)  
+            if attack_cmds:  
+                candidates.extend(attack_cmds)  
+                candidates.append("forfeit")  
                 return candidates
+
+        # ===== 极危险情况 / 持续危险模式 =====  
+        if self._is_critical(player, state):  
+            self._danger_mode = True  
+        
+        if self._danger_mode:  
+            if self._is_danger_resolved(player):  
+                debug_ai_basic(player.name, "危险解除，退出危险模式")  
+                self._danger_mode = False  
+            else:  
+                debug_ai_basic(player.name, "处于危险模式")  
+                # aggressive 人格：更激进，尝试反击  
+                if self.personality == "aggressive":  
+                    aggressive_cmds = self._aggressive_survival_strategy(player, state, available_actions)  
+                    candidates.extend(aggressive_cmds)  
+                # 所有人格：边逃边发育  
+                danger_cmds = self._cmd_danger_develop(player, state, available_actions)  
+                candidates.extend(danger_cmds)  
+                if candidates:  
+                    candidates.append("forfeit")  
+            return candidates
 
         # ===== 病毒应急 =====
         if self._needs_virus_cure(player, state):
@@ -803,6 +855,13 @@ class BasicAIController(PlayerController):
         vouchers = getattr(player, 'vouchers', 0)
         has_pass = getattr(player, 'has_military_pass', False)
         has_detection = getattr(player, 'has_detection', False)
+        # ---- 磨刀优先：有磨刀石+未磨小刀 → 立即磨刀 ----  
+        if "special" in available:  
+            has_stone = any(getattr(i, 'name', '') == "磨刀石" for i in getattr(player, 'items', []))  
+            has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons)  
+            if has_stone and has_unsharpened:  
+                commands.append("special 磨刀")  
+                return commands  # 磨刀最高优先级，不生成其他命令 
 
         # 替换为简单状态日志：  
         debug_ai_development_plan(player.name,  
@@ -829,8 +888,12 @@ class BasicAIController(PlayerController):
                     commands.append("interact 陶瓷护甲")
                 if self.personality == "assassin" and vouchers >= 2:
                     commands.append("interact 隐身衣")
-                if has_weapon and self._has_melee_only(player):
-                    commands.append("interact 磨刀石")
+                if has_weapon and self._has_melee_only(player):  
+                    has_stone = any(getattr(i, 'name', '') == "磨刀石" for i in getattr(player, 'items', []))  
+                    has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons)  
+                    # 只在没有磨刀石且有未磨的小刀时才买  
+                    if not has_stone and has_unsharpened:  
+                        commands.append("interact 磨刀石")
                 if vouchers < 1:
                     commands.append("interact 打工")
 
@@ -1665,7 +1728,7 @@ class BasicAIController(PlayerController):
         elif talent_name == "死者苏生":
             cmds = self._talent_resurrection(player, state, available)
             commands.extend(cmds)
-        elif talent_name == "火萤Ⅳ型-完全燃烧":
+        elif talent_name == "火萤IV型-完全燃烧":
             cmds = self._talent_firefly(player, state, available)
             commands.extend(cmds)
         elif talent_name == "请一直，注视着我":
@@ -1756,7 +1819,7 @@ class BasicAIController(PlayerController):
         return commands
 
     def _talent_firefly(self, player, state, available) -> List[str]:
-        """火萤Ⅳ型-完全燃烧：自爆/强化攻击"""
+        """火萤IV型-完全燃烧：自爆/强化攻击"""
         commands = []
         if "talent_activate" in available:
             # 低血量时使用（同归于尽策略）
@@ -1785,19 +1848,16 @@ class BasicAIController(PlayerController):
                 commands.append("talent_activate")
         return commands
 
-    def _talent_savior(self, player, state, available) -> List[str]:
-        """愿负世，照拂黎明：保护/治疗他人"""
-        commands = []
-        if "talent_activate" in available:
-            # 找到低血量的友方
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                target = state.get_player(pid)
-                if target and target.is_alive() and target.hp <= 1.5:
-                    if self._same_location(player, target):
-                        commands.append(f"talent_activate {target.name}")
-                        break
+    def _talent_savior(self, player, state, available) -> List[str]:  
+        """愿负世，照拂黎明：救世主状态下优先近战攻击"""  
+        commands = []  
+        # 主动发动逻辑（涟漪强化后可用）  
+        if "talent_activate" in available:  
+            talent = getattr(player, 'talent', None)  
+            if talent and getattr(talent, 'can_active_start', False):  
+                divinity = getattr(talent, 'divinity', 0)  
+                if divinity >= 8:  
+                    commands.append("talent_activate self")  
         return commands
 
     def _talent_ripple(self, player, state, available) -> List[str]:
@@ -1818,6 +1878,12 @@ class BasicAIController(PlayerController):
     #  辅助方法：装备计数与查询
     # ════════════════════════════════════════════════════════
 
+    def _is_danger_resolved(self, player) -> bool:  
+        """判断危险状态是否已解除：至少2层护甲（外层+内层总计）"""  
+        total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)  
+        return total_armor >= 2
+    
+    
     def _has_armor_by_name(self, player, armor_name: str) -> bool:  
         """检查玩家是否已有指定名称的活跃护甲"""  
         armor = getattr(player, 'armor', None)  
@@ -2046,6 +2112,82 @@ class BasicAIController(PlayerController):
             power += 5
 
         return power
+    
+    def _cmd_danger_develop(self, player, state, available: List[str]) -> List[str]:  
+        """危险模式下的发育：在当前地点拿护甲，然后移动到远离当前位置的安全地点"""  
+        commands = []  
+        loc = self._get_location_str(player)  
+        outer = self._count_outer_armor(player)  
+        inner = self._count_inner_armor(player)  
+        vouchers = getattr(player, 'vouchers', 0)  
+    
+        # 1) 当前地点能拿到护甲就拿  
+        if "interact" in available:  
+            if loc == "home" or self._is_at_home(player):  
+                if outer == 0 and not self._has_armor_by_name(player, "盾牌"):  
+                    commands.append("interact 盾牌")  
+            elif loc == "商店":  
+                if vouchers >= 1 and outer < 2 and not self._has_armor_by_name(player, "陶瓷护甲"):  
+                    commands.append("interact 陶瓷护甲")  
+                if vouchers < 1:  
+                    commands.append("interact 打工")  
+            elif loc == "魔法所":  
+                learned = self._get_learned_spells(player)  
+                if "魔法护盾" not in learned and outer < 2:  
+                    commands.append("interact 魔法护盾")  
+            elif loc == "医院":  
+                if inner == 0:  
+                    commands.append("interact 晶化皮肤手术")  
+                if not self._has_virus_immunity(player):  
+                    commands.append("interact 防毒面具")  
+                if vouchers < 1:  
+                    commands.append("interact 打工")  
+            elif loc == "军事基地":  
+                has_pass = getattr(player, 'has_military_pass', False)  
+                if has_pass and outer < 2 and not self._has_armor_by_name(player, "AT力场"):  
+                    commands.append("interact AT力场")  
+    
+        # 2) 移动到安全且能拿护甲的地方（优先远离当前位置）  
+        if "move" in available:  
+            dest = self._pick_safe_armor_destination(player, state)  
+            if dest and dest != loc:  
+                commands.append(f"move {dest}")  
+    
+        return commands
+    
+    def _pick_safe_armor_destination(self, player, state) -> Optional[str]:  
+        """危险模式下选择目的地：安全 + 能拿护甲"""  
+        loc = self._get_location_str(player)  
+        outer = self._count_outer_armor(player)  
+        inner = self._count_inner_armor(player)  
+        vouchers = getattr(player, 'vouchers', 0)  
+        has_pass = getattr(player, 'has_military_pass', False)  
+    
+        # 候选地点：能拿到护甲的地方  
+        armor_locations = []  
+        if outer < 1 and loc != "home":  
+            armor_locations.append("home")  # 盾牌  
+        if outer < 2 and loc != "商店":  
+            armor_locations.append("商店")  # 陶瓷护甲  
+        if outer < 2 and loc != "魔法所":  
+            armor_locations.append("魔法所")  # 魔法护盾  
+        if inner < 1 and loc != "医院":  
+            armor_locations.append("医院")  # 手术  
+        if has_pass and outer < 2 and loc != "军事基地":  
+            armor_locations.append("军事基地")  # AT力场  
+    
+        if not armor_locations:  
+            # 没有需要护甲的地方，找最安全的地方  
+            return self._find_safe_location(player, state)  
+    
+        # 按敌人数排序，选最安全的  
+        scored = []  
+        for dest in armor_locations:  
+            enemies = self._count_enemies_at(dest, player, state)  
+            scored.append((dest, enemies))  
+        scored.sort(key=lambda x: x[1])  
+    
+        return scored[0][0]
 
     # ════════════════════════════════════════════════════════
     #  轮次事件处理
