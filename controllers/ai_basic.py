@@ -356,7 +356,7 @@ class BasicAIController(PlayerController):
             non_cancel = [o for o in options if o != "取消"]
             return non_cancel[0] if non_cancel else options[0]
         if situation == "ripple_anchor_acquire_item":
-            priority = ["高斯步枪", "AT力场", "导弹", "远程魔法弹幕", "陶瓷护甲", "魔法护盾", "电磁步枪"]
+            priority = ["高斯步枪", "AT力场", "导弹控制权", "远程魔法弹幕", "陶瓷护甲", "魔法护盾", "电磁步枪"]
             for item in priority:
                 if item in options:
                     return item
@@ -413,15 +413,16 @@ class BasicAIController(PlayerController):
     #  接口实现：confirm  （Bug10修复：上下文感知）
     # ════════════════════════════════════════════════════════
 
-    def confirm(self, prompt: str, context: Optional[Dict] = None) -> bool:
-        if not context:
-            return False
-        situation = context.get("phase", "")
-        if situation == "response_window":
-            talent_name = context.get("talent_name", "")
-            action_type = context.get("action_type", "")
-            # 你给路打油：在被攻击/特殊操作时确认（对自己有利）
-        if talent_name == "你给路打油" and action_type in ("attack", "special"):  
+    # L416-436 整段替换为：  
+    def confirm(self, prompt: str, context: Optional[Dict] = None) -> bool:  
+        if not context:  
+            return False  
+        situation = context.get("phase", "")  
+        if situation == "response_window":  
+            talent_name = context.get("talent_name", "")  
+            action_type = context.get("action_type", "")  
+            # 你给路打油：在被攻击/特殊操作时确认（对自己有利）  
+            if talent_name == "你给路打油" and action_type in ("attack", "special"):  
                 # 只在真正危险时触发，保留使用次数  
                 if self._player:  
                     hp = self._player.hp  
@@ -431,8 +432,8 @@ class BasicAIController(PlayerController):
                     if outer == 0 and hp <= 1.5:  
                         return True  
                     return False  
-                return True  # 无法判断，保守触发
-            # 其他天赋的响应窗口，默认不确认（防止对自己不利）
+                return True  # 无法判断，保守触发  
+            # 其他天赋的响应窗口，默认不确认  
         return False
 
     def _is_in_savior_state(self, player) -> bool:  
@@ -527,26 +528,26 @@ class BasicAIController(PlayerController):
                 candidates.append("forfeit")  
                 return candidates
 
+        # L530-549 整段替换为：  
         # ===== 极危险情况 / 持续危险模式 =====  
         if self._is_critical(player, state):  
             self._danger_mode = True  
-        
+  
         if self._danger_mode:  
             if self._is_danger_resolved(player):  
                 debug_ai_basic(player.name, "危险解除，退出危险模式")  
                 self._danger_mode = False  
+                # 不 return，fall through 到下面的正常逻辑  
             else:  
                 debug_ai_basic(player.name, "处于危险模式")  
-                # aggressive 人格：更激进，尝试反击  
                 if self.personality == "aggressive":  
                     aggressive_cmds = self._aggressive_survival_strategy(player, state, available_actions)  
                     candidates.extend(aggressive_cmds)  
-                # 所有人格：边逃边发育  
                 danger_cmds = self._cmd_danger_develop(player, state, available_actions)  
                 candidates.extend(danger_cmds)  
                 if candidates:  
                     candidates.append("forfeit")  
-            return candidates
+                    return candidates
 
         # ===== 病毒应急 =====
         if self._needs_virus_cure(player, state):
@@ -1424,28 +1425,6 @@ class BasicAIController(PlayerController):
     #  命令生成器：生存
     # ════════════════════════════════════════════════════════
 
-    def _cmd_survival(self, player, state, available: List[str]) -> List[str]:  
-        commands = []  
-        loc = self._get_location_str(player)  
-    
-        # 1) 当前地点有免费防御物品时顺手拿  
-        if "interact" in available:  
-            if loc in ("医院", "商店") and not self._has_virus_immunity(player):  
-                commands.append("interact 防毒面具")  
-    
-        # 2) aggressive 人格：反击  
-        if self.personality == "aggressive":  
-            aggressive_cmds = self._aggressive_survival_strategy(player, state, available)  
-            commands.extend(aggressive_cmds)  
-    
-        # 3) 逃跑到安全地点  
-        if "move" in available:  
-            safe_loc = self._find_safe_location(player, state)  
-            if safe_loc and safe_loc != loc:  
-                commands.append(f"move {safe_loc}")  
-    
-        return commands
-
     def _aggressive_survival_strategy(self, player, state, available: List[str]) -> List[str]:
         """Bug14修复：检查 target is None"""
         commands = []
@@ -1694,185 +1673,10 @@ class BasicAIController(PlayerController):
         return counter_map.get(target_armor_attr, Attribute.ORDINARY)
 
     # ════════════════════════════════════════════════════════
-    #  天赋相关决策
+    #  天赋相关决策 已经被完全转移
     # ════════════════════════════════════════════════════════
 
-    def _cmd_talent(self, player, state, available: List[str]) -> List[str]:
-        """天赋相关的行动命令"""
-        commands = []
-        talent = getattr(player, 'talent', None)
-        if not talent:
-            return commands
 
-        talent_name = getattr(talent, 'name', '')
-
-        # 各天赋的特殊行动
-        if talent_name == "一刀缭断":
-            cmds = self._talent_one_slash(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "你给路打油":
-            cmds = self._talent_oil(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "天星":
-            cmds = self._talent_star(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "六爻":
-            cmds = self._talent_hexagram(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "不良少年":
-            cmds = self._talent_delinquent(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "朝阳好市民":
-            cmds = self._talent_good_citizen(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "死者苏生":
-            cmds = self._talent_resurrection(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "火萤IV型-完全燃烧":
-            cmds = self._talent_firefly(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "请一直，注视着我":
-            cmds = self._talent_hologram(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "遗世独立的幻想乡":
-            cmds = self._talent_mythland(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "愿负世，照拂黎明":
-            cmds = self._talent_savior(player, state, available)
-            commands.extend(cmds)
-        elif talent_name == "往世的涟漪":
-            cmds = self._talent_ripple(player, state, available)
-            commands.extend(cmds)
-
-        return commands
-
-    def _talent_one_slash(self, player, state, available) -> List[str]:
-        """一刀缭断：强化近战攻击"""
-        commands = []
-        if "talent_activate" in available:
-            target = self._pick_target(player, state)
-            if target and self._same_location(player, target):
-                # 判断是否值得使用天赋（目标HP较高时使用）
-                if target.hp >= 2.0:
-                    commands.append(f"talent_activate {target.name}")
-        return commands
-
-    def _talent_oil(self, player, state, available) -> List[str]:
-        """你给路打油：设置陷阱"""
-        commands = []
-        if "talent_activate" in available:
-            # 在关键地点设置陷阱
-            loc = self._get_location_str(player)
-            high_traffic = ["商店", "医院", "魔法所"]
-            if loc in high_traffic:
-                commands.append("talent_activate")
-        return commands
-
-    def _talent_star(self, player, state, available) -> List[str]:
-        """天星：远程攻击强化"""
-        commands = []
-        if "talent_activate" in available:
-            target = self._pick_target(player, state)
-            if target:
-                commands.append(f"talent_activate {target.name}")
-        return commands
-
-    def _talent_hexagram(self, player, state, available) -> List[str]:
-        """六爻：预知/占卜"""
-        commands = []
-        if "talent_activate" in available:
-            # 在需要情报时使用
-            if self._round_number <= 3:
-                commands.append("talent_activate")
-        return commands
-
-    def _talent_delinquent(self, player, state, available) -> List[str]:
-        """不良少年：战斗强化"""
-        commands = []
-        if "talent_activate" in available:
-            target = self._pick_target(player, state)
-            if target and self._same_location(player, target):
-                commands.append(f"talent_activate {target.name}")
-        return commands
-
-    def _talent_good_citizen(self, player, state, available) -> List[str]:
-        """朝阳好市民：政治强化"""
-        commands = []
-        if "talent_activate" in available:
-            if getattr(player, 'is_police', False):
-                commands.append("talent_activate")
-        return commands
-
-    def _talent_resurrection(self, player, state, available) -> List[str]:
-        """死者苏生：复活能力"""
-        commands = []
-        if "talent_activate" in available:
-            # 检查是否有已死亡的友方
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                target = state.get_player(pid)
-                if target and not target.is_alive():
-                    # 可以复活
-                    commands.append(f"talent_activate {target.name}")
-                    break
-        return commands
-
-    def _talent_firefly(self, player, state, available) -> List[str]:
-        """火萤IV型-完全燃烧：自爆/强化攻击"""
-        commands = []
-        if "talent_activate" in available:
-            # 低血量时使用（同归于尽策略）
-            if player.hp <= 1.0:
-                targets_nearby = self._get_same_location_targets(player, state)
-                if targets_nearby:
-                    commands.append("talent_activate")
-        return commands
-
-    def _talent_hologram(self, player, state, available) -> List[str]:
-        """请一直，注视着我：分身/嘲讽"""
-        commands = []
-        if "talent_activate" in available:
-            # 被多人攻击时使用
-            attackers = len(self._been_attacked_by)
-            if attackers >= 2:
-                commands.append("talent_activate")
-        return commands
-
-    def _talent_mythland(self, player, state, available) -> List[str]:
-        """遗世独立的幻想乡：创建领域"""
-        commands = []
-        if "talent_activate" in available:
-            # 在发育完成后使用
-            if self._is_development_complete(player, state):
-                commands.append("talent_activate")
-        return commands
-
-    def _talent_savior(self, player, state, available) -> List[str]:  
-        """愿负世，照拂黎明：救世主状态下优先近战攻击"""  
-        commands = []  
-        # 主动发动逻辑（涟漪强化后可用）  
-        if "talent_activate" in available:  
-            talent = getattr(player, 'talent', None)  
-            if talent and getattr(talent, 'can_active_start', False):  
-                divinity = getattr(talent, 'divinity', 0)  
-                if divinity >= 8:  
-                    commands.append("talent_activate self")  
-        return commands
-
-    def _talent_ripple(self, player, state, available) -> List[str]:
-        """往世的涟漪：时间回溯"""
-        commands = []
-        if "talent_activate" in available:
-            # 在关键时刻使用（自己或目标即将死亡）
-            if player.hp <= 0.5:
-                commands.append("talent_activate self")
-            else:
-                # 检查是否有刚死亡的敌人可以回溯
-                target = self._pick_target(player, state)
-                if target and target.hp <= 0.5:
-                    commands.append(f"talent_activate {target.name}")
-        return commands
 
     # ════════════════════════════════════════════════════════
     #  辅助方法：装备计数与查询
