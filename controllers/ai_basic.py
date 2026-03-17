@@ -60,7 +60,7 @@ LOCATION_ITEMS = {
               "地震", "地动山摇", "隐身术", "探测魔法"],
     "医院": ["打工", "晶化皮肤手术", "额外心脏手术", "不老泉手术",
             "防毒面具", "释放病毒"],
-    "军事基地": ["通行证", "AT力场", "电磁步枪", "导弹", "高斯步枪",
+    "军事基地": ["通行证", "AT力场", "电磁步枪", "导弹控制权", "高斯步枪",
                "雷达", "隐形涂层"],
     "警察局": [],
 }
@@ -751,22 +751,35 @@ class BasicAIController(PlayerController):
             return False
         return True
 
-    def _is_development_complete(self, player, state) -> bool:
-        """判断发育是否完成"""
-        if self.personality == "aggressive":
-            # 排除拳击，检查是否有真正的武器
-            real_weapons = [w for w in player.weapons if w and w.name != "拳击"]
-            has_real_weapon = len(real_weapons) > 0
-            has_armor = self._count_outer_armor(player) > 0
-            return has_real_weapon and has_armor
-        elif self.personality == "defensive":
-            has_armor = self._count_outer_armor(player) >= 2
-            has_inner = self._count_inner_armor(player) >= 1
-            return has_armor and has_inner
-        else:  # balanced
-            real_weapons = [w for w in player.weapons if w and w.name != "拳击"]
-            has_real_weapon = len(real_weapons) > 0
-            has_armor = self._count_outer_armor(player) >= 1
+    def _is_development_complete(self, player, state) -> bool:  
+        """判断发育是否完成"""  
+        real_weapons = [w for w in player.weapons if w and w.name != "拳击"]  
+        has_real_weapon = len(real_weapons) > 0  
+    
+        if self.personality == "aggressive":  
+            has_armor = self._count_outer_armor(player) > 0  
+            return has_real_weapon and has_armor  
+    
+        elif self.personality == "defensive":  
+            has_armor = self._count_outer_armor(player) >= 2  
+            has_inner = self._count_inner_armor(player) >= 1  
+            return has_real_weapon and has_armor and has_inner  
+    
+        elif self.personality == "assassin":  
+            return has_real_weapon and self._has_stealth(player)  
+    
+        elif self.personality == "builder":  
+            has_armor = self._count_outer_armor(player) >= 2  
+            has_inner = self._count_inner_armor(player) >= 1  
+            has_pass = getattr(player, 'has_military_pass', False)  
+            return has_real_weapon and has_armor and has_inner and has_pass  
+    
+        elif self.personality == "political":  
+            is_police = getattr(player, 'is_police', False)  
+            return has_real_weapon and is_police  
+    
+        else:  # balanced  
+            has_armor = self._count_outer_armor(player) >= 1  
             return has_real_weapon and has_armor
 
     # ════════════════════════════════════════════════════════
@@ -791,9 +804,10 @@ class BasicAIController(PlayerController):
         has_pass = getattr(player, 'has_military_pass', False)
         has_detection = getattr(player, 'has_detection', False)
 
-        # 获取发育计划
-        plan = self._make_develop_plan(player, state)
-        debug_ai_development_plan(player.name, f"发育计划: {plan}")
+        # 替换为简单状态日志：  
+        debug_ai_development_plan(player.name,  
+            f"状态: loc={loc} vouchers={vouchers} weapon={has_weapon} "  
+            f"outer={outer} inner={inner} pass={has_pass} detect={has_detection}")
 
         if "interact" in available:
             # ---- 阶段1：在home拿凭证/盾牌 ----
@@ -855,7 +869,7 @@ class BasicAIController(PlayerController):
                     commands.append("interact 打工")
 
             elif loc == "军事基地":
-                if not has_pass and vouchers >= 1:
+                if not has_pass:  
                     commands.append("interact 通行证")
                 elif has_pass:
                     if not has_weapon or self.personality in ("aggressive", "balanced"):
@@ -869,7 +883,7 @@ class BasicAIController(PlayerController):
                         commands.append("interact 隐形涂层")
                     # 导弹
                     if self._missile_cooldown <= 0 and self.personality in ("aggressive", "balanced"):
-                        commands.append("interact 导弹")
+                        commands.append("interact 导弹控制权")
 
             elif loc == "警察局":
                 if self.personality == "political":
@@ -888,179 +902,154 @@ class BasicAIController(PlayerController):
 
         return commands
 
-    def _make_develop_plan(self, player, state) -> List[str]:
-        """根据人格生成发育计划"""
-        plan = []
-        weapons = getattr(player, 'weapons', [])
-        has_weapon = any(w for w in weapons if w and getattr(w, 'name', '') != "拳击")
-        outer = self._count_outer_armor(player)
-        inner = self._count_inner_armor(player)
-        vouchers = getattr(player, 'vouchers', 0)
-        has_pass = getattr(player, 'has_military_pass', False)
-        has_detection = getattr(player, 'has_detection', False)
-
-        if self.personality == "aggressive":
-            if vouchers < 1:
-                plan.append("home:凭证")
-            if not has_weapon:
-                plan.append("商店:小刀")
-            if outer < 1:
-                plan.append("home:盾牌")
-            plan.append("attack")
-
-        elif self.personality == "defensive":
-            if vouchers < 1:  
-                plan.append("home:凭证")
-            if outer < 1:
-                plan.append("home:盾牌")
-            if outer < 2:
-                plan.append("商店:陶瓷护甲")
-            if not has_weapon:
-                plan.append("商店:小刀")
-            if not has_detection:
-                plan.append("商店:热成像仪")
-            if inner < 1:
-                plan.append("医院:晶化皮肤手术")
-
-        elif self.personality == "assassin":
-            if vouchers < 1:  
-                plan.append("home:凭证")
-            if not has_weapon:
-                plan.append("商店:小刀")
-            if not self._has_stealth(player):
-                plan.append("商店:隐身衣")
-            if outer < 1:
-                plan.append("home:盾牌")
-
-        elif self.personality == "political":
-            if vouchers < 1:
-                plan.append("home:凭证")
-            if not has_weapon:
-                plan.append("home:小刀")
-            if outer < 1:
-                plan.append("home:盾牌")
-            if not getattr(player, 'is_police', False):
-                plan.append("警察局:recruit")
-
-        elif self.personality == "builder":
-            if vouchers < 1:  
-                plan.append("home:凭证")
-            if outer < 1:
-                plan.append("home:盾牌")
-            if not has_weapon:
-                plan.append("商店:小刀")
-            if outer < 2:
-                plan.append("商店:陶瓷护甲")
-            if not has_detection:
-                plan.append("商店:热成像仪")
-            if inner < 1:
-                plan.append("医院:晶化皮肤手术")
-            if inner < 2:
-                plan.append("医院:额外心脏手术")
-            if not has_pass:
-                plan.append("军事基地:通行证")
-            plan.append("军事基地:AT力场")
-            plan.append("军事基地:电磁步枪")
-
-        else:  # balanced
-            if vouchers < 1:
-                plan.extend(["home:凭证"])
-            if outer < 1:
-                plan.append("home:盾牌")
-            if not has_weapon:
-                plan.append("商店:小刀")
-            if vouchers >= 1 and not has_detection:
-                plan.append("商店:热成像仪")
-            if outer < 2:
-                plan.append("商店:陶瓷护甲")
-
-        return plan
-
-    def _pick_develop_destination(self, player, state) -> Optional[str]:
-        """选择下一个发育目标地点"""
-        weapons = getattr(player, 'weapons', [])
-        has_weapon = any(w for w in weapons if w and getattr(w, 'name', '') != "拳击")
-        outer = self._count_outer_armor(player)
-        inner = self._count_inner_armor(player)
-        vouchers = getattr(player, 'vouchers', 0)
-        has_pass = getattr(player, 'has_military_pass', False)
-        has_detection = getattr(player, 'has_detection', False)
-        loc = self._get_location_str(player)
-
-        if self.personality == "aggressive":
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if not has_weapon and loc != "商店":
-                return "商店"
-            if outer < 1 and loc != "home":
-                return "home"
-            # 开始找人打
-            return self._find_nearest_enemy_location(player, state)
-
-        elif self.personality == "defensive":
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if outer < 1 and loc != "home":
-                return "home"
-            if outer < 2 and loc != "商店":
-                return "商店"
-            if not has_weapon and loc != "商店":
-                return "商店"
-            if not has_detection and loc != "商店":
-                return "商店"
-            if inner < 1 and loc != "医院":
-                return "医院"
-            return None
-
-        elif self.personality == "assassin":
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if not has_weapon and loc != "商店":
-                return "商店"
-            if not self._has_stealth(player) and loc != "商店":
-                return "商店"
-            return self._find_nearest_enemy_location(player, state)
-
-        elif self.personality == "political":
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if not has_weapon and loc != "home":
-                return "home"
-            if not getattr(player, 'is_police', False) and loc != "警察局":
-                return "警察局"
-            if getattr(player, 'is_police', False):
-                return "警察局"
-            return "商店"
-
-        elif self.personality == "builder":
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if outer < 1 and loc != "home":
-                return "home"
-            if not has_weapon and loc != "商店":
-                return "商店"
-            if outer < 2 and loc != "商店":
-                return "商店"
-            if inner < 1 and loc != "医院":
-                return "医院"
-            if not has_pass and loc != "军事基地":
-                return "军事基地"
-            if has_pass and loc != "军事基地":
-                return "军事基地"
-            return None
-
-        else:  # balanced
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if outer < 1 and loc != "home":
-                return "home"
-            if not has_weapon and loc != "商店":
-                return "商店"
-            if not has_detection and vouchers >= 2 and loc != "商店":
-                return "商店"
-            if outer < 2 and loc != "商店":
-                return "商店"
-            return self._find_nearest_enemy_location(player, state)
+    def _pick_develop_destination(self, player, state) -> Optional[str]:  
+        """选择下一个发育目标地点（考虑敌人位置）"""  
+        ideal = self._pick_ideal_destination(player, state)  
+        if ideal is None:  
+            return None  
+    
+        # 进攻型人格不做安全过滤  
+        if self.personality in ("aggressive", "assassin"):  
+            return ideal  
+    
+        # 非进攻型：检查目标地点敌人数量  
+        enemies = self._count_enemies_at(ideal, player, state)  
+        if enemies >= 2:  
+            alt = self._find_safer_alternative(ideal, player, state)  
+            if alt is not None:  
+                return alt  
+        return ideal  
+    
+    def _pick_ideal_destination(self, player, state) -> Optional[str]:  
+        """纯需求驱动的目标地点选择（不考虑敌人）"""  
+        weapons = getattr(player, 'weapons', [])  
+        has_weapon = any(w for w in weapons if w and getattr(w, 'name', '') != "拳击")  
+        outer = self._count_outer_armor(player)  
+        inner = self._count_inner_armor(player)  
+        vouchers = getattr(player, 'vouchers', 0)  
+        has_pass = getattr(player, 'has_military_pass', False)  
+        has_detection = getattr(player, 'has_detection', False)  
+        loc = self._get_location_str(player)  
+    
+        if self.personality == "aggressive":  
+            if vouchers < 1 and loc != "home":  
+                return "home"  
+            if not has_weapon and loc != "商店":  
+                return "商店"  
+            if outer < 1 and loc != "home":  
+                return "home"  
+            return self._find_nearest_enemy_location(player, state)  
+    
+        elif self.personality == "defensive":  
+            if vouchers < 1 and loc != "home":  
+                return "home"  
+            if outer < 1 and loc != "home":  
+                return "home"  
+            if outer < 2 and loc != "商店":  
+                return "商店"  
+            if not has_weapon and loc != "商店":  
+                return "商店"  
+            if not has_detection and loc != "商店":  
+                return "商店"  
+            if inner < 1 and loc != "医院":  
+                return "医院"  
+            return None  
+    
+        elif self.personality == "assassin":  
+            if vouchers < 1 and loc != "home":  
+                return "home"  
+            if not has_weapon and loc != "商店":  
+                return "商店"  
+            if not self._has_stealth(player) and loc != "商店":  
+                return "商店"  
+            return self._find_nearest_enemy_location(player, state)  
+    
+        elif self.personality == "political":  
+            if vouchers < 1 and loc != "home":  
+                return "home"  
+            if not has_weapon and loc != "home":  
+                return "home"  
+            if not getattr(player, 'is_police', False) and loc != "警察局":  
+                return "警察局"  
+            if getattr(player, 'is_police', False):  
+                return "警察局"  
+            return "商店"  
+    
+        elif self.personality == "builder":  
+            if vouchers < 1 and loc != "home":  
+                return "home"  
+            if outer < 1 and loc != "home":  
+                return "home"  
+            if not has_weapon and loc != "商店":  
+                return "商店"  
+            if outer < 2 and loc != "商店":  
+                return "商店"  
+            if inner < 1 and loc != "医院":  
+                return "医院"  
+            if not has_pass and loc != "军事基地":  
+                return "军事基地"  
+            if has_pass and loc != "军事基地":  
+                return "军事基地"  
+            return None  
+    
+        else:  # balanced  
+            if vouchers < 1 and loc != "home":  
+                return "home"  
+            if outer < 1 and loc != "home":  
+                return "home"  
+            if not has_weapon and loc != "商店":  
+                return "商店"  
+            if not has_detection and vouchers >= 2 and loc != "商店":  
+                return "商店"  
+            if outer < 2 and loc != "商店":  
+                return "商店"  
+            return self._find_nearest_enemy_location(player, state)  
+    
+    def _count_enemies_at(self, location: str, player, state) -> int:  
+        """统计某地点的存活敌人数量"""  
+        count = 0  
+        for pid in state.player_order:  
+            if pid == player.player_id:  
+                continue  
+            target = state.get_player(pid)  
+            if target and target.is_alive():  
+                if self._get_location_str(target) == location:  
+                    count += 1  
+        return count  
+    
+    def _find_safer_alternative(self, original: str, player, state) -> Optional[str]:  
+        """为非进攻型人格寻找更安全的替代发育地点  
+        
+        替代逻辑：  
+        - 商店 ↔ 魔法所（都能获得武器、护甲、探测）  
+        - 医院 → 无直接替代，但可以先去商店/魔法所做其他发育  
+        - home → 不替代（每个人的家是独立的，一般不会有敌人）  
+        """  
+        # 替代映射：原目标 → 可替代地点列表  
+        alternatives_map = {  
+            "商店": ["魔法所"],  
+            "魔法所": ["商店"],  
+            "医院": ["商店", "魔法所"],  
+            "军事基地": ["商店", "魔法所"],  
+        }  
+        candidates = alternatives_map.get(original, [])  
+        loc = self._get_location_str(player)  
+    
+        best = None  
+        best_enemies = 999  
+        for alt_loc in candidates:  
+            if alt_loc == loc:  
+                continue  
+            enemies = self._count_enemies_at(alt_loc, player, state)  
+            if enemies < best_enemies:  
+                best_enemies = enemies  
+                best = alt_loc  
+    
+        # 只有替代地点确实更安全时才替代  
+        original_enemies = self._count_enemies_at(original, player, state)  
+        if best is not None and best_enemies < original_enemies:  
+            return best  
+        return None
 
     # ════════════════════════════════════════════════════════
     #  命令生成器：攻击（Bug6修复：检查 ENGAGED_WITH/LOCKED_BY）
@@ -1372,33 +1361,26 @@ class BasicAIController(PlayerController):
     #  命令生成器：生存
     # ════════════════════════════════════════════════════════
 
-    def _cmd_survival(self, player, state, available: List[str]) -> List[str]:
-        commands = []
-        loc = self._get_location_str(player)
-
-        # 1) 治疗
-        if loc == "医院" and "interact" in available:
-            commands.append("interact 治疗")
-
-        # 2) 移动到医院治疗
-        if player.hp <= 1.0 and "move" in available and loc != "医院":
-            commands.append("move 医院")
-
-        # Bug14修复：_aggressive_survival_strategy 安全检查
-        if self.personality == "aggressive":
-            aggressive_cmds = self._aggressive_survival_strategy(player, state, available)
-            commands.extend(aggressive_cmds)
-
-        # 3) 逃跑（如果被攻击）
-        if "move" in available:
-            safe_loc = self._find_safe_location(player, state)
-            if safe_loc and safe_loc != loc:
-                commands.append(f"move {safe_loc}")
-
-        # 4) 使用隐身
-        if self._has_stealth(player) and "special" in available:
-            commands.append("special 隐身")
-
+    def _cmd_survival(self, player, state, available: List[str]) -> List[str]:  
+        commands = []  
+        loc = self._get_location_str(player)  
+    
+        # 1) 当前地点有免费防御物品时顺手拿  
+        if "interact" in available:  
+            if loc in ("医院", "商店") and not self._has_virus_immunity(player):  
+                commands.append("interact 防毒面具")  
+    
+        # 2) aggressive 人格：反击  
+        if self.personality == "aggressive":  
+            aggressive_cmds = self._aggressive_survival_strategy(player, state, available)  
+            commands.extend(aggressive_cmds)  
+    
+        # 3) 逃跑到安全地点  
+        if "move" in available:  
+            safe_loc = self._find_safe_location(player, state)  
+            if safe_loc and safe_loc != loc:  
+                commands.append(f"move {safe_loc}")  
+    
         return commands
 
     def _aggressive_survival_strategy(self, player, state, available: List[str]) -> List[str]:
@@ -2009,34 +1991,29 @@ class BasicAIController(PlayerController):
         candidates.sort(key=lambda x: x[1], reverse=True)
         return candidates[0][0]
 
-    def _find_safe_location(self, player, state) -> Optional[str]:
-        """找到安全的位置"""
-        loc = self._get_location_str(player)
-        # 检查当前位置有多少敌人
-        enemies_here = len(self._get_same_location_targets(player, state))
-
-        if enemies_here == 0:
-            return None  # 已经安全
-
-        # 尝试回家
-        if loc != "home":
-            return "home"
-
-        # 找没人的地方
-        all_locations = ["商店", "医院", "魔法所", "军事基地", "警察局"]
-        for test_loc in all_locations:
-            enemies_at = 0
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                target = state.get_player(pid)
-                if target and target.is_alive():
-                    if self._get_location_str(target) == test_loc:
-                        enemies_at += 1
-            if enemies_at == 0:
-                return test_loc
-
-        return "home"  # 默认回家
+    def _find_safe_location(self, player, state) -> Optional[str]:  
+        """找到最安全的位置（按敌人数量排序）"""  
+        loc = self._get_location_str(player)  
+        enemies_here = len(self._get_same_location_targets(player, state))  
+    
+        if enemies_here == 0:  
+            return None  # 当前已安全  
+    
+        # 收集所有候选地点及其敌人数  
+        candidates = []  
+        all_locations = ["home", "商店", "医院", "魔法所", "军事基地", "警察局"]  
+        for test_loc in all_locations:  
+            if test_loc == loc:  
+                continue  
+            enemies_at = self._count_enemies_at(test_loc, player, state)  
+            candidates.append((test_loc, enemies_at))  
+    
+        # 按敌人数升序排序，优先去没人的地方  
+        candidates.sort(key=lambda x: x[1])  
+    
+        if candidates:  
+            return candidates[0][0]  
+        return "home"
 
     # ════════════════════════════════════════════════════════
     #  辅助方法：威胁评估
