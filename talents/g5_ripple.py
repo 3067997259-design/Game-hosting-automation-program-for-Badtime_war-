@@ -1145,6 +1145,8 @@ class Ripple(BaseTalent):
             if target and target.is_alive():
                 target.hp = 0
                 self.state.markers.on_player_death(target.player_id)
+                if self.state.police_engine:  
+                    self.state.police_engine.on_player_death(target.player_id)
                 display.show_info(
                     prompt_manager.get_prompt(
                         "talent", "g5ripple.kill_event_implemented",
@@ -1554,13 +1556,14 @@ class Ripple(BaseTalent):
                 self.state.markers.add(target.player_id, "IS_CAPTAIN")  
                 lines.append(f"👑 {target.name} 立即成为警队队长！威信：3")  
     
-                # 召唤新单位  
-                msg = pe.summon_police_unit(target.location)  
-                lines.append(msg)  
-    
-                # 队长上任后生成3个单位  
+                # 解除永久禁用（如果有的话）  
+                if police.permanently_disabled:  
+                    police.permanently_disabled = False  
+                    lines.append("🏙️ 警察局永久禁用已解除！")  
+  
+                # 队长上任后生成3个单位（全部在警察局）  
                 pe._on_captain_elected()  
-                lines.append("🚔 队长上任，警察局恢复运作！")  
+                lines.append("🚔 队长上任，3个警察单位已在警察局就位！")
     
             # ============================================================  
             #  分支2：目标不是警察  
@@ -1606,7 +1609,12 @@ class Ripple(BaseTalent):
                             "选择立刻行动的警察单位：",  
                             unit_ids,  
                             context={"phase": "T0", "situation": "poem_law_extra_action"}  
+                            
                         )  
+                        # 校验选择的ID是否合法  
+                        if chosen_id not in unit_ids:  
+                            chosen_id = unit_ids[0]  # 兜底：使用第一个可用单位  
+                            lines.append(f"⚠️ 选择的单位无效，自动使用 {chosen_id}")
     
                         # 让队长输入该警察单位的行动命令  
                         display.show_info(f"🚔 {chosen_id} 获得一次立刻行动！请输入命令（police move/equip/attack {chosen_id} ...）")  
@@ -1618,23 +1626,32 @@ class Ripple(BaseTalent):
                                     "police_id": chosen_id}  
                         )  
     
-                        # 解析并执行命令  
+                        # 解析并执行命令（带验证）  
                         from cli.parser import parse  
+                        from cli.validator import validate_police_command  
                         parsed = parse(raw_cmd, target.player_id)  
                         if parsed and parsed.get("action") == "police_command":  
                             # 强制使用选中的警察ID  
                             parsed["police_id"] = chosen_id  
-                            from actions.police_command import execute as police_cmd_exec  
-                            result = police_cmd_exec(target, parsed, self.state)  
-                            if isinstance(result, tuple):  
-                                result_msg, _ = result  
+                            # 验证命令合法性（检查结界、debuff等）  
+                            valid, reason = validate_police_command(target, parsed, self.state)  
+                            if valid:  
+                                from actions.police_command import execute as police_cmd_exec  
+                                result = police_cmd_exec(target, parsed, self.state)  
+                                if isinstance(result, tuple):  
+                                    result_msg, _ = result  
+                                else:  
+                                    result_msg = str(result) if result else "⚠️ 命令执行失败"  
+                                lines.append(result_msg)  
                             else:  
-                                result_msg = str(result) if result else "⚠️ 命令执行失败"  
-                            lines.append(result_msg)
+                                lines.append(f"⚠️ 命令验证失败：{reason}，{chosen_id} 的额外行动跳过。")  
                         else:  
-                            lines.append(f"⚠️ 无法解析命令，{chosen_id} 的额外行动跳过。")  
-                else:  
+                            lines.append(f"⚠️ 无法解析命令，{chosen_id} 的额外行动跳过。")
+                        # 检查额外行动是否导致威信归零  
+                        if not target.is_captain:  
+                            lines.append("⚠️ 额外行动导致威信归零，队长身份已解除！")
                     # 4b：无存活警察 → 召唤新单位 + 解除永久禁用  
+                    police.units = [u for u in police.units if u.is_alive()]
                     msg = pe.summon_police_unit(target.location)  
                     lines.append(msg)  
                     lines.append("🏙️ 朝阳好市民效果：警察系统恢复运作！")  
@@ -1856,6 +1873,8 @@ class Ripple(BaseTalent):
 
             if killed:
                 self.state.markers.on_player_death(target.player_id)
+                if self.state.police_engine:  
+                    self.state.police_engine.on_player_death(target.player_id)
                 lines.append(prompt_manager.get_prompt(
                     "talent", "g5ripple.poem_destiny_killed",
                     default="   💀 {target_name} 被爱与记忆之诗击杀！"
