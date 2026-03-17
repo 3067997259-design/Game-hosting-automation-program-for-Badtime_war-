@@ -77,7 +77,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         raw += hologram_bonus
         hologram_text = prompt_manager.get_prompt(
             "combat", "hologram_vulnerability",
-            default="👁️ 全息影像易伤：+{hologram_bonus}"
+            default="✨全息影像易伤：+{hologram_bonus}"
         )
         result["details"].append(hologram_text.format(
             hologram_bonus=hologram_bonus
@@ -248,7 +248,7 @@ def resolve_damage(attacker, target, weapon, game_state,
     # 则整个攻击无效（包括伤害和后续的震荡效果）
     if weapon.is_electric:
         immune, immune_armor = _check_electric_immunity(target)
-        if immune:
+        if immune and immune_armor:
             electric_immune_text = prompt_manager.get_prompt(
                 "combat", "electric_immunity",
                 default="🛡️ {target_name} 的「{armor_name}」免疫电流武器伤害与眩晕！攻击无效。"
@@ -300,7 +300,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         raw += hologram_bonus
         hologram_text = prompt_manager.get_prompt(
             "combat", "hologram_vulnerability",
-            default="👁️ 全息影像易伤：+{hologram_bonus}"
+            default="✨全息影像易伤：+{hologram_bonus}"
         )
         result["details"].append(hologram_text.format(
             hologram_bonus=hologram_bonus
