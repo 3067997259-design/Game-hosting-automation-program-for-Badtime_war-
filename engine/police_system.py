@@ -760,16 +760,19 @@ class PoliceEngine:
     # ============================================  
     #  队长上任处理  
     # ============================================  
-  
+
     def _on_captain_elected(self):  
+        permanently_disabled = False
         """  
         队长上任处理：  
         1. 清空现有单位列表  
         2. 创建3个独立警察单位，全部在警察局  
         3. 关闭举报系统  
-        """  
+        """ 
         from models.police import PoliceUnit  
-  
+        # 解除永久禁用（队长上任意味着警察系统恢复）  
+        if self.police.permanently_disabled:  
+            self.police.permanently_disabled = False
         # 创建3个全新单位（默认装备：警棍+盾牌）  
         self.police.units = []  
         for i in range(1, 4):  
@@ -895,6 +898,37 @@ class PoliceEngine:
         for unit in self.police.units:  
             if unit.is_alive():  
                 unit.location = "警察局"  
+    
+    def on_player_death(self, player_id):  
+        """  
+        玩家死亡时的警察系统清理。  
+        如果死者是队长，解除队长身份并重置系统。  
+        如果死者是举报者，重置执法流程。  
+        """  
+        # 队长死亡处理  
+        if self.police.captain_id == player_id:  
+            captain = self.state.get_player(player_id)  
+            if captain:  
+                captain.is_captain = False  
+                self.state.markers.remove(player_id, "IS_CAPTAIN")  
+              
+            # 重置为无队长状态（保留现有单位）  
+            self.police.captain_id = None  
+            self.police.authority = 0  
+              
+            # 重置执法流程  
+            self._reset_enforcement()  
+              
+            self.state.log_event("captain_death", captain=player_id)  
+          
+        # 举报者死亡处理  
+        if self.police.reporter_id == player_id:  
+            # 举报者死亡，重置执法流程  
+            self._reset_enforcement()  
+          
+        # 执法目标死亡处理  
+        if self.police.reported_target_id == player_id:  
+            self._reset_enforcement()
   
     def _validate_police_equipment(self, name, eq_type):  
         """验证装备是否在白名单中"""  

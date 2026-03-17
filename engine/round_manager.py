@@ -273,6 +273,8 @@ class RoundManager:
                         if not prevented:
                             p.hp = 0
                             self.state.markers.on_player_death(p.player_id)
+                            if self.state.police_engine:  
+                                self.state.police_engine.on_player_death(p.player_id)
                             self.state.log_event("death", player=p.player_id, cause="virus")
         if self.state.check_victory():
             return
