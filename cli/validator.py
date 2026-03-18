@@ -343,8 +343,9 @@ def validate_attack(player, parsed, game_state):
         if not weapon:
             available = ", ".join(w.name for w in player.weapons)
             return False, f"你没有武器「{weapon_name}」。你持有：{available}"
-        if weapon.requires_charge and not weapon.is_charged:
-            return False, f"「{weapon_name}」需要先蓄力！"
+        # L346-347（警察目标分支）  
+        if weapon.requires_charge and getattr(weapon, 'charge_mandatory', True) and not weapon.is_charged:  
+            return False, f"「{weapon_name}」需要先蓄力！"  
         # 警察只能被AOE攻击，但这里不验证具体武器，由警察引擎处理
         # 允许通过验证，具体AOE检查在警察引擎中进行
         return True, ""
@@ -362,7 +363,7 @@ def validate_attack(player, parsed, game_state):
     if not weapon:
         available = ", ".join(w.name for w in player.weapons)
         return False, f"你没有武器「{weapon_name}」。你持有：{available}"
-    if weapon.requires_charge and not weapon.is_charged:
+    if weapon.requires_charge and getattr(weapon, 'charge_mandatory', True) and not weapon.is_charged:  
         return False, f"「{weapon_name}」需要先蓄力！"
 
     # 愿负世：救世主状态禁用远程

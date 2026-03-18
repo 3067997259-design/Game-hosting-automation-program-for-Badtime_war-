@@ -18,8 +18,7 @@ class PoliceEngine:
         self.EQUIPMENT_LOCATION = {  
             "警棍": {"警察局"},  
             "高斯步枪": {"军事基地"},  
-            "地震": {"魔法所"},  
-            "地动山摇": {"魔法所"},  
+            "魔法弹幕": {"魔法所"},  
             "盾牌": {"商店", "home"},  
             "陶瓷护甲": {"商店"},  
             "魔法护盾": {"魔法所"},  
@@ -31,7 +30,7 @@ class PoliceEngine:
   
         # 警察允许装备的白名单  
         self.POLICE_ALLOWED_WEAPONS = {  
-            "警棍", "高斯步枪", "地震", "地动山摇"  
+            "警棍", "魔法弹幕", "地动山摇"  
         }  
         self.POLICE_ALLOWED_ARMOR = {  
             "盾牌", "陶瓷护甲", "魔法护盾", "AT力场"  
@@ -691,10 +690,6 @@ class PoliceEngine:
         if weapon is None:
             return f"⚠️ {unit.unit_id} 无法创建武器，攻击取消"
 
-        # 高斯步枪强制不蓄力
-        if weapon.name == "高斯步枪" and weapon.requires_charge:
-            weapon.is_charged = False
-
         atk_result = self._resolve_police_attack_on_player(weapon, target)
         result = f"🚔 {unit.unit_id} 对 {target.name} 执法攻击（{weapon.name}）→ {atk_result}"
 
@@ -967,10 +962,6 @@ class PoliceEngine:
             weapon = make_weapon("警棍")  
         if weapon is None:  
             return f"⚠️ {unit.unit_id} 无法创建武器，攻击取消"  
-  
-        # 高斯步枪强制不蓄力  
-        if weapon.name == "高斯步枪" and weapon.requires_charge:  
-            weapon.is_charged = False  
   
         # 使用 resolve_damage 进行伤害结算  
         result = resolve_damage(  

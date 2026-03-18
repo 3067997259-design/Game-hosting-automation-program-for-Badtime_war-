@@ -29,8 +29,7 @@ import random
 EQUIPMENT_LOCATION = {  
     "警棍": {"警察局"},  
     "高斯步枪": {"军事基地"},  
-    "地震": {"魔法所"},  
-    "地动山摇": {"魔法所"},  
+    "魔法弹幕": {"魔法所"},   
     "盾牌": {"商店", "home"},  
     "陶瓷护甲": {"商店"},  
     "魔法护盾": {"魔法所"},  
@@ -1335,8 +1334,8 @@ class BasicAIController(PlayerController):
         # 3) 给警察装备
         EQUIP_LOCATION_MAP = {  
             "高斯步枪": "军事基地",  
-            "地震": "魔法所",  
-            "地动山摇": "魔法所",  
+            "魔法弹幕": "魔法所",  
+
         }  
         for unit in active_units:  
             uid = unit["id"]  
