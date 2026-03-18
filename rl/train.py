@@ -111,7 +111,11 @@ class WinRateCallback(BaseCallback):
 #  训练主函数  
 # ─────────────────────────────────────────────────────────────────────────────  
   
-def train(args: argparse.Namespace):  
+def train(args: argparse.Namespace): 
+    import sys  
+    sys.stderr.write(f"[TRAIN] args: {args}\n")  
+    sys.stderr.flush()  
+ 
     """执行训练流程。"""  
   
     # ── 路径设置 ──────────────────────────────────────────────────  
@@ -210,11 +214,17 @@ def train(args: argparse.Namespace):
     print(f"  检查点目录: {ckpt_dir}")  
     print()  
   
+    sys.stderr.write("[TRAIN] starting learn...\n")  
+    sys.stderr.flush()  
+
     model.learn(  
         total_timesteps=args.timesteps,  
         callback=callbacks,  
         progress_bar=True,  
     )  
+
+    sys.stderr.write("[TRAIN] learn done\n")  
+    sys.stderr.flush()
   
     # ── 保存最终模型 ─────────────────────────────────────────────  
     final_path = ckpt_dir / "final_model"  

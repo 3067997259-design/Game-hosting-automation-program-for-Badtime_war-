@@ -23,10 +23,6 @@ if TYPE_CHECKING:
     from models.player import Player  
     from engine.game_state import GameState  
 
-def _normalize_location(loc: str | None) -> str:  
-    if loc and loc.startswith("home_"):  
-        return "home"  
-    return loc or ""
   
 # ─────────────────────────────────────────────────────────────────────────────  
 #  动作空间大小  
@@ -148,6 +144,14 @@ SPECIAL_REQUIRES: dict[str, Optional[str]] = {
     "蓄力高斯步枪": "高斯步枪",  
     "释放病毒":     None,   # 需在医院且病毒已激活，由引擎验证  
 }  
+
+def _normalize_location(loc: str | None) -> str:  
+    """将 home_xxx 归一化为 home，None 归一化为空字符串"""  
+    if loc is None:  
+        return ""  
+    if loc.startswith("home_"):  
+        return "home"  
+    return loc
   
 # ─────────────────────────────────────────────────────────────────────────────  
 #  辅助函数  
