@@ -185,7 +185,10 @@ class BadtimeWarEnv(gym.Env):
         self._obs_event.wait()  
         self._obs_event.clear()  
   
-        # 初始化奖励追踪器基线  
+        # 初始化奖励追踪器基线
+        assert self._rl_player is not None  
+        assert self._state is not None  
+        assert self._reward_tracker is not None
         self._reward_tracker.reset(self._rl_player, self._state)  
   
         obs = build_obs(self._rl_player, self._state)  
@@ -198,7 +201,11 @@ class BadtimeWarEnv(gym.Env):
     # ══════════════════════════════════════════════════════════════════════════  
   
     def step(self, action: int):  
-        assert self._game_thread is not None, "必须先调用 reset()"  
+        assert self._game_thread is not None, "必须先调用 reset()" 
+        assert self._state is not None  
+        assert self._rl_player is not None  
+        assert self._rl_controller is not None  
+        assert self._reward_tracker is not None 
   
         # 游戏已在上一步结束（防御性检查）  
         if self._game_over_flag or (self._state and self._state.game_over):  
@@ -266,9 +273,11 @@ class BadtimeWarEnv(gym.Env):
     # ══════════════════════════════════════════════════════════════════════════  
     #  后台游戏线程  
     # ══════════════════════════════════════════════════════════════════════════  
-  
+
     def _run_game(self):  
         """在后台线程中运行游戏主循环。"""  
+        assert self._state is not None  
+        assert self._round_manager is not None
         try:  
             while not self._state.game_over and not self._game_over_flag:  
                 self._round_manager.run_one_round()  
