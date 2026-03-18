@@ -17,13 +17,14 @@ class ArmorLayer(Enum):
 class Weapon:
     def __init__(self, name, attribute, base_damage, weapon_range,
                  requires_charge=False, charged_damage=None,
-                 is_electric=False, special_tags=None):
+                 is_electric=False, charge_mandatory=True,special_tags=None):
         self.name = name
         self.attribute = attribute
         self.base_damage = base_damage
         self.weapon_range = weapon_range
         self.requires_charge = requires_charge
         self.is_charged = False
+        self.charge_mandatory = charge_mandatory
         self.charged_damage = charged_damage
         self.is_electric = is_electric
         self.special_tags = special_tags or []
@@ -33,13 +34,17 @@ class Weapon:
             return self.charged_damage
         return self.base_damage
 
-    def __repr__(self):
-        dmg = self.get_effective_damage()
-        charge_str = ""
-        if self.requires_charge:
-            charge_str = " ⚡已蓄力" if self.is_charged else " (需蓄力)"
+    def __repr__(self):  
+        dmg = self.get_effective_damage()  
+        charge_str = ""  
+        if self.requires_charge:  
+            if self.is_charged:  
+                charge_str = " ⚡已蓄力"  
+            elif self.charge_mandatory:  
+                charge_str = " (需蓄力)"  
+            else:  
+                charge_str = " (可蓄力)"  
         return f"{self.name}({self.attribute.value} {dmg}{charge_str})"
-
 
 class ArmorPiece:
     def __init__(self, name, attribute, layer, max_hp,
@@ -89,7 +94,7 @@ def make_weapon(name):
                                requires_charge=True, is_electric=True,
                                special_tags=["stun_on_hit", "hits_all_detected"]),
         "高斯步枪": lambda: Weapon("高斯步枪", Attribute.TECH, 1.0, WeaponRange.MELEE,
-                               requires_charge=True, charged_damage=2.0),
+                               requires_charge=True, charge_mandatory=False, charged_damage=2.0),
         "导弹": lambda: Weapon("导弹", Attribute.TECH, 1.0, WeaponRange.RANGED,
                              special_tags=["missile"]),
     }

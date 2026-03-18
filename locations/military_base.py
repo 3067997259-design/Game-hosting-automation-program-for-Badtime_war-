@@ -69,10 +69,11 @@ def do_interact(player, item_name, game_state=None):
         player.add_weapon(w)
         return f"⚡ {player.name} 获得了电磁步枪！（需蓄力1回合，对已发现你的目标0.5科技伤害+眩晕）"
 
-    elif item_name == "高斯步枪":
-        w = Weapon("高斯步枪", Attribute.TECH, 1.0, WeaponRange.MELEE,
-                   requires_charge=True, charged_damage=2.0)
-        player.add_weapon(w)
+    elif item_name == "高斯步枪":  
+        w = Weapon("高斯步枪", Attribute.TECH, 1.0, WeaponRange.MELEE,  
+                requires_charge=True, charged_damage=2.0,  
+                charge_mandatory=False)  
+        player.add_weapon(w)  
         return f"🔫 {player.name} 获得了高斯步枪！（科技伤害1，蓄力后伤害2）"
 
     elif item_name == "导弹控制权":
