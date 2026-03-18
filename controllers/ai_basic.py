@@ -1422,11 +1422,12 @@ class BasicAIController(PlayerController):
                 elif dest and unit_loc == dest:  
                     # 已经在目标地点  
                     assignment["phase"] = "equip_weapon"  
-                    # fall through  
+                    phase = "equip_weapon"# fall through  
     
             if phase == "moving":  
                 if unit_loc == dest:  
                     assignment["phase"] = "equip_weapon"  
+                    phase = "equip_weapon"
                 else:  
                     return f"police move {uid} {dest}"  
     
@@ -1437,7 +1438,8 @@ class BasicAIController(PlayerController):
                     assignment["phase"] = "equip_armor"  
                     return f"police equip {uid} {target_weapon}"  
                 else:  
-                    assignment["phase"] = "equip_armor"  
+                    assignment["phase"] = "equip_armor"
+                    phase = "equip_armor"
     
             if phase == "equip_armor":  
                 target_armor = assignment.get("target_armor")  
@@ -2446,41 +2448,18 @@ class BasicAIController(PlayerController):
             # 衰减历史威胁 + 新威胁
             self._threat_scores[target.name] = existing * 0.8 + power * 0.2
 
-    def _update_caches(self, player, state):
-        """更新缓存信息"""
-        # 更新警察缓存
-        police = getattr(state, 'police', None)
-        if police:
-            is_police = getattr(player, 'is_police', False)
-            is_captain = getattr(player, 'is_captain', False)
-            units = []
-            if hasattr(police, 'units'):
-                for u in police.units:  
-                    units.append({  
-                        "id": getattr(u, 'unit_id', ''),           # was 'id'  
-                        "is_alive": u.is_alive() if callable(getattr(u, 'is_alive', None)) else True,  # was getattr(u, 'is_alive', True)  
-                        "location": self._get_location_str(u) if hasattr(u, 'location') else None,  
-                        "weapon": getattr(u, 'weapon_name', '警棍'),  # was 'weapon'  
-                    })  
-            report_target = getattr(police, 'reported_target_id', None)  # was 'current_report_target'
-            report_phase = getattr(police, 'report_phase', None)
-            self._police_cache = {
-                "is_police": is_police,
-                "is_captain": is_captain,
-                "units": units,
-                "report_target": report_target,
-                "report_phase": report_phase,
-            }
-        else:
-            self._police_cache = {}
-
-        # 更新病毒缓存
-        virus = getattr(state, 'virus', None)
-        if virus:
-            self._virus_active = getattr(virus, 'is_active', False)
-            self._virus_location = self._get_location_str(virus) if hasattr(virus, 'location') else None
-        else:
-            self._virus_active = False
+    def _update_caches(self, player, state):  
+        """更新缓存信息"""  
+        # 更新警察缓存（复用 _read_police_state 保持字段一致）  
+        self._read_police_state(state)  
+    
+        # 更新病毒缓存  
+        virus = getattr(state, 'virus', None)  
+        if virus:  
+            self._virus_active = getattr(virus, 'is_active', False)  
+            self._virus_location = self._get_location_str(virus) if hasattr(virus, 'location') else None  
+        else:  
+            self._virus_active = False  
             self._virus_location = None
 
     # ════════════════════════════════════════════════════════
