@@ -6,7 +6,6 @@ from models.virus import VirusSystem
 from engine.response_window import ResponseWindowManager
 from typing import Optional
 
-
 class GameState:
     def __init__(self):
         # 玩家

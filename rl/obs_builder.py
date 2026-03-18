@@ -77,7 +77,10 @@ _PHASE_INDEX = {
 # 地点名 → one-hot 索引  
 _LOC_INDEX = {loc: i for i, loc in enumerate(LOCATIONS)}  
   
-  
+def _normalize_location(loc: str | None) -> str:  
+    if loc and loc.startswith("home_"):  
+        return "home"  
+    return loc or "" 
 # ─────────────────────────────────────────────────────────────────────────────  
 #  核心 API  
 # ─────────────────────────────────────────────────────────────────────────────  
