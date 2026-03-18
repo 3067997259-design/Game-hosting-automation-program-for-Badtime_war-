@@ -31,7 +31,7 @@ def get_menu_for_location(player, game_state):
 def execute(player, item_name, game_state):
     loc_module = get_location_module(player.location)
     if loc_module is None:
-        return f"当前位置「{player.location}」没有可交互的项目。"
+        return f"❌ 当前位置「{player.location}」没有可交互的项目。"
 
     try:
         can, reason = loc_module.can_interact(player, item_name, game_state)

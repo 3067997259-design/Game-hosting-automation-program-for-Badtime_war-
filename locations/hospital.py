@@ -71,7 +71,7 @@ def do_interact(player, item_name, game_state=None):
                            ArmorPiece("不老泉", Attribute.MAGIC, ArmorLayer.INNER, 1.0),
                            game_state)
 
-    return "未知项目"
+    return "❌ 未知项目"
 
 
 def _do_surgery(player, surgery_name, armor_piece, game_state):

@@ -65,3 +65,5 @@ def execute(player, parsed, game_state):
             police_id=police_id
         )
         return result, {}
+    
+    return "❌ 未知的警察子命令", {}
