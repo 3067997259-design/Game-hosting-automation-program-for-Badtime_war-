@@ -22,6 +22,11 @@ import numpy as np
 if TYPE_CHECKING:  
     from models.player import Player  
     from engine.game_state import GameState  
+
+def _normalize_location(loc: str | None) -> str:  
+    if loc and loc.startswith("home_"):  
+        return "home"  
+    return loc or ""
   
 # ─────────────────────────────────────────────────────────────────────────────  
 #  动作空间大小  
