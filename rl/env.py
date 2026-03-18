@@ -30,7 +30,6 @@ from engine.game_state import GameState
 from engine.round_manager import RoundManager  
 from models.player import Player
 from cli import display as _display_module  
-import builtins  
   
 _DISPLAY_FUNCS = [  
     "show_banner", "show_round_header", "show_phase", "show_d4_results",  
@@ -42,29 +41,30 @@ _DISPLAY_FUNCS = [
 ]  
   
 _original_display = {}  
-_original_print = None  
+ 
   
 def _silence_display():  
     """将 cli.display 的所有输出函数替换为 no-op"""  
-    global _original_print  
     for name in _DISPLAY_FUNCS:  
         if hasattr(_display_module, name):  
             _original_display[name] = getattr(_display_module, name)  
             setattr(_display_module, name, lambda *a, **kw: None)  
-    # 同时静默 round_manager.py 中的直接 print 调用  
-    _original_print = builtins.print  
-    builtins.print = lambda *a, **kw: None  
+    # 有返回值的函数需要特殊处理  
+    if hasattr(_display_module, "prompt_input"):  
+        _original_display["prompt_input"] = _display_module.prompt_input  
+        _display_module.prompt_input = lambda *a, **kw: ""  
+    if hasattr(_display_module, "prompt_choice"):  
+        _original_display["prompt_choice"] = _display_module.prompt_choice  
+        _display_module.prompt_choice = lambda prompt, options, **kw: options[0] if options else ""  
+    if hasattr(_display_module, "prompt_secret"):  
+        _original_display["prompt_secret"] = _display_module.prompt_secret  
+        _display_module.prompt_secret = lambda *a, **kw: ""
   
 def _restore_display():  
     """恢复 cli.display 的原始函数"""  
-    global _original_print  
     for name, func in _original_display.items():  
         setattr(_display_module, name, func)  
-    _original_display.clear()  
-    if _original_print is not None:  
-        builtins.print = _original_print  
-        _original_print = None
-  
+    _original_display.clear()
   
 # ─────────────────────────────────────────────────────────────────────────────  
 #  内部异常：用于中止后台游戏线程  
@@ -333,9 +333,10 @@ class BadtimeWarEnv(gym.Env):
                     break  
         except _GameAborted:  
             pass  
-        except Exception:  
-            # 引擎异常不应崩溃训练进程  
-            pass  
+        except Exception as e:  
+            import sys, traceback  
+            sys.stderr.write(f"[ENV ERROR] _run_game crashed: {e}\n")  
+            traceback.print_exc(file=sys.stderr) 
         finally:  
             self._game_over_flag = True  
             self._obs_event.set()  # 唤醒 env 线程  
