@@ -30,7 +30,7 @@ class PoliceEngine:
   
         # 警察允许装备的白名单  
         self.POLICE_ALLOWED_WEAPONS = {  
-            "警棍", "魔法弹幕", "地动山摇"  
+            "警棍", "魔法弹幕", "高斯步枪"  
         }  
         self.POLICE_ALLOWED_ARMOR = {  
             "盾牌", "陶瓷护甲", "魔法护盾", "AT力场"  
