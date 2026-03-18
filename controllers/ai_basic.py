@@ -689,7 +689,8 @@ class BasicAIController(PlayerController):
                 "weapon": getattr(unit, 'weapon_name', '警棍'),  
                 "outer_armor": getattr(unit, 'outer_armor_name', '盾牌'),  
                 "is_alive": alive,  
-                "is_active": active,  
+                "is_active": active, 
+                "is_submerged": getattr(unit, 'is_submerged', False), 
             }
             units_info.append(info)
             if alive:
@@ -1292,12 +1293,6 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
 
     def _cmd_captain(self, player, state, available: List[str]) -> List[str]:  
-        """  
-        队长指挥警察：三阶段逻辑  
-        阶段1：发育（给警察换装）  
-        阶段2：部署（派到驻扎位置）  
-        阶段3：攻击（有犯罪目标时）  
-        """  
         commands = []  
     
         if "police_command" not in available:  
@@ -1310,6 +1305,7 @@ class BasicAIController(PlayerController):
         units = pc.get("units", [])  
         alive_units = [u for u in units if u.get("is_alive")]  
         active_units = [u for u in units if u.get("is_alive") and u.get("is_active", True)]  
+        disabled_units = [u for u in units if u.get("is_alive") and not u.get("is_active", True)]  # 新增  
     
         if not alive_units:  
             return commands  
@@ -1320,13 +1316,10 @@ class BasicAIController(PlayerController):
             loc = self._get_location_str(player)  
             if loc == "警察局":  
                 return ["study"]  
-            # 队长不需要回警察局指挥，但 study 需要在警察局  
-            # 只有在没有更紧急事务时才回去 study  
-            # 这里不 return move，让后续逻辑决定  
     
         # ===== 初始化发育计划 =====  
         if not self._police_dev_initialized:  
-            self._init_police_dev_plan(alive_units, player, state)  
+            self._init_police_dev_plan(alive_units, player, state) 
             self._police_dev_initialized = True  
     
         # ===== 检查犯罪目标 =====  
@@ -1338,34 +1331,37 @@ class BasicAIController(PlayerController):
             if attack_cmd:  
                 return [attack_cmd]  
     
+        # ===== 新增：唤醒处于debuff的警察 =====  
+        # 优先级：在攻击之后、发育之前  
+        # 如果有犯罪目标但没有active单位可攻击，唤醒最重要  
+        # 如果没有犯罪目标，唤醒也比发育/部署重要（恢复战力）  
+        if disabled_units:  
+            wake_cmd = self._police_wake_step(disabled_units, state)  
+            if wake_cmd:  
+                return [wake_cmd]  
+    
         # ===== 阶段1：发育（换装） =====  
         dev_cmd = self._police_develop_step(active_units)  
         if dev_cmd:  
             return [dev_cmd]  
     
         # ===== 阶段2：部署到驻扎位置 =====  
-        deploy_cmd = self._police_deploy_step(alive_units)  
+        deploy_cmd = self._police_deploy_step(active_units)  # 注意：下面也要修复  
         if deploy_cmd:  
             return [deploy_cmd]  
     
-        # ===== 所有警察已部署，无犯罪目标 → 无指令 =====  
-        return commands  
-    
-    
+        return commands
+        
     def _init_police_dev_plan(self, alive_units, player, state):  
         """初始化警察发育计划：分配3个单位的目标配置"""  
-        # 统计魔法所和军事基地的敌人数，决定先派谁  
         enemies_magic = self._count_enemies_at("魔法所", player, state)  
         enemies_military = self._count_enemies_at("军事基地", player, state)  
     
-        # 按 unit_id 排序确保稳定分配  
         sorted_units = sorted(alive_units, key=lambda u: u["id"])  
     
         assignments = {}  
         if len(sorted_units) >= 1:  
-            # 第一个单位：去人少的地方  
             if enemies_magic <= enemies_military:  
-                # 先派去魔法所  
                 first_dest, first_weapon, first_armor, first_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"  
                 second_dest, second_weapon, second_armor, second_station = "军事基地", "高斯步枪", "AT力场", "商店"  
             else:  
@@ -1390,17 +1386,15 @@ class BasicAIController(PlayerController):
             }  
     
         if len(sorted_units) >= 3:  
-            # 第三个单位：保持默认装备，驻扎在魔法所  
             assignments[sorted_units[2]["id"]] = {  
-                "dest": None,  # 不需要移动去换装  
+                "dest": None,  
                 "target_weapon": None,  
                 "target_armor": None,  
                 "station": "魔法所",  
-                "phase": "stationed_default",  # 默认装备，只需部署  
+                "phase": "stationed_default",  
             }  
     
-        self._police_dev_assignments = assignments  
-    
+        self._police_dev_assignments = assignments   
     
     def _police_develop_step(self, active_units) -> Optional[str]:  
         """执行一步警察发育：移动→换武器→换护甲，每回合1条命令"""  
@@ -1480,7 +1474,26 @@ class BasicAIController(PlayerController):
                 else:  
                     return f"police move {uid} {station}"  
     
-        return None  # 所有单位已部署  
+        return None  # 所有单位已部署
+
+
+    def _police_wake_step(self, disabled_units, state) -> Optional[str]:  
+        """唤醒处于debuff的警察单位（队长远程唤醒）"""  
+        pe = getattr(state, 'police_engine', None)  
+        
+        for unit in disabled_units:  
+            uid = unit["id"]  
+            
+            # 沉沦+全息影像 → 无法唤醒，跳过  
+            if unit.get("is_submerged", False):  
+                unit_loc = unit.get("location")  
+                if pe and unit_loc and pe._is_in_hologram_range(unit_loc):  
+                    continue  
+            
+            # 生成唤醒命令  
+            return f"police wake {uid}"  
+        
+        return None  # 没有可唤醒的单位  
     
     
     def _find_criminal_target(self, player, state):  
@@ -1594,9 +1607,9 @@ class BasicAIController(PlayerController):
                                 # 把这个警察 move 到目标位置，会和当前警察交换  
                                 return f"police move {other_unit['id']} {target_loc}"  
                     # 没有能打的警察，还是攻击（可能打到非克制的甲）  
-                    return f"police attack {uid} {target_player.name}"  
+                    return f"police attack {uid} {target_player.player_id}"  
     
-            return f"police attack {uid} {target_player.name}"
+            return f"police attack {uid} {target_player.player_id}"
     # ════════════════════════════════════════════════════════
     #  命令生成器：政治行动
     # ════════════════════════════════════════════════════════

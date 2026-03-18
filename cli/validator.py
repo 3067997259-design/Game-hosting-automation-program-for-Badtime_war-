@@ -558,6 +558,29 @@ def validate_police_command(player, parsed, game_state):
     if not unit:
         return False, f"找不到警察单位 {police_id}"
     # 具体验证由警察引擎执行
+    subcommand = parsed.get("subcommand")  
+    if subcommand == "attack":  
+        target_str = parsed.get("target")  
+        if not target_str:  
+            return False, "请指定攻击目标"  
+        from cli.parser import resolve_player_target  
+        target_id = resolve_player_target(target_str, game_state)  
+        if not target_id:  
+            return False, f"找不到玩家「{target_str}」"  
+        target = game_state.get_player(target_id)  
+        if not target or not target.is_alive():  
+            return False, f"{target_str} 已死亡"  
+        # 也验证警察单位是否存活且可行动  
+        unit = game_state.police.get_unit(police_id)  
+        if unit and not unit.is_active():  
+            return False, f"{police_id} 处于行动阻碍状态，无法攻击"  
+      
+    # move 子命令也验证警察单位是否可移动  
+    if subcommand == "move":  
+        unit = game_state.police.get_unit(police_id)  
+        if unit and unit.is_disabled():  
+            return False, f"{police_id} 处于debuff状态，无法移动"  
+      
     return True, ""
 
 
