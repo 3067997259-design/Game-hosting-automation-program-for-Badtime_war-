@@ -4,6 +4,7 @@ from models.markers import MarkerManager
 from models.police import PoliceData
 from models.virus import VirusSystem
 from engine.response_window import ResponseWindowManager
+from typing import Optional
 
 
 class GameState:
@@ -52,7 +53,7 @@ class GameState:
 
         # 游戏状态
         self.game_over = False
-        self.winner = None
+        self.winner: Optional[str] = None
 
     def add_player(self, player):
         self.players[player.player_id] = player
