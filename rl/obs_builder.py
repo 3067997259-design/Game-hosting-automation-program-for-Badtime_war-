@@ -109,7 +109,7 @@ def build_obs(player: "Player", game_state: "GameState") -> np.ndarray:
     obs[idx] = player.vouchers / _MAX_VOUCHERS;              idx += 1  # 2  
   
     # location one-hot (6 维)  
-    loc_i = _LOC_INDEX.get(player.location, -1) if player.location else -1
+    loc_i = _LOC_INDEX.get(_normalize_location(player.location), -1) if player.location else -1
     if loc_i >= 0:  
         obs[idx + loc_i] = 1.0  
     idx += len(LOCATIONS)                                              # 3-8  
@@ -177,7 +177,7 @@ def build_obs(player: "Player", game_state: "GameState") -> np.ndarray:
             obs[base + 1] = float(opp.is_awake)              # is_awake  
             obs[base + 2] = opp.hp / _MAX_HP                 # hp  
             # location one-hot (6)  
-            opp_loc_i = _LOC_INDEX.get(opp.location, -1)  
+            opp_loc_i = _LOC_INDEX.get(_normalize_location(opp.location), -1)  
             if opp_loc_i >= 0:  
                 obs[base + 3 + opp_loc_i] = 1.0  
             obs[base + 9]  = opp.kill_count / _MAX_KILL      # kill_count  

@@ -278,13 +278,13 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
     # ── move ─────────────────────────────────────────────────────  
     if "move" in available_set:  
         for i, loc in enumerate(LOCATIONS):  
-            if loc != player.location:  
+            if loc != _normalize_location(player.location):
                 mask[IDX_MOVE_BASE + i] = True  
   
     # ── interact ─────────────────────────────────────────────────  
     if "interact" in available_set:  
         for i, item in enumerate(INTERACT_ITEMS):  
-            if player.location in ITEM_LOCATIONS.get(item, set()):  
+            if _normalize_location(player.location) in ITEM_LOCATIONS.get(item, set()):
                 mask[IDX_INTERACT_BASE + i] = True  
   
     # ── 对手槽位存活状态（lock / find / attack 共用）─────────────  

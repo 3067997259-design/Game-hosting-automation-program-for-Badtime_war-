@@ -28,7 +28,42 @@ from rl.rl_controller import RLController
 from controllers.ai_basic import BasicAIController  
 from engine.game_state import GameState  
 from engine.round_manager import RoundManager  
-from models.player import Player  
+from models.player import Player
+from cli import display as _display_module  
+import builtins  
+  
+_DISPLAY_FUNCS = [  
+    "show_banner", "show_round_header", "show_phase", "show_d4_results",  
+    "show_action_turn_header", "show_player_status", "show_available_actions",  
+    "show_result", "show_error", "show_info", "show_victory", "show_death",  
+    "show_police_status", "show_virus_status", "show_police_enforcement",  
+    "show_virus_deaths", "show_all_players_status", "show_help",  
+    "show_critical", "show_warning", "show_prompt", "clear_screen",  
+]  
+  
+_original_display = {}  
+_original_print = None  
+  
+def _silence_display():  
+    """将 cli.display 的所有输出函数替换为 no-op"""  
+    global _original_print  
+    for name in _DISPLAY_FUNCS:  
+        if hasattr(_display_module, name):  
+            _original_display[name] = getattr(_display_module, name)  
+            setattr(_display_module, name, lambda *a, **kw: None)  
+    # 同时静默 round_manager.py 中的直接 print 调用  
+    _original_print = builtins.print  
+    builtins.print = lambda *a, **kw: None  
+  
+def _restore_display():  
+    """恢复 cli.display 的原始函数"""  
+    global _original_print  
+    for name, func in _original_display.items():  
+        setattr(_display_module, name, func)  
+    _original_display.clear()  
+    if _original_print is not None:  
+        builtins.print = _original_print  
+        _original_print = None
   
   
 # ─────────────────────────────────────────────────────────────────────────────  
@@ -150,7 +185,9 @@ class BadtimeWarEnv(gym.Env):
         super().reset(seed=seed)  
   
         # 清理上一局  
-        self._cleanup()  
+        self._cleanup()
+        if self.render_mode != "human":  
+            _silence_display() 
   
         # 创建新游戏  
         self._state = GameState()  
@@ -319,4 +356,5 @@ class BadtimeWarEnv(gym.Env):
   
     def close(self):  
         self._cleanup()  
+        _restore_display()  
         super().close()
