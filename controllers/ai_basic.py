@@ -21,6 +21,7 @@ v2.0 重写修复清单：
   Bug 17: choose_multi 尊重 min_count
   Bug 18: _been_attacked_by 清理死亡玩家
 """
+from models.equipment import make_weapon
 from utils.attribute import Attribute
 from typing import List, Dict, Optional, Any, Set, Tuple
 from controllers.base import PlayerController
@@ -129,6 +130,12 @@ class BasicAIController(PlayerController):
 
         self._virus_active: bool = False  
         self._virus_location: Optional[str] = None
+        # 警察发育状态追踪（political 队长用）  
+        # 发育计划：3个警察单位的目标配置  
+        # {unit_id: {"target_weapon": str, "target_armor": str,   
+        # "station": str, "phase": "pending"|"moving"|"equip_weapon"|"equip_armor"|"returning"|"stationed"}}  
+        self._police_dev_assignments: Dict[str, Dict] = {}  
+        self._police_dev_initialized = False
 
     # ════════════════════════════════════════════════════════
     #  安全工具方法
@@ -675,13 +682,14 @@ class BasicAIController(PlayerController):
         for unit in getattr(police, 'units', []):
             alive = unit.is_alive() if hasattr(unit, 'is_alive') else False
             active = unit.is_active() if hasattr(unit, 'is_active') else False
-            info = {
-                "id": getattr(unit, 'unit_id', 'unknown'),
-                "location": getattr(unit, 'location', None),
-                "hp": getattr(unit, 'hp', 0),
-                "weapon": getattr(unit, 'weapon_name', '警棍'),
-                "is_alive": alive,
-                "is_active": active,
+            info = {  
+                "id": getattr(unit, 'unit_id', 'unknown'),  
+                "location": getattr(unit, 'location', None),  
+                "hp": getattr(unit, 'hp', 0),  
+                "weapon": getattr(unit, 'weapon_name', '警棍'),  
+                "outer_armor": getattr(unit, 'outer_armor_name', '盾牌'),  
+                "is_alive": alive,  
+                "is_active": active,  
             }
             units_info.append(info)
             if alive:
@@ -834,8 +842,16 @@ class BasicAIController(PlayerController):
             return has_real_weapon and has_armor and has_inner and has_pass  
     
         elif self.personality == "political":  
-            is_police = getattr(player, 'is_police', False)  
-            return has_real_weapon and is_police  
+            is_captain = getattr(player, 'is_captain', False)  
+            if not is_captain:  
+                return False  # 没当上队长就不算完成  
+            has_armor = self._count_outer_armor(player) >= 1  
+            # 检查警察是否全部部署  
+            all_deployed = all(  
+                a.get("phase") in ("stationed", "stationed_default", None)  
+                for a in self._police_dev_assignments.values()  
+            ) if self._police_dev_assignments else False  
+            return has_real_weapon and has_armor and all_deployed 
     
         else:  # balanced  
             has_armor = self._count_outer_armor(player) >= 1  
@@ -1035,15 +1051,47 @@ class BasicAIController(PlayerController):
             return self._find_nearest_enemy_location(player, state)  
     
         elif self.personality == "political":  
-            if vouchers < 1 and loc != "home":  
-                return "home"  
-            if not has_weapon and loc != "home":  
-                return "home"  
-            if not getattr(player, 'is_police', False) and loc != "警察局":  
-                return "警察局"  
-            if getattr(player, 'is_police', False):  
-                return "警察局"  
-            return "商店"  
+            is_police = getattr(player, 'is_police', False)  
+            is_captain = getattr(player, 'is_captain', False)  
+        
+            # 还没加入警察 → 先拿基本装备再去警察局  
+            if not is_police:  
+                if not has_weapon and loc != "home":  
+                    return "home"  
+                if outer < 1 and loc != "home":  
+                    return "home"  
+                if loc != "警察局":  
+                    return "警察局"  
+        
+            # 已加入但还没当队长 → 去警察局竞选  
+            if is_police and not is_captain:  
+                if loc != "警察局":  
+                    return "警察局"  
+        
+            # 已是队长 → 发育阶段留在警察局（警察保护），发育完成后正常发育  
+            if is_captain:  
+                # 检查警察是否全部部署完毕  
+                all_deployed = all(  
+                    a.get("phase") in ("stationed", "stationed_default", None)  
+                    for a in self._police_dev_assignments.values()  
+                ) if self._police_dev_assignments else False  
+        
+                if not all_deployed:  
+                    # 警察还在发育/部署，队长留在警察局  
+                    if loc != "警察局":  
+                        return "警察局"  
+                    return None  # 已在警察局，等待  
+        
+                # 警察全部部署完毕，队长开始自己的发育  
+                if vouchers < 1 and loc != "home":  
+                    return "home"  
+                if not has_weapon and loc != "home":  
+                    return "home"  
+                if outer < 1 and loc != "home":  
+                    return "home"  
+                if outer < 2 and loc != "商店":  
+                    return "商店"  
+                return None  # 发育完成 
     
         elif self.personality == "builder":  
             if vouchers < 1 and loc != "home":  
@@ -1243,123 +1291,310 @@ class BasicAIController(PlayerController):
     #  命令生成器：队长指挥（Bug8修复）
     # ════════════════════════════════════════════════════════
 
-    def _cmd_captain(self, player, state, available: List[str]) -> List[str]:
-        """
-        Bug8修复：检查 "police_command" in available（不是 "police attack"）
-        生成格式："police move police1 商店" 等
-        """
-        commands = []
-
-        if "police_command" not in available:
-            return commands
-
-        pc = self._police_cache or {}
-        if not pc.get("is_captain"):
-            return commands
-
+    def _cmd_captain(self, player, state, available: List[str]) -> List[str]:  
+        """  
+        队长指挥警察：三阶段逻辑  
+        阶段1：发育（给警察换装）  
+        阶段2：部署（派到驻扎位置）  
+        阶段3：攻击（有犯罪目标时）  
+        """  
+        commands = []  
+    
+        if "police_command" not in available:  
+            return commands  
+    
+        pc = self._police_cache or {}  
+        if not pc.get("is_captain"):  
+            return commands  
+    
         units = pc.get("units", [])  
+        alive_units = [u for u in units if u.get("is_alive")]  
         active_units = [u for u in units if u.get("is_alive") and u.get("is_active", True)]  
-        alive_units = [u for u in units if u.get("is_alive")]
-
-        if not alive_units:
-            debug_ai_basic(player.name, "无存活警察单位，跳过指挥")
-            return commands
-        # 2.5) 威信低时优先研究性学习  
+    
+        if not alive_units:  
+            return commands  
+    
+        # study：威信 <= 1 时优先研究性学习  
         authority = pc.get("authority", 0)  
-        if authority <= 2 and "study" in available:  
+        if authority <= 1 and "study" in available:  
             loc = self._get_location_str(player)  
             if loc == "警察局":  
                 return ["study"]  
+            # 队长不需要回警察局指挥，但 study 需要在警察局  
+            # 只有在没有更紧急事务时才回去 study  
+            # 这里不 return move，让后续逻辑决定  
+    
+        # ===== 初始化发育计划 =====  
+        if not self._police_dev_initialized:  
+            self._init_police_dev_plan(alive_units, player, state)  
+            self._police_dev_initialized = True  
+    
+        # ===== 检查犯罪目标 =====  
+        criminal_target = self._find_criminal_target(player, state)  
+    
+        # ===== 阶段3：有犯罪目标且至少一个警察已完成换装 → 攻击 =====  
+        if criminal_target:  
+            attack_cmd = self._police_attack_criminal(criminal_target, active_units, state)  
+            if attack_cmd:  
+                return [attack_cmd]  
+    
+        # ===== 阶段1：发育（换装） =====  
+        dev_cmd = self._police_develop_step(active_units)  
+        if dev_cmd:  
+            return [dev_cmd]  
+    
+        # ===== 阶段2：部署到驻扎位置 =====  
+        deploy_cmd = self._police_deploy_step(alive_units)  
+        if deploy_cmd:  
+            return [deploy_cmd]  
+    
+        # ===== 所有警察已部署，无犯罪目标 → 无指令 =====  
+        return commands  
+    
+    
+    def _init_police_dev_plan(self, alive_units, player, state):  
+        """初始化警察发育计划：分配3个单位的目标配置"""  
+        # 统计魔法所和军事基地的敌人数，决定先派谁  
+        enemies_magic = self._count_enemies_at("魔法所", player, state)  
+        enemies_military = self._count_enemies_at("军事基地", player, state)  
+    
+        # 按 unit_id 排序确保稳定分配  
+        sorted_units = sorted(alive_units, key=lambda u: u["id"])  
+    
+        assignments = {}  
+        if len(sorted_units) >= 1:  
+            # 第一个单位：去人少的地方  
+            if enemies_magic <= enemies_military:  
+                # 先派去魔法所  
+                first_dest, first_weapon, first_armor, first_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"  
+                second_dest, second_weapon, second_armor, second_station = "军事基地", "高斯步枪", "AT力场", "商店"  
             else:  
-                return [f"move 警察局"]
-
-        # 策略：根据情况指挥
-        # 1) 如果有举报目标且已派遣，指挥攻击
+                first_dest, first_weapon, first_armor, first_station = "军事基地", "高斯步枪", "AT力场", "商店"  
+                second_dest, second_weapon, second_armor, second_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"  
+    
+            assignments[sorted_units[0]["id"]] = {  
+                "dest": first_dest,  
+                "target_weapon": first_weapon,  
+                "target_armor": first_armor,  
+                "station": first_station,  
+                "phase": "pending",  
+            }  
+    
+        if len(sorted_units) >= 2:  
+            assignments[sorted_units[1]["id"]] = {  
+                "dest": second_dest,  
+                "target_weapon": second_weapon,  
+                "target_armor": second_armor,  
+                "station": second_station,  
+                "phase": "pending",  
+            }  
+    
+        if len(sorted_units) >= 3:  
+            # 第三个单位：保持默认装备，驻扎在魔法所  
+            assignments[sorted_units[2]["id"]] = {  
+                "dest": None,  # 不需要移动去换装  
+                "target_weapon": None,  
+                "target_armor": None,  
+                "station": "魔法所",  
+                "phase": "stationed_default",  # 默认装备，只需部署  
+            }  
+    
+        self._police_dev_assignments = assignments  
+    
+    
+    def _police_develop_step(self, active_units) -> Optional[str]:  
+        """执行一步警察发育：移动→换武器→换护甲，每回合1条命令"""  
+        for unit in active_units:  
+            uid = unit["id"]  
+            assignment = self._police_dev_assignments.get(uid)  
+            if not assignment:  
+                continue  
+    
+            phase = assignment.get("phase", "pending")  
+            unit_loc = unit.get("location")  
+            dest = assignment.get("dest")  
+    
+            if phase == "pending":  
+                # 需要移动到目标地点  
+                if dest and unit_loc != dest:  
+                    assignment["phase"] = "moving"  
+                    return f"police move {uid} {dest}"  
+                elif dest and unit_loc == dest:  
+                    # 已经在目标地点  
+                    assignment["phase"] = "equip_weapon"  
+                    # fall through  
+    
+            if phase == "moving":  
+                if unit_loc == dest:  
+                    assignment["phase"] = "equip_weapon"  
+                else:  
+                    return f"police move {uid} {dest}"  
+    
+            if phase == "equip_weapon":  
+                target_weapon = assignment.get("target_weapon")  
+                current_weapon = unit.get("weapon", "警棍")  
+                if target_weapon and current_weapon != target_weapon:  
+                    assignment["phase"] = "equip_armor"  
+                    return f"police equip {uid} {target_weapon}"  
+                else:  
+                    assignment["phase"] = "equip_armor"  
+    
+            if phase == "equip_armor":  
+                target_armor = assignment.get("target_armor")  
+                current_armor = unit.get("outer_armor", "盾牌")  
+                if target_armor and current_armor != target_armor:  
+                    assignment["phase"] = "ready_to_deploy"  
+                    return f"police equip {uid} {target_armor}"  
+                else:  
+                    assignment["phase"] = "ready_to_deploy"  
+    
+            # stationed_default 和 ready_to_deploy 不需要发育步骤  
+    
+        return None  # 所有单位发育完成  
+    
+    
+    def _police_deploy_step(self, alive_units) -> Optional[str]:  
+        """部署警察到驻扎位置"""  
+        for unit in alive_units:  
+            uid = unit["id"]  
+            assignment = self._police_dev_assignments.get(uid)  
+            if not assignment:  
+                continue  
+    
+            phase = assignment.get("phase", "pending")  
+            station = assignment.get("station")  
+            unit_loc = unit.get("location")  
+    
+            if phase in ("ready_to_deploy", "stationed_default"):  
+                if station and unit_loc != station:  
+                    assignment["phase"] = "deploying"  
+                    return f"police move {uid} {station}"  
+                else:  
+                    assignment["phase"] = "stationed"  
+    
+            if phase == "deploying":  
+                if unit_loc == station:  
+                    assignment["phase"] = "stationed"  
+                else:  
+                    return f"police move {uid} {station}"  
+    
+        return None  # 所有单位已部署  
+    
+    
+    def _find_criminal_target(self, player, state):  
+        """找到最高威胁的犯罪目标"""  
+        # 先检查举报目标  
+        pc = self._police_cache or {}  
         report_target = pc.get("report_target")  
         if report_target and pc.get("report_phase") == "dispatched":  
             target_player = state.get_player(report_target)  
-            if not target_player or not target_player.is_alive():  
-                # Target died — look for new criminal targets instead of being stuck  
-                pass  # Fall through to criminal search below  
-            elif target_player.is_alive(): 
-                # 威信检查：不攻击无辜者（威信低时）  
-                authority = pc.get("authority", 0)  
-                target_is_criminal = getattr(target_player, 'is_criminal', False)  
-                if not target_is_criminal:  
-                    police_obj = getattr(state, 'police', None)  
-                    if police_obj and hasattr(police_obj, 'is_criminal'):  
-                        target_is_criminal = police_obj.is_criminal(target_player.player_id)  
-                if not target_is_criminal and authority <= 1:  
-                    loc = self._get_location_str(player)  
-                    if loc == "警察局" and "study" in available:  
-                        return ["study"]  
-                    elif loc != "警察局":  
-                        return [f"move 警察局"] 
-                # existing attack logic, but only for ONE unit 
-                target_loc = self._get_location_str(target_player)
-                for unit in active_units:  
-                    uid = unit["id"]  
-                    unit_loc = unit.get("location")  
-                    if unit_loc != target_loc:  
-                        return [f"police move {uid} {target_loc}"]  
-                    else:  
-                        return [f"police attack {uid} {target_player.name}"]
-                if commands:
-                    return commands
-
-        # 2) 如果没有目标，巡逻或寻找犯罪者
-        criminal_players = []
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            p = state.get_player(pid)
-            if p and p.is_alive():
-                if getattr(p, 'is_criminal', False):
-                    criminal_players.append(p)
-
-        if criminal_players:
-            primary = max(criminal_players,
-                         key=lambda p: self._threat_scores.get(p.name, 0))
-            target_loc = self._get_location_str(primary)
-            for unit in alive_units:
-                uid = unit["id"]
-                unit_loc = unit.get("location")
-                if unit_loc != target_loc:
-                    commands.append(f"police move {uid} {target_loc}")
-                else:
-                    commands.append(f"police attack {uid} {primary.name}")
-            if commands:
-                return commands
-
-        # 3) 给警察装备
-        EQUIP_LOCATION_MAP = {  
-            "高斯步枪": "军事基地",  
-            "魔法弹幕": "魔法所",  
-
-        }  
+            if target_player and target_player.is_alive():  
+                return target_player  
+    
+        # 再找其他犯罪者  
+        best = None  
+        best_score = -1  
+        for pid in state.player_order:  
+            if pid == player.player_id:  
+                continue  
+            p = state.get_player(pid)  
+            if p and p.is_alive():  
+                is_criminal = getattr(p, 'is_criminal', False)  
+                if not is_criminal:  
+                    police = getattr(state, 'police', None)  
+                    if police and hasattr(police, 'is_criminal'):  
+                        is_criminal = police.is_criminal(pid)  
+                if is_criminal:  
+                    score = self._threat_scores.get(p.name, 0)  
+                    if score > best_score:  
+                        best_score = score  
+                        best = p  
+        return best  
+    
+    
+    def _police_attack_criminal(self, target, active_units, state) -> Optional[str]:  
+        """  
+        方案B：选择武器属性能有效打击目标护甲的警察单位  
+        - 有外层护甲 → 检查外层属性  
+        - 无外层有内层 → 检查内层属性  
+        - 无护甲 → 任意警察  
+        """  
+        from utils.attribute import Attribute, is_effective  
+    
+        target_player = target  
+        target_loc = self._get_location_str(target_player)  
+    
+        # 获取目标护甲属性  
+        target_armor_attrs = self._get_outer_armor_attr(target_player)  
+        if not target_armor_attrs:  
+            target_armor_attrs = self._get_inner_armor_attr(target_player)  
+    
+        # 为每个活跃警察评分  
+        best_unit = None  
+        best_score = -1  
         for unit in active_units:  
             uid = unit["id"]  
-            current_weapon = unit.get("weapon", "警棍")  
-            if current_weapon == "警棍":  
-                target_equip = "高斯步枪"  
-                required_loc = EQUIP_LOCATION_MAP.get(target_equip, "军事基地")  
-                unit_loc = unit.get("location")  
-                if unit_loc != required_loc:  
-                    return [f"police move {uid} {required_loc}"]  
-                else:  
-                    return [f"police equip {uid} {target_equip}"]
-
-        # 4) 分散巡逻
-        if not commands:
-            patrol_locs = ["商店", "医院", "魔法所", "军事基地"]
-            for i, unit in enumerate(alive_units):
-                uid = unit["id"]
-                target_loc = patrol_locs[i % len(patrol_locs)]
-                if unit.get("location") != target_loc:
-                    commands.append(f"police move {uid} {target_loc}")
-
-        return commands
-
+            weapon_name = unit.get("weapon", "警棍")  
+            weapon = make_weapon(weapon_name) if weapon_name else None  
+            if not weapon:  
+                weapon = make_weapon("警棍")  
+    
+            w_attr = weapon.attribute if weapon else Attribute.ORDINARY  
+            unit_loc = unit.get("location")  
+    
+            score = 0  
+            # 能有效打击目标护甲的加分  
+            if target_armor_attrs:  
+                effective_set = EFFECTIVE_AGAINST.get(w_attr, set())  
+                for armor_attr in target_armor_attrs:  
+                    if armor_attr in effective_set:  
+                        score += 10  
+                        break  
+            else:  
+                score += 5  # 无甲，任何武器都行  
+    
+            # 已在目标位置的加分（省一步 move）  
+            if unit_loc == target_loc:  
+                score += 20  
+    
+            if score > best_score:  
+                best_score = score  
+                best_unit = unit  
+    
+        if not best_unit:  
+            return None  
+    
+        uid = best_unit["id"]  
+        unit_loc = best_unit.get("location")  
+    
+        # 如果最佳警察不在目标位置，移动过去（交换机制会自动处理）  
+        if unit_loc != target_loc:  
+            return f"police move {uid} {target_loc}"  
+        else:  
+            # 检查是否会无效攻击（避免重复浪费）  
+            weapon_name = best_unit.get("weapon", "警棍")  
+            weapon = make_weapon(weapon_name) if weapon_name else make_weapon("警棍")  
+            w_attr = weapon.attribute if weapon else Attribute.ORDINARY  
+    
+            if target_armor_attrs:  
+                effective_set = EFFECTIVE_AGAINST.get(w_attr, set())  
+                can_hit = any(a in effective_set for a in target_armor_attrs)  
+                if not can_hit:  
+                    # 当前警察打不动，尝试换一个能打的过来  
+                    for other_unit in active_units:  
+                        if other_unit["id"] == uid:  
+                            continue  
+                        other_weapon = make_weapon(other_unit.get("weapon", "警棍"))  
+                        if other_weapon:  
+                            other_attr = other_weapon.attribute  
+                            other_effective = EFFECTIVE_AGAINST.get(other_attr, set())  
+                            if any(a in other_effective for a in target_armor_attrs):  
+                                # 把这个警察 move 到目标位置，会和当前警察交换  
+                                return f"police move {other_unit['id']} {target_loc}"  
+                    # 没有能打的警察，还是攻击（可能打到非克制的甲）  
+                    return f"police attack {uid} {target_player.name}"  
+    
+            return f"police attack {uid} {target_player.name}"
     # ════════════════════════════════════════════════════════
     #  命令生成器：政治行动
     # ════════════════════════════════════════════════════════
@@ -1427,9 +1662,16 @@ class BasicAIController(PlayerController):
                 commands.append(f"designate {best_target.name}")
 
         # 移动到警察局
-        if "move" in available and not commands and loc != "警察局":
-            if not is_police or (is_police and not is_captain):
-                commands.append("move 警察局")
+        # 移动到警察局（仅在需要 recruit 或 election 时）  
+        if "move" in available and not commands and loc != "警察局":  
+            if not is_police:  
+                # 还没加入警察，有基本装备后去  
+                if self._count_outer_armor(player) >= 1:  
+                    commands.append("move 警察局")  
+            elif is_police and not is_captain:  
+                # 已加入但还没当队长，去竞选  
+                commands.append("move 警察局")  
+            # 队长不需要回警察局
 
         return commands
 
