@@ -688,7 +688,7 @@ class PoliceEngine:
         if not weapon:
             weapon = make_weapon("警棍")
         if weapon is None:
-            return f"⚠️ {unit.unit_id} 无法创建武器，攻击取消"
+            return f"❌ {unit.unit_id} 无法创建武器，攻击取消"
 
         atk_result = self._resolve_police_attack_on_player(weapon, target)
         result = f"🚔 {unit.unit_id} 对 {target.name} 执法攻击（{weapon.name}）→ {atk_result}"
@@ -961,7 +961,7 @@ class PoliceEngine:
         if not weapon:  
             weapon = make_weapon("警棍")  
         if weapon is None:  
-            return f"⚠️ {unit.unit_id} 无法创建武器，攻击取消"  
+            return f"❌ {unit.unit_id} 无法创建武器，攻击取消"  
   
         # 使用 resolve_damage 进行伤害结算  
         result = resolve_damage(  

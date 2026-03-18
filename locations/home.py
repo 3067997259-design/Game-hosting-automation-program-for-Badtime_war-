@@ -20,7 +20,7 @@ def get_menu():
     return dict(HOME_MENU)
 
 
-def can_interact(player, item_name):
+def can_interact(player, item_name, game_state=None):
     """
     检查玩家能否在家中与指定项目交互。
     返回 (可以bool, 原因str)
@@ -31,7 +31,7 @@ def can_interact(player, item_name):
     return True, ""
 
 
-def do_interact(player, item_name):
+def do_interact(player, item_name, game_state=None):
     """
     执行家中交互。
     返回结果描述字符串。
@@ -51,6 +51,6 @@ def do_interact(player, item_name):
         if success:
             return f"{player.name} 获得了一面盾牌。"
         else:
-            return f"{player.name} 无法装备盾牌：{reason}"
+            return f"❌ {player.name} 无法装备盾牌：{reason}"
 
-    return "未知项目"
+    return "❌ 未知项目"

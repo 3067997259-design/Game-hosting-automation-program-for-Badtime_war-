@@ -51,6 +51,16 @@ def can_interact(player, item_name, game_state=None):
     # 需要凭证
     if player.vouchers < 1:
         return False, "你没有购买凭证（山姆会员）！请先获取凭证。"
+    
+
+    # 检查重复护甲  
+    if item_name == "陶瓷护甲":  
+        from models.equipment import make_armor  
+        test_armor = make_armor("陶瓷护甲")  
+        if test_armor:  
+            can_equip, equip_reason = player.armor.check_can_equip(test_armor)  
+            if not can_equip:  
+                return False, f"无法装备陶瓷护甲：{equip_reason}"
 
     return True, ""
 
@@ -97,4 +107,4 @@ def do_interact(player, item_name, game_state=None):
         player.add_item(make_item("防毒面具"))
         return f"{player.name} 获得了防毒面具，免疫病毒！😷"
 
-    return "未知项目"
+    return "❌ 未知项目"

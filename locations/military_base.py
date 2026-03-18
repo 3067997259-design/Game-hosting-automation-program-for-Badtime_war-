@@ -40,7 +40,15 @@ def can_interact(player, item_name, game_state=None):
     # 其他项目需要通行证
     if item_name in NEED_PASS and not player.has_military_pass:
         return False, "你需要先办理通行证或强买通行证才能使用军事基地设施"
-
+    
+    if item_name == "AT力场":  
+        from models.equipment import ArmorPiece, ArmorLayer  
+        from utils.attribute import Attribute  
+        test_armor = ArmorPiece("AT力场", Attribute.TECH, ArmorLayer.OUTER, 1.0, can_regen=True)  
+        can_equip, equip_reason = player.armor.check_can_equip(test_armor)  
+        if not can_equip:  
+            return False, f"无法装备AT力场：{equip_reason}"
+    
     return True, ""
 
 
@@ -99,7 +107,7 @@ def do_interact(player, item_name, game_state=None):
                 player.player_id, list(game_state.players.values()))
         return f"🫥 {player.name} 使用了隐形涂层，进入隐身状态！"
 
-    return "未知项目"
+    return "❌ 未知项目"
 
 
 def try_force_entry(player, game_state):

@@ -220,10 +220,7 @@ def validate_interact(player, item_name, game_state):
     loc_module = get_location_module(player.location)
     if loc_module is None:
         return False, f"当前位置没有可交互的项目。"
-    try:
-        can, reason = loc_module.can_interact(player, item_name)
-    except TypeError:
-        can, reason = loc_module.can_interact(player, item_name)
+    can, reason = loc_module.can_interact(player, item_name, game_state)
     if not can:
         return False, reason
     return True, ""

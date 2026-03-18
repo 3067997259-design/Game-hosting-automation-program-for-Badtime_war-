@@ -67,6 +67,6 @@ def do_interact(player, item_name, game_state=None):
         return "❌ 警察系统未初始化"
 
     if item_name == "唤醒警察":
-        return "请使用专用指令执行此操作（wake <警察ID>）"
+        return "❌ 请使用专用指令执行此操作（wake <警察ID>）"
 
-    return f"请使用专用指令执行此操作（如 report / recruit / election）"
+    return f"❌ 请使用专用指令执行此操作（如 report / recruit / election）"
