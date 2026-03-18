@@ -52,18 +52,24 @@ def execute(player, parsed, game_state):
         target = parsed.get("target")  
         if not target:  
             return "❌ 请指定攻击目标", {}  
+        # 修复：解析玩家名到player_id  
+        from cli.parser import resolve_player_target  
+        target_id = resolve_player_target(target, game_state)  
+        if not target_id:  
+            return f"❌ 找不到玩家「{target}」", {}  
         result = police_engine.captain_attack(  
             captain_id=player.player_id,  
             police_id=police_id,  
-            target_id=target  
+            target_id=target_id  # 现在传的是正确的player_id  
         )  
         return result, {}
     
-    elif subcommand == "wake":
-        result = police_engine.wake_police(
-            player_id=player.player_id,
-            police_id=police_id
-        )
-        return result, {}
+    elif subcommand == "wake":  
+            result = police_engine.wake_police(  
+                player_id=player.player_id,  
+                police_id=police_id,  
+                remote=True  # 队长可远程唤醒  
+            )  
+            return result, {}
     
     return "❌ 未知的警察子命令", {}

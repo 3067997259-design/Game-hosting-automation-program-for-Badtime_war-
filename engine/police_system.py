@@ -426,38 +426,41 @@ class PoliceEngine:
     #  唤醒警察  
     # ============================================  
   
-    def wake_police(self, player_id, police_id):  
+    def wake_police(self, player_id, police_id, remote=False):  
         """  
         玩家花1回合唤醒debuff中的警察。  
-        条件：玩家与警察在同一地点，警察处于四种debuff之一。  
+        条件：警察处于四种debuff之一。  
+        remote=False 时要求同地点（普通玩家）；  
+        remote=True 时跳过位置检查（队长远程唤醒）。  
         """  
         if self.police.permanently_disabled:  
             return "❌ 警察系统已永久关闭"  
-  
+    
         player = self.state.get_player(player_id)  
         if not player:  
             return "❌ 玩家不存在"  
-  
+    
         unit = self.police.get_unit(police_id)  
         if not unit:  
             return f"❌ 找不到警察单位 {police_id}"  
-  
+    
         if not unit.is_alive():  
             return f"❌ {police_id} 已被击杀，无法唤醒"  
-  
+    
         if not unit.is_disabled():  
             return f"❌ {police_id} 没有处于需要唤醒的状态"  
-  
-        if unit.location != player.location:  
+    
+        # 非远程模式需要同地点  
+        if not remote and unit.location != player.location:  
             return f"❌ 你与 {police_id} 不在同一地点"  
-  
-        # 检查沉沦+全息影像限制  
+    
+        # 检查沉沦+全息影像限制（远程也不能绕过）  
         if unit.is_submerged:  
             is_in_hologram = self._is_in_hologram_range(unit.location)  
             if is_in_hologram:  
                 return f"❌ {police_id} 处于沉沦状态且在全息影像范围内，无法被唤醒"  
-  
-        # 执行唤醒  
+    
+        # 执行唤醒（后续不变）  
         result = unit.wake_up()  
   
         if result.get("killed_by_petrify"):  
