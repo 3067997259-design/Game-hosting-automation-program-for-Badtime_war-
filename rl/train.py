@@ -160,12 +160,12 @@ class CurriculumCallback(BaseCallback):
   
         return True  
   
-def _update_envs(self, new_opponents: int):  
-        """更新所有子环境的对手数量（下次 reset 生效）。"""  
-        venv = self.training_env  
-        # set_attr works for both DummyVecEnv and SubprocVecEnv  
-        # It recursively penetrates wrappers (like Monitor) to set the attribute  
-        venv.set_attr("num_opponents", new_opponents)
+    def _update_envs(self, new_opponents: int):  
+            """更新所有子环境的对手数量（下次 reset 生效）。"""  
+            venv = self.training_env  
+            # set_attr works for both DummyVecEnv and SubprocVecEnv  
+            # It recursively penetrates wrappers (like Monitor) to set the attribute  
+            venv.set_attr("num_opponents", new_opponents)
   
   
 # ─────────────────────────────────────────────────────────────────────────────  
@@ -204,9 +204,9 @@ def train(args: argparse.Namespace):
         for i in range(args.n_envs)  
     ]  
     if args.n_envs > 1:  
-        train_env = SubprocVecEnv(env_fns, start_method="spawn")  
+        train_env = SubprocVecEnv(env_fns, start_method="spawn")   # type: ignore
     else:  
-        train_env = DummyVecEnv(env_fns)
+        train_env = DummyVecEnv(env_fns) # type: ignore
   
     # ── 评估环境 ──────────────────────────────────────────────────  
     eval_env = DummyVecEnv([  
