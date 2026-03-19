@@ -319,11 +319,11 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
                 continue  
             if item in SURGERY_ITEMS and not has_voucher:  
                 continue  
-            mask[IDX_INTERACT_BASE + i] = True
             # 法术前置检查  
             prereq = SPELL_PREREQUISITES.get(item)  
             if prereq and prereq not in getattr(player, 'learned_spells', set()):  
                 continue
+            mask[IDX_INTERACT_BASE + i] = True
   
     # ── 对手槽位存活状态（lock / find / attack 共用）─────────────  
     opponents = get_opponent_slots(player, game_state)  
