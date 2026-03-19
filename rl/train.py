@@ -68,7 +68,7 @@ def make_env(
 class WinRateCallback(BaseCallback):  
     """  
     每 `check_freq` 步统计最近 `window` 局的胜率并记录到 TensorBoard。  
-    依赖 Monitor wrapper 写入的 episode info。  
+    依赖 env.step() 在 info dict 中写入的 "winner" 字段。  
     """  
   
     def __init__(self, check_freq: int = 2048, window: int = 100, verbose: int = 0):  
@@ -76,35 +76,37 @@ class WinRateCallback(BaseCallback):
         self.check_freq = check_freq  
         self.window = window  
         self._episode_rewards: list[float] = []  
+        self._episode_wins: list[bool] = []  
   
     def _on_step(self) -> bool:  
-        # 收集 episode 结束信息  
         infos = self.locals.get("infos", [])  
         for info in infos:  
             ep_info = info.get("episode")  
             if ep_info is not None:  
                 self._episode_rewards.append(ep_info["r"])  
+                # 从 info dict 读取实际胜者（env.step 写入）  
+                winner = info.get("winner")  
+                self._episode_wins.append(winner == "rl_0")  
   
-        if self.n_calls % self.check_freq == 0 and self._episode_rewards:  
-            recent = self._episode_rewards[-self.window:]  
-            # 胜利 = 终局奖励 > 0（获胜时 terminal_reward = +100）  
-            wins = sum(1 for r in recent if r > 50)  
-            win_rate = wins / len(recent)  
-            mean_reward = np.mean(recent)  
+        if self.n_calls % self.check_freq == 0 and self._episode_wins:  
+            recent_wins = self._episode_wins[-self.window:]  
+            recent_rewards = self._episode_rewards[-self.window:]  
+            win_rate = sum(recent_wins) / len(recent_wins)  
+            mean_reward = np.mean(recent_rewards)  
   
             self.logger.record("custom/win_rate", win_rate)  
             self.logger.record("custom/mean_episode_reward", mean_reward)  
-            self.logger.record("custom/episodes_total", len(self._episode_rewards))  
+            self.logger.record("custom/episodes_total", len(self._episode_wins))  
   
             if self.verbose >= 1:  
                 print(  
                     f"[Step {self.num_timesteps}] "  
                     f"Win rate: {win_rate:.1%} | "  
                     f"Mean reward: {mean_reward:.1f} | "  
-                    f"Episodes: {len(self._episode_rewards)}"  
+                    f"Episodes: {len(self._episode_wins)}"  
                 )  
   
-        return True  
+        return True
   
   
 # ─────────────────────────────────────────────────────────────────────────────  

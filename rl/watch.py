@@ -72,7 +72,10 @@ def watch(model_path: str, num_opponents: int = 1, max_rounds: int = 50):
   
     obs, info = env.reset()  
     state = env._state  
-    player = env._rl_player  
+    player = env._rl_player
+    assert state is not None, "reset() 后 _state 不应为 None"  
+    assert player is not None, "reset() 后 _rl_player 不应为 None" 
+
   
     print(f"\n{'='*60}")  
     print(f"  对局开始: RL_Agent vs {num_opponents} AI")  
@@ -99,7 +102,7 @@ def watch(model_path: str, num_opponents: int = 1, max_rounds: int = 50):
         print(f"  HP: {player.hp:.1f}/{player.max_hp:.1f}")  
         print(f"  位置: {player.location or '未知'}")  
         print(f"  凭证: {player.vouchers}")  
-        weapons = [w.name for w in player.weapons] if player.weapons else []  
+        weapons = [w.name for w in player.weapons] if player.weapons else []   # type: ignore
         print(f"  武器: {weapons}")  
         armor_names = [a.name for a in player.armor.get_all_active()] if player.armor else []  
         print(f"  护甲: {armor_names}")  
