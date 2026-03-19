@@ -388,19 +388,19 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
   
  
     # ── special ───────────────────────────────────────────────────  
-        if "special" in available_set:  
-            owned = _player_owned_names(player)  
-            for si, op in enumerate(SPECIAL_OPS):  
-                req = SPECIAL_REQUIRES[op]  
-                if req is None:  
-                    # 释放病毒：检查在医院且病毒未激活  
-                    if op == "释放病毒":  
-                        if player.location == "医院" and not game_state.virus.is_active:  
-                            mask[IDX_SPECIAL_BASE + si] = True  
-                    else:  
+    if "special" in available_set:  
+        owned = _player_owned_names(player)  
+        for si, op in enumerate(SPECIAL_OPS):  
+            req = SPECIAL_REQUIRES[op]  
+            if req is None:  
+                # 释放病毒：检查在医院且病毒未激活  
+                if op == "释放病毒":  
+                    if player.location == "医院" and not game_state.virus.is_active:  
                         mask[IDX_SPECIAL_BASE + si] = True  
-                elif req in owned:  
-                    mask[IDX_SPECIAL_BASE + si] = True
+                else:  
+                    mask[IDX_SPECIAL_BASE + si] = True  
+            elif req in owned:  
+                mask[IDX_SPECIAL_BASE + si] = True
   
     # ── 警察行动 ──────────────────────────────────────────────────  
     if game_state.police_engine:  
