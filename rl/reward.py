@@ -170,13 +170,11 @@ def event_reward(events: List[Dict[str, Any]], player_id: str) -> float:
 
         # ── 成功找到目标（新增）──  
         if etype == "find" and event.get("player") == player_id:  
-            if event.get("success"):  
-                r += 2.0                # 建立面对面关系  
+            r += 2.0                # 建立面对面关系  
   
         # ── 成功锁定目标（新增）──  
         if etype == "lock" and event.get("player") == player_id:  
-            if event.get("success"):  
-                r += 1.5                # 建立远程锁定   
+            r += 1.5                # 建立远程锁定   
   
         # ── 我方被攻击 ──  
         if etype == "attack" and event.get("target") == player_id:  

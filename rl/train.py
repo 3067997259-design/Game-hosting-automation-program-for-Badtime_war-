@@ -160,18 +160,12 @@ class CurriculumCallback(BaseCallback):
   
         return True  
   
-    def _update_envs(self, new_opponents: int):  
+def _update_envs(self, new_opponents: int):  
         """更新所有子环境的对手数量（下次 reset 生效）。"""  
         venv = self.training_env  
-        # DummyVecEnv 的 envs 属性不在基类类型标注中  
-        sub_envs = getattr(venv, "envs", [])  
-        for sub_env in sub_envs:  
-            # 解包 Monitor → BadtimeWarEnv  
-            inner = sub_env  
-            while hasattr(inner, "env"):  
-                inner = inner.env  
-            if hasattr(inner, "num_opponents"):  
-                inner.num_opponents = new_opponents
+        # set_attr works for both DummyVecEnv and SubprocVecEnv  
+        # It recursively penetrates wrappers (like Monitor) to set the attribute  
+        venv.set_attr("num_opponents", new_opponents)
   
   
 # ─────────────────────────────────────────────────────────────────────────────  
@@ -198,17 +192,21 @@ def train(args: argparse.Namespace):
     else:  
         stages = []  
         initial_opponents = args.opponents
-    # ── 训练环境 ──────────────────────────────────────────────────  
-    train_env = DummyVecEnv([  
+# ── 训练环境 ──────────────────────────────────────────────────  
+    env_fns = [  
         make_env(  
             num_opponents=initial_opponents,  
             max_rounds=args.max_rounds,  
             seed=args.seed,  
-            rank=i, 
-            n_stack=args.n_stack, 
+            rank=i,  
+            n_stack=args.n_stack,  
         )  
         for i in range(args.n_envs)  
-    ])  
+    ]  
+    if args.n_envs > 1:  
+        train_env = SubprocVecEnv(env_fns, start_method="spawn")  
+    else:  
+        train_env = DummyVecEnv(env_fns)
   
     # ── 评估环境 ──────────────────────────────────────────────────  
     eval_env = DummyVecEnv([  
@@ -281,7 +279,6 @@ def train(args: argparse.Namespace):
     ]  
   
 
-    callbacks = CallbackList(callback_list)
     if args.curriculum:  
         callback_list.append(  
             CurriculumCallback(  
@@ -344,7 +341,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--timesteps", type=int, default=1_000_000,  
                    help="总训练步数")  
     p.add_argument("--n-envs", type=int, default=1,  
-                   help="并行环境数（线程模型下建议为 1）")  
+                   help="并行环境数（>1 时使用 SubprocVecEnv 多进程并行）") 
     p.add_argument("--seed", type=int, default=42,  
                    help="随机种子")  
   
