@@ -60,19 +60,23 @@ def _slot_name(slot: int, player, game_state) -> str:
     return opp.name if opp else f"slot{slot}(空)"  
   
   
-def watch(model_path: str, num_opponents: int = 1, max_rounds: int = 50):  
+def watch(model_path: str, num_opponents: int = 1, max_rounds: int = 50, n_stack: int = 1):  
     print(f"加载模型: {model_path}")  
     model = MaskablePPO.load(model_path)  
   
     env = BadtimeWarEnv(  
         num_opponents=num_opponents,  
         max_rounds=max_rounds,  
-        render_mode=None,  # 不显示游戏引擎输出，用我们自己的格式  
+        render_mode=None,  # 不显示游戏引擎输出，用我们自己的格式
+        n_stack=n_stack,
     )  
   
     obs, info = env.reset()  
     state = env._state  
-    player = env._rl_player  
+    player = env._rl_player
+    assert state is not None, "reset() 后 _state 不应为 None"  
+    assert player is not None, "reset() 后 _rl_player 不应为 None" 
+
   
     print(f"\n{'='*60}")  
     print(f"  对局开始: RL_Agent vs {num_opponents} AI")  
@@ -99,7 +103,7 @@ def watch(model_path: str, num_opponents: int = 1, max_rounds: int = 50):
         print(f"  HP: {player.hp:.1f}/{player.max_hp:.1f}")  
         print(f"  位置: {player.location or '未知'}")  
         print(f"  凭证: {player.vouchers}")  
-        weapons = [w.name for w in player.weapons] if player.weapons else []  
+        weapons = [w.name for w in player.weapons] if player.weapons else []   # type: ignore
         print(f"  武器: {weapons}")  
         armor_names = [a.name for a in player.armor.get_all_active()] if player.armor else []  
         print(f"  护甲: {armor_names}")  
@@ -151,7 +155,8 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description="观战 RL 对局")  
     p.add_argument("--model", type=str, required=True, help="模型路径 (.zip)")  
     p.add_argument("--opponents", type=int, default=1)  
-    p.add_argument("--max-rounds", type=int, default=50)  
+    p.add_argument("--max-rounds", type=int, default=50)
+    p.add_argument("--n-stack", type=int, default=6)   
     args = p.parse_args()  
   
-    watch(args.model, args.opponents, args.max_rounds)
+    watch(args.model, args.opponents, args.max_rounds, args.n_stack)

@@ -100,7 +100,8 @@ def potential(player, game_state) -> float:
   
     # === 发育维度 ===  
     phi += player.vouchers * 3                                  # 经济资源  
-    phi += len(_effective_weapons(player)) * 10                 # 有效武器数  
+    _unique_weapon_names = {w.name for w in _effective_weapons(player)}  
+    phi += min(len(_unique_weapon_names), 3) * 10                  # 有效武器种类（去重，上限3）  
     phi += _best_weapon_damage(player) * 8                      # 最强武器伤害  
     phi += len(getattr(player, "learned_spells", set())) * 5    # 已学法术  
     phi += 8 if getattr(player, "has_military_pass", False) else 0  
@@ -253,30 +254,13 @@ class RewardTracker:
         self._event_cursor = len(game_state.event_log)  
   
     # ─────────────────────────────────────────────────────────────────────  
-    def compute(  
-        self,  
-        player,  
-        game_state,  
-        action_type: str,  
-        action_success: bool,  
-    ) -> float:  
-        """  
-        计算本次 step 的总奖励。  
-  
-        参数  
-        ----  
-        player         : RL 玩家对象（step 后的状态）  
-        game_state     : step 后的 GameState  
-        action_type    : 本次执行的动作类型  
-        action_success : _execute_action 返回的 success 标志  
-  
-        返回  
-        ----  
-        float : 总奖励  
-        """  
+# ── 第 277-308 行，compute() 方法 ──  
+# 移除终局 early return，让所有四层都参与计算  
+    
+    def compute(self, player, game_state, action_type, action_success) -> float:  
         total = 0.0  
-  
-        # ── 第一层：终局奖励 ──────────────────────────────────────  
+    
+        # ── 第一层：终局奖励 ──  
         if game_state.game_over:  
             winner = game_state.winner  
             if winner == self.rl_player_id:  
@@ -284,26 +268,29 @@ class RewardTracker:
             elif winner == "nobody":  
                 total += -50.0  
             else:  
-                # 其他人获胜 → RL 玩家死亡  
                 total += -100.0  
-            # 终局时跳过 shaping，直接返回  
-            return total  
-  
-        # ── 第二层：势函数差分 ────────────────────────────────────  
-        curr_potential = potential(player, game_state)  
-        shaping = self.gamma * curr_potential - self._prev_potential  
-        self._prev_potential = curr_potential  
+            # 不再 return，继续计算 shaping 等层  
+    
+        # ── 第二层：势函数差分 ──  
+        if game_state.game_over:  
+            # 终局：Phi(terminal) = 0（PBRS 理论要求）  
+            shaping = 0.0 * self.gamma - self._prev_potential  
+            self._prev_potential = 0.0  
+        else:  
+            curr_potential = potential(player, game_state)  
+            shaping = self.gamma * curr_potential - self._prev_potential  
+            self._prev_potential = curr_potential  
         total += shaping  
-  
-        # ── 第三层：事件驱动奖励 ──────────────────────────────────  
+    
+        # ── 第三层：事件驱动奖励 ──  
         new_events = game_state.event_log[self._event_cursor:]  
         self._event_cursor = len(game_state.event_log)  
         total += self.alpha * event_reward(new_events, self.rl_player_id)  
-  
-        # ── 第四层：行为惩罚 ──────────────────────────────────────  
+    
+        # ── 第四层：行为惩罚 ──  
         total += self.beta * behavior_penalty(  
             player, game_state, action_type, action_success  
         )  
-  
+    
         return total
   

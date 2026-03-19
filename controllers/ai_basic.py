@@ -541,6 +541,14 @@ class BasicAIController(PlayerController):
                 return candidates
 
         # L530-549 整段替换为：  
+        # ===== 病毒应急 =====
+        if self._needs_virus_cure(player, state):
+            debug_ai_basic(player.name, "进入病毒应急模式")
+            candidates.extend(self._cmd_virus(player, state, available_actions))
+            if candidates:
+                candidates.append("forfeit")
+                return candidates       
+        
         # ===== 极危险情况 / 持续危险模式 =====  
         if self._is_critical(player, state):  
             self._danger_mode = True  
@@ -561,13 +569,7 @@ class BasicAIController(PlayerController):
                     candidates.append("forfeit")  
                     return candidates
 
-        # ===== 病毒应急 =====
-        if self._needs_virus_cure(player, state):
-            debug_ai_basic(player.name, "进入病毒应急模式")
-            candidates.extend(self._cmd_virus(player, state, available_actions))
-            if candidates:
-                candidates.append("forfeit")
-                return candidates
+
         # ===== 战斗状态 =====  
         if self._in_combat and self._combat_target:  
             if self._should_continue_combat(player, self._combat_target):  
@@ -2344,7 +2346,9 @@ class BasicAIController(PlayerController):
                 if vouchers >= 1 and outer < 2 and not self._has_armor_by_name(player, "陶瓷护甲"):  
                     commands.append("interact 陶瓷护甲")  
                 if vouchers < 1:  
-                    commands.append("interact 打工")  
+                    commands.append("interact 打工")
+                if not self._has_virus_immunity(player) and getattr(state, 'virus', None) and getattr(state.virus, 'is_active', False):  
+                    commands.insert(0, "interact 防毒面具")  # 插到最前面
             elif loc == "魔法所":  
                 learned = self._get_learned_spells(player)  
                 if "魔法护盾" not in learned and outer < 2:  
