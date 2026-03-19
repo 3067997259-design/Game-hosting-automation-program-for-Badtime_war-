@@ -287,9 +287,33 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
   
     # ── interact ─────────────────────────────────────────────────  
     if "interact" in available_set:  
+        norm_loc = _normalize_location(player.location)  
+        has_voucher = player.vouchers >= 1  
+        has_pass = getattr(player, 'has_military_pass', False)  
+    
+        # Items that are free (no voucher needed)  
+        FREE_ITEMS = {"凭证", "小刀", "盾牌", "打工", "防毒面具",  
+                    "魔法护盾", "魔法弹幕", "远程魔法弹幕", "封闭",  
+                    "地震", "地动山摇", "隐身术", "探测魔法",  
+                    "办理通行证"}  
+        # Items at 商店 that need vouchers (not free)  
+        SHOP_NEEDS_VOUCHER = {"磨刀石", "隐身衣", "热成像仪", "陶瓷护甲"}  
+        # Items at 军事基地 that need pass  
+        MILITARY_NEEDS_PASS = {"AT力场", "电磁步枪", "导弹控制权", "高斯步枪", "雷达", "隐形涂层"}  
+        # Items at 医院 that are surgery (need vouchers, consume all)  
+        SURGERY_ITEMS = {"晶化皮肤手术", "额外心脏手术", "不老泉手术"}  
+    
         for i, item in enumerate(INTERACT_ITEMS):  
-            if _normalize_location(player.location) in ITEM_LOCATIONS.get(item, set()):
-                mask[IDX_INTERACT_BASE + i] = True  
+            if norm_loc not in ITEM_LOCATIONS.get(item, set()):  
+                continue  
+            # Check voucher/pass requirements  
+            if item in SHOP_NEEDS_VOUCHER and not has_voucher:  
+                continue  
+            if item in MILITARY_NEEDS_PASS and not has_pass:  
+                continue  
+            if item in SURGERY_ITEMS and not has_voucher:  
+                continue  
+            mask[IDX_INTERACT_BASE + i] = True
   
     # ── 对手槽位存活状态（lock / find / attack 共用）─────────────  
     opponents = get_opponent_slots(player, game_state)  
@@ -306,21 +330,45 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
   
     # ── find ─────────────────────────────────────────────────────  
     if "find" in available_set:  
-        for slot, alive in enumerate(alive_flags):  
-            if alive:  
-                mask[IDX_FIND_BASE + slot] = True  
+        for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):  
+            if alive and opp is not None and opp.location == player.location:  
+                mask[IDX_FIND_BASE + slot] = True 
   
     # ── attack ────────────────────────────────────────────────────  
     if "attack" in available_set:  
+        from models.equipment import WeaponRange  
         owned = _player_owned_names(player)  
-        owned.add("拳击")   # 拳击始终可用，无需持有  
-  
-        for slot, alive in enumerate(alive_flags):  
-            if not alive:  
+        owned.add("拳击")  
+    
+        # Pre-compute weapon range lookup  
+        weapon_ranges = {}  
+        for w in (player.weapons or []):  
+            if w:  
+                weapon_ranges[w.name] = getattr(w, 'weapon_range', WeaponRange.MELEE)  
+        weapon_ranges["拳击"] = WeaponRange.MELEE  # 拳击 is always melee  
+    
+        markers = game_state.markers  
+    
+        for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):  
+            if not alive or opp is None:  
                 continue  
+            same_loc = (opp.location == player.location)  
+            is_engaged = markers.has_relation(player.player_id, "ENGAGED_WITH", opp.player_id)  
+            is_locked = markers.has_relation(opp.player_id, "LOCKED_BY", player.player_id)  
+    
             for wi, wname in enumerate(WEAPONS):  
-                if wname in owned:  
-                    mask[IDX_ATTACK_BASE + slot * 10 + wi] = True  
+                if wname not in owned:  
+                    continue  
+                wr = weapon_ranges.get(wname, WeaponRange.MELEE)  
+                if wr == WeaponRange.MELEE:  
+                    if same_loc and is_engaged:  
+                        mask[IDX_ATTACK_BASE + slot * 10 + wi] = True  
+                elif wr == WeaponRange.RANGED:  
+                    if is_locked:  
+                        mask[IDX_ATTACK_BASE + slot * 10 + wi] = True  
+                elif wr == WeaponRange.AREA:  
+                    if same_loc:  
+                        mask[IDX_ATTACK_BASE + slot * 10 + wi] = True
   
     # ── special ───────────────────────────────────────────────────  
     if "special" in available_set:  
@@ -328,10 +376,12 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
         for si, op in enumerate(SPECIAL_OPS):  
             req = SPECIAL_REQUIRES[op]  
             if req is None:  
-                # 释放病毒：条件复杂，保守放行，由引擎验证  
-                mask[IDX_SPECIAL_BASE + si] = True  
-            elif req in owned:  
-                mask[IDX_SPECIAL_BASE + si] = True  
+                # 释放病毒：检查在医院且病毒未激活  
+                if op == "释放病毒":  
+                    if player.location == "医院" and not game_state.virus.is_active:  
+                        mask[IDX_SPECIAL_BASE + si] = True  
+                else:  
+                    mask[IDX_SPECIAL_BASE + si] = True 
   
     # ── 警察行动 ──────────────────────────────────────────────────  
     if game_state.police_engine:  
