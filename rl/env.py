@@ -194,7 +194,10 @@ class BadtimeWarEnv(gym.Env):
   
     # ══════════════════════════════════════════════════════════════════════════  
     #  reset  
-    # ══════════════════════════════════════════════════════════════════════════  
+    # ══════════════════════════════════════════════════════════════════════════ 
+    def set_num_opponents(self, n: int):  
+        """供 CurriculumCallback 远程调用，下次 reset 时生效。"""  
+        self.num_opponents = n
   
     def reset(self, *, seed=None, options=None):  
         super().reset(seed=seed)  
