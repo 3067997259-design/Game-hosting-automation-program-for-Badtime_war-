@@ -198,17 +198,21 @@ def train(args: argparse.Namespace):
     else:  
         stages = []  
         initial_opponents = args.opponents
-    # ── 训练环境 ──────────────────────────────────────────────────  
-    train_env = DummyVecEnv([  
+# ── 训练环境 ──────────────────────────────────────────────────  
+    env_fns = [  
         make_env(  
             num_opponents=initial_opponents,  
             max_rounds=args.max_rounds,  
             seed=args.seed,  
-            rank=i, 
-            n_stack=args.n_stack, 
+            rank=i,  
+            n_stack=args.n_stack,  
         )  
         for i in range(args.n_envs)  
-    ])  
+    ]  
+    if args.n_envs > 1:  
+        train_env = SubprocVecEnv(env_fns, start_method="spawn")  
+    else:  
+        train_env = DummyVecEnv(env_fns)
   
     # ── 评估环境 ──────────────────────────────────────────────────  
     eval_env = DummyVecEnv([  
