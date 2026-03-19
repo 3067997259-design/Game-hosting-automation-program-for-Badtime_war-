@@ -60,14 +60,15 @@ def _slot_name(slot: int, player, game_state) -> str:
     return opp.name if opp else f"slot{slot}(空)"  
   
   
-def watch(model_path: str, num_opponents: int = 1, max_rounds: int = 50):  
+def watch(model_path: str, num_opponents: int = 1, max_rounds: int = 50, n_stack: int = 1):  
     print(f"加载模型: {model_path}")  
     model = MaskablePPO.load(model_path)  
   
     env = BadtimeWarEnv(  
         num_opponents=num_opponents,  
         max_rounds=max_rounds,  
-        render_mode=None,  # 不显示游戏引擎输出，用我们自己的格式  
+        render_mode=None,  # 不显示游戏引擎输出，用我们自己的格式
+        n_stack=n_stack,
     )  
   
     obs, info = env.reset()  
@@ -154,7 +155,8 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description="观战 RL 对局")  
     p.add_argument("--model", type=str, required=True, help="模型路径 (.zip)")  
     p.add_argument("--opponents", type=int, default=1)  
-    p.add_argument("--max-rounds", type=int, default=50)  
+    p.add_argument("--max-rounds", type=int, default=50)
+    p.add_argument("--n-stack", type=int, default=6)   
     args = p.parse_args()  
   
-    watch(args.model, args.opponents, args.max_rounds)
+    watch(args.model, args.opponents, args.max_rounds, args.n_stack)

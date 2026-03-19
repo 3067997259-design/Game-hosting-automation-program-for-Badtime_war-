@@ -47,13 +47,15 @@ def make_env(
     num_opponents: int = 3,  
     max_rounds: int = 50,  
     seed: int = 0,  
-    rank: int = 0,  
+    rank: int = 0,
+    n_stack: int = 1, 
 ):  
     """返回一个创建 BadtimeWarEnv 的闭包，供 DummyVecEnv 使用。"""  
     def _init():  
         env = BadtimeWarEnv(  
             num_opponents=num_opponents,  
-            max_rounds=max_rounds,  
+            max_rounds=max_rounds,
+            n_stack=n_stack,  
         )  
         env = Monitor(env)  
         env.reset(seed=seed + rank)  
@@ -107,6 +109,69 @@ class WinRateCallback(BaseCallback):
                 )  
   
         return True
+
+class CurriculumCallback(BaseCallback):  
+    """  
+    课程学习回调：当胜率超过阈值时，增加对手数量。  
+    """  
+  
+    def __init__(  
+        self,  
+        stages: list[int],  
+        win_threshold: float = 0.55,  
+        window: int = 200,  
+        verbose: int = 0,  
+    ):  
+        super().__init__(verbose)  
+        self.stages = stages          # e.g. [1, 2, 3]  
+        self.win_threshold = win_threshold  
+        self.window = window  
+        self._current_stage = 0  
+        self._episode_wins: list[bool] = []  
+  
+    def _on_step(self) -> bool:  
+        infos = self.locals.get("infos", [])  
+        for info in infos:  
+            ep_info = info.get("episode")  
+            if ep_info is not None:  
+                winner = info.get("winner", None)  
+                self._episode_wins.append(winner == "rl_0")  
+  
+        # 检查是否升级  
+        if (  
+            self._current_stage < len(self.stages) - 1  
+            and len(self._episode_wins) >= self.window  
+        ):  
+            recent = self._episode_wins[-self.window:]  
+            win_rate = sum(recent) / len(recent)  
+  
+            if win_rate >= self.win_threshold:  
+                self._current_stage += 1  
+                new_opponents = self.stages[self._current_stage]  
+                self._update_envs(new_opponents)  
+                self._episode_wins.clear()  # 重置统计  
+  
+                if self.verbose >= 1:  
+                    print(  
+                        f"\n[Curriculum] 升级! 对手数: {new_opponents} "  
+                        f"(stage {self._current_stage}/{len(self.stages)-1}, "  
+                        f"win_rate={win_rate:.1%})\n"  
+                    )  
+  
+        return True  
+  
+    def _update_envs(self, new_opponents: int):  
+        """更新所有子环境的对手数量（下次 reset 生效）。"""  
+        venv = self.training_env  
+        # DummyVecEnv 的 envs 属性不在基类类型标注中  
+        sub_envs = getattr(venv, "envs", [])  
+        for sub_env in sub_envs:  
+            # 解包 Monitor → BadtimeWarEnv  
+            inner = sub_env  
+            while hasattr(inner, "env"):  
+                inner = inner.env  
+            if hasattr(inner, "num_opponents"):  
+                inner.num_opponents = new_opponents
   
   
 # ─────────────────────────────────────────────────────────────────────────────  
@@ -126,15 +191,21 @@ def train(args: argparse.Namespace):
     log_dir = Path("logs") / run_name  
     ckpt_dir = Path("checkpoints") / run_name  
     log_dir.mkdir(parents=True, exist_ok=True)  
-    ckpt_dir.mkdir(parents=True, exist_ok=True)  
-  
+    ckpt_dir.mkdir(parents=True, exist_ok=True) 
+    if args.curriculum:  
+        stages = list(range(1, args.opponents + 1))  
+        initial_opponents = stages[0]  
+    else:  
+        stages = []  
+        initial_opponents = args.opponents
     # ── 训练环境 ──────────────────────────────────────────────────  
     train_env = DummyVecEnv([  
         make_env(  
-            num_opponents=args.opponents,  
+            num_opponents=initial_opponents,  
             max_rounds=args.max_rounds,  
             seed=args.seed,  
-            rank=i,  
+            rank=i, 
+            n_stack=args.n_stack, 
         )  
         for i in range(args.n_envs)  
     ])  
@@ -145,7 +216,8 @@ def train(args: argparse.Namespace):
             num_opponents=args.opponents,  
             max_rounds=args.max_rounds,  
             seed=args.seed + 1000,  
-            rank=0,  
+            rank=0, 
+            n_stack=args.n_stack, 
         )  
     ])  
   
@@ -180,7 +252,8 @@ def train(args: argparse.Namespace):
         )  
   
     # ── 回调 ─────────────────────────────────────────────────────  
-    callbacks = CallbackList([  
+# ── 回调 ─────────────────────────────────────────────────────  
+    callback_list = [  
         # 定期保存 checkpoint  
         CheckpointCallback(  
             save_freq=max(args.ckpt_freq // args.n_envs, 1),  
@@ -204,7 +277,21 @@ def train(args: argparse.Namespace):
             window=100,  
             verbose=1,  
         ),  
-    ])  
+    ]  
+  
+
+    callbacks = CallbackList(callback_list)
+    if args.curriculum:  
+        callback_list.append(  
+            CurriculumCallback(  
+                stages=stages,  
+                win_threshold=args.curriculum_threshold,  
+                window=200,  
+                verbose=1,  
+            )  
+        )  
+    
+    callbacks = CallbackList(callback_list)
   
     # ── 训练 ─────────────────────────────────────────────────────  
     print(f"开始训练: {run_name}")  
@@ -288,7 +375,16 @@ def parse_args() -> argparse.Namespace:
   
     # 恢复训练  
     p.add_argument("--resume", type=str, default=None,  
-                   help="从已有模型恢复训练（.zip 路径）")  
+                   help="从已有模型恢复训练（.zip 路径）")
+    # 帧堆叠  
+    p.add_argument("--n-stack", type=int, default=4,  
+                help="帧堆叠数量（1=不堆叠，4=堆叠最近4帧）")  
+    
+    # 课程学习  
+    p.add_argument("--curriculum", action="store_true",  
+                help="启用课程学习（从1个对手逐步增加到 --opponents 个）")  
+    p.add_argument("--curriculum-threshold", type=float, default=0.55,  
+                help="课程升级胜率阈值")
   
     return p.parse_args()  
   

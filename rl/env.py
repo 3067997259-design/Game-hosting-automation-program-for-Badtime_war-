@@ -146,19 +146,23 @@ class BadtimeWarEnv(gym.Env):
         self,  
         num_opponents: int = 3,  
         max_rounds: int = 50,  
-        render_mode: Optional[str] = None,  
+        render_mode: Optional[str] = None,
+        n_stack: int = 1, 
     ):  
         super().__init__()  
   
         self.num_opponents = num_opponents  
         self.max_rounds = max_rounds  
-        self.render_mode = render_mode  
+        self.render_mode = render_mode
+        self.n_stack = n_stack 
   
         # ── Gym 空间 ──  
         self.observation_space = spaces.Box(  
-            low=-1.0, high=1.0, shape=(OBS_DIM,), dtype=np.float32  
+            low=-1.0, high=1.0, shape=(OBS_DIM * n_stack,), dtype=np.float32  
         )  
-        self.action_space = spaces.Discrete(ACTION_COUNT)  
+        self.action_space = spaces.Discrete(ACTION_COUNT)
+        # ── 帧堆叠缓冲 ──                       
+        self._obs_stack = np.zeros(OBS_DIM * n_stack, dtype=np.float32) 
   
         # ── 内部状态（reset 时初始化）──  
         self._state: Optional[GameState] = None  
@@ -176,7 +180,16 @@ class BadtimeWarEnv(gym.Env):
   
         # ── 临时引用（由 _SyncRLController 写入）──  
         self._current_player = None  
-        self._current_game_state = None  
+        self._current_game_state = None
+
+    def _stack_obs(self, raw_obs: np.ndarray) -> np.ndarray:  
+        """将新观测推入帧堆叠缓冲，返回拼接后的完整观测。"""  
+        if self.n_stack <= 1:  
+            return raw_obs  
+        # 左移旧帧，新帧放最右  
+        self._obs_stack[:-OBS_DIM] = self._obs_stack[OBS_DIM:]  
+        self._obs_stack[-OBS_DIM:] = raw_obs  
+        return self._obs_stack.copy()
   
     # ══════════════════════════════════════════════════════════════════════════  
     #  reset  
@@ -230,7 +243,9 @@ class BadtimeWarEnv(gym.Env):
         assert self._reward_tracker is not None
         self._reward_tracker.reset(self._rl_player, self._state)  
   
-        obs = build_obs(self._rl_player, self._state)  
+        self._obs_stack = np.zeros(OBS_DIM * self.n_stack, dtype=np.float32)  # 重置缓冲  
+        raw_obs = build_obs(self._rl_player, self._state)  
+        obs = self._stack_obs(raw_obs) 
         info = {"action_masks": self.action_masks()}  
   
         return obs, info  
@@ -248,7 +263,8 @@ class BadtimeWarEnv(gym.Env):
     
         # 游戏已在上一步结束（防御性检查）  
         if self._game_over_flag or (self._state and self._state.game_over):  
-            obs = build_obs(self._rl_player, self._state)  
+            raw_obs = build_obs(self._rl_player, self._state)  
+            obs = self._stack_obs(raw_obs)
             reward = self._reward_tracker.compute(  
                 self._rl_player, self._state, "forfeit", False  
             )  
@@ -296,7 +312,8 @@ class BadtimeWarEnv(gym.Env):
             self._rl_player, self._state, action_type, action_success  
         )  
     
-        obs = build_obs(self._rl_player, self._state)  
+        raw_obs = build_obs(self._rl_player, self._state)  
+        obs = self._stack_obs(raw_obs)
         info = {"action_masks": self.action_masks()}  
     
         # ★ 传递实际胜者给 WinRateCallback  
