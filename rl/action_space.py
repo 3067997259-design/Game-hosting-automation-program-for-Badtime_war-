@@ -143,7 +143,13 @@ SPECIAL_REQUIRES: dict[str, Optional[str]] = {
     "蓄力电磁步枪": "电磁步枪",  
     "蓄力高斯步枪": "高斯步枪",  
     "释放病毒":     None,   # 需在医院且病毒已激活，由引擎验证  
-}  
+}
+
+# 法术前置依赖（与 magic_institute.PREREQUISITES 保持一致）  
+SPELL_PREREQUISITES: dict[str, str] = {  
+    "远程魔法弹幕": "魔法弹幕",  
+    "地动山摇": "地震",  
+}
 
 def _normalize_location(loc: str | None) -> str:  
     """将 home_xxx 归一化为 home，None 归一化为空字符串"""  
@@ -307,12 +313,16 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
             if norm_loc not in ITEM_LOCATIONS.get(item, set()):  
                 continue  
             # Check voucher/pass requirements  
-            if item in SHOP_NEEDS_VOUCHER and not has_voucher:  
-                continue  
+            if item in SHOP_NEEDS_VOUCHER and not has_voucher and not game_state.virus.is_active:  
+                continue
             if item in MILITARY_NEEDS_PASS and not has_pass:  
                 continue  
             if item in SURGERY_ITEMS and not has_voucher:  
                 continue  
+            # 法术前置检查  
+            prereq = SPELL_PREREQUISITES.get(item)  
+            if prereq and prereq not in getattr(player, 'learned_spells', set()):  
+                continue
             mask[IDX_INTERACT_BASE + i] = True
   
     # ── 对手槽位存活状态（lock / find / attack 共用）─────────────  
@@ -324,15 +334,21 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
   
     # ── lock ─────────────────────────────────────────────────────  
     if "lock" in available_set:  
-        for slot, alive in enumerate(alive_flags):  
-            if alive:  
-                mask[IDX_LOCK_BASE + slot] = True  
+            for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):  
+                if alive and opp is not None and opp.is_on_map():  
+                    visible = game_state.markers.is_visible_to(  
+                        opp.player_id, player.player_id, player.has_detection)  
+                    if visible:  
+                        mask[IDX_LOCK_BASE + slot] = True
   
     # ── find ─────────────────────────────────────────────────────  
     if "find" in available_set:  
-        for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):  
-            if alive and opp is not None and opp.location == player.location:  
-                mask[IDX_FIND_BASE + slot] = True 
+            for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):  
+                if alive and opp is not None and opp.location == player.location:  
+                    visible = game_state.markers.is_visible_to(  
+                        opp.player_id, player.player_id, player.has_detection)  
+                    if visible:  
+                        mask[IDX_FIND_BASE + slot] = True
   
     # ── attack ────────────────────────────────────────────────────  
     if "attack" in available_set:  
@@ -370,6 +386,7 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
                     if same_loc:  
                         mask[IDX_ATTACK_BASE + slot * 10 + wi] = True
   
+ 
     # ── special ───────────────────────────────────────────────────  
     if "special" in available_set:  
         owned = _player_owned_names(player)  
@@ -381,7 +398,9 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
                     if player.location == "医院" and not game_state.virus.is_active:  
                         mask[IDX_SPECIAL_BASE + si] = True  
                 else:  
-                    mask[IDX_SPECIAL_BASE + si] = True 
+                    mask[IDX_SPECIAL_BASE + si] = True  
+            elif req in owned:  
+                mask[IDX_SPECIAL_BASE + si] = True
   
     # ── 警察行动 ──────────────────────────────────────────────────  
     if game_state.police_engine:  
