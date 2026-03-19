@@ -216,8 +216,8 @@ def behavior_penalty(player, game_state, action_type, action_success) -> float:
     else:  
         player._rl_fail_streak = 0       # 成功则重置  
   
-    if game_state.current_round > 30:  
-        r -= 0.1 * (game_state.current_round - 30)  
+    if game_state.current_round > 70:  
+        r -= 0.15 * (game_state.current_round - 70)  
   
     return r 
   

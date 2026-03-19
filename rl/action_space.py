@@ -375,7 +375,10 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
             for wi, wname in enumerate(WEAPONS):  
                 if wname not in owned:  
                     continue  
-                wr = weapon_ranges.get(wname, WeaponRange.MELEE)  
+                wr = weapon_ranges.get(wname, WeaponRange.MELEE)
+                w_obj = next((w for w in (player.weapons or []) if w and w.name == wname), None)  
+                if w_obj and w_obj.requires_charge and getattr(w_obj, 'charge_mandatory', True) and not w_obj.is_charged:  
+                    continue  # 需要蓄力但未蓄力，跳过    
                 if wr == WeaponRange.MELEE:  
                     if same_loc and is_engaged:  
                         mask[IDX_ATTACK_BASE + slot * 10 + wi] = True  

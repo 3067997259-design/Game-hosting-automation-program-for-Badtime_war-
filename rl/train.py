@@ -45,7 +45,7 @@ from rl.env import BadtimeWarEnv
   
 def make_env(  
     num_opponents: int = 3,  
-    max_rounds: int = 50,  
+    max_rounds: int = 100,  
     seed: int = 0,  
     rank: int = 0,
     n_stack: int = 1, 
@@ -225,7 +225,8 @@ def train(args: argparse.Namespace):
         model = MaskablePPO.load(  
             args.resume,  
             env=train_env,  
-            tensorboard_log=str(log_dir),  
+            tensorboard_log=str(log_dir),
+            learning_rate=args.lr,  # ← 加这一行    
         )  
     else:  
         model = MaskablePPO(  
@@ -333,7 +334,7 @@ def parse_args() -> argparse.Namespace:
     # 环境参数  
     p.add_argument("--opponents", type=int, default=3,  
                    help="对手数量 (1-5)")  
-    p.add_argument("--max-rounds", type=int, default=50,  
+    p.add_argument("--max-rounds", type=int, default=100,  
                    help="每局最大轮数")  
   
     # 训练参数  
