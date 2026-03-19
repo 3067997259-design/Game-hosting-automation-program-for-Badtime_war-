@@ -29,7 +29,8 @@ from controllers.ai_basic import BasicAIController
 from engine.game_state import GameState  
 from engine.round_manager import RoundManager  
 from models.player import Player
-from cli import display as _display_module  
+from cli import display as _display_module
+from controllers.ai_basic import create_random_ai_controller  
   
 _DISPLAY_FUNCS = [  
     "show_banner", "show_round_header", "show_phase", "show_d4_results",  
@@ -213,7 +214,7 @@ class BadtimeWarEnv(gym.Env):
   
         # 创建 AI 对手  
         for i in range(self.num_opponents):  
-            ai_ctrl = BasicAIController()  
+            ai_ctrl = create_random_ai_controller(player_name=f"AI_{i}")  
             p = Player(f"ai_{i}", f"AI_{i}", ai_ctrl)  
             self._state.add_player(p)  
   

@@ -114,13 +114,25 @@ def potential(player, game_state) -> float:
     if alive_count > 0:  
         phi += (1.0 / alive_count) * 30                        # 存活比例  
   
-    # === 警察维度 ===  
+    # === 战斗准备维度（新增）===  
+    markers = game_state.markers  
+    for p in game_state.alive_players():  
+        if p.player_id == player.player_id:  
+            continue  
+        # 已面对面 = 可以近战攻击  
+        if markers.has_relation(player.player_id, "ENGAGED_WITH", p.player_id):  
+            phi += 8  
+        # 已锁定 = 可以远程攻击  
+        if markers.has_relation(p.player_id, "LOCKED_BY", player.player_id):  
+            phi += 6  
+  
+    # === 降低警察维度权重 ===  
     if player.is_captain:  
-        phi += 20 + game_state.police.authority * 5  
+        phi += 12 + game_state.police.authority * 3   # 原来是 20 + 5*auth  
     elif getattr(player, "has_police_protection", False):  
-        phi += 10  
+        phi += 5                                       # 原来是 10  
     if player.is_criminal:  
-        phi -= 15  
+        phi -= 8                                       # 原来是 -15  
   
     return phi  
   
@@ -154,7 +166,17 @@ def event_reward(events: List[Dict[str, Any]], player_id: str) -> float:
                 if result.get("killed"):  
                     r += 20.0                                # 击杀  
             else:  
-                r -= 1.0                                     # 攻击未命中/被克制  
+                r -= 1.0                                     # 攻击未命中/被克制 =
+
+        # ── 成功找到目标（新增）──  
+        if etype == "find" and event.get("player") == player_id:  
+            if event.get("success"):  
+                r += 2.0                # 建立面对面关系  
+  
+        # ── 成功锁定目标（新增）──  
+        if etype == "lock" and event.get("player") == player_id:  
+            if event.get("success"):  
+                r += 1.5                # 建立远程锁定   
   
         # ── 我方被攻击 ──  
         if etype == "attack" and event.get("target") == player_id:  
@@ -182,37 +204,24 @@ def event_reward(events: List[Dict[str, Any]], player_id: str) -> float:
 #  第四层：行为惩罚  
 # ─────────────────────────────────────────────────────────────────────────────  
   
-def behavior_penalty(  
-    player,  
-    game_state,  
-    action_type: str,  
-    action_success: bool,  
-) -> float:  
-    """  
-    防止退化策略的惩罚项。  
-  
-    参数  
-    ----  
-    player         : RL 玩家对象  
-    game_state     : 当前 GameState  
-    action_type    : 本次执行的动作类型（如 "forfeit", "move", "attack" 等）  
-    action_success : _execute_action 返回的 success 标志  
-    """  
+def behavior_penalty(player, game_state, action_type, action_success) -> float:  
     r = 0.0  
   
-    # 连续放弃行动：递增惩罚  
     if action_type == "forfeit":  
         r -= 0.5 * player.no_action_streak  
   
-    # 无效行动（命令被 validate 拒绝）  
     if not action_success:  
-        r -= 2.0  
+        # 递增惩罚：连续失败越多越痛  
+        fail_streak = getattr(player, '_rl_fail_streak', 0) + 1  
+        player._rl_fail_streak = fail_streak  
+        r -= 2.0 * fail_streak          # 第1次-2, 第2次-4, 第3次-6...  
+    else:  
+        player._rl_fail_streak = 0       # 成功则重置  
   
-    # 过长对局惩罚（鼓励推进游戏）  
     if game_state.current_round > 30:  
         r -= 0.1 * (game_state.current_round - 30)  
   
-    return r  
+    return r 
   
   
 # ─────────────────────────────────────────────────────────────────────────────  
