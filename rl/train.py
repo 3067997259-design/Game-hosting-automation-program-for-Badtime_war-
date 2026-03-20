@@ -142,8 +142,11 @@ class CurriculumCallback(BaseCallback):
         # Per-stage thresholds: one per transition (len = len(stages) - 1)  
         if win_thresholds and len(win_thresholds) == len(stages) - 1:  
             self.win_thresholds = win_thresholds  
+        elif win_threshold != 0.55 or win_thresholds is not None:  
+            # User provided a single global threshold — apply uniformly  
+            self.win_thresholds = [win_threshold] * (len(stages) - 1)  
         else:  
-            # Use decreasing thresholds based on player count  
+            # Auto-compute: decreasing thresholds based on player count  
             # More opponents = lower threshold (random baseline is 1/(n+1))  
             self.win_thresholds = []  
             for i in range(len(stages) - 1):  
