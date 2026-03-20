@@ -99,6 +99,8 @@ class BasicAIController(PlayerController):
         self.personality = personality
         self.event_log: List[Dict] = []
         self._round_number = 0
+        self._my_id = None
+        self._game_state = None
 
         # 内部记忆
         self._threat_scores: Dict[str, float] = {}
@@ -515,9 +517,9 @@ class BasicAIController(PlayerController):
     
     def _pid_to_name(self, player_id: str) -> Optional[str]:  
         """将 player_id 转换为 player.name"""  
-        if not self._game_state:  
+        if not getattr(self, '_game_state', None):  
             return None  
-        p = self._game_state.get_player(player_id)  
+        p = self._game_state.get_player(player_id)   # type: ignore
         return p.name if p else None
     
 
@@ -1021,7 +1023,7 @@ class BasicAIController(PlayerController):
                         commands.append("interact 晶化皮肤手术")
                 elif inner < 2 and self.personality in ("builder", "defensive"):
                     commands.append("interact 额外心脏手术")
-                if not self._has_virus_immunity(player):
+                if not self._has_virus_immunity(player) and vouchers >= 1:  
                     commands.append("interact 防毒面具")
                 if vouchers < 1:
                     commands.append("interact 打工")
