@@ -550,7 +550,8 @@ class BasicAIController(PlayerController):
         self.player_name = player.name  
         self._player = player  
         self._game_state = state
-        self._virus_prevention_done = False  # 每局只触发一次预防性拿面具 
+        if not hasattr(self, '_virus_prevention_done'):  
+            self._virus_prevention_done = False  # 每局只触发一次预防性拿面具
     
         # 只在正常 T1 阶段递增轮次（避免特殊调用路径重复递增）  
         # 通过检查 state.current_round 来同步，而非自增  
