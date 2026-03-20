@@ -225,7 +225,7 @@ class BadtimeWarEnv(gym.Env):
         
         # 随机化玩家顺序，避免 RL 永远是第一个行动  
         all_players = [self._rl_player] + ai_players  
-        random.shuffle(all_players)  
+        self.np_random.shuffle(all_players)  
         for p in all_players:  
             self._state.add_player(p)
         
