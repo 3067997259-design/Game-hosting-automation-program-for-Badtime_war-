@@ -52,33 +52,44 @@ def make_env(
 ):  
     """返回一个创建 BadtimeWarEnv 的闭包，供 DummyVecEnv 使用。"""  
     def _init():  
-        env = BadtimeWarEnv(  
-            num_opponents=num_opponents,  
-            max_rounds=max_rounds,
-            n_stack=n_stack,  
-        )  
-        env = Monitor(env)  
-        env.reset(seed=seed + rank)  
-        return env  
+            import os, sys  
+            # Suppress prompt_manager initialization prints  
+            devnull = open(os.devnull, 'w')  
+            old_stdout = sys.stdout  
+            sys.stdout = devnull  
+            try:  
+                env = BadtimeWarEnv(  
+                    num_opponents=num_opponents,  
+                    max_rounds=max_rounds,  
+                    n_stack=n_stack,  
+                )  
+                env = Monitor(env)  
+                env.reset(seed=seed + rank)  
+            finally:  
+                sys.stdout = old_stdout  
+                devnull.close()  
+            return env 
     return _init  
   
   
 # ─────────────────────────────────────────────────────────────────────────────  
 #  自定义回调：打印训练摘要  
 # ─────────────────────────────────────────────────────────────────────────────  
+
   
-class WinRateCallback(BaseCallback):  
+class WinRateCallback(BaseCallback): 
     """  
     每 `check_freq` 步统计最近 `window` 局的胜率并记录到 TensorBoard。  
     依赖 env.step() 在 info dict 中写入的 "winner" 字段。  
     """  
-  
-    def __init__(self, check_freq: int = 2048, window: int = 100, verbose: int = 0):  
+    def __init__(self, check_freq: int = 2048, window: int = 100, verbose: int = 0,  
+                 curriculum_cb: "CurriculumCallback | None" = None):  
         super().__init__(verbose)  
         self.check_freq = check_freq  
         self.window = window  
         self._episode_rewards: list[float] = []  
         self._episode_wins: list[bool] = []  
+        self._curriculum_cb = curriculum_cb  
   
     def _on_step(self) -> bool:  
         infos = self.locals.get("infos", [])  
@@ -101,12 +112,19 @@ class WinRateCallback(BaseCallback):
             self.logger.record("custom/episodes_total", len(self._episode_wins))  
   
             if self.verbose >= 1:  
+                stage_info = ""  
+                if self._curriculum_cb is not None:  
+                    cb = self._curriculum_cb  
+                    stage = cb._current_stage  
+                    n_opp = cb.stages[stage] if stage < len(cb.stages) else "?"  
+                    stage_info = f" | Opponents: {n_opp} (stage {stage}/{len(cb.stages)-1})"  
                 print(  
                     f"[Step {self.num_timesteps}] "  
                     f"Win rate: {win_rate:.1%} | "  
                     f"Mean reward: {mean_reward:.1f} | "  
                     f"Episodes: {len(self._episode_wins)}"  
-                )  
+                    f"{stage_info}"  
+                ) 
   
         return True
 
@@ -153,19 +171,21 @@ class CurriculumCallback(BaseCallback):
   
                 if self.verbose >= 1:  
                     print(  
-                        f"\n[Curriculum] 升级! 对手数: {new_opponents} "  
+                        f"\n{'='*60}\n"  
+                        f"  [Curriculum] 升级! 对手数: {new_opponents} "  
                         f"(stage {self._current_stage}/{len(self.stages)-1}, "  
                         f"win_rate={win_rate:.1%})\n"  
-                    )  
+                        f"{'='*60}\n"  
+                    ) 
   
         return True  
   
     def _update_envs(self, new_opponents: int):  
             """更新所有子环境的对手数量（下次 reset 生效）。"""  
             venv = self.training_env  
-            # set_attr works for both DummyVecEnv and SubprocVecEnv  
-            # It recursively penetrates wrappers (like Monitor) to set the attribute  
-            venv.set_attr("num_opponents", new_opponents)
+            # env_method uses getattr which penetrates gym.Wrapper via __getattr__  
+            # set_attr does NOT penetrate wrappers (sets on Monitor, not BadtimeWarEnv)  
+            venv.env_method("set_num_opponents", new_opponents)
   
   
 # ─────────────────────────────────────────────────────────────────────────────  
@@ -246,14 +266,22 @@ def train(args: argparse.Namespace):
                 net_arch=dict(pi=[256, 256], vf=[256, 256]),  
             ),  
             tensorboard_log=str(log_dir),  
-            verbose=1,  
+            verbose=0,  
             seed=args.seed,  
         )  
   
     # ── 回调 ─────────────────────────────────────────────────────  
-# ── 回调 ─────────────────────────────────────────────────────  
+# Create curriculum callback first (if needed) so WinRateCallback can reference it  
+    curriculum_cb = None  
+    if args.curriculum:  
+        curriculum_cb = CurriculumCallback(  
+            stages=stages,  
+            win_threshold=args.curriculum_threshold,  
+            window=200,  
+            verbose=1,  
+        )  
+  
     callback_list = [  
-        # 定期保存 checkpoint  
         CheckpointCallback(  
             save_freq=max(args.ckpt_freq // args.n_envs, 1),  
             save_path=str(ckpt_dir),  
@@ -261,7 +289,6 @@ def train(args: argparse.Namespace):
             save_replay_buffer=False,  
             save_vecnormalize=False,  
         ),  
-        # 定期评估并保存最佳模型  
         MaskableEvalCallback(  
             eval_env,  
             best_model_save_path=str(ckpt_dir / "best"),  
@@ -270,36 +297,29 @@ def train(args: argparse.Namespace):
             n_eval_episodes=args.eval_episodes,  
             deterministic=True,  
         ),  
-        # 胜率统计  
         WinRateCallback(  
             check_freq=args.n_steps,  
             window=100,  
             verbose=1,  
+            curriculum_cb=curriculum_cb,  
         ),  
     ]  
   
-
-    if args.curriculum:  
-        callback_list.append(  
-            CurriculumCallback(  
-                stages=stages,  
-                win_threshold=args.curriculum_threshold,  
-                window=200,  
-                verbose=1,  
-            )  
-        )  
-    
+    if curriculum_cb is not None:  
+        callback_list.append(curriculum_cb)
     callbacks = CallbackList(callback_list)
   
     # ── 训练 ─────────────────────────────────────────────────────  
     print(f"开始训练: {run_name}")  
     print(f"  对手数: {args.opponents}")  
+    if args.curriculum:  
+        print(f"  课程学习: 启用 (1 → {args.opponents}, 阈值 {args.curriculum_threshold:.0%})")  
     print(f"  最大轮数: {args.max_rounds}")  
     print(f"  总步数: {args.timesteps:,}")  
     print(f"  并行环境: {args.n_envs}")  
     print(f"  日志目录: {log_dir}")  
     print(f"  检查点目录: {ckpt_dir}")  
-    print()  
+    print() 
   
     sys.stderr.write("[TRAIN] starting learn...\n")  
     sys.stderr.flush()  
