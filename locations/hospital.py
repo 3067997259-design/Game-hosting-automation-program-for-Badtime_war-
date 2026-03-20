@@ -15,12 +15,12 @@ HOSPITAL_MENU = {
     "晶化皮肤手术": "内层科技护甲1（需凭证，消耗所有凭证）",
     "额外心脏手术": "内层普通护甲1（需凭证，消耗所有凭证）",
     "不老泉手术":   "内层魔法护甲1（需凭证，消耗所有凭证）",
-    "防毒面具":     "免疫病毒（免费）",
+    "防毒面具":     "免疫病毒（本来是免费的，为了针对毒警体系现在不免费了）",
     # "释放病毒" → Phase 3 在 special_op 中处理，不在交互菜单
 }
 
 # 不需要凭证的项目
-FREE_ITEMS = {"打工", "防毒面具"}
+FREE_ITEMS = {"打工"}
 
 # 手术项目
 SURGERY_ITEMS = {"晶化皮肤手术", "额外心脏手术", "不老泉手术"}
@@ -41,8 +41,16 @@ def can_interact(player, item_name, game_state=None):
     if item_name in SURGERY_ITEMS:
         if player.vouchers < 1:
             return False, "手术需要至少1张购买凭证！（手术会消耗你所有凭证）"
+        
+    # 防毒面具：需凭证但不消耗  
+    if item_name == "防毒面具":  
+        if player.vouchers < 1:  
+            return False, "防毒面具需要购买凭证（不消耗凭证）。"  
+        return True, ""
 
     return True, ""
+
+
 
 
 def do_interact(player, item_name, game_state=None):

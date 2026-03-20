@@ -458,18 +458,46 @@ class BasicAIController(PlayerController):
     #  接口实现：on_event
     # ════════════════════════════════════════════════════════
 
-    def on_event(self, event: Dict) -> None:
-        self.event_log.append(event)
-        event_type = event.get("type", "")
-        target = event.get("target")
-        attacker = event.get("attacker", "")
-        if event_type == "attack" and self.player_name is not None:
-            if target == self.player_name:
-                self._been_attacked_by.add(attacker)
-                self._threat_scores[attacker] = self._threat_scores.get(attacker, 0) + 20
-        if event_type == "death":
-            killer = event.get("killer", "")
-            if killer:
+    def on_event(self, event: Dict) -> None:  
+        self.event_log.append(event)  
+        event_type = event.get("type", "")  
+        target = event.get("target")  
+        attacker = event.get("attacker", "")  
+          
+        # 被攻击  
+        if event_type == "attack" and self.player_name is not None:  
+            if target == self.player_name:  
+                self._been_attacked_by.add(attacker)  
+                self._threat_scores[attacker] = self._threat_scores.get(attacker, 0) + 20  
+          
+        # 被找到（find 事件用 "player" 字段表示发起者，"target" 是 player_id）  
+        if event_type == "find" and self._my_id is not None:  
+            finder = event.get("player", "")  
+            if target == self._my_id:  
+                # 需要把 player_id 转换为 name  
+                finder_name = self._pid_to_name(finder)  
+                if finder_name:  
+                    self._threat_scores[finder_name] = self._threat_scores.get(finder_name, 0) + 10  
+          
+        # 被锁定  
+        if event_type == "lock" and self._my_id is not None:  
+            locker = event.get("player", "")  
+            if target == self._my_id:  
+                locker_name = self._pid_to_name(locker)  
+                if locker_name:  
+                    self._threat_scores[locker_name] = self._threat_scores.get(locker_name, 0) + 15  
+          
+        # 有人放毒  
+        if event_type == "release_virus":  
+            releaser_pid = event.get("player", "")  
+            releaser_name = self._pid_to_name(releaser_pid)  
+            if releaser_name and releaser_name != self.player_name:  
+                self._threat_scores[releaser_name] = self._threat_scores.get(releaser_name, 0) + 20  
+          
+        # 有人死亡  
+        if event_type == "death":  
+            killer = event.get("killer", "")  
+            if killer:  
                 self._threat_scores[killer] = self._threat_scores.get(killer, 0) + 30
 
     def _get_last_attacker(self, player, state) -> Optional[Any]:  
@@ -484,6 +512,34 @@ class BasicAIController(PlayerController):
                     if target and target.is_alive() and target.name == attacker_name:  
                         return target  
         return None
+    
+    def _pid_to_name(self, player_id: str) -> Optional[str]:  
+        """将 player_id 转换为 player.name"""  
+        if not self._game_state:  
+            return None  
+        p = self._game_state.get_player(player_id)  
+        return p.name if p else None
+    
+
+    def _someone_has_virus_immunity(self, state) -> bool:  
+        """检查局内是否有其他玩家持有防毒面具或封闭"""  
+        for pid in state.player_order:  
+            if pid == self._my_id:  
+                continue  
+            p = state.get_player(pid)  
+            if not p or not p.is_alive():  
+                continue  
+            # 检查防毒面具  
+            items = getattr(p, 'items', [])  
+            for item in items:  
+                if getattr(item, 'name', '') == "防毒面具":  
+                    return True  
+            # 检查封闭  
+            if getattr(p, 'has_seal', False):  
+                return True  
+            if "封闭" in getattr(p, 'learned_spells', set()):  
+                return True  
+        return False
 
     # ════════════════════════════════════════════════════════
     #  核心：候选命令生成
@@ -493,7 +549,8 @@ class BasicAIController(PlayerController):
         self._my_id = player.player_id  
         self.player_name = player.name  
         self._player = player  
-        self._game_state = state  
+        self._game_state = state
+        self._virus_prevention_done = False  # 每局只触发一次预防性拿面具 
     
         # 只在正常 T1 阶段递增轮次（避免特殊调用路径重复递增）  
         # 通过检查 state.current_round 来同步，而非自增  
@@ -539,6 +596,17 @@ class BasicAIController(PlayerController):
                 candidates.extend(attack_cmds)  
                 candidates.append("forfeit")  
                 return candidates
+            
+        # ===== 病毒预防（每局一次）=====  
+        if not self._virus_prevention_done and not self._has_virus_immunity(player):  
+            if self._someone_has_virus_immunity(state):  
+                self._virus_prevention_done = True  
+                debug_ai_basic(player.name, "检测到有人持有病毒免疫，主动预防")  
+                prevention_cmds = self._cmd_virus(player, state, available_actions)  
+                if prevention_cmds:  
+                    candidates.extend(prevention_cmds)  
+                    candidates.append("forfeit")  
+                    return candidates
 
         # L530-549 整段替换为：  
         # ===== 病毒应急 =====
@@ -1719,18 +1787,42 @@ class BasicAIController(PlayerController):
     #  命令生成器：病毒应急（Bug16修复：接收 available_actions）
     # ════════════════════════════════════════════════════════
 
-    def _cmd_virus(self, player, state, available: List[str]) -> List[str]:
-        commands = []
-        loc = self._get_location_str(player)
-
-        # 买防毒面具
-        if loc == "商店" and "interact" in available:
-            commands.append("interact 防毒面具")
-        elif loc == "医院" and "interact" in available:
-            commands.append("interact 防毒面具")
-        elif "move" in available:
-            commands.append("move 商店")
-
+    def _cmd_virus(self, player, state, available: List[str]) -> List[str]:  
+        commands = []  
+        loc = self._get_location_str(player)  
+        vouchers = getattr(player, 'vouchers', 0)  
+        
+        # 路径 1：当前在商店/医院，有凭证 → 直接拿面具  
+        if loc == "商店" and "interact" in available and vouchers >= 1:  
+            commands.append("interact 防毒面具")  
+        elif loc == "医院" and "interact" in available and vouchers >= 1:  
+            commands.append("interact 防毒面具")  
+        
+        # 路径 2：当前在商店/医院，没凭证 → 先打工  
+        elif loc in ("商店", "医院") and "interact" in available and vouchers < 1:  
+            commands.append("interact 打工")  
+        
+        # 路径 3：当前在魔法所 → 学封闭（不需要凭证，2 回合）  
+        elif loc == "魔法所" and "interact" in available:  
+            learned = self._get_learned_spells(player)  
+            if "封闭" not in learned:  
+                commands.append("interact 封闭")  
+        
+        # 路径 4：不在上述地点 → 选人少的地方去  
+        elif "move" in available:  
+            # 优先去有凭证能直接拿面具的地方，否则去能打工的地方  
+            candidates = []  
+            for dest in ["商店", "医院", "魔法所"]:  
+                if dest == loc:  
+                    continue  
+                enemies = self._count_enemies_at(dest, player, state)  
+                candidates.append((dest, enemies))  
+            candidates.sort(key=lambda x: x[1])  
+            if candidates:  
+                commands.append(f"move {candidates[0][0]}")  
+            else:  
+                commands.append("move 商店")  
+        
         return commands
 
     # ════════════════════════════════════════════════════════
@@ -1823,7 +1915,13 @@ class BasicAIController(PlayerController):
             s -= self._count_outer_armor(t) * 15  
             s -= self._count_inner_armor(t) * 10  
             if self.personality == "assassin":  
-                s += max(0, 3 - t.hp) * 20  
+                s += max(0, 3 - t.hp) * 20  # 天赋局：偏好残血  
+                # 无天赋局所有人都是1HP，上面的加分是常量  
+                # 额外加入护甲偏好：刺客优先打没护甲的  
+                if self._count_outer_armor(t) == 0:  
+                    s += 40  
+                if self._count_inner_armor(t) == 0:  
+                    s += 20 
             # 武器有效性：所有武器都被克制的目标大幅降分  
             if self._all_weapons_countered(player, t):  
                 s -= 200  
@@ -2356,8 +2454,11 @@ class BasicAIController(PlayerController):
             elif loc == "医院":  
                 if inner == 0:  
                     commands.append("interact 晶化皮肤手术")  
-                if not self._has_virus_immunity(player):  
-                    commands.append("interact 防毒面具")  
+                if not self._has_virus_immunity(player) and getattr(state, 'virus', None) and getattr(state.virus, 'is_active', False):  
+                    if vouchers >= 1:  
+                        commands.insert(0, "interact 防毒面具")  
+                    else:  
+                        commands.insert(0, "interact 打工")  # 先打工拿凭证
                 if vouchers < 1:  
                     commands.append("interact 打工")  
             elif loc == "军事基地":  

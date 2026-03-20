@@ -176,21 +176,36 @@ class RLController(PlayerController):
     # ══════════════════════════════════════════════════════════════════════════  
   
     def on_event(self, event: Dict) -> None:  
-        """  
-        接收公开游戏事件，更新威胁评分。  
-        与 BasicAIController.on_event 逻辑一致。  
-        """  
         self._event_log.append(event)  
         event_type = event.get("type", "")  
         attacker = event.get("attacker", "")  
   
-        # 被攻击 → 提升攻击者威胁分  
         if event_type == "attack" and event.get("target"):  
             self._threat_scores[attacker] = (  
                 self._threat_scores.get(attacker, 0) + 20  
             )  
   
-        # 有人死亡 → 提升击杀者威胁分  
+        if event_type == "find":  
+            finder = event.get("player", "")  
+            if finder:  
+                self._threat_scores[finder] = (  
+                    self._threat_scores.get(finder, 0) + 10  
+                )  
+  
+        if event_type == "lock":  
+            locker = event.get("player", "")  
+            if locker:  
+                self._threat_scores[locker] = (  
+                    self._threat_scores.get(locker, 0) + 15  
+                )  
+  
+        if event_type == "release_virus":  
+            releaser = event.get("player", "")  
+            if releaser:  
+                self._threat_scores[releaser] = (  
+                    self._threat_scores.get(releaser, 0) + 20  
+                )  
+  
         if event_type == "death":  
             killer = event.get("killer", "")  
             if killer:  
