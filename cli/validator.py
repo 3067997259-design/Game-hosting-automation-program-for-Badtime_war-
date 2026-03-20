@@ -71,11 +71,12 @@ def _is_police_crime_blocked(player, parsed, game_state):
             return "你是警察成员，不能执行违法行为（无凭证购物）"
         if getattr(player, 'location', '') == "医院" and item == "手术" and not getattr(player, 'has_voucher', False):
             return "你是警察成员，不能执行违法行为（无凭证手术）"
-        
-        if action == "special" and parsed.get("operation") == "释放病毒":
-            return "你是警察成员，不能执行违法行为（释放病毒）"
 
-    # 3. 朝阳好市民扩展条目（检查是否有朝阳好市民天赋生效）
+    # 3. 释放病毒
+    if action == "special" and parsed.get("operation") == "释放病毒":
+        return "你是警察成员，不能执行违法行为（释放病毒）"
+
+    # 4. 朝阳好市民扩展条目（检查是否有朝阳好市民天赋生效）
     has_citizen_talent = False
     for pid in game_state.player_order:
         p = game_state.get_player(pid)
