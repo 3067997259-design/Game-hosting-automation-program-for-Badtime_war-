@@ -191,6 +191,10 @@ class BadtimeWarEnv(gym.Env):
         self._obs_stack[:-OBS_DIM] = self._obs_stack[OBS_DIM:]  
         self._obs_stack[-OBS_DIM:] = raw_obs  
         return self._obs_stack.copy()
+    
+    def set_num_opponents(self, n: int):  
+        """供 CurriculumCallback 调用，修改对手数量（下次 reset 生效）。"""  
+        self.num_opponents = n
   
     # ══════════════════════════════════════════════════════════════════════════  
     #  reset  
