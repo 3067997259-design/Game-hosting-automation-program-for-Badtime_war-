@@ -99,8 +99,6 @@ class BasicAIController(PlayerController):
         self.personality = personality
         self.event_log: List[Dict] = []
         self._round_number = 0
-        self._my_id = None
-        self._game_state = None
 
         # 内部记忆
         self._threat_scores: Dict[str, float] = {}
@@ -517,9 +515,9 @@ class BasicAIController(PlayerController):
     
     def _pid_to_name(self, player_id: str) -> Optional[str]:  
         """将 player_id 转换为 player.name"""  
-        if not getattr(self, '_game_state', None):  
+        if not self._game_state:  
             return None  
-        p = self._game_state.get_player(player_id)   # type: ignore
+        p = self._game_state.get_player(player_id)
         return p.name if p else None
     
 
@@ -1795,8 +1793,11 @@ class BasicAIController(PlayerController):
         loc = self._get_location_str(player)  
         vouchers = getattr(player, 'vouchers', 0)  
         
-        # 路径 1：当前在商店/医院，有凭证 → 直接拿面具  
-        if loc == "商店" and "interact" in available and vouchers >= 1:  
+        # 路径 1：当前在商店/医院 → 直接拿面具  
+        # 商店：病毒期间免费，否则需凭证；医院：始终需凭证  
+        virus = getattr(state, 'virus', None)  
+        virus_active = getattr(virus, 'is_active', False) if virus else False  
+        if loc == "商店" and "interact" in available and (vouchers >= 1 or virus_active):  
             commands.append("interact 防毒面具")  
         elif loc == "医院" and "interact" in available and vouchers >= 1:  
             commands.append("interact 防毒面具")  
