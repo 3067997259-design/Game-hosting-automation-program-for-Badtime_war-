@@ -150,7 +150,7 @@ class CurriculumCallback(BaseCallback):
             # More opponents = lower threshold (random baseline is 1/(n+1))  
             self.win_thresholds = []  
             for i in range(len(stages) - 1):  
-                n_opponents = stages[i + 1]  
+                n_opponents = stages[i]  
                 random_baseline = 1.0 / (n_opponents + 1)  
                 # Threshold = random_baseline * 1.3 (30% above random)  
                 self.win_thresholds.append(max(random_baseline * 1.3, 0.35))  
