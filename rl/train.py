@@ -278,6 +278,8 @@ def train(args: argparse.Namespace):
     if args.curriculum:  
         curriculum_cb = CurriculumCallback(  
             stages=stages,  
+            win_thresholds=args.curriculum_thresholds,  
+            win_threshold=args.curriculum_threshold,  
             window=200,  
             verbose=1,  
         )  
