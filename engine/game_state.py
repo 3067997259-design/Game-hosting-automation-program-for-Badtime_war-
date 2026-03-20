@@ -40,6 +40,7 @@ class GameState:
             "伤害玩家",
             "无凭证商店",
             "无凭证手术",
+            "释放病毒",
         }
         # Phase 4: 朝阳好市民会添加更多
         self.active_barrier = None  # 神代3结界引用

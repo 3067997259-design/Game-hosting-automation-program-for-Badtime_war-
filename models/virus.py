@@ -1,6 +1,6 @@
 """
 病毒系统。
-释放后全体感染，3次轮次结束倒计时后未免疫者死亡。
+释放后全体感染，5次轮次结束倒计时后未免疫者死亡。
 病毒期间商店免费（不需凭证）。
 """
 
@@ -8,7 +8,7 @@
 class VirusSystem:
     def __init__(self):
         self.is_active = False
-        self.countdown = 0          # 已经过的倒计时次数（0→1→2→3，到3判死）
+        self.countdown = 0          # 已经过的倒计时次数（0→1→2→3→4→5，到5判死）
         self.released_by = None     # 释放者 player_id
         self.released_on_round = 0  # 释放时的轮次号
 
@@ -22,12 +22,12 @@ class VirusSystem:
     def tick(self):
         """
         轮次结束时调用。
-        返回：是否到达致死判定（countdown >= 3）
+        返回：是否到达致死判定（countdown >= 5）
         """
         if not self.is_active:
             return False
         self.countdown += 1
-        return self.countdown >= 3
+        return self.countdown >= 5
 
     def get_dead_players(self, players):
         """返回本次应判死的玩家列表（未免疫且存活）"""
@@ -51,7 +51,7 @@ class VirusSystem:
         """返回病毒状态描述"""
         if not self.is_active:
             return "未激活"
-        remaining = 3 - self.countdown
+        remaining = 5 - self.countdown
         if remaining <= 0:
             return "☠️ 已致死判定"
-        return f"🦠 病毒倒计时：{self.countdown}/3（还剩{remaining}轮）"
+        return f"🦠 病毒倒计时：{self.countdown}/5（还剩{remaining}轮）"

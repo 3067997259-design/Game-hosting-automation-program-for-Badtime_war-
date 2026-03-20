@@ -15,11 +15,11 @@ SHOP_MENU = {
     "隐身衣":   "穿戴后进入隐身（需凭证）",
     "热成像仪": "获得探测能力，可发现隐身目标（需凭证）",
     "陶瓷护甲": "外层护甲，普通护盾1，免疫电流武器（需凭证）",
-    "防毒面具": "免疫病毒（免费）",
+    "防毒面具": "免疫病毒（本来是免费的，为了针对某不知名RL的毒警体系改了）",
 }
 
 # 不需要凭证的项目
-FREE_ITEMS = {"打工", "防毒面具"}
+FREE_ITEMS = {"打工"}
 
 
 def get_menu():
@@ -42,6 +42,14 @@ def can_interact(player, item_name, game_state=None):
 
     # 免费项目直接通过
     if item_name in FREE_ITEMS:
+        return True, ""
+    
+    # 防毒面具：需凭证但不消耗（病毒期间仍免费）  
+    if item_name == "防毒面具":  
+        if game_state and _is_virus_active(game_state):  
+            return True, ""  
+        if player.vouchers < 1:  
+            return False, "防毒面具需要购买凭证（不消耗凭证）。"  
         return True, ""
 
     # 病毒期间免费

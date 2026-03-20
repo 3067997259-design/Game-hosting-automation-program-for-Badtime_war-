@@ -129,7 +129,7 @@ def _do_release_virus(player, game_state):
         if game_state.police_engine:
             game_state.police_engine.check_and_record_crime(player.player_id, "释放病毒")
 
-    game_state.log_event("release_virus", player=player.player_id)
-    return (f"🦠 {player.name} 释放了病毒！全体玩家感染！"
-            f"\n   3轮后未获得防毒面具或封闭的玩家将死亡！"
+    game_state.log_event("release_virus", player=player.player_id)  
+    return (f"🦠 {player.name} 释放了病毒！全体玩家感染！"  
+            f"\n   5轮后未获得防毒面具或封闭的玩家将死亡！"  
             f"\n   病毒期间商店物品免费！")

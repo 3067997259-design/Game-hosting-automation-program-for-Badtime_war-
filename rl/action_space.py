@@ -298,7 +298,7 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
         has_pass = getattr(player, 'has_military_pass', False)  
     
         # Items that are free (no voucher needed)  
-        FREE_ITEMS = {"凭证", "小刀", "盾牌", "打工", "防毒面具",  
+        FREE_ITEMS = {"凭证", "小刀", "盾牌", "打工",  
                     "魔法护盾", "魔法弹幕", "远程魔法弹幕", "封闭",  
                     "地震", "地动山摇", "隐身术", "探测魔法",  
                     "办理通行证"}  
@@ -315,6 +315,12 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
             # Check voucher/pass requirements  
             if item in SHOP_NEEDS_VOUCHER and not has_voucher and not game_state.virus.is_active:  
                 continue
+            # 防毒面具：商店需凭证（病毒期间免费），医院始终需凭证  
+            if item == "防毒面具" and not has_voucher:  
+                if norm_loc == "医院":  
+                    continue  
+                if norm_loc == "商店" and not game_state.virus.is_active:  
+                    continue
             if item in MILITARY_NEEDS_PASS and not has_pass:  
                 continue  
             if item in SURGERY_ITEMS and not has_voucher:  

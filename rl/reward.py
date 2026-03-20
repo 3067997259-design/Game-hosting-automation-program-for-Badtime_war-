@@ -4,7 +4,7 @@ rl/reward.py
 奖励追踪器（四层奖励结构）  
   
 第一层：终局奖励（Terminal Reward）  
-  获胜 +100 / 死亡 -100 / 全灭 -50  
+  获胜 +75~100（零击杀-15, 零攻击额外-10）/ 死亡 -100 / 全灭 -50
   
 第二层：势函数差分（Potential-Based Reward Shaping）  
   r_shaping = gamma * Phi(s') - Phi(s)  
@@ -267,16 +267,26 @@ class RewardTracker:
     def compute(self, player, game_state, action_type, action_success) -> float:  
         total = 0.0  
     
-        # ── 第一层：终局奖励 ──  
         if game_state.game_over:  
             winner = game_state.winner  
             if winner == self.rl_player_id:  
-                total += 100.0  
+                win_reward = 100.0  
+                # 零击杀胜利惩罚  
+                rl_player = game_state.get_player(self.rl_player_id)  
+                if rl_player and getattr(rl_player, 'kill_count', 0) == 0:  
+                    win_reward -= 15.0  
+                    # 零攻击胜利额外惩罚  
+                    has_attacked = any(  
+                        e.get("type") == "attack" and e.get("attacker") == self.rl_player_id  
+                        for e in game_state.event_log  
+                    )  
+                    if not has_attacked:  
+                        win_reward -= 10.0  
+                total += win_reward  
             elif winner == "nobody":  
                 total += -50.0  
             else:  
-                total += -100.0  
-            # 不再 return，继续计算 shaping 等层  
+                total += -100.0 
     
         # ── 第二层：势函数差分 ──  
         if game_state.game_over:  
