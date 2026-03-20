@@ -17,7 +17,7 @@ from typing import Any, Optional
   
 import gymnasium as gym  
 import numpy as np  
-from gymnasium import spaces  
+from gymnasium import spaces
 
 from rl.action_space import (  
     ACTION_COUNT, IDX_FORFEIT, build_action_mask, idx_to_command,  
@@ -214,14 +214,20 @@ class BadtimeWarEnv(gym.Env):
         # 创建 RL 玩家  
         self._rl_controller = _SyncRLController(self)  
         self._rl_player = Player("rl_0", "RL_Agent", self._rl_controller)  
-        self._state.add_player(self._rl_player)  
-  
+        
         # 创建 AI 对手  
+        ai_players = []  
         for i in range(self.num_opponents):  
             ai_ctrl = create_random_ai_controller(player_name=f"AI_{i}")  
             p = Player(f"ai_{i}", f"AI_{i}", ai_ctrl)  
-            self._state.add_player(p)  
-  
+            ai_players.append(p)  
+        
+        # 随机化玩家顺序，避免 RL 永远是第一个行动  
+        all_players = [self._rl_player] + ai_players  
+        self.np_random.shuffle(all_players)  
+        for p in all_players:  
+            self._state.add_player(p)
+        
         # 创建轮次管理器  
         self._round_manager = RoundManager(self._state)  
   

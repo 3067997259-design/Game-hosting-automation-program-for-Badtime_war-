@@ -112,7 +112,7 @@ class RoundManager:
                 r = roll_d6()
                 rolls[pid] = r
                 p = self.state.get_player(pid)
-                print(f"  {p.name}: D6 = {r}")
+                display.show_info(f"  {p.name}: D6 = {r}")
             sorted_conflict = sorted(conflict, key=lambda x: rolls[x], reverse=True)
             non_conflict = [w for w in self.state.round_winners if w not in conflict]
             self.state.round_winners = sorted_conflict + non_conflict
