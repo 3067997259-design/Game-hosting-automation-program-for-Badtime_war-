@@ -129,23 +129,31 @@ class WinRateCallback(BaseCallback):
         return True
 
 class CurriculumCallback(BaseCallback):  
-    """  
-    课程学习回调：当胜率超过阈值时，增加对手数量。  
-    """  
-  
     def __init__(  
         self,  
         stages: list[int],  
-        win_threshold: float = 0.55,  
+        win_thresholds: list[float] | None = None,  
+        win_threshold: float = 0.55,  # fallback default  
         window: int = 200,  
         verbose: int = 0,  
     ):  
         super().__init__(verbose)  
-        self.stages = stages          # e.g. [1, 2, 3]  
-        self.win_threshold = win_threshold  
+        self.stages = stages  
+        # Per-stage thresholds: one per transition (len = len(stages) - 1)  
+        if win_thresholds and len(win_thresholds) == len(stages) - 1:  
+            self.win_thresholds = win_thresholds  
+        else:  
+            # Use decreasing thresholds based on player count  
+            # More opponents = lower threshold (random baseline is 1/(n+1))  
+            self.win_thresholds = []  
+            for i in range(len(stages) - 1):  
+                n_opponents = stages[i + 1]  
+                random_baseline = 1.0 / (n_opponents + 1)  
+                # Threshold = random_baseline * 1.3 (30% above random)  
+                self.win_thresholds.append(max(random_baseline * 1.3, 0.35))  
         self.window = window  
         self._current_stage = 0  
-        self._episode_wins: list[bool] = []  
+        self._episode_wins: list[bool] = [] 
   
     def _on_step(self) -> bool:  
         infos = self.locals.get("infos", [])  
@@ -162,21 +170,15 @@ class CurriculumCallback(BaseCallback):
         ):  
             recent = self._episode_wins[-self.window:]  
             win_rate = sum(recent) / len(recent)  
-  
-            if win_rate >= self.win_threshold:  
+            threshold = self.win_thresholds[self._current_stage] if self._current_stage < len(self.win_thresholds) else 0.55  
+            if win_rate >= threshold: 
                 self._current_stage += 1  
                 new_opponents = self.stages[self._current_stage]  
                 self._update_envs(new_opponents)  
                 self._episode_wins.clear()  # 重置统计  
   
                 if self.verbose >= 1:  
-                    print(  
-                        f"\n{'='*60}\n"  
-                        f"  [Curriculum] 升级! 对手数: {new_opponents} "  
-                        f"(stage {self._current_stage}/{len(self.stages)-1}, "  
-                        f"win_rate={win_rate:.1%})\n"  
-                        f"{'='*60}\n"  
-                    ) 
+                    print(f"  [Curriculum] 升级! 对手数: {new_opponents} (stage {self._current_stage}/{len(self.stages)-1}, win_rate={win_rate:.1%}, threshold={threshold:.1%})")
   
         return True  
   
@@ -276,7 +278,6 @@ def train(args: argparse.Namespace):
     if args.curriculum:  
         curriculum_cb = CurriculumCallback(  
             stages=stages,  
-            win_threshold=args.curriculum_threshold,  
             window=200,  
             verbose=1,  
         )  
@@ -313,7 +314,8 @@ def train(args: argparse.Namespace):
     print(f"开始训练: {run_name}")  
     print(f"  对手数: {args.opponents}")  
     if args.curriculum:  
-        print(f"  课程学习: 启用 (1 → {args.opponents}, 阈值 {args.curriculum_threshold:.0%})")  
+        thresholds_str = ', '.join(f"{t:.0%}" for t in curriculum_cb.win_thresholds)   # type: ignore
+        print(f"  课程学习: 启用 ({' → '.join(str(s) for s in stages)}, 阈值 [{thresholds_str}])")
     print(f"  最大轮数: {args.max_rounds}")  
     print(f"  总步数: {args.timesteps:,}")  
     print(f"  并行环境: {args.n_envs}")  
@@ -402,7 +404,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--curriculum", action="store_true",  
                 help="启用课程学习（从1个对手逐步增加到 --opponents 个）")  
     p.add_argument("--curriculum-threshold", type=float, default=0.55,  
-                help="课程升级胜率阈值")
+                help="课程升级胜率阈值（全局，如果未指定 --curriculum-thresholds）")  
+    p.add_argument("--curriculum-thresholds", type=float, nargs="+", default=None,  
+                help="每阶段课程升级胜率阈值（例如 0.55 0.40 表示两次升级的阈值）")
   
     return p.parse_args()  
   
