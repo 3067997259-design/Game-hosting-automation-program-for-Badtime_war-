@@ -18,7 +18,6 @@ from typing import Any, Optional
 import gymnasium as gym  
 import numpy as np  
 from gymnasium import spaces
-import random   
 
 from rl.action_space import (  
     ACTION_COUNT, IDX_FORFEIT, build_action_mask, idx_to_command,  
