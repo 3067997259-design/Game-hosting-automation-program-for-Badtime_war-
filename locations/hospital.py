@@ -41,9 +41,28 @@ def can_interact(player, item_name, game_state=None):
     if item_name in SURGERY_ITEMS:
         if player.vouchers < 1:
             return False, "手术需要至少1张购买凭证！（手术会消耗你所有凭证）"
+        # 检查是否已有该内层护甲（同名护甲不能重复装备）
+        armor_name_map = {
+            "晶化皮肤手术": "晶化皮肤",
+            "额外心脏手术": "额外心脏",
+            "不老泉手术": "不老泉",
+        }
+        armor_name = armor_name_map.get(item_name)
+        if armor_name:
+            from models.equipment import ArmorPiece, ArmorLayer
+            from utils.attribute import Attribute
+            attr_map = {"晶化皮肤": Attribute.TECH, "额外心脏": Attribute.ORDINARY, "不老泉": Attribute.MAGIC}
+            test_piece = ArmorPiece(armor_name, attr_map[armor_name], ArmorLayer.INNER, 1.0)
+            can_equip, equip_reason = player.armor.check_can_equip(test_piece)
+            if not can_equip:
+                return False, f"无法进行{item_name}：{equip_reason}"
 
-    # 防毒面具：需凭证但不消耗
+    # 防毒面具：需凭证但不消耗；检查是否已有
     if item_name == "防毒面具":
+        # 已有防毒面具则不能再拿
+        items = getattr(player, 'items', [])
+        if any(getattr(i, 'name', '') == "防毒面具" for i in items):
+            return False, "你已经有防毒面具了"
         if player.vouchers < 1:
             return False, "防毒面具需要购买凭证（不消耗凭证）。"
         return True, ""
@@ -83,7 +102,12 @@ def do_interact(player, item_name, game_state=None):
 
 
 def _do_surgery(player, surgery_name, armor_piece, game_state):
-    """执行手术：装备内层护甲，消耗所有凭证"""
+    # 先检查能否装备（不消耗凭证）
+    can_equip, reason = player.armor.check_can_equip(armor_piece)
+    if not can_equip:
+        return f"❌ {player.name} 的{surgery_name}手术失败：{reason}（凭证未消耗）"
+
+    # 检查通过，消耗凭证并装备
     old_vouchers = player.vouchers
     player.clear_all_vouchers()
 
@@ -96,6 +120,6 @@ def _do_surgery(player, surgery_name, armor_piece, game_state):
                 f"（内层{armor_piece.attribute.value}护甲1）"
                 f"\n   消耗了所有购买凭证（{old_vouchers}张→0张）")
     else:
-        # 手术失败但凭证已消耗（规则如此——手术会消耗所有凭证）
+        # 理论上不应该到这里（can_interact已检查），但保险起见
         return (f"❌ {player.name} 的{surgery_name}手术失败：{reason}"
                 f"\n   但购买凭证已被消耗（{old_vouchers}张→0张）")

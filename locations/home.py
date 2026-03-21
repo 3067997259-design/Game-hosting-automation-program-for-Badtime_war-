@@ -21,13 +21,23 @@ def get_menu():
 
 
 def can_interact(player, item_name, game_state=None):
-    """
-    检查玩家能否在家中与指定项目交互。
-    返回 (可以bool, 原因str)
-    """
     if item_name not in HOME_MENU:
         return False, f"家中没有「{item_name}」这个项目"
-    # 家的项目无限量，无前置条件
+
+    # 盾牌：检查是否已有同名外层护甲
+    if item_name == "盾牌":
+        from models.equipment import make_armor
+        test_armor = make_armor("盾牌")
+        if test_armor:
+            can_equip, equip_reason = player.armor.check_can_equip(test_armor)
+            if not can_equip:
+                return False, f"无法装备盾牌：{equip_reason}"
+
+    # 小刀：检查是否已有小刀
+    if item_name == "小刀":
+        if player.has_weapon("小刀"):
+            return False, "你已经有小刀了"
+
     return True, ""
 
 
