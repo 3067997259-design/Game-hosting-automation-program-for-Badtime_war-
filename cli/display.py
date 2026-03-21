@@ -46,26 +46,26 @@ def show_d4_results(results, bonuses, winners):
     # 标题
     title = prompt_manager.get_prompt("game", "d4_results", default="\n🎲 D4 投掷结果：")
     print(title)
-    
+
     # 每个玩家的结果
     for name, roll in results.items():
         bonus = bonuses.get(name, 0)
         final = min(roll + bonus, 4)
         bonus_str = f" +{bonus}保底" if bonus > 0 else ""
         cap_str = " (封顶4)" if roll + bonus > 4 else ""
-        
+
         result_text = prompt_manager.get_prompt("game", "d4_player_result", default="  {name}: 骰出 {roll}{bonus_str}{cap_str} → 最终 {final}")
         if isinstance(result_text, str):
             try:
                 print(result_text.format(
-                    name=name, roll=roll, bonus_str=bonus_str, 
+                    name=name, roll=roll, bonus_str=bonus_str,
                     cap_str=cap_str, final=final
                 ))
             except (KeyError, ValueError):
                 print(result_text)
         else:
             print(result_text)
-    
+
     # 胜者
     winner_names = ", ".join(winners)
     winner_text = prompt_manager.get_prompt("game", "d4_winners", default="  🏆 本轮胜者：{winner_names}")
@@ -91,11 +91,11 @@ def show_player_status(player, game_state):
     """显示单个玩家状态"""
     print()
     print(player.describe_status())
-    
+
     marker_desc = game_state.markers.describe_markers(player.player_id)
     if marker_desc != "无异常":
         print(f"  状态标记：{marker_desc}")
-    
+
     if player.location:
         others = [p for p in game_state.alive_players()
                   if p.location == player.location
@@ -119,7 +119,7 @@ def show_available_actions(actions):
     """显示可执行行动列表"""
     header = prompt_manager.get_prompt("ui", "available_actions_header", default="\n  可执行的行动：")
     print(header)
-    
+
     for i, act in enumerate(actions, 1):
         action_item = prompt_manager.get_prompt("ui", "action_item", default="    {index}. {usage:30s} - {description}")
         if isinstance(action_item, str):
@@ -129,7 +129,7 @@ def show_available_actions(actions):
                 print(action_item)
         else:
             print(action_item)
-    
+
     print(f"    status | allstatus | police | help")
 
 
@@ -197,17 +197,17 @@ def show_police_status(game_state):
     """显示警察系统状态"""
     header = prompt_manager.get_prompt("game", "police_status_header", default=f"\n{'='*50}\n  🚔 警察系统状态\n{'='*50}")
     print(header)
-    
+
     print(game_state.police.describe())
-    
+
     # 犯罪记录
     criminals = [(pid, crimes) for pid, crimes
                  in game_state.police.crime_records.items() if crimes]
-    
+
     if criminals:
         crime_header = prompt_manager.get_prompt("game", "police_crime_records", default="\n  犯罪记录：")
         print(crime_header)
-        
+
         for pid, crimes in criminals:
             p = game_state.get_player(pid)
             name = p.name if p else pid
@@ -222,7 +222,7 @@ def show_police_status(game_state):
     else:
         no_crimes = prompt_manager.get_prompt("game", "police_no_crimes", default="\n  犯罪记录：无")
         print(no_crimes)
-    
+
     print(f"{'='*50}")
 
 
@@ -236,7 +236,7 @@ def show_police_enforcement(messages):
     if messages:
         enforcement_header = prompt_manager.get_prompt("game", "police_enforcement", default="\n  🚔 警察执法：")
         print(enforcement_header)
-        
+
         for msg in messages:
             enforcement_item = prompt_manager.get_prompt("game", "police_enforcement_item", default="  {msg}")
             if isinstance(enforcement_item, str):
@@ -303,18 +303,18 @@ def prompt_input(player_name):
 def prompt_secret(prompt_text):
     """提示秘密输入"""
     clear_screen()
-    
+
     secret_prompt = prompt_manager.get_prompt("system", "secret_prompt", default="\n  🔒 请其他玩家移开视线！")
     print(secret_prompt)
-    
+
     try:
         value = getpass.getpass(f"  {prompt_text} > ")
     except EOFError:
         value = ""
-    
+
     recorded_text = prompt_manager.get_prompt("system", "secret_recorded", default="  ✓ 已记录")
     print(recorded_text)
-    
+
     return value.strip()
 
 
@@ -323,7 +323,7 @@ def prompt_choice(prompt_text, options):
     print(f"\n  {prompt_text}")
     for i, opt in enumerate(options, 1):
         print(f"    {i}. {opt}")
-    
+
     while True:
         raw = input("  请选择（输入编号或名称）> ").strip()
         try:
@@ -332,14 +332,14 @@ def prompt_choice(prompt_text, options):
                 return options[idx]
         except ValueError:
             pass
-        
+
         if raw in options:
             return raw
-        
+
         for opt in options:
             if raw.lower() in opt.lower():
                 return opt
-        
+
         print(f"  请输入有效的选项。")
 
 
@@ -347,7 +347,7 @@ def show_all_players_status(game_state):
     """显示全场玩家状态"""
     header = prompt_manager.get_prompt("ui", "all_players_status_header", default=f"\n{'='*50}\n  📊 全场玩家状态\n{'='*50}")
     print(header)
-    
+
     for pid in game_state.player_order:
         p = game_state.get_player(pid)
         if p:
@@ -357,12 +357,12 @@ def show_all_players_status(game_state):
             marker_desc = game_state.markers.describe_markers(pid)
             if marker_desc != "无异常":
                 print(f"  状态标记：{marker_desc}")
-    
+
     # 病毒状态
     if game_state.virus.is_active:
         print()
         show_virus_status(game_state)
-    
+
     print(f"{'='*50}")
 
 

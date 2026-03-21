@@ -64,15 +64,15 @@ def execute(player, destination, game_state):
                 for line in enter_lines:
                     display.show_info(line)
 
-    # 犯罪检查（朝阳好市民扩展时生效）  
-    if game_state.police_engine:  
-        # 进入他人家  
-        if "进入他人家" in game_state.crime_types:  
-            if destination.startswith("home_") and destination != f"home_{player.player_id}":  
-                game_state.police_engine.check_and_record_crime(player.player_id, "进入他人家")  
-        # 进入军事基地  
-        if "进入军事基地" in game_state.crime_types:  
-            if destination == "军事基地":  
+    # 犯罪检查（朝阳好市民扩展时生效）
+    if game_state.police_engine:
+        # 进入他人家
+        if "进入他人家" in game_state.crime_types:
+            if destination.startswith("home_") and destination != f"home_{player.player_id}":
+                game_state.police_engine.check_and_record_crime(player.player_id, "进入他人家")
+        # 进入军事基地
+        if "进入军事基地" in game_state.crime_types:
+            if destination == "军事基地":
                 game_state.police_engine.check_and_record_crime(player.player_id, "进入军事基地")
 
 

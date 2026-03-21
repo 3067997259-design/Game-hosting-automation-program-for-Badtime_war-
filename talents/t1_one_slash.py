@@ -35,7 +35,7 @@ class OneSlash(BaseTalent):
 
     def execute_t0(self, player):
         if self.uses_remaining <= 0:
-            return prompt_manager.get_prompt("error", "action_failed", 
+            return prompt_manager.get_prompt("error", "action_failed",
                                            reason="一刀缭断已用完", default="❌ 一刀缭断已用完"), False
 
         # 选择近战武器
@@ -67,7 +67,7 @@ class OneSlash(BaseTalent):
 
         if not valid_targets:
             return prompt_manager.get_prompt("error", "action_failed",
-                                           reason="没有可攻击的面对面目标", 
+                                           reason="没有可攻击的面对面目标",
                                            default="❌ 没有可攻击的面对面目标"), False
 
         if len(valid_targets) == 1:
@@ -98,17 +98,17 @@ class OneSlash(BaseTalent):
             ignore_counter=True,
             ignore_last_inner_absorb=True,
         )
-        
+
         # 构建攻击结果消息
         attack_msg = prompt_manager.get_prompt("talent", "t1oneslash.attack",
                                               default="⚔️ 一刀缭断！{player_name} 用「{weapon_name}」斩向 {target_name}！",
-                                              player_name=player.name, 
+                                              player_name=player.name,
                                               weapon_name=weapon.name,
                                               target_name=target.name)
-        
+
         effect_msg = prompt_manager.get_prompt("talent", "t1oneslash.effect",
                                               default="   （伤害×2 + 无视属性克制 + 无视最后内层吸收）")
-        
+
         lines = [attack_msg, effect_msg]
         for detail in result.get("details", []):
             lines.append(f"   {detail}")

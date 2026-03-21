@@ -40,15 +40,15 @@ def can_interact(player, item_name, game_state=None):
     # 其他项目需要通行证
     if item_name in NEED_PASS and not player.has_military_pass:
         return False, "你需要先办理通行证或强买通行证才能使用军事基地设施"
-    
-    if item_name == "AT力场":  
-        from models.equipment import ArmorPiece, ArmorLayer  
-        from utils.attribute import Attribute  
-        test_armor = ArmorPiece("AT力场", Attribute.TECH, ArmorLayer.OUTER, 1.0, can_regen=True)  
-        can_equip, equip_reason = player.armor.check_can_equip(test_armor)  
-        if not can_equip:  
+
+    if item_name == "AT力场":
+        from models.equipment import ArmorPiece, ArmorLayer
+        from utils.attribute import Attribute
+        test_armor = ArmorPiece("AT力场", Attribute.TECH, ArmorLayer.OUTER, 1.0, can_regen=True)
+        can_equip, equip_reason = player.armor.check_can_equip(test_armor)
+        if not can_equip:
             return False, f"无法装备AT力场：{equip_reason}"
-    
+
     return True, ""
 
 
@@ -77,11 +77,11 @@ def do_interact(player, item_name, game_state=None):
         player.add_weapon(w)
         return f"⚡ {player.name} 获得了电磁步枪！（需蓄力1回合，对已发现你的目标0.5科技伤害+眩晕）"
 
-    elif item_name == "高斯步枪":  
-        w = Weapon("高斯步枪", Attribute.TECH, 1.0, WeaponRange.MELEE,  
-                requires_charge=True, charged_damage=2.0,  
-                charge_mandatory=False)  
-        player.add_weapon(w)  
+    elif item_name == "高斯步枪":
+        w = Weapon("高斯步枪", Attribute.TECH, 1.0, WeaponRange.MELEE,
+                requires_charge=True, charged_damage=2.0,
+                charge_mandatory=False)
+        player.add_weapon(w)
         return f"🔫 {player.name} 获得了高斯步枪！（科技伤害1，蓄力后伤害2）"
 
     elif item_name == "导弹控制权":

@@ -20,28 +20,28 @@ class DebugConfig:
     _instance = None
     _debug_mode = False
     _debug_level = 1  # 1=基本调试，2=详细调试，3=所有调试
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(DebugConfig, cls).__new__(cls)
         return cls._instance
-    
+
     @classmethod
     def set_debug_mode(cls, enabled: bool, level: int = 1):
         """设置调试模式"""
         cls._debug_mode = enabled
         cls._debug_level = level
-    
+
     @classmethod
     def is_debug_enabled(cls) -> bool:
         """检查调试模式是否启用"""
         return cls._debug_mode
-    
+
     @classmethod
     def get_debug_level(cls) -> int:
         """获取调试级别"""
         return cls._debug_level
-    
+
     @classmethod
     def should_show(cls, min_level: int = 1) -> bool:
         """检查是否应该显示指定级别的调试信息"""
@@ -54,7 +54,7 @@ class DebugConfig:
 def debug_print(message: str, min_level: int = 1, prefix: str = "🤖", **kwargs):
     """
     统一的调试输出函数
-    
+
     Args:
         message: 调试信息
         min_level: 最小调试级别（1-3），级别越高信息越详细
@@ -68,7 +68,7 @@ def debug_print(message: str, min_level: int = 1, prefix: str = "🤖", **kwargs
 def debug_ai(player_name: str, message: str, min_level: int = 1, **kwargs):
     """
     AI专用调试输出
-    
+
     Args:
         player_name: AI玩家名称
         message: 调试信息
@@ -78,7 +78,7 @@ def debug_ai(player_name: str, message: str, min_level: int = 1, **kwargs):
     if DebugConfig.should_show(min_level):
         # 尝试从提示管理器获取模板，如果不存在则使用默认
         template = prompt_manager.get_prompt(
-            "debug", "ai.basic", 
+            "debug", "ai.basic",
             default="🤖 [{player_name}] {message}"
         )
         formatted_message = template.format(
@@ -89,7 +89,7 @@ def debug_ai(player_name: str, message: str, min_level: int = 1, **kwargs):
 def debug_system(message: str, min_level: int = 1, **kwargs):
     """
     系统专用调试输出
-    
+
     Args:
         message: 调试信息
         min_level: 最小调试级别
@@ -107,7 +107,7 @@ def debug_system(message: str, min_level: int = 1, **kwargs):
 def debug_warning(message: str, **kwargs):
     """
     警告调试输出（始终显示，即使调试模式关闭）
-    
+
     Args:
         message: 警告信息
         **kwargs: 传递给print的其他参数
@@ -118,7 +118,7 @@ def debug_warning(message: str, **kwargs):
 def debug_error(message: str, **kwargs):
     """
     错误调试输出（始终显示，即使调试模式关闭）
-    
+
     Args:
         message: 错误信息
         **kwargs: 传递给print的其他参数
@@ -129,7 +129,7 @@ def debug_error(message: str, **kwargs):
 def debug_info(message: str, **kwargs):
     """
     重要信息调试输出（始终显示，即使调试模式关闭）
-    
+
     Args:
         message: 信息
         **kwargs: 传递给print的其他参数
@@ -271,7 +271,7 @@ def debug_function(min_level: int = 1):
     """
     函数调试装饰器，记录函数调用和返回
     # 开发工具：可用于调试复杂天赋交互，示例：with DebugContext(): ...
-    
+
     Args:
         min_level: 最小调试级别
     """
@@ -282,15 +282,15 @@ def debug_function(min_level: int = 1):
                 args_str = ", ".join([repr(arg) for arg in args])
                 kwargs_str = ", ".join([f"{key}={repr(value)}" for key, value in kwargs.items()])
                 all_args = ", ".join(filter(None, [args_str, kwargs_str]))
-                
+
                 debug_system(f"调用 {func_name}({all_args})", min_level)
-            
+
             result = func(*args, **kwargs)
-            
+
             if DebugConfig.should_show(min_level):
                 func_name = func.__name__
                 debug_system(f"{func_name} 返回: {repr(result)}", min_level)
-            
+
             return result
         return wrapper
     return decorator
@@ -309,13 +309,13 @@ class DebugContext:
         self.level = level
         self.original_enabled = False
         self.original_level = 1
-    
+
     def __enter__(self):
         self.original_enabled = DebugConfig.is_debug_enabled()
         self.original_level = DebugConfig.get_debug_level()
         DebugConfig.set_debug_mode(self.enabled, self.level)
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         DebugConfig.set_debug_mode(self.original_enabled, self.original_level)
         return False

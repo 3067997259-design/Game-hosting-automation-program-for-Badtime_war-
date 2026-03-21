@@ -131,7 +131,7 @@ class Hexagram(BaseTalent):
         choice_msg = prompt_manager.get_prompt(
             "talent", "t4hexagram.choices_display",
             default=f"🔮 {player.name} 出「{my_choice}」 vs {target.name} 出「{opp_choice}」"
-        ).format(player_name=player.name, my_choice=my_choice, 
+        ).format(player_name=player.name, my_choice=my_choice,
                 target_name=target.name, opp_choice=opp_choice)
         display.show_info(choice_msg)
 

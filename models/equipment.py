@@ -34,16 +34,16 @@ class Weapon:
             return self.charged_damage
         return self.base_damage
 
-    def __repr__(self):  
-        dmg = self.get_effective_damage()  
-        charge_str = ""  
-        if self.requires_charge:  
-            if self.is_charged:  
-                charge_str = " ⚡已蓄力"  
-            elif self.charge_mandatory:  
-                charge_str = " (需蓄力)"  
-            else:  
-                charge_str = " (可蓄力)"  
+    def __repr__(self):
+        dmg = self.get_effective_damage()
+        charge_str = ""
+        if self.requires_charge:
+            if self.is_charged:
+                charge_str = " ⚡已蓄力"
+            elif self.charge_mandatory:
+                charge_str = " (需蓄力)"
+            else:
+                charge_str = " (可蓄力)"
         return f"{self.name}({self.attribute.value} {dmg}{charge_str})"
 
 class ArmorPiece:

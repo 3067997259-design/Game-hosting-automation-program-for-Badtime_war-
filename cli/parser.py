@@ -123,15 +123,15 @@ def parse(raw_input, player_id):
             if len(parts) == 2 and parts[1].lower() in ("status", "状态", "s"):
                 return {"action": "police_status"}
             return None
-            
+
         sub_cmd = parts[1].lower()  # move, equip, attack
         police_id = parts[2]  # police1, police2, police3, 或警察ID
-        
+
         if sub_cmd == "move":
             if len(parts) < 4:
                 return None
             location = parts[3]
-            return {"action": "police_command", "subcommand": "move", 
+            return {"action": "police_command", "subcommand": "move",
                     "police_id": police_id, "location": location}
         elif sub_cmd == "equip":
             if len(parts) < 4:

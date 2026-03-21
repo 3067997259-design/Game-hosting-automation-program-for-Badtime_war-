@@ -84,17 +84,17 @@ def _is_police_crime_blocked(player, parsed, game_state):
             has_citizen_talent = True
             break
 
-    if has_citizen_talent:  
-        if action == "move":  
-            dest = parsed.get("destination", "")  
-            # 进入其他玩家的家  
-            for p in game_state.players.values():                    # 修复: .values()  
-                if p.player_id != player.player_id:  
-                    home = f"home_{p.player_id}"                     # 修复: 匹配 parser 格式  
-                    if dest == home:  
-                        return "你是警察成员，不能执行违法行为（进入他人住宅）"  
-            # 进入军事基地  
-            if dest == "军事基地":  
+    if has_citizen_talent:
+        if action == "move":
+            dest = parsed.get("destination", "")
+            # 进入其他玩家的家
+            for p in game_state.players.values():                    # 修复: .values()
+                if p.player_id != player.player_id:
+                    home = f"home_{p.player_id}"                     # 修复: 匹配 parser 格式
+                    if dest == home:
+                        return "你是警察成员，不能执行违法行为（进入他人住宅）"
+            # 进入军事基地
+            if dest == "军事基地":
                 return "你是警察成员，不能执行违法行为（进入军事基地）"
 
         # 释放病毒
@@ -335,7 +335,7 @@ def validate_attack(player, parsed, game_state):
         else:
             available = ", ".join(w.name for w in player.weapons)
             return False, f"你有多把武器，请指定使用哪一把：{available}"
-    
+
     # 检查是否为警察目标
     if target_str.lower().startswith("police"):
         # 警察目标特殊验证
@@ -343,13 +343,13 @@ def validate_attack(player, parsed, game_state):
         if not weapon:
             available = ", ".join(w.name for w in player.weapons)
             return False, f"你没有武器「{weapon_name}」。你持有：{available}"
-        # L346-347（警察目标分支）  
-        if weapon.requires_charge and getattr(weapon, 'charge_mandatory', True) and not weapon.is_charged:  
-            return False, f"「{weapon_name}」需要先蓄力！"  
+        # L346-347（警察目标分支）
+        if weapon.requires_charge and getattr(weapon, 'charge_mandatory', True) and not weapon.is_charged:
+            return False, f"「{weapon_name}」需要先蓄力！"
         # 警察只能被AOE攻击，但这里不验证具体武器，由警察引擎处理
         # 允许通过验证，具体AOE检查在警察引擎中进行
         return True, ""
-    
+
     # 原有玩家目标验证
     target_id = resolve_player_target(target_str, game_state)
     if not target_id:
@@ -363,7 +363,7 @@ def validate_attack(player, parsed, game_state):
     if not weapon:
         available = ", ".join(w.name for w in player.weapons)
         return False, f"你没有武器「{weapon_name}」。你持有：{available}"
-    if weapon.requires_charge and getattr(weapon, 'charge_mandatory', True) and not weapon.is_charged:  
+    if weapon.requires_charge and getattr(weapon, 'charge_mandatory', True) and not weapon.is_charged:
         return False, f"「{weapon_name}」需要先蓄力！"
 
     # 愿负世：救世主状态禁用远程
@@ -561,29 +561,29 @@ def validate_police_command(player, parsed, game_state):
     if not unit:
         return False, f"找不到警察单位 {police_id}"
     # 具体验证由警察引擎执行
-    subcommand = parsed.get("subcommand")  
-    if subcommand == "attack":  
-        target_str = parsed.get("target")  
-        if not target_str:  
-            return False, "请指定攻击目标"  
-        from cli.parser import resolve_player_target  
-        target_id = resolve_player_target(target_str, game_state)  
-        if not target_id:  
-            return False, f"找不到玩家「{target_str}」"  
-        target = game_state.get_player(target_id)  
-        if not target or not target.is_alive():  
-            return False, f"{target_str} 已死亡"  
-        # 也验证警察单位是否存活且可行动  
-        unit = game_state.police.get_unit(police_id)  
-        if unit and not unit.is_active():  
-            return False, f"{police_id} 处于行动阻碍状态，无法攻击"  
-      
-    # move 子命令也验证警察单位是否可移动  
-    if subcommand == "move":  
-        unit = game_state.police.get_unit(police_id)  
-        if unit and unit.is_disabled():  
-            return False, f"{police_id} 处于debuff状态，无法移动"  
-      
+    subcommand = parsed.get("subcommand")
+    if subcommand == "attack":
+        target_str = parsed.get("target")
+        if not target_str:
+            return False, "请指定攻击目标"
+        from cli.parser import resolve_player_target
+        target_id = resolve_player_target(target_str, game_state)
+        if not target_id:
+            return False, f"找不到玩家「{target_str}」"
+        target = game_state.get_player(target_id)
+        if not target or not target.is_alive():
+            return False, f"{target_str} 已死亡"
+        # 也验证警察单位是否存活且可行动
+        unit = game_state.police.get_unit(police_id)
+        if unit and not unit.is_active():
+            return False, f"{police_id} 处于行动阻碍状态，无法攻击"
+
+    # move 子命令也验证警察单位是否可移动
+    if subcommand == "move":
+        unit = game_state.police.get_unit(police_id)
+        if unit and unit.is_disabled():
+            return False, f"{police_id} 处于debuff状态，无法移动"
+
     return True, ""
 
 

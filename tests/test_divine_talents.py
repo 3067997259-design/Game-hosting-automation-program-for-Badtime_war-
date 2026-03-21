@@ -662,7 +662,7 @@ def test_group_3(T):
         assert r.anchor_active == False
         # 核心断言：锚定已结算关闭
         assert r.anchor_active == False
-    
+
     def test_anchor_target_killed_externally():
         """外部击杀目标 → 锚定失败"""
         gs, ps = make_test_env()

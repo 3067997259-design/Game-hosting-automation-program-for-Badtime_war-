@@ -60,7 +60,7 @@ class Star(BaseTalent):
         # 对每个玩家造成1点伤害（无视克制）- 使用damage_resolver
         for t in targets:
             old_hp = t.hp
-            
+
             # 使用resolve_damage处理伤害
             result = resolve_damage(
                 attacker=player,
@@ -71,12 +71,12 @@ class Star(BaseTalent):
                 damage_attribute_override="无视属性克制",  # 对应伤害类型
                 ignore_counter=True,  # 无视属性克制
             )
-            
+
             damage_msg = prompt_manager.get_prompt("talent", "t3star.damage",
                                                   default="   \u2192 {target_name} 受到 1.0 点伤害（无视克制） HP: {old_hp} \u2192 {new_hp}",
                                                   target_name=t.name, old_hp=old_hp, new_hp=t.hp)
             lines.append(damage_msg)
-            
+
             # 添加伤害结算详情
             for detail in result.get("details", []):
                 lines.append(f"      {detail}")
@@ -84,7 +84,7 @@ class Star(BaseTalent):
             # 石化
             self.state.markers.add(t.player_id, "PETRIFIED")
             t.is_petrified = True
-            
+
             petrify_msg = prompt_manager.get_prompt("talent", "t3star.petrify",
                                                    default="   \u2192 {target_name} 进入石化状态 \U0001f5ff",
                                                    target_name=t.name)
