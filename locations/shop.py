@@ -74,7 +74,7 @@ def can_interact(player, item_name, game_state=None):
         if any(getattr(i, 'name', '') == "磨刀石" for i in items):
             return False, "你已经有磨刀石了"
         # 小刀已经磨过了（没有未磨的小刀），磨刀石没意义
-        has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons)
+        has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons if w)
         if not has_unsharpened:
             return False, "你没有需要磨的小刀"
 

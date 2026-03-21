@@ -436,7 +436,7 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
                     continue
             # 导弹控制权：已有控制权标记则跳过
             if item == "导弹控制权":
-                if game_state.markers.has(player.player_id, "MISSILE_CTRL"):
+                if game_state and game_state.markers.has(player.player_id, "MISSILE_CTRL"):
                     continue
 
             mask[IDX_INTERACT_BASE + i] = True
@@ -509,6 +509,7 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
     # ── special ───────────────────────────────────────────────────
     if "special" in available_set:
         owned = _player_owned_names(player)
+        learned = getattr(player, 'learned_spells', set())
         for si, op in enumerate(SPECIAL_OPS):
             req = SPECIAL_REQUIRES[op]
             if req is None:
@@ -518,6 +519,16 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
                         mask[IDX_SPECIAL_BASE + si] = True
                 else:
                     mask[IDX_SPECIAL_BASE + si] = True
+            elif op in ("吟唱魔法护盾", "展开AT力场"):
+                # 这两个特殊操作的前置是 learned_spells 而非持有物品
+                # 且仅在护甲被破坏（不存在）时才可用
+                if req in learned:
+                    from models.equipment import ArmorLayer
+                    from utils.attribute import Attribute
+                    attr = Attribute.MAGIC if req == "魔法护盾" else Attribute.TECH
+                    piece = player.armor.get_piece(ArmorLayer.OUTER, attr)
+                    if piece is None:
+                        mask[IDX_SPECIAL_BASE + si] = True
             elif req in owned:
                 # 磨刀：额外检查是否有未磨的小刀
                 if op == "磨刀":
