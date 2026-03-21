@@ -543,12 +543,14 @@ class PoliceEngine:
         player = self.state.get_player(player_id)  
         progress_key = "captain_election"  
         current = player.progress.get(progress_key, 0) + 1  
-        player.progress[progress_key] = current  
+        player.progress[progress_key] = current
+
   
         required = 3  
         if player.talent and hasattr(player.talent, 'get_election_rounds_reduction'):  
             reduction = player.talent.get_election_rounds_reduction()  
-            required = max(1, required - reduction)  
+            required = max(1, required - reduction)
+        self.state.log_event("election", player=player_id, progress=current, required=required)  
   
         if current >= required:  
             del player.progress[progress_key]  
