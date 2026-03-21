@@ -2829,6 +2829,9 @@ class BasicAIController(PlayerController):
             name = w.name if hasattr(w, 'name') else str(w)
             if name in POLICE_AOE_WEAPONS:
                 return True
+        learned = getattr(player, 'learned_spells', set())
+        if "地震" in learned or "地动山摇" in learned:
+            return True
         return False
 
     def _get_aoe_weapon_name(self, player) -> Optional[str]:
@@ -2836,6 +2839,11 @@ class BasicAIController(PlayerController):
             name = w.name if hasattr(w, 'name') else str(w)
             if name in POLICE_AOE_WEAPONS:
                 return name
+        learned = getattr(player, 'learned_spells', set())
+        if "地动山摇" in learned:
+            return "地动山摇"
+        if "地震" in learned:
+            return "地震"
         return None
 
     def _armor_counters_weapon(self, player, weapon_name) -> bool:
