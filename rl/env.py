@@ -222,7 +222,7 @@ class BadtimeWarEnv(gym.Env):
             p = Player(f"ai_{i}", f"AI_{i}", ai_ctrl)  
             ai_players.append(p)  
         
-        # 随机化玩家顺序，避免 RL 永远是第一个行动  
+        # 随机化玩家顺序，避免 RL 永远是零号玩家，在开局时吃到不必要的针对 
         all_players = [self._rl_player] + ai_players  
         self.np_random.shuffle(all_players)  
         for p in all_players:  

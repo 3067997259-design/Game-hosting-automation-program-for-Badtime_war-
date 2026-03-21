@@ -499,6 +499,20 @@ class BasicAIController(PlayerController):
             killer = event.get("killer", "")  
             if killer:  
                 self._threat_scores[killer] = self._threat_scores.get(killer, 0) + 30
+                # 有人竞选队长  
+        if event_type == "election":  
+            candidate_pid = event.get("player", "")  
+            candidate_name = self._pid_to_name(candidate_pid)  
+            if candidate_name and candidate_name != self.player_name:  
+                self._threat_scores[candidate_name] = self._threat_scores.get(candidate_name, 0) + 10  
+        
+        # 有人当上队长  
+        if event_type == "captain_elected":  
+            captain_pid = event.get("captain", "")  
+            captain_name = self._pid_to_name(captain_pid)  
+            if captain_name and captain_name != self.player_name:  
+                self._threat_scores[captain_name] = self._threat_scores.get(captain_name, 0) + 30
+        
 
     def _get_last_attacker(self, player, state) -> Optional[Any]:  
         """获取最后一个攻击自己的存活玩家"""  
@@ -1928,7 +1942,12 @@ class BasicAIController(PlayerController):
                     s += 20 
             # 武器有效性：所有武器都被克制的目标大幅降分  
             if self._all_weapons_countered(player, t):  
-                s -= 200  
+                s -= 200
+            # 队长 + 警察保护 + 无 AOE → 打不动，不浪费行动  
+            if getattr(t, 'is_captain', False):  
+                has_aoe = self._has_aoe_weapon(player)  
+                if not has_aoe and self._captain_has_police_escort(t, state):  
+                    s -= 500  
             return s
 
         candidates.sort(key=score, reverse=True)
@@ -2126,6 +2145,28 @@ class BasicAIController(PlayerController):
         elif wr == WeaponRange.AREA:
             return "area"
         return "melee"
+    
+    def _has_aoe_weapon(self, player) -> bool:  
+        """检查玩家是否持有 AOE 武器（地震/地动山摇/电磁步枪）"""  
+        for w in getattr(player, 'weapons', []):  
+            if w.name in POLICE_AOE_WEAPONS:  
+                return True  
+        learned = getattr(player, 'learned_spells', set())  
+        if "地震" in learned or "地动山摇" in learned:  
+            return True  
+        return False  
+    
+    def _captain_has_police_escort(self, captain, state) -> bool:  
+        """检查队长所在地点是否有活跃的警察单位"""  
+        police = getattr(state, 'police', None)  
+        if not police:  
+            return False  
+        captain_loc = self._get_location_str(captain)  
+        for unit in getattr(police, 'units', []):  
+            if (unit.is_alive() and not unit.is_disabled()  
+                    and getattr(unit, 'location', None) == captain_loc):  
+                return True  
+        return False
 
     def _get_weapon_attr(self, weapon):  
         """获取武器属性（返回 Attribute 枚举）"""  
