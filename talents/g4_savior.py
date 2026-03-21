@@ -52,9 +52,9 @@ class Savior(BaseTalent):
 
         # 是否已永久失效
         self.spent = False
-        # 涟漪强化（献予「负世」之诗）  
-        self.ripple_enhanced = False      # 是否已被涟漪方式2强化  
-        self.can_active_start = False     # 是否解锁主动发动  
+        # 涟漪强化（献予「负世」之诗）
+        self.ripple_enhanced = False      # 是否已被涟漪方式2强化
+        self.can_active_start = False     # 是否解锁主动发动
         self.passive_bonus_divinity = 0   # 被动触发时额外获得的神性
 
     # ============================================
@@ -80,7 +80,7 @@ class Savior(BaseTalent):
         """
         被攻击时调用（无论是否造成伤害）。
         由 damage_resolver 或 action_turn 在攻击结算后调用。
-        
+
         【修复】救世主状态下不能再获得神性
         """
         if self.spent or self.is_savior:  # 添加 is_savior 检查
@@ -92,7 +92,7 @@ class Savior(BaseTalent):
     def on_positive_talent_used(self, source_player, is_limited=False):
         """
         其他玩家对自己使用正面效果天赋时调用。
-        
+
         【修复】救世主状态下不能再获得神性
         """
         if self.spent or self.is_savior:  # 添加 is_savior 检查
@@ -101,93 +101,93 @@ class Savior(BaseTalent):
         if is_limited:
             self.gain_divinity(1, "来自限定次数天赋技能")
 
-    def enhance_by_ripple(self):  
-        """  
-        被 g5_ripple 方式2「献予负世之诗」强化时调用。  
-        README: "立刻额外获得2点神性，并为此天赋追加新的启动方式……  
-                 若最终仍是在被攻击至濒死时自动触发，则再额外获得2点神性。"  
-          
-        注意：g5 基础的 2 点神性由 _poem_bear 在调用本方法之前单独给予，  
-        本方法只处理「额外」的 2 点和后续效果。  
-        """  
-        if self.spent:  
-            return  
-  
-        # 效果1：立刻额外获得 2 点神性  
-        self.gain_divinity(2, "献予负世之诗-额外奖励")  
-  
-        # 效果2：解锁主动发动方式  
-        self.can_active_start = True  
-        self.ripple_enhanced = True  
-  
-        # 效果3：被动触发时再额外获得 2 点神性  
-        self.passive_bonus_divinity = 2  
-  
-        me = self.state.get_player(self.player_id)  
-        name = me.name if me else self.player_id  
-        display.show_info(  
-            f"🌅 {name} 的「愿负世，照拂黎明」受到涟漪强化！\n"  
-            f"   当前神性：{self.divinity}/{self.MAX_DIVINITY}\n"  
-            f"   解锁主动发动方式（花1回合启动，启动后获1额外行动）\n"  
-            f"   被动触发时再+2神性"  
+    def enhance_by_ripple(self):
+        """
+        被 g5_ripple 方式2「献予负世之诗」强化时调用。
+        README: "立刻额外获得2点神性，并为此天赋追加新的启动方式……
+                 若最终仍是在被攻击至濒死时自动触发，则再额外获得2点神性。"
+
+        注意：g5 基础的 2 点神性由 _poem_bear 在调用本方法之前单独给予，
+        本方法只处理「额外」的 2 点和后续效果。
+        """
+        if self.spent:
+            return
+
+        # 效果1：立刻额外获得 2 点神性
+        self.gain_divinity(2, "献予负世之诗-额外奖励")
+
+        # 效果2：解锁主动发动方式
+        self.can_active_start = True
+        self.ripple_enhanced = True
+
+        # 效果3：被动触发时再额外获得 2 点神性
+        self.passive_bonus_divinity = 2
+
+        me = self.state.get_player(self.player_id)
+        name = me.name if me else self.player_id
+        display.show_info(
+            f"🌅 {name} 的「愿负世，照拂黎明」受到涟漪强化！\n"
+            f"   当前神性：{self.divinity}/{self.MAX_DIVINITY}\n"
+            f"   解锁主动发动方式（花1回合启动，启动后获1额外行动）\n"
+            f"   被动触发时再+2神性"
         )
 
     # ============================================
     #  绝境触发（死亡检查）
     # ============================================
 
-    def on_death_check(self, player, damage_source):  
-        """  
-        致命攻击时自动触发。  
-        优先级应高于死者苏生（免死优先于复活）。  
-        涟漪强化：被动触发时额外获得神性。  
-        """  
-        if player.player_id != self.player_id:  
-            return None  
-        if self.spent:  
-            return None  
-        if self.divinity <= 0:  
-            return None  
-  
-        # 已经在救世主状态中再次致命 → 退出状态而非再次触发  
-        if self.is_savior:  
-            self._exit_savior_state()  
-            return None  
-  
-        # 涟漪强化：被动触发（被攻击至濒死）时额外获得神性  
-        if self.ripple_enhanced and self.passive_bonus_divinity > 0:  
-            bonus = self.passive_bonus_divinity  
-            self.gain_divinity(bonus, "献予负世之诗-被动触发奖励")  
-            display.show_info(  
-                f"🌅 涟漪强化生效：{player.name} 被动触发前额外获得 {bonus} 点神性"  
-            )  
-  
-        # 触发救世主  
+    def on_death_check(self, player, damage_source):
+        """
+        致命攻击时自动触发。
+        优先级应高于死者苏生（免死优先于复活）。
+        涟漪强化：被动触发时额外获得神性。
+        """
+        if player.player_id != self.player_id:
+            return None
+        if self.spent:
+            return None
+        if self.divinity <= 0:
+            return None
+
+        # 已经在救世主状态中再次致命 → 退出状态而非再次触发
+        if self.is_savior:
+            self._exit_savior_state()
+            return None
+
+        # 涟漪强化：被动触发（被攻击至濒死）时额外获得神性
+        if self.ripple_enhanced and self.passive_bonus_divinity > 0:
+            bonus = self.passive_bonus_divinity
+            self.gain_divinity(bonus, "献予负世之诗-被动触发奖励")
+            display.show_info(
+                f"🌅 涟漪强化生效：{player.name} 被动触发前额外获得 {bonus} 点神性"
+            )
+
+        # 触发救世主
         return self._enter_savior_state(player, is_manual=False)
 
-    def _enter_savior_state(self, player, is_manual=False):  
-        """进入救世主状态（支持主动/被动触发）"""  
-        consumed = self.divinity  
-        self.divinity = 0  
-  
-        self.is_savior = True  
-        self.savior_duration = consumed  
-        self.temp_hp = float(consumed)  
-        self.temp_hp_max = float(consumed)  
-        self.temp_attack_bonus = consumed * 0.5  
-  
-        trigger_type = "主动发动" if is_manual else "被动触发"  
-        display.show_info(  
-            f"\n{'='*50}"  
-            f"\n  🌅 {player.name} {trigger_type}「愿负世，照拂黎明」！"  
-            f"\n  消耗 {consumed} 点神性 → 进入「救世主」状态！"  
-            f"\n  临时额外生命：{self.temp_hp}"  
-            f"\n  临时攻击力加成：+{self.temp_attack_bonus}"  
-            f"\n  持续轮次：{self.savior_duration}"  
-            f"\n  ⛔ 禁用远程攻击 | 🛡️ 免疫死亡"  
-            f"\n{'='*50}")  
-  
-        # 恢复HP到1（免疫该次致命伤害）  
+    def _enter_savior_state(self, player, is_manual=False):
+        """进入救世主状态（支持主动/被动触发）"""
+        consumed = self.divinity
+        self.divinity = 0
+
+        self.is_savior = True
+        self.savior_duration = consumed
+        self.temp_hp = float(consumed)
+        self.temp_hp_max = float(consumed)
+        self.temp_attack_bonus = consumed * 0.5
+
+        trigger_type = "主动发动" if is_manual else "被动触发"
+        display.show_info(
+            f"\n{'='*50}"
+            f"\n  🌅 {player.name} {trigger_type}「愿负世，照拂黎明」！"
+            f"\n  消耗 {consumed} 点神性 → 进入「救世主」状态！"
+            f"\n  临时额外生命：{self.temp_hp}"
+            f"\n  临时攻击力加成：+{self.temp_attack_bonus}"
+            f"\n  持续轮次：{self.savior_duration}"
+            f"\n  ⛔ 禁用远程攻击 | 🛡️ 免疫死亡"
+            f"\n{'='*50}")
+
+        # 恢复HP到1（免疫该次致命伤害）
         return {"prevent_death": True, "new_hp": 1.0}
 
     # ============================================
@@ -307,74 +307,74 @@ class Savior(BaseTalent):
     #  T0 展示（无主动T0，但要考虑献予负世之诗）
     # ============================================
 
-    def get_t0_option(self, player):  
-        """  
-        涟漪强化后解锁主动发动选项。  
-        未强化时返回 None（原始行为：纯被动触发）。  
-        """  
-        if player.player_id != self.player_id:  
-            return None  
-        if self.spent:  
-            return None  
-        if self.is_savior:  
-            return None  
-        if not self.can_active_start:  
-            return None  
-        if self.divinity <= 0:  
-            return None  
-  
-        return {  
-            "name": "愿负世，照拂黎明（主动发动）",  
-            "description": (  
-                f"消耗所有神性（当前{self.divinity}点）进入救世主状态，"  
-                f"启动后立即获得1个额外行动回合"  
-            ),  
-        }  
-  
-    def execute_t0(self, player):  
-        """主动发动救世主状态（涟漪强化后可用）"""  
-        if not self.can_active_start:  
-            return "❌ 无法主动发动（未受涟漪强化）", False  
-        if self.divinity <= 0:  
-            return "❌ 需要至少1点神性才能主动发动", False  
-        if self.is_savior:  
-            return "❌ 已经处于救世主状态", False  
-  
-        # 进入救世主状态  
-        self._enter_savior_state(player, is_manual=True)  
-  
-        # 标记额外行动回合（由 round_manager 在行动结束后检查）  
-        player.savior_extra_turn = True  
-  
-        msg = (  
-            f"🌅 {player.name} 主动发动「愿负世，照拂黎明」！\n"  
-            f"   将在本次行动结束后获得1个额外行动回合"  
-        )  
+    def get_t0_option(self, player):
+        """
+        涟漪强化后解锁主动发动选项。
+        未强化时返回 None（原始行为：纯被动触发）。
+        """
+        if player.player_id != self.player_id:
+            return None
+        if self.spent:
+            return None
+        if self.is_savior:
+            return None
+        if not self.can_active_start:
+            return None
+        if self.divinity <= 0:
+            return None
+
+        return {
+            "name": "愿负世，照拂黎明（主动发动）",
+            "description": (
+                f"消耗所有神性（当前{self.divinity}点）进入救世主状态，"
+                f"启动后立即获得1个额外行动回合"
+            ),
+        }
+
+    def execute_t0(self, player):
+        """主动发动救世主状态（涟漪强化后可用）"""
+        if not self.can_active_start:
+            return "❌ 无法主动发动（未受涟漪强化）", False
+        if self.divinity <= 0:
+            return "❌ 需要至少1点神性才能主动发动", False
+        if self.is_savior:
+            return "❌ 已经处于救世主状态", False
+
+        # 进入救世主状态
+        self._enter_savior_state(player, is_manual=True)
+
+        # 标记额外行动回合（由 round_manager 在行动结束后检查）
+        player.savior_extra_turn = True
+
+        msg = (
+            f"🌅 {player.name} 主动发动「愿负世，照拂黎明」！\n"
+            f"   将在本次行动结束后获得1个额外行动回合"
+        )
         return msg, True  # True = 消耗本次行动回合
 
     # ============================================
     #  描述
     # ============================================
 
-    def describe_status(self):  
-        if self.spent:  
-            if self.is_savior:  
-                return "救世主状态中（即将结束）"  
-            return "已永久失效"  
-  
-        parts = [f"神性：{self.divinity}/{self.MAX_DIVINITY}"]  
-  
-        if self.ripple_enhanced:  
-            parts.append("🌊涟漪强化")  
-            if self.can_active_start:  
-                parts.append("可主动发动")  
-  
-        if self.is_savior:  
-            parts.append(f"🌅救世主状态")  
-            parts.append(f"临时HP:{self.temp_hp}")  
-            parts.append(f"攻击加成:+{self.temp_attack_bonus}")  
-            parts.append(f"剩余{self.savior_duration}轮")  
-  
+    def describe_status(self):
+        if self.spent:
+            if self.is_savior:
+                return "救世主状态中（即将结束）"
+            return "已永久失效"
+
+        parts = [f"神性：{self.divinity}/{self.MAX_DIVINITY}"]
+
+        if self.ripple_enhanced:
+            parts.append("🌊涟漪强化")
+            if self.can_active_start:
+                parts.append("可主动发动")
+
+        if self.is_savior:
+            parts.append(f"🌅救世主状态")
+            parts.append(f"临时HP:{self.temp_hp}")
+            parts.append(f"攻击加成:+{self.temp_attack_bonus}")
+            parts.append(f"剩余{self.savior_duration}轮")
+
         return " | ".join(parts)
 
     def describe(self):

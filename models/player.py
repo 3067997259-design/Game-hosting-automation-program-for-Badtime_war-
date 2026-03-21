@@ -39,17 +39,17 @@ class ArmorSlots:
 
     def equip(self, piece):
         d = self._get_layer_list(piece.layer)
-        
+
         # 检查是否有同名护甲
         for existing_piece in d:
             if not existing_piece.is_broken and existing_piece.name == piece.name:
                 return False, f"已有同名{piece.layer.value}护甲：{existing_piece.name}"
-        
+
         # 检查层数限制（每层最多3件）
         active_count = len(self.get_active(piece.layer))
         if active_count >= 3:
             return False, f"{piece.layer.value}护甲已满3件"
-        
+
         # 添加到列表
         d.append(piece)
         return True, "装备成功"
@@ -57,12 +57,12 @@ class ArmorSlots:
     def check_can_equip(self, piece):
         """非破坏性检查：是否能装备该护甲（不实际装备）"""
         d = self._get_layer_list(piece.layer)
-        
+
         # 检查是否有同名护甲
         for existing_piece in d:
             if not existing_piece.is_broken and existing_piece.name == piece.name:
                 return False, f"已有同名护甲"
-        
+
         active_count = len(self.get_active(piece.layer))
         if active_count >= 3:
             return False, f"该层已满"

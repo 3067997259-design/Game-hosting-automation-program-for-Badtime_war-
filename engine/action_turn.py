@@ -209,12 +209,12 @@ class ActionTurnManager:
             for name, usage, desc in police_actions:
                 names.append(name)
                 descs.append({"usage": usage, "description": desc})
-            
+
             # 队长操控警察命令（仅队长可见）
             if player.is_captain:
                 names.append("police_command")
                 descs.append({
-                    "usage": "police move/equip/attack <警察ID> <参数>", 
+                    "usage": "police move/equip/attack <警察ID> <参数>",
                     "description": "队长操控警察移动/装备/攻击"
                 })
 
@@ -280,14 +280,14 @@ class ActionTurnManager:
                 display.show_info(f"⚠️ 指令不合法: {reason}")
                 continue
 
-            # 执行  
-            msg, action_type, success = self._execute_action(parsed, player)  
-            display.show_result(msg)  
-            if not success:  
-                display.show_info("⚠️ 行动执行失败，请重新选择行动。")  
-                continue  
-            from utils.pacing import action_pause  
-            action_pause(self.state, label=f"{player.name} → {action_type}")  
+            # 执行
+            msg, action_type, success = self._execute_action(parsed, player)
+            display.show_result(msg)
+            if not success:
+                display.show_info("⚠️ 行动执行失败，请重新选择行动。")
+                continue
+            from utils.pacing import action_pause
+            action_pause(self.state, label=f"{player.name} → {action_type}")
             return action_type
 
         # 重试耗尽 → 强制 forfeit
@@ -299,173 +299,173 @@ class ActionTurnManager:
     # ================================================================
     #  T2：回合结束触发
     # ================================================================
-    def _phase_t2(self, player, action_type):  
-        if player.talent:  
+    def _phase_t2(self, player, action_type):
+        if player.talent:
             player.talent.on_turn_end(player, action_type)
-    
-    def _execute_action(self, parsed, player):  
-        action = parsed["action"]  
-    
-        if action == "wake":  
-            msg = wake_up.execute(player, self.state)  
-            return msg, "wake", True                          # CHANGED: 永远成功  
-    
-        elif action == "move":  
-            dest = parsed["destination"]  
-            msg = move.execute(player, dest, self.state)  
-            if (self.state.police_engine  
-                    and self.state.police.reported_target_id == player.player_id  
-                    and self.state.police.report_phase == "dispatched"):  
-                msg += f"\n   🚔 警察将在轮末自动追踪！"  
-            return msg, "move", True                          # CHANGED: 永远成功  
-    
-        elif action == "interact":  
-            item = parsed["item"]  
-            msg = interact.execute(player, item, self.state)  
-            return msg, "interact", not msg.startswith("❌")  # CHANGED  
-    
-        elif action == "lock":  
-            target_id = resolve_player_target(parsed["target"], self.state)  
-            if not target_id:                                  # CHANGED: 新增空检查  
-                return "❌ 找不到目标玩家", "lock", False  
-            msg = lock_target.execute(player, target_id, self.state)  
-            return msg, "lock", not msg.startswith("❌")      # CHANGED  
-    
-        elif action == "find":  
-            target_id = resolve_player_target(parsed["target"], self.state)  
-            if not target_id:                                  # CHANGED: 新增空检查  
-                return "❌ 找不到目标玩家", "find", False  
-            msg = find_target.execute(player, target_id, self.state)  
-            return msg, "find", not msg.startswith("❌")      # CHANGED  
-    
-        elif action == "attack":  
-            return self._execute_attack(parsed, player)        # 内部已改为三元组  
-    
-        elif action == "special":  
-            op = parsed["operation"]  
-            msg = special_op.execute(player, op, self.state)  
-            return msg, "special", not msg.startswith("❌")   # CHANGED  
-    
-        elif action == "report":  
-            target_id = resolve_player_target(parsed["target"], self.state)  
-            if not target_id:                                  # CHANGED  
-                return "❌ 找不到目标玩家", "report", False  
-            msg = self.state.police_engine.do_report(player.player_id, target_id)  
-            return msg, "report", not msg.startswith("❌")    # CHANGED  
-    
-        elif action == "assemble":  
-            msg = self.state.police_engine.do_assemble(player.player_id)  
-            return msg, "assemble", not msg.startswith("❌")  # CHANGED  
-    
-        elif action == "track_guide":  
-            msg = self.state.police_engine.do_track_guide(player.player_id)  
-            return msg, "track_guide", not msg.startswith("❌")  # CHANGED  
-    
-        elif action == "recruit":  
-            msg, rewards = self.state.police_engine.do_recruit(player.player_id)  
-            if not rewards:  
-                return msg, "recruit", not msg.startswith("❌")  # CHANGED: 无奖励=失败  
-            # ══ CONTROLLER 改动：加入警察三选二走 controller ══  
-            display.show_info("加入警察！请从以下三项中选择两项奖励：")  
-            choice1 = player.controller.choose(  
-                "选择第1项：", rewards,  
-                context={"phase": "T1", "situation": "recruit_pick_1"}  
-            )  
-            remaining = [o for o in rewards if o != choice1]  
-            choice2 = player.controller.choose(  
-                "选择第2项：", remaining,  
-                context={"phase": "T1", "situation": "recruit_pick_2"}  
-            )  
-            # ══ CONTROLLER 改动结束 ══  
-            from models.equipment import make_weapon as _mw, make_armor as _ma  
-            for choice in [choice1, choice2]:  
-                if choice == "购买凭证":  
-                    player.vouchers += 1  
-                elif choice == "警棍":  
-                    w = _mw("警棍")  
-                    if w:  
-                        player.add_weapon(w)  
-                elif choice == "盾牌":  
-                    a = _ma("盾牌")  
-                    if a:  
-                        player.add_armor(a)  
-            msg += f"\n选择了：{choice1}、{choice2}"  
-            return msg, "recruit", True                        # CHANGED  
-    
-        elif action == "election":  
-            msg = self.state.police_engine.do_election(player.player_id)  
-            return msg, "election", not msg.startswith("❌")  # CHANGED  
-    
-        elif action == "designate":  
-            target_id = resolve_player_target(parsed["target"], self.state)  
-            if not target_id:                                  # CHANGED  
-                return "❌ 找不到目标玩家", "designate", False  
-            msg = self.state.police_engine.captain_designate_target(  
-                player.player_id, target_id)  
-            return msg, "designate", not msg.startswith("❌") # CHANGED  
-    
-        elif action == "split":  
-            return "❌ 拆分功能已在v1.9中移除（警察现在是独立单位）", "split", False  # CHANGED  
-    
-        elif action == "study":  
-            msg = self.state.police_engine.do_study(player.player_id)  
-            return msg, "study", not msg.startswith("❌")     # CHANGED  
-    
-        elif action == "police_command":  
-            from actions.police_command import execute as police_command_execute  
-            msg: str  
-            msg, _ = police_command_execute(player, parsed, self.state)  
+
+    def _execute_action(self, parsed, player):
+        action = parsed["action"]
+
+        if action == "wake":
+            msg = wake_up.execute(player, self.state)
+            return msg, "wake", True                          # CHANGED: 永远成功
+
+        elif action == "move":
+            dest = parsed["destination"]
+            msg = move.execute(player, dest, self.state)
+            if (self.state.police_engine
+                    and self.state.police.reported_target_id == player.player_id
+                    and self.state.police.report_phase == "dispatched"):
+                msg += f"\n   🚔 警察将在轮末自动追踪！"
+            return msg, "move", True                          # CHANGED: 永远成功
+
+        elif action == "interact":
+            item = parsed["item"]
+            msg = interact.execute(player, item, self.state)
+            return msg, "interact", not msg.startswith("❌")  # CHANGED
+
+        elif action == "lock":
+            target_id = resolve_player_target(parsed["target"], self.state)
+            if not target_id:                                  # CHANGED: 新增空检查
+                return "❌ 找不到目标玩家", "lock", False
+            msg = lock_target.execute(player, target_id, self.state)
+            return msg, "lock", not msg.startswith("❌")      # CHANGED
+
+        elif action == "find":
+            target_id = resolve_player_target(parsed["target"], self.state)
+            if not target_id:                                  # CHANGED: 新增空检查
+                return "❌ 找不到目标玩家", "find", False
+            msg = find_target.execute(player, target_id, self.state)
+            return msg, "find", not msg.startswith("❌")      # CHANGED
+
+        elif action == "attack":
+            return self._execute_attack(parsed, player)        # 内部已改为三元组
+
+        elif action == "special":
+            op = parsed["operation"]
+            msg = special_op.execute(player, op, self.state)
+            return msg, "special", not msg.startswith("❌")   # CHANGED
+
+        elif action == "report":
+            target_id = resolve_player_target(parsed["target"], self.state)
+            if not target_id:                                  # CHANGED
+                return "❌ 找不到目标玩家", "report", False
+            msg = self.state.police_engine.do_report(player.player_id, target_id)
+            return msg, "report", not msg.startswith("❌")    # CHANGED
+
+        elif action == "assemble":
+            msg = self.state.police_engine.do_assemble(player.player_id)
+            return msg, "assemble", not msg.startswith("❌")  # CHANGED
+
+        elif action == "track_guide":
+            msg = self.state.police_engine.do_track_guide(player.player_id)
+            return msg, "track_guide", not msg.startswith("❌")  # CHANGED
+
+        elif action == "recruit":
+            msg, rewards = self.state.police_engine.do_recruit(player.player_id)
+            if not rewards:
+                return msg, "recruit", not msg.startswith("❌")  # CHANGED: 无奖励=失败
+            # ══ CONTROLLER 改动：加入警察三选二走 controller ══
+            display.show_info("加入警察！请从以下三项中选择两项奖励：")
+            choice1 = player.controller.choose(
+                "选择第1项：", rewards,
+                context={"phase": "T1", "situation": "recruit_pick_1"}
+            )
+            remaining = [o for o in rewards if o != choice1]
+            choice2 = player.controller.choose(
+                "选择第2项：", remaining,
+                context={"phase": "T1", "situation": "recruit_pick_2"}
+            )
+            # ══ CONTROLLER 改动结束 ══
+            from models.equipment import make_weapon as _mw, make_armor as _ma
+            for choice in [choice1, choice2]:
+                if choice == "购买凭证":
+                    player.vouchers += 1
+                elif choice == "警棍":
+                    w = _mw("警棍")
+                    if w:
+                        player.add_weapon(w)
+                elif choice == "盾牌":
+                    a = _ma("盾牌")
+                    if a:
+                        player.add_armor(a)
+            msg += f"\n选择了：{choice1}、{choice2}"
+            return msg, "recruit", True                        # CHANGED
+
+        elif action == "election":
+            msg = self.state.police_engine.do_election(player.player_id)
+            return msg, "election", not msg.startswith("❌")  # CHANGED
+
+        elif action == "designate":
+            target_id = resolve_player_target(parsed["target"], self.state)
+            if not target_id:                                  # CHANGED
+                return "❌ 找不到目标玩家", "designate", False
+            msg = self.state.police_engine.captain_designate_target(
+                player.player_id, target_id)
+            return msg, "designate", not msg.startswith("❌") # CHANGED
+
+        elif action == "split":
+            return "❌ 拆分功能已在v1.9中移除（警察现在是独立单位）", "split", False  # CHANGED
+
+        elif action == "study":
+            msg = self.state.police_engine.do_study(player.player_id)
+            return msg, "study", not msg.startswith("❌")     # CHANGED
+
+        elif action == "police_command":
+            from actions.police_command import execute as police_command_execute
+            msg: str
+            msg, _ = police_command_execute(player, parsed, self.state)
             return msg, "police_command", not msg.startswith("❌")
-    
-        elif action == "forfeit":  
-              msg = forfeit.execute(player, self.state)  
-              return msg, "forfeit", True                        # CHANGED: 永远成功  
-        
+
+        elif action == "forfeit":
+              msg = forfeit.execute(player, self.state)
+              return msg, "forfeit", True                        # CHANGED: 永远成功
+
         return "❌ 未知行动", "unknown", False                  # CHANGED: 加❌前缀 + False
-            
+
 
 
 
     # ================================================================
     #  攻击执行
     # ================================================================
-    def _execute_attack(self, parsed, player):  
-        target_id = resolve_player_target(parsed["target"], self.state)  
-        weapon_name = parsed["weapon"]  
-        layer_str = parsed.get("layer")  
-        attr_str = parsed.get("attr")  
-        weapon = player.get_weapon(weapon_name)  
-    
-        from models.equipment import WeaponRange  
-        if weapon.weapon_range == WeaponRange.AREA:  
-            return self._execute_area_attack(player, weapon)  
-    
-        msg, result = attack.execute(  
-            player, target_id, weapon_name, self.state,  
-            layer_str=layer_str, attr_str=attr_str  
-        )  
-    
-        # 攻击一旦进入 resolve_damage 就有副作用，不应重试  
-        # 但如果 attack.execute 返回 ❌（目标不存在/无武器），是纯失败  
-        is_failure = isinstance(msg, str) and msg.startswith("❌")  
-    
-        if not is_failure:  
-            if weapon.requires_charge and weapon.is_charged:  
-                weapon.is_charged = False  
-            if "missile" in weapon.special_tags:  
-                self.state.markers.remove(player.player_id, "MISSILE_CTRL")  
-    
-            if result.get("stealth_suppressed"):  
-                msg += f"\n   ⚠️ {player.name} 因面对面近战暂时暴露！"  
-    
-            target = self.state.get_player(target_id)  
-            if result.get("killed") and target:  
-                player.kill_count += 1  
-                self.state.markers.on_player_death(target_id)  
-                if self.state.police_engine:  
-                    self.state.police_engine.on_player_death(target_id)  
-                display.show_death(target.name, f"被 {player.name} 的 {weapon_name} 击杀")  
-    
+    def _execute_attack(self, parsed, player):
+        target_id = resolve_player_target(parsed["target"], self.state)
+        weapon_name = parsed["weapon"]
+        layer_str = parsed.get("layer")
+        attr_str = parsed.get("attr")
+        weapon = player.get_weapon(weapon_name)
+
+        from models.equipment import WeaponRange
+        if weapon.weapon_range == WeaponRange.AREA:
+            return self._execute_area_attack(player, weapon)
+
+        msg, result = attack.execute(
+            player, target_id, weapon_name, self.state,
+            layer_str=layer_str, attr_str=attr_str
+        )
+
+        # 攻击一旦进入 resolve_damage 就有副作用，不应重试
+        # 但如果 attack.execute 返回 ❌（目标不存在/无武器），是纯失败
+        is_failure = isinstance(msg, str) and msg.startswith("❌")
+
+        if not is_failure:
+            if weapon.requires_charge and weapon.is_charged:
+                weapon.is_charged = False
+            if "missile" in weapon.special_tags:
+                self.state.markers.remove(player.player_id, "MISSILE_CTRL")
+
+            if result.get("stealth_suppressed"):
+                msg += f"\n   ⚠️ {player.name} 因面对面近战暂时暴露！"
+
+            target = self.state.get_player(target_id)
+            if result.get("killed") and target:
+                player.kill_count += 1
+                self.state.markers.on_player_death(target_id)
+                if self.state.police_engine:
+                    self.state.police_engine.on_player_death(target_id)
+                display.show_death(target.name, f"被 {player.name} 的 {weapon_name} 击杀")
+
         return msg, "attack", not is_failure                   # CHANGED
 
     # ================================================================

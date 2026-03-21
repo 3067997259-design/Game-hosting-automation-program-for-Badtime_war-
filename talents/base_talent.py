@@ -10,7 +10,7 @@ class BaseTalent:
     name = "未命名天赋"
     description = "无描述"
     tier = "原初"  # "原初" 或 "神代"
-    
+
     # 诗意文案（子类可覆盖）
     lore = []
 
@@ -115,7 +115,7 @@ class BaseTalent:
     def show_lore(self, level=None):
         """
         显示天赋的叙事文案。
-        
+
         Args:
             level: 提示级别，None表示使用配置的talent_lore_level
                   默认为None，让prompt_manager根据配置决定显示级别
@@ -145,12 +145,12 @@ class BaseTalent:
             "Savior": "g4savior",
             "Ripple": "g5ripple",
         }
-        
+
         class_name = self.__class__.__name__
         # 优先使用映射表
         if class_name in CLASS_TO_PROMPT_KEY:
             return CLASS_TO_PROMPT_KEY[class_name]
-        
+
         # 备用规则：类名转小写
         return class_name.lower()
 
@@ -179,7 +179,7 @@ class BaseTalent:
         """
         显示天赋激活提示。
         默认使用talent.{key}.activate模板。
-        
+
         Args:
             player_name: 玩家名称，默认为天赋持有者
             show_lore: 是否显示天赋叙事文案（lore）
@@ -188,7 +188,7 @@ class BaseTalent:
         # 显示天赋叙事文案（如果配置允许）
         if show_lore:
             self.show_lore(level=None)
-        
+
         # 显示激活文本
         talent_key = self._get_talent_key()
         if player_name is None:

@@ -123,7 +123,7 @@ class AnchorVerifier:
 
         # 4. 计算前置回合数（移动、find、lock）
         prep_rounds = self._calculate_prep_rounds(caster, target, best_weapon)
-        
+
         # 5. 命数
         fate = prep_rounds + attack_rounds
 
@@ -154,10 +154,10 @@ class AnchorVerifier:
     def _calculate_prep_rounds(self, caster, target, weapon):
         """计算前置回合数：移动、find、lock"""
         prep_rounds = 0
-        
+
         # 检查武器射程
         weapon_range = getattr(weapon, 'weapon_range', None)
-        
+
         # 移动回合：只有近战武器需要同位置
         if weapon_range == WeaponRange.MELEE:
             if caster.location != target.location:
@@ -173,7 +173,7 @@ class AnchorVerifier:
         else:
             # 范围武器或其他类型，默认不需要前置
             pass
-            
+
         return prep_rounds
 
     def _has_engaged(self, caster, target):
@@ -262,7 +262,7 @@ class AnchorVerifier:
 
         # 前置回合描述
         weapon_range = getattr(weapon, 'weapon_range', None)
-        
+
         # 移动回合（仅近战需要）
         if weapon_range == WeaponRange.MELEE and caster.location != target.location:
             path.append(
@@ -270,7 +270,7 @@ class AnchorVerifier:
                 f"移动到 {target.location}"
             )
             round_num += 1
-        
+
         # find/lock回合
         if weapon_range == WeaponRange.MELEE and not self._has_engaged(caster, target):
             path.append(

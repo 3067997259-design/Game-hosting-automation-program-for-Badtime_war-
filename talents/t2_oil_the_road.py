@@ -53,7 +53,7 @@ class OilTheRoad(BaseTalent):
                                                 default="🛢️ {player_name} 使用「你给路打油」！\n    获得1个额外行动回合！（剩余{remaining}次）",
                                                 player_name=player.name,
                                                 remaining=self.uses_remaining)
-        
+
         return response_msg
 
     def describe_status(self):

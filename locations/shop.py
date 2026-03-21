@@ -43,13 +43,13 @@ def can_interact(player, item_name, game_state=None):
     # 免费项目直接通过
     if item_name in FREE_ITEMS:
         return True, ""
-    
-    # 防毒面具：需凭证但不消耗（病毒期间仍免费）  
-    if item_name == "防毒面具":  
-        if game_state and _is_virus_active(game_state):  
-            return True, ""  
-        if player.vouchers < 1:  
-            return False, "防毒面具需要购买凭证（不消耗凭证）。"  
+
+    # 防毒面具：需凭证但不消耗（病毒期间仍免费）
+    if item_name == "防毒面具":
+        if game_state and _is_virus_active(game_state):
+            return True, ""
+        if player.vouchers < 1:
+            return False, "防毒面具需要购买凭证（不消耗凭证）。"
         return True, ""
 
     # 病毒期间免费
@@ -59,15 +59,15 @@ def can_interact(player, item_name, game_state=None):
     # 需要凭证
     if player.vouchers < 1:
         return False, "你没有购买凭证（山姆会员）！请先获取凭证。"
-    
 
-    # 检查重复护甲  
-    if item_name == "陶瓷护甲":  
-        from models.equipment import make_armor  
-        test_armor = make_armor("陶瓷护甲")  
-        if test_armor:  
-            can_equip, equip_reason = player.armor.check_can_equip(test_armor)  
-            if not can_equip:  
+
+    # 检查重复护甲
+    if item_name == "陶瓷护甲":
+        from models.equipment import make_armor
+        test_armor = make_armor("陶瓷护甲")
+        if test_armor:
+            can_equip, equip_reason = player.armor.check_can_equip(test_armor)
+            if not can_equip:
                 return False, f"无法装备陶瓷护甲：{equip_reason}"
 
     return True, ""

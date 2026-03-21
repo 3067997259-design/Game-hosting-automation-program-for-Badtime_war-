@@ -412,7 +412,7 @@ class Mythland(BaseTalent):
 
     def _end_barrier(self):
         alive = self._get_alive_barrier_players()
-        
+
         # 构建玩家返回信息
         return_info = []
         for pid in alive:

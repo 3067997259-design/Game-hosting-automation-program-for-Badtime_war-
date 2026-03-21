@@ -80,22 +80,22 @@ def setup_game():
     #  初始化提示管理系统
     # ════════════════════════════════════════════════════════
     # 提示管理器单例已在导入时自动初始化，无需重复加载
-    
+
     # 使用新的提示系统显示横幅
     from engine.prompt_manager import show_info as pm_show_info
     pm_show_info("ui", "banner")
-    
+
     game_state = GameState()
     # ════════════════════════════════════════════════════════
     #  调试模式选择
     # ════════════════════════════════════════════════════════
-    
+
     print("\n  ─── 调试模式 ───")
     print("    0. 正常模式（无调试输出）")
     print("    1. 基本调试（AI关键决策）")
     print("    2. 详细调试（AI详细过程）")
     print("    3. 完整调试（所有调试信息）")
-    
+
     while True:
         debug_raw = input("  请选择调试模式（0/1/2/3，默认0）：").strip()
         if debug_raw in ("", "0"):
@@ -111,11 +111,11 @@ def setup_game():
             debug_level = 3
             break
         print("  请输入 0~3。")
-    
+
     if debug_level > 0:
         enable_debug(debug_level)
         debug_system(f"调试模式已启用，级别: {debug_level}")
-    
+
     # ════════════════════════════════════════════════════════
     #  第一步：选择游戏模式
     # ════════════════════════════════════════════════════════
@@ -487,23 +487,23 @@ def _ai_pick_talent(personality: str, available, taken: set):
     """
     AI 根据人格偏好从可用天赋中选择。
     返回 (编号, 名称, 类) 或 None（不选）。
-    
+
     【调试增强】添加详细的选择过程日志，便于验证AI是否按倾向选择。
     """
     # 导入调试函数
     from engine.debug_config import debug_system, is_debug_enabled
-    
+
     # 获取该人格的偏好列表
     preference = AI_TALENT_PREFERENCE.get(personality,
                                            AI_TALENT_PREFERENCE["balanced"])
-    
+
     # 调试信息：显示人格和偏好列表
     if is_debug_enabled():
         debug_system(f"AI人格: {personality}")
         debug_system(f"偏好顺序: {preference}")
         debug_system(f"已选天赋: {taken}")
         debug_system(f"可用天赋: {[n for n, _, _, _ in available]}")
-    
+
     # 按照偏好顺序查找
     for talent_num in preference:
         if talent_num in taken:

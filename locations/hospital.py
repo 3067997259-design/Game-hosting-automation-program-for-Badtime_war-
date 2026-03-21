@@ -41,11 +41,11 @@ def can_interact(player, item_name, game_state=None):
     if item_name in SURGERY_ITEMS:
         if player.vouchers < 1:
             return False, "手术需要至少1张购买凭证！（手术会消耗你所有凭证）"
-        
-    # 防毒面具：需凭证但不消耗  
-    if item_name == "防毒面具":  
-        if player.vouchers < 1:  
-            return False, "防毒面具需要购买凭证（不消耗凭证）。"  
+
+    # 防毒面具：需凭证但不消耗
+    if item_name == "防毒面具":
+        if player.vouchers < 1:
+            return False, "防毒面具需要购买凭证（不消耗凭证）。"
         return True, ""
 
     return True, ""

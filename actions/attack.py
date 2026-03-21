@@ -42,7 +42,7 @@ def execute(player, target_id, weapon_name, game_state,
         # 调用警察攻击接口
         if not hasattr(game_state, 'police_engine') or not game_state.police_engine:
             return "❌ 警察系统未初始化", {}
-        
+
         result = game_state.police_engine.attack_police(
             attacker_id=player.player_id,
             police_target=target_id,
@@ -50,7 +50,7 @@ def execute(player, target_id, weapon_name, game_state,
         )
         # 警察攻击返回字符串消息，没有详情dict
         return result, {}
-    
+
     # 原有玩家攻击逻辑
     target = game_state.get_player(target_id)
     if not target:

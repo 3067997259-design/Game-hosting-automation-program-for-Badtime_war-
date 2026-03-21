@@ -134,7 +134,7 @@ class Hologram(BaseTalent):
 
     def _pull_npcs(self):
         """将所有非玩家单位拉到影像位置并沉沦
-        
+
         ver1.9重构：使用 police.units 扁平列表替代旧的 squads 二层结构。
         每个 PoliceUnit 拥有独立的 location、debuff状态等属性。
         """
@@ -143,10 +143,10 @@ class Hologram(BaseTalent):
         # 警察系统
         if hasattr(self.state, 'police') and self.state.police:
             police = self.state.police
-            for unit in police.units:  
-                if not unit.is_alive():  
-                    continue  
-                if not unit.is_on_map():  
+            for unit in police.units:
+                if not unit.is_alive():
+                    continue
+                if not unit.is_on_map():
                     continue
 
                 # 强制移动到影像位置
@@ -405,7 +405,7 @@ class Hologram(BaseTalent):
 
     def _expire(self):
         """全息影像消失
-        
+
         ver1.9重构：使用 police.units + unit.unit_id 替代旧的 squads + id(squad)。
         通过 unit_id 匹配之前记录的沉沦单位，解除沉沦状态。
         """

@@ -12,7 +12,7 @@ from typing import List, Optional, Any, Dict
 class PlayerController(ABC):
     """
     玩家控制器抽象基类。
-    
+
     约定：
     - get_command()  → 返回一条 CLI 命令字符串（与人类在终端输入的格式完全一致）
     - choose()       → 从给定选项列表中选一个，返回选中项的字符串
@@ -32,7 +32,7 @@ class PlayerController(ABC):
         """
         返回一条完整的 CLI 命令字符串。
         例如: "move 商店", "attack 玩家A 小刀 外层普通", "forfeit"
-        
+
         规则层会对返回值进行 parse → validate，
         如果不合法会再次调用（或由调用方处理重试）。
         """
@@ -48,7 +48,7 @@ class PlayerController(ABC):
         """
         从 options 中选择一个并返回。
         用于：天赋T0是否发动、石化二选一、加入警察三选二、等。
-        
+
         返回值必须是 options 中的某一项。
         """
         ...
@@ -65,7 +65,7 @@ class PlayerController(ABC):
         """
         从 options 中选择 min_count~max_count 个。
         用于：地动山摇选震荡目标（最多2个）、等。
-        
+
         返回值是 options 的子集列表。
         """
         ...
@@ -87,7 +87,7 @@ class PlayerController(ABC):
         接收公开游戏事件（可选实现）。
         Human 通常忽略（信息已在屏幕上）；
         AI 可用来更新威胁评估、记忆对手行为。
-        
+
         event 格式示例:
         {"type": "attack", "attacker": "A", "target": "B", "damage": 1, "weapon": "小刀"}
         {"type": "move", "player": "A", "from": "家", "to": "商店"}

@@ -62,7 +62,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
 
     raw = raw_damage
     result["raw_damage"] = raw
-    
+
     external_damage_text = prompt_manager.get_prompt(
         "combat", "external_damage_source",
         default="外部伤害源：{damage}（{attribute}）"
@@ -128,7 +128,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
-            
+
             hp_damage_text = prompt_manager.get_prompt(
                 "combat", "hp_damage_detailed",
                 default="生命受到 {damage} 伤害 → HP: {current_hp}/{max_hp}"
@@ -277,13 +277,13 @@ def resolve_damage(attacker, target, weapon, game_state,
     raw = weapon.get_effective_damage()
     raw = raw * damage_multiplier + bonus_damage
     result["raw_damage"] = raw
-    
+
     raw_damage_text = prompt_manager.get_prompt(
         "combat", "raw_damage",
         default="原始伤害：{damage}"
     )
     result["details"].append(raw_damage_text.format(damage=raw))
-    
+
     # ---- 萤火受伤减免 ----
     if target.talent and hasattr(target.talent, 'modify_incoming_damage'):
         raw = target.talent.modify_incoming_damage(target, attacker, weapon, raw)
@@ -324,7 +324,7 @@ def resolve_damage(attacker, target, weapon, game_state,
                 )
                 result["details"].append(result["reason"])
                 return result
-        
+
         attack_target_text = prompt_manager.get_prompt(
             "combat", "attack_target_armor",
             default="攻击目标护甲：{armor_piece}"
@@ -336,7 +336,7 @@ def resolve_damage(attacker, target, weapon, game_state,
     # ---- 第4步：伤害量化 ----
     final_damage = quantize_damage(raw)
     result["final_damage"] = final_damage
-    
+
     quantized_text = prompt_manager.get_prompt(
         "combat", "quantized_damage",
         default="量化后伤害：{damage}"
@@ -440,7 +440,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             prevent_shock = False
             if target.talent and hasattr(target.talent, 'prevent_stun'):
                 prevent_shock = target.talent.prevent_stun(target)
-            
+
             if not prevent_shock:
                 result["shocked"] = True
                 target.is_shocked = True
@@ -448,7 +448,7 @@ def resolve_damage(attacker, target, weapon, game_state,
                 if game_state:
                     game_state.markers.add(target.player_id, "SHOCKED")
                     game_state.markers.add(target.player_id, "STUNNED")
-                
+
                 shocked_text = prompt_manager.get_prompt(
                     "combat", "shocked_by_electric",
                     default="⚡ {target_name} 被电磁步枪击中，进入震荡状态！"
@@ -569,7 +569,7 @@ def _redirect_overflow_damage(target, broken_armor, overflow,
         inner_list = target.armor.get_active(ArmorLayer.INNER)
         for armor in inner_list:
             candidates.append((armor, "内层"))
-    
+
     effective_candidates = []
     if weapon_attribute is None:
         effective_candidates = candidates
@@ -577,26 +577,26 @@ def _redirect_overflow_damage(target, broken_armor, overflow,
         for armor, layer_type in candidates:
             if is_effective(weapon_attribute, armor.attribute):
                 effective_candidates.append((armor, layer_type))
-    
-    if not effective_candidates:  
-        if candidates:  
-            # 有护甲但全部免疫 → 伤害被克制，无效化  
-            immune_names = "、".join(f"「{a.name}({a.attribute.value})」" for a, _ in candidates)  
-            result["details"].append(  
-                f"溢出伤害 {overflow} 被剩余护甲 {immune_names} 的属性克制，无效！"  
-            )  
-            return 0  
-        else:  
-            # 确实没有护甲了 → 伤害转移到生命  
-            result["details"].append(f"溢出伤害 {overflow} 没有护甲可承受，直接作用到生命")  
+
+    if not effective_candidates:
+        if candidates:
+            # 有护甲但全部免疫 → 伤害被克制，无效化
+            immune_names = "、".join(f"「{a.name}({a.attribute.value})」" for a, _ in candidates)
+            result["details"].append(
+                f"溢出伤害 {overflow} 被剩余护甲 {immune_names} 的属性克制，无效！"
+            )
+            return 0
+        else:
+            # 确实没有护甲了 → 伤害转移到生命
+            result["details"].append(f"溢出伤害 {overflow} 没有护甲可承受，直接作用到生命")
             return overflow
-    
+
     selected_armor, selected_layer = random.choice(effective_candidates)
-    
+
     result["details"].append(
         f"溢出伤害 {overflow} 重定向到 {selected_layer}护甲「{selected_armor.name}」"
     )
-    
+
     return _apply_damage_to_armor(
         target, selected_armor, overflow,
         ignore_last_inner_absorb, result, weapon_attribute
@@ -617,7 +617,7 @@ def _apply_damage_to_armor(target, armor_piece, damage,
         armor_piece.current_hp = 0
         armor_piece.is_broken = True
         result["armor_broken"] = True
-        
+
         armor_destroyed_text = prompt_manager.get_prompt(
             "combat", "armor_destroyed_detailed",
             default="护甲「{armor_name}」被击破！溢出：{overflow}"

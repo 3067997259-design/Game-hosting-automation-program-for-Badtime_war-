@@ -83,7 +83,7 @@ class MarkerManager:
     def on_player_wake_up(self, player_id):
         """玩家起床"""
         self.remove(player_id, "SLEEPING")
-    
+
     def on_player_death(self, player_id):
         """
         玩家死亡时清理所有相关标记：
