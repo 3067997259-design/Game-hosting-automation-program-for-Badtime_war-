@@ -339,6 +339,10 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
         # Items at 医院 that are surgery (need vouchers, consume all)
         SURGERY_ITEMS = {"晶化皮肤手术", "额外心脏手术", "不老泉手术"}
 
+        learned_spells = getattr(player, 'learned_spells', set())
+        owned_items = set(getattr(i, 'name', '') for i in (player.items or []))
+        owned_weapons = set(getattr(w, 'name', '') for w in (player.weapons or []) if w)
+
         for i, item in enumerate(INTERACT_ITEMS):
             if norm_loc not in ITEM_LOCATIONS.get(item, set()):
                 continue
@@ -359,6 +363,82 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
             prereq = SPELL_PREREQUISITES.get(item)
             if prereq and prereq not in getattr(player, 'learned_spells', set()):
                 continue
+
+            # === Ownership checks ===
+            # 法术：已学会则跳过（AT力场除外，可重新展开）
+            if item in learned_spells and item != "AT力场":
+                continue
+            # 小刀：已有则跳过
+            if item == "小刀" and "小刀" in owned_weapons:
+                continue
+            # 盾牌：已有同名护甲则跳过
+            if item == "盾牌":
+                from models.equipment import make_armor as _test_ma
+                _test = _test_ma("盾牌")
+                if _test:
+                    can_eq, _ = player.armor.check_can_equip(_test)
+                    if not can_eq:
+                        continue
+            # 陶瓷护甲：已有同名护甲则跳过 (already checked in can_interact, but add mask too)
+            if item == "陶瓷护甲":
+                from models.equipment import make_armor as _test_ma2
+                _test2 = _test_ma2("陶瓷护甲")
+                if _test2:
+                    can_eq2, _ = player.armor.check_can_equip(_test2)
+                    if not can_eq2:
+                        continue
+            # 手术：已有同名内层护甲则跳过
+            if item in ("晶化皮肤手术", "额外心脏手术", "不老泉手术"):
+                surgery_armor_map = {
+                    "晶化皮肤手术": "晶化皮肤",
+                    "额外心脏手术": "额外心脏",
+                    "不老泉手术": "不老泉",
+                }
+                from models.equipment import ArmorPiece, ArmorLayer
+                from utils.attribute import Attribute
+                armor_name = surgery_armor_map[item]
+                attr_map = {"晶化皮肤": Attribute.TECH, "额外心脏": Attribute.ORDINARY, "不老泉": Attribute.MAGIC}
+                test_piece = ArmorPiece(armor_name, attr_map[armor_name], ArmorLayer.INNER, 1.0)
+                can_eq3, _ = player.armor.check_can_equip(test_piece)
+                if not can_eq3:
+                    continue
+            # 磨刀石：已有磨刀石 或 没有未磨小刀 则跳过
+            if item == "磨刀石":
+                if "磨刀石" in owned_items:
+                    continue
+                has_unsharpened = any(
+                    getattr(w, 'name', '') == "小刀" and getattr(w, 'base_damage', 0) < 2
+                    for w in (player.weapons or []) if w
+                )
+                if not has_unsharpened:
+                    continue
+            # 隐身衣/隐形涂层：已隐身则跳过
+            if item in ("隐身衣", "隐形涂层"):
+                if getattr(player, 'is_invisible', False):
+                    continue
+                if item in owned_items:
+                    continue
+            # 热成像仪/雷达：已有探测则跳过
+            if item in ("热成像仪", "雷达"):
+                if getattr(player, 'has_detection', False):
+                    continue
+            # 防毒面具：已有则跳过
+            if item == "防毒面具":
+                if "防毒面具" in owned_items:
+                    continue
+            # 电磁步枪/高斯步枪：已有则跳过
+            if item in ("电磁步枪", "高斯步枪"):
+                if item in owned_weapons:
+                    continue
+            # 办理通行证：已有则跳过
+            if item == "办理通行证":
+                if getattr(player, 'has_military_pass', False):
+                    continue
+            # 导弹控制权：已有控制权标记则跳过
+            if item == "导弹控制权":
+                if game_state and game_state.markers.has(player.player_id, "MISSILE_CTRL"):
+                    continue
+
             mask[IDX_INTERACT_BASE + i] = True
 
     # ── 对手槽位存活状态（lock / find / attack 共用）─────────────
@@ -429,6 +509,7 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
     # ── special ───────────────────────────────────────────────────
     if "special" in available_set:
         owned = _player_owned_names(player)
+        learned = getattr(player, 'learned_spells', set())
         for si, op in enumerate(SPECIAL_OPS):
             req = SPECIAL_REQUIRES[op]
             if req is None:
@@ -438,7 +519,25 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
                         mask[IDX_SPECIAL_BASE + si] = True
                 else:
                     mask[IDX_SPECIAL_BASE + si] = True
+            elif op in ("吟唱魔法护盾", "展开AT力场"):
+                # 这两个特殊操作的前置是 learned_spells 而非持有物品
+                # 且仅在护甲被破坏（不存在）时才可用
+                if req in learned:
+                    from models.equipment import ArmorLayer
+                    from utils.attribute import Attribute
+                    attr = Attribute.MAGIC if req == "魔法护盾" else Attribute.TECH
+                    piece = player.armor.get_piece(ArmorLayer.OUTER, attr)
+                    if piece is None:
+                        mask[IDX_SPECIAL_BASE + si] = True
             elif req in owned:
+                # 磨刀：额外检查是否有未磨的小刀
+                if op == "磨刀":
+                    has_unsharpened = any(
+                        getattr(w, 'name', '') == "小刀" and getattr(w, 'base_damage', 0) < 2
+                        for w in (player.weapons or []) if w
+                    )
+                    if not has_unsharpened:
+                        continue
                 mask[IDX_SPECIAL_BASE + si] = True
 
     # ── 警察行动 ──────────────────────────────────────────────────

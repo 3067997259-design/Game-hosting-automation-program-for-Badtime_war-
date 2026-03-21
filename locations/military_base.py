@@ -41,6 +41,28 @@ def can_interact(player, item_name, game_state=None):
     if item_name in NEED_PASS and not player.has_military_pass:
         return False, "你需要先办理通行证或强买通行证才能使用军事基地设施"
 
+    # 检查重复武器
+    if item_name == "电磁步枪":
+        if player.has_weapon("电磁步枪"):
+            return False, "你已经有电磁步枪了"
+
+    if item_name == "高斯步枪":
+        if player.has_weapon("高斯步枪"):
+            return False, "你已经有高斯步枪了"
+
+    if item_name == "雷达":
+        if getattr(player, 'has_detection', False):
+            return False, "你已经有探测能力了"
+
+    if item_name == "隐形涂层":
+        if getattr(player, 'is_invisible', False):
+            return False, "你已经处于隐身状态了"
+
+    # 导弹控制权：检查是否已有控制权标记
+    if item_name == "导弹控制权":
+        if game_state and game_state.markers.has(player.player_id, "MISSILE_CTRL"):
+            return False, "你已经有导弹控制权了"
+
     if item_name == "AT力场":
         from models.equipment import ArmorPiece, ArmorLayer
         from utils.attribute import Attribute
