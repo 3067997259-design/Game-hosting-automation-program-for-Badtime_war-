@@ -472,9 +472,8 @@ class BasicAIController(PlayerController):
             if target == self.player_name:
                 self._been_attacked_by.add(attacker)
                 self._threat_scores[attacker] = self._threat_scores.get(attacker, 0) + 20
-            # 在 on_event 中，attack 事件处理块里添加：
-            if event_type == "attack":
-                self._players_who_attacked.add(attacker)
+            # 记录所有发起过攻击的玩家（用于识别发育者）
+            self._players_who_attacked.add(attacker)
 
         # 被找到（find 事件用 "player" 字段表示发起者，"target" 是 player_id）
         if event_type == "find" and self._my_id is not None:
@@ -1955,10 +1954,12 @@ class BasicAIController(PlayerController):
                     s += 40
                 if self._count_inner_armor(t) == 0:
                     s += 20
-            # 在 score(t) 函数中，assassin 判断之后、武器克制判断之前添加：
             if self.personality == "aggressive":
                 target_name = getattr(t, 'name', '')
-                if target_name not in self._players_who_attacked:
+                target_pid = getattr(t, 'player_id', '')
+                is_passive = (target_name not in self._players_who_attacked
+                            and target_pid not in self._players_who_attacked)
+                if is_passive:
                     s += 50  # 优先攻击没打过人的发育者
             # 武器有效性：所有武器都被克制的目标大幅降分
             if self._all_weapons_countered(player, t):
@@ -2633,29 +2634,30 @@ class BasicAIController(PlayerController):
             existing = self._threat_scores.get(target.name, 0)
             # 衰减历史威胁 + 新威胁
             self._threat_scores[target.name] = existing * 0.8 + power * 0.2
-            # 在 _update_threat_assessment 末尾添加：
-            alive_threats = {
-                name: score for name, score in self._threat_scores.items()
-                if any(
-                    state.get_player(pid) and state.get_player(pid).is_alive()
-                    and state.get_player(pid).name == name
-                    for pid in state.player_order
-                )
-            }
-            if len(alive_threats) >= 2:
-                min_threat = min(alive_threats.values())
-                for name, score in alive_threats.items():
-                    if score <= min_threat + 1.0:
-                        self._low_threat_streak[name] = self._low_threat_streak.get(name, 0) + 1
-                    else:
-                        self._low_threat_streak[name] = 0
-                    if self._low_threat_streak.get(name, 0) >= 5:
-                        self._threat_scores[name] = self._threat_scores.get(name, 0) + 15.0
 
-            # 清理死亡玩家
-            for name in list(self._low_threat_streak.keys()):
-                if name not in alive_threats:
-                    del self._low_threat_streak[name]
+        # 检测安静发育者：连续多轮处于最低威胁的玩家
+        alive_threats = {
+            name: score for name, score in self._threat_scores.items()
+            if any(
+                state.get_player(p) and state.get_player(p).is_alive()
+                and state.get_player(p).name == name
+                for p in state.player_order
+            )
+        }
+        if len(alive_threats) >= 2:
+            min_threat = min(alive_threats.values())
+            for name, score in alive_threats.items():
+                if score <= min_threat + 1.0:
+                    self._low_threat_streak[name] = self._low_threat_streak.get(name, 0) + 1
+                else:
+                    self._low_threat_streak[name] = 0
+                if self._low_threat_streak.get(name, 0) >= 5:
+                    self._threat_scores[name] = self._threat_scores.get(name, 0) + 15.0
+
+        # 清理死亡玩家
+        for name in list(self._low_threat_streak.keys()):
+            if name not in alive_threats:
+                del self._low_threat_streak[name]
 
     def _update_caches(self, player, state):
         """更新缓存信息"""

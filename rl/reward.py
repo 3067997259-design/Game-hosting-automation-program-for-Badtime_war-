@@ -286,7 +286,7 @@ class RewardTracker:
         if game_state.game_over:
             winner = game_state.winner
             if winner == self.rl_player_id:
-                win_reward = 100.0
+                total += 100.0
             elif winner == "nobody":
                 total += -50.0
             else:
