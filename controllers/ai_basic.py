@@ -137,6 +137,9 @@ class BasicAIController(PlayerController):
         self._police_dev_assignments: Dict[str, Dict] = {}
         self._police_dev_initialized = False
 
+        self._low_threat_streak: Dict[str, int] = {} # 注意安静的人——他们可能在发育
+        self._players_who_attacked: set = set() # 记录攻击过自己的玩家，识别潜在威胁和发育者
+
     # ════════════════════════════════════════════════════════
     #  安全工具方法
     # ════════════════════════════════════════════════════════
@@ -469,6 +472,8 @@ class BasicAIController(PlayerController):
             if target == self.player_name:
                 self._been_attacked_by.add(attacker)
                 self._threat_scores[attacker] = self._threat_scores.get(attacker, 0) + 20
+            # 记录所有发起过攻击的玩家（用于识别发育者）
+            self._players_who_attacked.add(attacker)
 
         # 被找到（find 事件用 "player" 字段表示发起者，"target" 是 player_id）
         if event_type == "find" and self._my_id is not None:
@@ -499,7 +504,8 @@ class BasicAIController(PlayerController):
             killer = event.get("killer", "")
             if killer:
                 self._threat_scores[killer] = self._threat_scores.get(killer, 0) + 30
-                # 有人竞选队长
+
+        # 有人竞选队长
         if event_type == "election":
             candidate_pid = event.get("player", "")
             candidate_name = self._pid_to_name(candidate_pid)
@@ -512,6 +518,7 @@ class BasicAIController(PlayerController):
             captain_name = self._pid_to_name(captain_pid)
             if captain_name and captain_name != self.player_name:
                 self._threat_scores[captain_name] = self._threat_scores.get(captain_name, 0) + 30
+
 
 
     def _get_last_attacker(self, player, state) -> Optional[Any]:
@@ -1947,6 +1954,13 @@ class BasicAIController(PlayerController):
                     s += 40
                 if self._count_inner_armor(t) == 0:
                     s += 20
+            if self.personality == "aggressive":
+                target_name = getattr(t, 'name', '')
+                target_pid = getattr(t, 'player_id', '')
+                is_passive = (target_name not in self._players_who_attacked
+                            and target_pid not in self._players_who_attacked)
+                if is_passive:
+                    s += 50  # 优先攻击没打过人的发育者
             # 武器有效性：所有武器都被克制的目标大幅降分
             if self._all_weapons_countered(player, t):
                 s -= 200
@@ -1955,6 +1969,7 @@ class BasicAIController(PlayerController):
                 has_aoe = self._has_aoe_weapon(player)
                 if not has_aoe and self._captain_has_police_escort(t, state):
                     s -= 500
+
             return s
 
         candidates.sort(key=score, reverse=True)
@@ -2259,23 +2274,33 @@ class BasicAIController(PlayerController):
         return result
 
     def _find_nearest_enemy_location(self, player, state) -> Optional[str]:
-        """找到最近的敌人所在位置"""
-        candidates = []
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            target = state.get_player(pid)
-            if target and target.is_alive():
-                target_loc = self._get_location_str(target)
-                threat = self._threat_scores.get(target.name, 0)
-                candidates.append((target_loc, threat))
+            """找到最近的敌人所在位置
+            aggressive 人格会优先去发育者（从未攻击过任何人的玩家）所在位置
+            """
+            candidates = []
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if target and target.is_alive():
+                    target_loc = self._get_location_str(target)
+                    threat = self._threat_scores.get(target.name, 0)
+                    # aggressive 优先骚扰发育者
+                    if self.personality == "aggressive":
+                        target_name = getattr(target, 'name', '')
+                        target_pid = getattr(target, 'player_id', '')
+                        is_passive = (target_name not in self._players_who_attacked
+                                    and target_pid not in self._players_who_attacked)
+                        if is_passive:
+                            threat += 50
+                    candidates.append((target_loc, threat))
 
-        if not candidates:
-            return None
+            if not candidates:
+                return None
 
-        # 按威胁分排序
-        candidates.sort(key=lambda x: x[1], reverse=True)
-        return candidates[0][0]
+            # 按威胁分排序
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            return candidates[0][0]
 
     def _find_safe_location(self, player, state) -> Optional[str]:
         """找到最安全的位置（按敌人数量排序）"""
@@ -2609,6 +2634,30 @@ class BasicAIController(PlayerController):
             existing = self._threat_scores.get(target.name, 0)
             # 衰减历史威胁 + 新威胁
             self._threat_scores[target.name] = existing * 0.8 + power * 0.2
+
+        # 检测安静发育者：连续多轮处于最低威胁的玩家
+        alive_threats = {
+            name: score for name, score in self._threat_scores.items()
+            if any(
+                state.get_player(p) and state.get_player(p).is_alive()
+                and state.get_player(p).name == name
+                for p in state.player_order
+            )
+        }
+        if len(alive_threats) >= 2:
+            min_threat = min(alive_threats.values())
+            for name, score in alive_threats.items():
+                if score <= min_threat + 1.0:
+                    self._low_threat_streak[name] = self._low_threat_streak.get(name, 0) + 1
+                else:
+                    self._low_threat_streak[name] = 0
+                if self._low_threat_streak.get(name, 0) >= 5:
+                    self._threat_scores[name] = self._threat_scores.get(name, 0) + 15.0
+
+        # 清理死亡玩家
+        for name in list(self._low_threat_streak.keys()):
+            if name not in alive_threats:
+                del self._low_threat_streak[name]
 
     def _update_caches(self, player, state):
         """更新缓存信息"""

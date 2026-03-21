@@ -122,9 +122,15 @@ def potential(player, game_state) -> float:
         # 已面对面 = 可以近战攻击
         if markers.has_relation(player.player_id, "ENGAGED_WITH", p.player_id):
             phi += 8
-        # 已锁定 = 可以远程攻击
+        # 已锁定 = 可以远程攻击（仅在持有远程武器时有价值）
         if markers.has_relation(p.player_id, "LOCKED_BY", player.player_id):
-            phi += 6
+            from models.equipment import WeaponRange
+            has_ranged = any(
+                getattr(w, 'weapon_range', None) == WeaponRange.RANGED
+                for w in (player.weapons or []) if w
+            )
+            if has_ranged:
+                phi += 6
 
     # === 降低警察维度权重 ===
     if player.is_captain:
@@ -219,6 +225,16 @@ def behavior_penalty(player, game_state, action_type, action_success) -> float:
     if game_state.current_round > 70:
         r -= 0.15 * (game_state.current_round - 70)
 
+    # 在 behavior_penalty 函数中添加纯连续移动惩罚
+    move_streak = getattr(player, '_rl_move_streak', 0)
+    if action_type == "move":
+        move_streak += 1
+        player._rl_move_streak = move_streak
+        if move_streak >= 3:
+            r -= 2.0 * (move_streak - 2)  # 第3次-2, 第4次-4, 第5次-6...
+    else:
+        player._rl_move_streak = 0
+
     return r
 
 
@@ -270,19 +286,7 @@ class RewardTracker:
         if game_state.game_over:
             winner = game_state.winner
             if winner == self.rl_player_id:
-                win_reward = 100.0
-                # 零击杀胜利惩罚
-                rl_player = game_state.get_player(self.rl_player_id)
-                if rl_player and getattr(rl_player, 'kill_count', 0) == 0:
-                    win_reward -= 15.0
-                    # 零攻击胜利额外惩罚
-                    has_attacked = any(
-                        e.get("type") == "attack" and e.get("attacker") == self.rl_player_id
-                        for e in game_state.event_log
-                    )
-                    if not has_attacked:
-                        win_reward -= 10.0
-                total += win_reward
+                total += 100.0
             elif winner == "nobody":
                 total += -50.0
             else:
