@@ -182,14 +182,41 @@ def get_opponent_slots(player, game_state) -> List:
   
 def _auto_target(player, game_state) -> Optional[str]:  
     """  
-    自动选择目标（用于 report / designate）：  
-    返回 kill_count 最高的存活对手名；若无存活对手则返回 None。  
+    自动选择举报/指定目标：  
+    report: 从攻击过自己的犯罪者中选 kill_count 最高的  
+    designate: 保持原逻辑（kill_count 最高的存活对手）  
     """  
     slots = get_opponent_slots(player, game_state)  
     alive = [p for p in slots if p is not None and p.is_alive()]  
     if not alive:  
         return None  
     return max(alive, key=lambda p: getattr(p, "kill_count", 0)).name  
+  
+  
+def _auto_report_target(player, game_state) -> Optional[str]:  
+    """举报专用：只从攻击过自己的犯罪者中选"""  
+    slots = get_opponent_slots(player, game_state)  
+    alive = [p for p in slots if p is not None and p.is_alive()]  
+    if not alive:  
+        return None  
+      
+    # 筛选：攻击过 RL 的犯罪者  
+    candidates = []  
+    for p in alive:  
+        if not getattr(game_state.police, 'is_criminal', lambda x: False)(p.player_id):  
+            continue  
+        was_attacked = any(  
+            e.get("type") == "attack"  
+            and e.get("attacker") == p.player_id  
+            and e.get("target") == player.player_id  
+            for e in game_state.event_log  
+        )  
+        if was_attacked:  
+            candidates.append(p)  
+      
+    if not candidates:  
+        return None  
+    return max(candidates, key=lambda p: getattr(p, "kill_count", 0)).name 
   
   
 def _player_owned_names(player) -> set[str]:  
@@ -249,11 +276,14 @@ def idx_to_command(idx: int, player, game_state) -> str:
         return f"special {SPECIAL_OPS[idx - IDX_SPECIAL_BASE]}"  
   
     if IDX_POLICE_BASE <= idx < ACTION_COUNT:  
-        cmd = POLICE_CMDS[idx - IDX_POLICE_BASE]  
-        if cmd in ("report", "designate"):  
-            target_name = _auto_target(player, game_state)  
-            return f"{cmd} {target_name}" if target_name else "forfeit"  
-        return cmd  
+            cmd = POLICE_CMDS[idx - IDX_POLICE_BASE]  
+            if cmd == "report":  
+                target_name = _auto_report_target(player, game_state)  
+                return f"report {target_name}" if target_name else "forfeit"  
+            if cmd == "designate":  
+                target_name = _auto_target(player, game_state)  
+                return f"designate {target_name}" if target_name else "forfeit"  
+            return cmd  
   
     raise ValueError(f"动作索引越界: {idx}（合法范围 0–{ACTION_COUNT - 1}）")  
   
@@ -428,6 +458,9 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
                 continue  
             if key in ("report", "designate") and not has_alive_target:  
                 continue  
-            mask[IDX_POLICE_BASE + offset] = True  
+            # 新增：report 需要有合法举报目标（被攻击过的犯罪者）  
+            if key == "report" and _auto_report_target(player, game_state) is None:  
+                continue  
+            mask[IDX_POLICE_BASE + offset] = True 
   
     return mask

@@ -642,7 +642,14 @@ class BasicAIController(PlayerController):
                 self._danger_mode = False  
                 # 不 return，fall through 到下面的正常逻辑  
             else:  
-                debug_ai_basic(player.name, "处于危险模式")  
+                debug_ai_basic(player.name, "处于危险模式")
+                if self._is_pursued_by_police(player, state):  
+                    if self._can_fight_police(player, state):  
+                        fight_cmds = self._cmd_fight_police(player, state, available_actions)  
+                        if fight_cmds:  
+                            candidates.extend(fight_cmds)  
+                            candidates.append("forfeit")  
+                            return candidates 
                 if self.personality == "aggressive":  
                     aggressive_cmds = self._aggressive_survival_strategy(player, state, available_actions)  
                     candidates.extend(aggressive_cmds)  
@@ -2146,15 +2153,7 @@ class BasicAIController(PlayerController):
             return "area"
         return "melee"
     
-    def _has_aoe_weapon(self, player) -> bool:  
-        """检查玩家是否持有 AOE 武器（地震/地动山摇/电磁步枪）"""  
-        for w in getattr(player, 'weapons', []):  
-            if w.name in POLICE_AOE_WEAPONS:  
-                return True  
-        learned = getattr(player, 'learned_spells', set())  
-        if "地震" in learned or "地动山摇" in learned:  
-            return True  
-        return False  
+ 
     
     def _captain_has_police_escort(self, captain, state) -> bool:  
         """检查队长所在地点是否有活跃的警察单位"""  
@@ -2755,31 +2754,127 @@ class BasicAIController(PlayerController):
         if "flee" in options:
             return "flee"
         return options[0] if options else None
-
-    # ════════════════════════════════════════════════════════
-    #  命令格式化与验证
-    # ════════════════════════════════════════════════════════
-
-    def _format_command(self, raw_cmd: str) -> str:
-        """格式化命令"""
-        return raw_cmd.strip()
-
-    def _validate_command(self, cmd: str, available: List[str]) -> bool:
-        """验证命令是否合法"""
-        if not cmd:
-            return False
-        parts = cmd.split()
-        if not parts:
-            return False
-
-        action = parts[0]
-        # 检查行动类型是否可用
-        if action in available:
-            return True
-        # 特殊命令
-        if action in ("police", "talent_activate", "special"):
-            return True
+    
+    def _is_pursued_by_police(self, player, state) -> bool:  
+        """检查是否正在被警察追击"""  
+        pc = self._police_cache or {}  
+        if pc.get("report_target") == player.player_id:  
+            phase = pc.get("report_phase", "idle")  
+            if phase in ("reported", "dispatched"):  
+                return True  
+        return False  
+    
+    def _can_fight_police(self, player, state) -> bool:  
+        """判断是否有能力反击警察：内甲+外甲>=2，或有克制警察武器的护甲"""  
+        outer = self._count_outer_armor(player)  
+        inner = self._count_inner_armor(player)  
+        if outer + inner >= 2:  
+            return True  
+        # 检查是否有护甲克制同地点警察的武器  
+        pc = self._police_cache or {}  
+        for unit in pc.get("units", []):  
+            if not unit.get("is_alive"):  
+                continue  
+            weapon_name = unit.get("weapon", "警棍")  
+            # 检查玩家护甲是否克制该武器属性  
+            if self._armor_counters_weapon(player, weapon_name):  
+                return True  
+        return False  
+    
+    def _cmd_fight_police(self, player, state, available) -> List[str]:  
+        """反击警察：去拿AOE武器，然后攻击同地点的警察"""  
+        commands = []  
+        loc = self._get_location_str(player)  
+        
+        # 检查是否已有AOE武器  
+        has_aoe = self._has_aoe_weapon(player)  
+        
+        if has_aoe:  
+            # 已有AOE武器，找有警察的地点去打  
+            pc = self._police_cache or {}  
+            for unit in pc.get("units", []):  
+                if unit.get("is_alive") and unit.get("location"):  
+                    unit_loc = unit["location"]  
+                    if loc == unit_loc:  
+                        # 同地点，直接攻击  
+                        aoe_name = self._get_aoe_weapon_name(player)  
+                        if aoe_name:  
+                            commands.append(f"attack {unit['id']} {aoe_name}")  
+                        return commands  
+                    else:  
+                        # 不同地点，移动过去  
+                        commands.append(f"move {unit_loc}")  
+                        return commands  
+        else:  
+            # 没有AOE武器，去拿一个  
+            # 优先去人少的地方：魔法所（地震）或军事基地（电磁步枪）  
+            enemies_magic = self._count_enemies_at("魔法所", player, state)  
+            enemies_military = self._count_enemies_at("军事基地", player, state)  
+            
+            if enemies_magic <= enemies_military:  
+                if loc == "魔法所" and "interact" in available:  
+                    commands.append("interact 地震")  
+                else:  
+                    commands.append("move 魔法所")  
+            else:  
+                if loc == "军事基地" and "interact" in available:  
+                    commands.append("interact 电磁步枪")  
+                else:  
+                    commands.append("move 军事基地")  
+        
+        return commands
+    
+    def _has_aoe_weapon(self, player) -> bool:  
+        for w in getattr(player, 'weapons', []):  
+            name = w.name if hasattr(w, 'name') else str(w)  
+            if name in POLICE_AOE_WEAPONS:  
+                return True  
+        return False  
+    
+    def _get_aoe_weapon_name(self, player) -> Optional[str]:  
+        for w in getattr(player, 'weapons', []):  
+            name = w.name if hasattr(w, 'name') else str(w)  
+            if name in POLICE_AOE_WEAPONS:  
+                return name  
+        return None  
+    
+    def _armor_counters_weapon(self, player, weapon_name) -> bool:  
+        """检查玩家的护甲是否克制指定武器"""  
+        from utils.attribute import Attribute, is_effective  
+        from models.equipment import make_weapon  
+        w = make_weapon(weapon_name)  
+        if not w:  
+            return False  
+        for armor in getattr(player, 'armor_slots', {}).get('outer', []):  
+            if hasattr(armor, 'attribute') and not armor.is_broken:  
+                if not is_effective(w.attribute, armor.attribute):  
+                    return True  
         return False
+
+        # ════════════════════════════════════════════════════════
+        #  命令格式化与验证
+        # ════════════════════════════════════════════════════════
+
+        def _format_command(self, raw_cmd: str) -> str:
+            """格式化命令"""
+            return raw_cmd.strip()
+
+        def _validate_command(self, cmd: str, available: List[str]) -> bool:
+            """验证命令是否合法"""
+            if not cmd:
+                return False
+            parts = cmd.split()
+            if not parts:
+                return False
+
+            action = parts[0]
+            # 检查行动类型是否可用
+            if action in available:
+                return True
+            # 特殊命令
+            if action in ("police", "talent_activate", "special"):
+                return True
+            return False
 
     def _fallback_command(self, player, state, available: List[str]) -> str:
         """

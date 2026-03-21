@@ -97,7 +97,21 @@ class PoliceEngine:
             return False, "你有犯罪记录，不能举报"  
   
         if not self.police.is_criminal(target_id):  
-            return False, "目标没有犯罪记录"  
+            return False, "目标没有犯罪记录"
+
+        # 新增：只有被目标攻击过的人才能举报（彭宇案be like）  
+        # 检查 event_log 中是否有 target 攻击 reporter 的记录  
+        was_attacked_by_target = any(  
+            e.get("type") == "attack"  
+            and e.get("attacker") == target_id  
+            and e.get("target") == reporter_id  
+            for e in self.state.event_log  
+        )  
+        if not was_attacked_by_target:  
+            return False, "只有被该玩家攻击过的人才能举报"  
+  
+        if self.police.report_phase != "idle":  
+            return False, "当前已有举报在处理中" 
   
         if self.police.report_phase != "idle":  
             return False, "当前已有举报在处理中"  
@@ -272,7 +286,8 @@ class PoliceEngine:
         """  
         玩家攻击警察单位。  
         只有AOE武器可以攻击警察。攻击警察视为犯法。  
-        """  
+        """ 
+        killed_any = False                          
         if self.police.permanently_disabled:  
             return "❌ 警察系统已永久关闭"  
   
@@ -303,10 +318,26 @@ class PoliceEngine:
             result = self._resolve_attack_on_police(weapon, unit)  
             messages.append(f"  → {unit.unit_id}: {result}")  
   
-            unit.last_attacker_id = attacker_id  
+            unit.last_attacker_id = attacker_id
+ 
+  
+        for unit in units_at_loc:  
+            old_hp = unit.hp                        # ← 步骤 2：记录攻击前 HP  
+            result = self._resolve_attack_on_police(attacker, unit, attack_method)  
+            # ... 现有的结果处理 ...  
+            if old_hp > 0 and unit.hp <= 0:         # ← 步骤 2：判断是否击杀  
+                killed_any = True    
   
         # 攻击警察视为犯法  
-        self.check_and_record_crime(attacker_id, "攻击警察")  
+        self.check_and_record_crime(attacker_id, "攻击警察")
+        # 新增：无队长时，击杀警察单位清除自身所有犯罪记录  
+        if killed_any and not self.police.has_captain():  
+            self.police.clear_crimes(attacker_id)  
+            attacker = self.state.get_player(attacker_id)  
+            if attacker:  
+                attacker.is_criminal = False  
+            messages.append(f"  💪 击杀警察！犯罪记录已清除")  
+            self.state.log_event("crime_cleared", player=attacker_id, reason="击杀警察")    
   
         # 检查是否全灭  
         self.police.check_all_dead()  

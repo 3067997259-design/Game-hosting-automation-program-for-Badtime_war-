@@ -281,7 +281,12 @@ class PoliceData:
   
     def get_crimes(self, player_id):  
         """获取犯罪记录"""  
-        return self.crime_records.get(player_id, set())  
+        return self.crime_records.get(player_id, set())
+
+    def clear_crimes(self, player_id):  
+        """清除指定玩家的所有犯罪记录"""  
+        if player_id in self.crime_records:  
+            del self.crime_records[player_id]  
   
     def clear_all_crimes_except(self, except_id):  
         """清空除指定玩家外所有人的犯罪记录"""  
