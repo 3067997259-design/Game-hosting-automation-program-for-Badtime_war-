@@ -156,7 +156,7 @@ if __name__ == "__main__":
     p.add_argument("--model", type=str, required=True, help="模型路径 (.zip)")
     p.add_argument("--opponents", type=int, default=1)
     p.add_argument("--max-rounds", type=int, default=50)
-    p.add_argument("--n-stack", type=int, default=6)
+    p.add_argument("--n-stack", type=int, default=30)
     args = p.parse_args()
 
     watch(args.model, args.opponents, args.max_rounds, args.n_stack)
