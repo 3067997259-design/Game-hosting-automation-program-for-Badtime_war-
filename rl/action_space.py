@@ -430,6 +430,13 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
             if item in ("电磁步枪", "高斯步枪"):
                 if item in owned_weapons:
                     continue
+            if item == "AT力场":
+                from models.equipment import ArmorPiece, ArmorLayer
+                from utils.attribute import Attribute
+                test_at = ArmorPiece("AT力场", Attribute.TECH, ArmorLayer.OUTER, 1.0, can_regen=True)
+                can_eq_at, _ = player.armor.check_can_equip(test_at)
+                if not can_eq_at:
+                    continue
             # 办理通行证：已有则跳过
             if item == "办理通行证":
                 if getattr(player, 'has_military_pass', False):
