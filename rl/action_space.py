@@ -339,6 +339,10 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
         # Items at 医院 that are surgery (need vouchers, consume all)
         SURGERY_ITEMS = {"晶化皮肤手术", "额外心脏手术", "不老泉手术"}
 
+        learned_spells = getattr(player, 'learned_spells', set())
+        owned_items = set(getattr(i, 'name', '') for i in (player.items or []))
+        owned_weapons = set(getattr(w, 'name', '') for w in (player.weapons or []) if w)
+
         for i, item in enumerate(INTERACT_ITEMS):
             if norm_loc not in ITEM_LOCATIONS.get(item, set()):
                 continue
@@ -359,19 +363,10 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
             prereq = SPELL_PREREQUISITES.get(item)
             if prereq and prereq not in getattr(player, 'learned_spells', set()):
                 continue
-            # 已拥有物品/护甲/法术检查
-        learned_spells = getattr(player, 'learned_spells', set())
-        owned_items = set(getattr(i, 'name', '') for i in (player.items or []))
-        owned_weapons = set(getattr(w, 'name', '') for w in (player.weapons or []) if w)
 
-        for i, item in enumerate(INTERACT_ITEMS):
-            if norm_loc not in ITEM_LOCATIONS.get(item, set()):
-                continue
-            # ... existing voucher/pass/surgery/spell checks ...
-
-            # === NEW: Ownership checks ===
-            # 法术：已学会则跳过
-            if item in learned_spells:
+            # === Ownership checks ===
+            # 法术：已学会则跳过（AT力场除外，可重新展开）
+            if item in learned_spells and item != "AT力场":
                 continue
             # 小刀：已有则跳过
             if item == "小刀" and "小刀" in owned_weapons:

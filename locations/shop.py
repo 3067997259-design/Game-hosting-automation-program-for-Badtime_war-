@@ -43,8 +43,11 @@ def can_interact(player, item_name, game_state=None):
     if item_name in FREE_ITEMS:
         return True, ""
 
-    # 防毒面具：需凭证但不消耗（病毒期间仍免费）
+    # 防毒面具：需凭证但不消耗（病毒期间仍免费）；检查是否已有
     if item_name == "防毒面具":
+        items = getattr(player, 'items', [])
+        if any(getattr(i, 'name', '') == "防毒面具" for i in items):
+            return False, "你已经有防毒面具了"
         if game_state and _is_virus_active(game_state):
             return True, ""
         if player.vouchers < 1:
@@ -93,13 +96,6 @@ def can_interact(player, item_name, game_state=None):
     if item_name == "热成像仪":
         if getattr(player, 'has_detection', False):
             return False, "你已经有探测能力了"
-
-    if item_name == "防毒面具":
-        items = getattr(player, 'items', [])
-        if any(getattr(i, 'name', '') == "防毒面具" for i in items):
-            return False, "你已经有防毒面具了"
-
-    # 检查重复护甲 (陶瓷护甲 already has this check, keep it)
 
     return True, ""
 

@@ -58,10 +58,6 @@ def can_interact(player, item_name, game_state=None):
         if getattr(player, 'is_invisible', False):
             return False, "你已经处于隐身状态了"
 
-    if item_name == "办理通行证":
-        # Already handled above (line 35-38)
-        pass
-
     # 导弹控制权：检查是否已有控制权标记
     if item_name == "导弹控制权":
         if game_state and game_state.markers.has(player.player_id, "MISSILE_CTRL"):
