@@ -111,9 +111,6 @@ class PoliceEngine:
             return False, "只有被该玩家攻击过的人才能举报"  
   
         if self.police.report_phase != "idle":  
-            return False, "当前已有举报在处理中" 
-  
-        if self.police.report_phase != "idle":  
             return False, "当前已有举报在处理中"  
   
         # 朝阳好市民可远程举报  
@@ -315,8 +312,11 @@ class PoliceEngine:
         for unit in units_at_loc:  
             if not unit.is_alive():  
                 continue  
+            old_hp = unit.hp  
             result = self._resolve_attack_on_police(weapon, unit)  
             messages.append(f"  → {unit.unit_id}: {result}")  
+            if old_hp > 0 and unit.hp <= 0:  
+                killed_any = True  
   
             unit.last_attacker_id = attacker_id
  
