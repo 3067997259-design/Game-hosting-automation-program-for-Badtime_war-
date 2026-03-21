@@ -54,15 +54,7 @@ def can_interact(player, item_name, game_state=None):
             return False, "防毒面具需要购买凭证（不消耗凭证）。"
         return True, ""
 
-    # 病毒期间免费
-    if game_state and _is_virus_active(game_state):
-        return True, ""
-
-    # 需要凭证
-    if player.vouchers < 1:
-        return False, "你没有购买凭证（山姆会员）！请先获取凭证。"
-
-    # 检查重复护甲
+    # 检查重复护甲（在凭证/病毒检查之前，防止重复获取）
     if item_name == "陶瓷护甲":
         from models.equipment import make_armor
         test_armor = make_armor("陶瓷护甲")
@@ -71,7 +63,7 @@ def can_interact(player, item_name, game_state=None):
             if not can_equip:
                 return False, f"无法装备陶瓷护甲：{equip_reason}"
 
-    # 检查重复物品
+    # 检查重复物品（在凭证/病毒检查之前，防止重复获取）
     if item_name == "小刀":
         if player.has_weapon("小刀"):
             return False, "你已经有小刀了"
@@ -96,6 +88,14 @@ def can_interact(player, item_name, game_state=None):
     if item_name == "热成像仪":
         if getattr(player, 'has_detection', False):
             return False, "你已经有探测能力了"
+
+    # 病毒期间免费（跳过凭证检查，但重复物品检查已在上方完成）
+    if game_state and _is_virus_active(game_state):
+        return True, ""
+
+    # 需要凭证
+    if player.vouchers < 1:
+        return False, "你没有购买凭证（山姆会员）！请先获取凭证。"
 
     return True, ""
 
