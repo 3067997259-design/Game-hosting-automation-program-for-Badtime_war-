@@ -2845,7 +2845,7 @@ class BasicAIController(PlayerController):
         w = make_weapon(weapon_name)  
         if not w:  
             return False  
-        for armor in getattr(player, 'armor_slots', {}).get('outer', []):  
+        for armor in getattr(player, 'armor', None) and player.armor.get_active(ArmorLayer.OUTER) or []:
             if hasattr(armor, 'attribute') and not armor.is_broken:  
                 if not is_effective(w.attribute, armor.attribute):  
                     return True  
