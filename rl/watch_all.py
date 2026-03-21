@@ -188,7 +188,7 @@ def watch_all(model_path: str, num_opponents: int = 1, max_rounds: int = 50, n_s
         print(f"    HP: {player.hp:.1f}/{player.max_hp:.1f}")
         print(f"    位置: {player.location or '未知'}")
         print(f"    凭证: {player.vouchers}")
-        weapons = [w.name for w in player.weapons] if player.weapons else []
+        weapons = [w.name for w in player.weapons] if player.weapons else [] # type: ignore
         print(f"    武器: {weapons}")
         armor_names = [a.name for a in player.armor.get_all_active()] if player.armor else []
         print(f"    护甲: {armor_names}")
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     p.add_argument("--model", type=str, required=True, help="模型路径 (.zip)")
     p.add_argument("--opponents", type=int, default=1)
     p.add_argument("--max-rounds", type=int, default=50)
-    p.add_argument("--n-stack", type=int, default=6)
+    p.add_argument("--n-stack", type=int, default=30)
     args = p.parse_args()
 
     watch_all(args.model, args.opponents, args.max_rounds, args.n_stack)

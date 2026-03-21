@@ -37,6 +37,7 @@ from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 
 from rl.env import BadtimeWarEnv
+from rl.feature_extractor import GRUFeatureExtractor
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -268,6 +269,12 @@ def train(args: argparse.Namespace):
             vf_coef=0.5,
             max_grad_norm=0.5,
             policy_kwargs=dict(
+                features_extractor_class=GRUFeatureExtractor,
+                features_extractor_kwargs=dict(
+                    gru_hidden_size=128,
+                    proj_size=128,
+                    num_layers=1,
+                ),
                 net_arch=dict(pi=[256, 256], vf=[256, 256]),
             ),
             tensorboard_log=str(log_dir),
@@ -402,8 +409,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--resume", type=str, default=None,
                    help="从已有模型恢复训练（.zip 路径）")
     # 帧堆叠
-    p.add_argument("--n-stack", type=int, default=4,
-                help="帧堆叠数量（1=不堆叠，4=堆叠最近4帧）")
+    p.add_argument("--n-stack", type=int, default=30,
+                help="帧堆叠数量（1=不堆叠，30=GRU 处理最近30帧）")
 
     # 课程学习
     p.add_argument("--curriculum", action="store_true",
