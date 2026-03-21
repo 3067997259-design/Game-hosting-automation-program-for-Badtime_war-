@@ -321,13 +321,6 @@ class PoliceEngine:
             unit.last_attacker_id = attacker_id
  
   
-        for unit in units_at_loc:  
-            old_hp = unit.hp                        # ← 步骤 2：记录攻击前 HP  
-            result = self._resolve_attack_on_police(attacker, unit, attack_method)  
-            # ... 现有的结果处理 ...  
-            if old_hp > 0 and unit.hp <= 0:         # ← 步骤 2：判断是否击杀  
-                killed_any = True    
-  
         # 攻击警察视为犯法  
         self.check_and_record_crime(attacker_id, "攻击警察")
         # 新增：无队长时，击杀警察单位清除自身所有犯罪记录  

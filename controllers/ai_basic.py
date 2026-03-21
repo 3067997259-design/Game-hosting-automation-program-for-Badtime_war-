@@ -2841,40 +2841,43 @@ class BasicAIController(PlayerController):
     def _armor_counters_weapon(self, player, weapon_name) -> bool:  
         """检查玩家的护甲是否克制指定武器"""  
         from utils.attribute import Attribute, is_effective  
-        from models.equipment import make_weapon  
+        from models.equipment import make_weapon, ArmorLayer  
         w = make_weapon(weapon_name)  
         if not w:  
             return False  
-        for armor in getattr(player, 'armor', None) and player.armor.get_active(ArmorLayer.OUTER) or []:
-            if hasattr(armor, 'attribute') and not armor.is_broken:  
-                if not is_effective(w.attribute, armor.attribute):  
+        armor = getattr(player, 'armor', None)  
+        if not armor or not hasattr(armor, 'get_active'):  
+            return False  
+        for piece in armor.get_active(ArmorLayer.OUTER):  
+            if hasattr(piece, 'attribute') and not piece.is_broken:  
+                if not is_effective(w.attribute, piece.attribute):  
                     return True  
         return False
 
-        # ════════════════════════════════════════════════════════
-        #  命令格式化与验证
-        # ════════════════════════════════════════════════════════
+    # ════════════════════════════════════════════════════════
+    #  命令格式化与验证
+    # ════════════════════════════════════════════════════════
 
-        def _format_command(self, raw_cmd: str) -> str:
-            """格式化命令"""
-            return raw_cmd.strip()
+    def _format_command(self, raw_cmd: str) -> str:
+        """格式化命令"""
+        return raw_cmd.strip()
 
-        def _validate_command(self, cmd: str, available: List[str]) -> bool:
-            """验证命令是否合法"""
-            if not cmd:
-                return False
-            parts = cmd.split()
-            if not parts:
-                return False
-
-            action = parts[0]
-            # 检查行动类型是否可用
-            if action in available:
-                return True
-            # 特殊命令
-            if action in ("police", "talent_activate", "special"):
-                return True
+    def _validate_command(self, cmd: str, available: List[str]) -> bool:
+        """验证命令是否合法"""
+        if not cmd:
             return False
+        parts = cmd.split()
+        if not parts:
+            return False
+
+        action = parts[0]
+        # 检查行动类型是否可用
+        if action in available:
+            return True
+        # 特殊命令
+        if action in ("police", "talent_activate", "special"):
+            return True
+        return False
 
     def _fallback_command(self, player, state, available: List[str]) -> str:
         """
