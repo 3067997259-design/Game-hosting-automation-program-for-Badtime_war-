@@ -462,10 +462,11 @@ def build_obs(player: "Player", game_state: "GameState") -> np.ndarray:
     obs[idx] = len(alive_opps) / 5.0; idx += 1
 
     # [283] num_enemies_at_location: 同地点敌人数 / 5
-    my_loc = _normalize_location(player.location)
+    #   使用原始 location 比较，避免把不同玩家的家 (home_p1 vs home_p2) 误判为同一地点
+    my_loc = player.location
     enemies_here = sum(
         1 for opp in alive_opps
-        if _normalize_location(opp.location) == my_loc and my_loc != ""
+        if opp.location == my_loc and my_loc is not None
     )
     obs[idx] = enemies_here / 5.0; idx += 1
 
@@ -481,9 +482,10 @@ def build_obs(player: "Player", game_state: "GameState") -> np.ndarray:
     obs[idx] = float(virus_active and not has_mask); idx += 1
 
     # [286] can_buy_at_current_location: 当前地点是否有可购买的东西 (有凭证+在商店/医院/魔法所)
+    norm_loc = _normalize_location(player.location)
     can_shop = False
-    if my_loc in ("商店", "医院", "魔法所"):
-        if player.vouchers > 0 or my_loc == "商店":  # 商店打工不需要凭证
+    if norm_loc in ("商店", "医院", "魔法所"):
+        if player.vouchers > 0 or norm_loc == "商店":  # 商店打工不需要凭证
             can_shop = True
     obs[idx] = float(can_shop); idx += 1
 
