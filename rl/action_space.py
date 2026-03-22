@@ -457,12 +457,18 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
 
     # ── lock ─────────────────────────────────────────────────────
     if "lock" in available_set:
-            for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):
-                if alive and opp is not None and opp.is_on_map():
-                    visible = game_state.markers.is_visible_to(
-                        opp.player_id, player.player_id, player.has_detection)
-                    if visible:
-                        mask[IDX_LOCK_BASE + slot] = True
+            from models.equipment import WeaponRange
+            has_ranged_weapon = any(
+                getattr(w, 'weapon_range', None) == WeaponRange.RANGED
+                for w in (player.weapons or []) if w
+            )
+            if has_ranged_weapon:
+                for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):
+                    if alive and opp is not None and opp.is_on_map():
+                        visible = game_state.markers.is_visible_to(
+                            opp.player_id, player.player_id, player.has_detection)
+                        if visible:
+                            mask[IDX_LOCK_BASE + slot] = True
 
     # ── find ─────────────────────────────────────────────────────
     if "find" in available_set:
