@@ -246,6 +246,14 @@ def validate_lock(player, target_str, game_state):
         return False, f"{target.name} 不在地图上"
     if target_id == player.player_id:
         return False, "不能锁定自己"
+    # 锁定是远程攻击前置，必须持有远程武器
+    from models.equipment import WeaponRange
+    has_ranged = any(
+        getattr(w, 'weapon_range', None) == WeaponRange.RANGED
+        for w in (player.weapons or []) if w
+    )
+    if not has_ranged:
+        return False, "锁定是远程攻击前置，你没有远程武器"
 
     # 全息影像/结界：破除隐身（必须在可见性检查之前）
     if _is_stealth_blocked(target_id, game_state):
