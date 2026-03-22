@@ -14,6 +14,7 @@ rl/obs_builder.py
   [244 – 245] 病毒状态          (2)
   [246 – 251] 轮次信息          (6)
   [252 – 266] 自身标记          (15)
+  [267 – 286] 高层特征          (20)
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from rl.action_space import LOCATIONS, WEAPONS, get_opponent_slots
 #  常量
 # ─────────────────────────────────────────────────────────────────────────────
 
-OBS_DIM = 267
+OBS_DIM = 287
 
 # 每个对手槽位的维度
 _OPP_DIM = 37
@@ -342,7 +343,149 @@ def build_obs(player: "Player", game_state: "GameState") -> np.ndarray:
                 game_state.markers.has_relation(opp.player_id, "LOCKED_BY", player.player_id)
             )
     idx += 5
+    # ══════════════════════════════════════════════════════════════════════════
+    #  高层特征 (20)  [267 – 286]
+    # ══════════════════════════════════════════════════════════════════════════
+    from models.equipment import WeaponRange
 
-    assert idx == OBS_DIM  # 267
+    # [267] has_ranged_weapon: 是否持有远程武器
+    has_ranged = any(
+        getattr(w, 'weapon_range', None) == WeaponRange.RANGED
+        for w in (player.weapons or []) if w
+    )
+    obs[idx] = float(has_ranged); idx += 1
 
+    # [268] development_phase: 发育完成度 (0-1)
+    #   有真实武器(非拳击) +0.25, 有外甲 +0.25, 有内甲 +0.25, 有探测 +0.25
+    real_weapons = [w for w in (player.weapons or []) if w and w.name != "拳击"]
+    dev_score = 0.0
+    if len(real_weapons) > 0:
+        dev_score += 0.25
+    outer_count = len(player.armor.get_active(ArmorLayer.OUTER)) if hasattr(player, 'armor') and player.armor else 0
+    inner_count = len(player.armor.get_active(ArmorLayer.INNER)) if hasattr(player, 'armor') and player.armor else 0
+    if outer_count > 0:
+        dev_score += 0.25
+    if inner_count > 0:
+        dev_score += 0.25
+    if getattr(player, 'has_detection', False):
+        dev_score += 0.25
+    obs[idx] = dev_score; idx += 1
+
+    # [269] kill_chain_progress: 击杀链进度 (0/0.33/0.67/1.0)
+    #   0=nothing, 0.33=found someone (engaged), 0.67=locked someone, 1.0=locked+has ranged
+    chain = 0.0
+    i_locked_anyone = any(
+        game_state.markers.has_relation(opp.player_id, "LOCKED_BY", player.player_id)
+        for opp in opponents if opp is not None and opp.is_alive()
+    )
+    i_engaged_anyone = any(
+        game_state.markers.has_relation(player.player_id, "ENGAGED_WITH", opp.player_id)
+        for opp in opponents if opp is not None and opp.is_alive()
+    )
+    if i_locked_anyone and has_ranged:
+        chain = 1.0
+    elif i_locked_anyone:
+        chain = 0.67
+    elif i_engaged_anyone:
+        chain = 0.33
+    obs[idx] = chain; idx += 1
+
+    # [270] total_armor_count: 自身总护甲数 / 6
+    obs[idx] = (outer_count + inner_count) / 6.0; idx += 1
+
+    # [271] weapon_count: 真实武器数 / 5
+    obs[idx] = len(real_weapons) / 5.0; idx += 1
+
+    # [272-274] has_effective_weapon_vs_attribute: 对三种属性是否有有效武器
+    #   普通→普通/魔法有效, 魔法→魔法/科技有效, 科技→科技/普通有效
+    from utils.attribute import Attribute, is_effective
+    weapon_attrs = set()
+    for w in real_weapons:
+        if hasattr(w, 'attribute'):
+            weapon_attrs.add(w.attribute)
+    obs[idx] = float(any(is_effective(wa, Attribute.ORDINARY) for wa in weapon_attrs)); idx += 1
+    obs[idx] = float(any(is_effective(wa, Attribute.MAGIC) for wa in weapon_attrs)); idx += 1
+    obs[idx] = float(any(is_effective(wa, Attribute.TECH) for wa in weapon_attrs)); idx += 1
+
+    # [275-279] per-opponent development score (5 slots)
+    for slot in range(5):
+        opp = opponents[slot]
+        if opp is None or not opp.is_alive():
+            obs[idx] = 0.0
+        else:
+            opp_dev = 0.0
+            opp_real_w = [w for w in (opp.weapons or []) if w and w.name != "拳击"]
+            if len(opp_real_w) > 0:
+                opp_dev += 0.25
+            opp_outer = len(opp.armor.get_active(ArmorLayer.OUTER)) if hasattr(opp, 'armor') and opp.armor else 0
+            opp_inner = len(opp.armor.get_active(ArmorLayer.INNER)) if hasattr(opp, 'armor') and opp.armor else 0
+            if opp_outer > 0:
+                opp_dev += 0.25
+            if opp_inner > 0:
+                opp_dev += 0.25
+            if getattr(opp, 'has_detection', False):
+                opp_dev += 0.25
+            obs[idx] = opp_dev
+        idx += 1
+
+    # [280] threat_disparity: 最强对手战力 / 自身战力 (capped at 3.0)
+    my_power = (player.hp * 10 + len(real_weapons) * 15 + outer_count * 20 + inner_count * 15)
+    max_opp_power = 0.0
+    for slot in range(5):
+        opp = opponents[slot]
+        if opp is not None and opp.is_alive():
+            opp_rw = [w for w in (opp.weapons or []) if w and w.name != "拳击"]
+            opp_o = len(opp.armor.get_active(ArmorLayer.OUTER)) if hasattr(opp, 'armor') and opp.armor else 0
+            opp_i = len(opp.armor.get_active(ArmorLayer.INNER)) if hasattr(opp, 'armor') and opp.armor else 0
+            opp_p = opp.hp * 10 + len(opp_rw) * 15 + opp_o * 20 + opp_i * 15
+            max_opp_power = max(max_opp_power, opp_p)
+    if my_power > 0:
+        obs[idx] = min(max_opp_power / my_power, 3.0) / 3.0
+    else:
+        obs[idx] = 1.0
+    idx += 1
+
+    # [281] armor_advantage: (my_armor - avg_opp_armor) / 6, clamped to [-1, 1]
+    my_armor = outer_count + inner_count
+    alive_opps = [opp for opp in opponents if opp is not None and opp.is_alive()]
+    if alive_opps:
+        avg_opp_armor = sum(
+            (len(opp.armor.get_active(ArmorLayer.OUTER)) + len(opp.armor.get_active(ArmorLayer.INNER)))
+            if hasattr(opp, 'armor') and opp.armor else 0
+            for opp in alive_opps
+        ) / len(alive_opps)
+    else:
+        avg_opp_armor = 0
+    obs[idx] = max(-1.0, min(1.0, (my_armor - avg_opp_armor) / 6.0)); idx += 1
+
+    # [282] num_alive_opponents: 存活对手数 / 5
+    obs[idx] = len(alive_opps) / 5.0; idx += 1
+
+    # [283] num_enemies_at_location: 同地点敌人数 / 5
+    my_loc = _normalize_location(player.location)
+    enemies_here = sum(
+        1 for opp in alive_opps
+        if _normalize_location(opp.location) == my_loc and my_loc != ""
+    )
+    obs[idx] = enemies_here / 5.0; idx += 1
+
+    # [284] is_being_targeted: 是否有人锁定了我或和我面对面
+    is_targeted = len(locked_by) > 0 or len(engaged_with) > 0
+    obs[idx] = float(is_targeted); idx += 1
+
+    # [285] rounds_progress: 当前轮次 / 最大轮次 (already exists at idx 246, but this is a convenience duplicate in the high-level section)
+    # Actually, let's use something more useful:
+    # virus_threat: 是否有病毒且没有面具
+    has_mask = "防毒面具" in {item.name for item in (player.items or [])}
+    virus_active = game_state.virus.is_active
+    obs[idx] = float(virus_active and not has_mask); idx += 1
+
+    # [286] can_buy_at_current_location: 当前地点是否有可购买的东西 (有凭证+在商店/医院/魔法所)
+    can_shop = False
+    if my_loc in ("商店", "医院", "魔法所"):
+        if player.vouchers > 0 or my_loc == "商店":  # 商店打工不需要凭证
+            can_shop = True
+    obs[idx] = float(can_shop); idx += 1
+
+    assert idx == OBS_DIM  # 287
     return obs
