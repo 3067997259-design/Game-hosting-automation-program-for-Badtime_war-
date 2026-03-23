@@ -2393,7 +2393,7 @@ class BasicAIController(PlayerController):
         return result
 
     def _find_nearest_enemy_location(self, player, state) -> Optional[str]:
-            """找到最近的敌人所在位置
+            """找到威胁度最大的敌人所在位置（因为这游戏没有距离概念啦）
             aggressive 人格会优先去发育者（从未攻击过任何人的玩家）所在位置
             """
             candidates = []
@@ -2411,7 +2411,17 @@ class BasicAIController(PlayerController):
                         is_passive = (target_name not in self._players_who_attacked
                                     and target_pid not in self._players_who_attacked)
                         if is_passive:
-                            threat += 50
+                            s += 30 + target_power * 0.3  # 越肉的发育者越危险
+
+                # 新增：全场最强玩家额外加分
+                # 甲最多的人是最大的后期威胁，所有人都应该优先针对
+                target_power = self._estimate_power(target)
+                max_power = max(self._estimate_power(state.get_player(pid))
+                                for pid in state.player_order
+                                if pid != player.player_id
+                                and state.get_player(pid) and state.get_player(pid).is_alive())
+                if target_power >= max_power:
+                    s += 40  # 最强玩家额外 +40 优先级
                     candidates.append((target_loc, threat))
 
             if not candidates:
