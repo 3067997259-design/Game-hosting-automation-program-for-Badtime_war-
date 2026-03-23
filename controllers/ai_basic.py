@@ -942,9 +942,18 @@ class BasicAIController(PlayerController):
             return has_real_weapon and has_armor and has_inner and has_pass
 
         elif self.personality == "political":
-            is_captain = getattr(player, 'is_captain', False)
-            if not is_captain:
-                return False  # 没当上队长就不算完成
+            fallback = self._political_should_fallback(player, state)
+            if fallback == "defensive":
+                # Use defensive completion criteria when political path is blocked
+                if self._count_outer_armor(player) < 1:
+                    return False
+                if not any(w for w in (player.weapons or []) if w):
+                    return False
+                return True
+            else:
+                is_captain = getattr(player, 'is_captain', False)
+                if not is_captain:
+                    return False
             has_armor = self._count_outer_armor(player) >= 1
             # 检查警察是否全部部署
             all_deployed = all(
@@ -1151,6 +1160,25 @@ class BasicAIController(PlayerController):
             return self._find_nearest_enemy_location(player, state)
 
         elif self.personality == "political":
+            # ---- 降级检查：队长被占 / 警察系统不可用 → 走 defensive 路线 ----
+            fallback = self._political_should_fallback(player, state)
+            if fallback == "defensive":
+                # 复用 defensive 的目标地点逻辑（第 1129-1142 行的完整副本）
+                if vouchers < 1 and loc != "home":
+                    return "home"
+                if outer < 1 and loc != "home":
+                    return "home"
+                if outer < 2 and loc != "商店":
+                    return "商店"
+                if not has_weapon and loc != "商店":
+                    return "商店"
+                if not has_detection and loc != "商店":
+                    return "商店"
+                if inner < 1 and loc != "医院":
+                    return "医院"
+                return None
+            # fallback == "none" → 继续正常 political 逻辑
+
             is_police = getattr(player, 'is_police', False)
             is_captain = getattr(player, 'is_captain', False)
 
@@ -1168,7 +1196,7 @@ class BasicAIController(PlayerController):
                 if loc != "警察局":
                     return "警察局"
 
-            # 已是队长 → 发育阶段留在警察局（警察保护），发育完成后正常发育
+            # 已是队长 → 原有逻辑不变
             if is_captain:
                 # 检查警察是否全部部署完毕
                 all_deployed = all(
@@ -1714,12 +1742,17 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
 
     def _cmd_police_political(self, player, state, available: List[str]) -> List[str]:
+        # ---- 降级检查：队长被占 / 警察系统不可用 → 不生成任何政治命令 ----
+        fallback = self._political_should_fallback(player, state)
+        if fallback == "defensive":
+            return []   # 不生成任何警察/政治相关命令
+
         commands = []
         loc = self._get_location_str(player)
         is_police = getattr(player, 'is_police', False)
         is_captain = getattr(player, 'is_captain', False)
 
-# 举报犯罪者（需要在警察局，除非有远程举报天赋）
+        # 举报犯罪者（需要在警察局，除非有远程举报天赋）
         if "report" in available and is_police:
             can_remote = False
             talent = getattr(player, 'talent', None)
@@ -1860,6 +1893,31 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
     #  目标选择
     # ════════════════════════════════════════════════════════
+    def _political_should_fallback(self, player, state):
+        """Check if political AI should fall back to defensive logic.
+        Called every turn - purely reads current state, no persistent flags.
+        Returns: "none" (no fallback) | "defensive" (use defensive logic)
+        """
+        police = getattr(state, 'police', None)
+        if not police:
+            return "defensive"
+
+        # Police system permanently disabled → fallback
+        # (献予律法之诗 can reverse this, so next turn this may return "none")
+        if police.permanently_disabled:
+            return "defensive"
+
+        # Already captain → no fallback
+        if police.captain_id == player.player_id:
+            return "none"
+
+        # Another player is captain → fallback (wait for captain to die/lose authority)
+        if police.has_captain():
+            return "defensive"
+
+        # No captain, can go compete → no fallback
+        return "none"
+
     def _should_become_captain(self, player, state) -> bool:
         """判断是否应该竞选警察队长"""
         if not getattr(player, 'is_police', False):

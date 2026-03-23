@@ -304,7 +304,7 @@ def setup_game():
         print(f"\n  ─── 玩家顺序（已随机化）───")
         for i, pid in enumerate(game_state.player_order):
             p = game_state.get_player(pid)
-            is_ai = "🤖" if pid not in [info[0] for info in ai_players_info] else "🤖"
+            is_ai = "👤" if pid not in [info[0] for info in ai_players_info] else "🤖"
             # Determine if human or AI
             is_human = isinstance(p.controller, HumanController) # type: ignore
             icon = "👤" if is_human else "🤖"
