@@ -282,6 +282,33 @@ def setup_game():
             }.get(personality, personality)
             print(f"  🤖 AI玩家{i+1}：{ai_name}（ID: {pid}，{personality_cn}）")
             player_index += 1
+    # ════════════════════════════════════════════════════════
+    #  第四步半：随机化玩家顺序（非全AI模式）
+    # ════════════════════════════════════════════════════════
+
+    if game_mode != "all_ai":
+        # 随机打乱玩家顺序，避免人类玩家永远在前面吃到AI前期针对
+        # 同时天赋选择也按此顺序进行
+        random.shuffle(game_state.player_order)
+
+        # 隐藏设定：AfterRain 固定在零号位（用于测试特定天赋）
+        for i, pid in enumerate(game_state.player_order):
+            p = game_state.get_player(pid)
+            if p and p.name == "AfterRain":
+                # 将 AfterRain 移到列表头部
+                game_state.player_order.pop(i)
+                game_state.player_order.insert(0, pid)
+                break
+
+        # 显示随机化后的顺序
+        print(f"\n  ─── 玩家顺序（已随机化）───")
+        for i, pid in enumerate(game_state.player_order):
+            p = game_state.get_player(pid)
+            is_ai = "🤖" if pid not in [info[0] for info in ai_players_info] else "🤖"
+            # Determine if human or AI
+            is_human = isinstance(p.controller, HumanController) # type: ignore
+            icon = "👤" if is_human else "🤖"
+            print(f"    {i+1}. {icon} {p.name}") # type: ignore
 
     # ════════════════════════════════════════════════════════
     #  第五步：天赋选择
