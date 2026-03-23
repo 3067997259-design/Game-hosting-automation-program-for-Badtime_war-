@@ -993,7 +993,7 @@ class BasicAIController(PlayerController):
                 # Use defensive completion criteria when political path is blocked
                 if self._count_outer_armor(player) < 1:
                     return False
-                if not any(w for w in (player.weapons or []) if w):
+                if not has_real_weapon:
                     return False
                 return True
             else:
