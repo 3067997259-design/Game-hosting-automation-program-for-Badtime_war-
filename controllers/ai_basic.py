@@ -562,6 +562,45 @@ class BasicAIController(PlayerController):
                 return True
         return False
 
+    def _count_opponents_without_immunity(self, player, state) -> int:
+        """统计没有病毒免疫的存活对手数量"""
+        count = 0
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            p = state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            if not self._has_virus_immunity(p):
+                count += 1
+        return count
+
+    def _should_release_virus(self, player, state) -> bool:
+        """判断 assassin 是否应该在医院释放病毒"""
+        # 仅 assassin 人格
+        if self.personality != "assassin":
+            return False
+        # 必须在医院
+        if self._get_location_str(player) != "医院":
+            return False
+        # 病毒已激活则不放
+        virus = getattr(state, 'virus', None)
+        if virus and getattr(virus, 'is_active', False):
+            return False
+        # 自己必须有病毒免疫
+        if not self._has_virus_immunity(player):
+            return False
+        # 警察成员（非队长）不能放毒（游戏规则阻止）
+        if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
+            return False
+        # 对手免疫人数检查
+        alive_count = len([p for p in state.players.values() if p.is_alive()])
+        vulnerable = self._count_opponents_without_immunity(player, state)
+        if alive_count >= 4:
+            return vulnerable >= 2
+        else:
+            return vulnerable >= 1
+
     # ════════════════════════════════════════════════════════
     #  核心：候选命令生成
     # ════════════════════════════════════════════════════════
@@ -638,8 +677,14 @@ class BasicAIController(PlayerController):
             if candidates:
                 candidates.append("forfeit")
                 return candidates
+        # ===== Assassin 主动放毒 =====
+        if self._should_release_virus(player, state) and "special" in available_actions:
+            debug_ai_basic(player.name, "Assassin 在医院放毒！")
+            candidates.append("special 释放病毒")
+            # 不 return —— 放毒是"顺手"行为，继续生成其他候选命令
+            # 放毒命令会排在候选列表前面，优先被尝试
 
-        # ===== 极危险情况 / 持续危险模式 =====
+        # ===== 危险情况 / 持续危险模式 =====
         if self._is_critical(player, state):
             self._danger_mode = True
 
@@ -933,7 +978,8 @@ class BasicAIController(PlayerController):
             return has_real_weapon and has_armor and has_inner
 
         elif self.personality == "assassin":
-            return has_real_weapon and self._has_stealth(player)
+            has_armor = self._count_outer_armor(player) > 0
+            return has_real_weapon and self._has_stealth(player) and has_armor
 
         elif self.personality == "builder":
             has_armor = self._count_outer_armor(player) >= 2
@@ -942,9 +988,18 @@ class BasicAIController(PlayerController):
             return has_real_weapon and has_armor and has_inner and has_pass
 
         elif self.personality == "political":
-            is_captain = getattr(player, 'is_captain', False)
-            if not is_captain:
-                return False  # 没当上队长就不算完成
+            fallback = self._political_should_fallback(player, state)
+            if fallback == "defensive":
+                # Use defensive completion criteria when political path is blocked
+                if self._count_outer_armor(player) < 1:
+                    return False
+                if not has_real_weapon:
+                    return False
+                return True
+            else:
+                is_captain = getattr(player, 'is_captain', False)
+                if not is_captain:
+                    return False
             has_armor = self._count_outer_armor(player) >= 1
             # 检查警察是否全部部署
             all_deployed = all(
@@ -1053,6 +1108,9 @@ class BasicAIController(PlayerController):
                     commands.append("interact 防毒面具")
                 if vouchers < 1:
                     commands.append("interact 打工")
+                # assassin 在医院顺手放毒
+                if self._should_release_virus(player, state) and "special" in available:
+                    commands.insert(0, "special 释放病毒")  # 插到最前面，优先放毒
 
             elif loc == "军事基地":
                 if not has_pass:
@@ -1144,13 +1202,37 @@ class BasicAIController(PlayerController):
         elif self.personality == "assassin":
             if vouchers < 1 and loc != "home":
                 return "home"
+            if outer < 1 and loc != "home":
+                return "home"
             if not has_weapon and loc != "商店":
                 return "商店"
             if not self._has_stealth(player) and loc != "商店":
                 return "商店"
+                # 新增：有凭证但没有病毒免疫 → 去医院拿面具（顺便可以放毒）
+            if not self._has_virus_immunity(player) and vouchers >= 1 and loc != "医院":
+                return "医院"
             return self._find_nearest_enemy_location(player, state)
 
         elif self.personality == "political":
+            # ---- 降级检查：队长被占 / 警察系统不可用 → 走 defensive 路线 ----
+            fallback = self._political_should_fallback(player, state)
+            if fallback == "defensive":
+                # 复用 defensive 的目标地点逻辑（第 1129-1142 行的完整副本）
+                if vouchers < 1 and loc != "home":
+                    return "home"
+                if outer < 1 and loc != "home":
+                    return "home"
+                if outer < 2 and loc != "商店":
+                    return "商店"
+                if not has_weapon and loc != "商店":
+                    return "商店"
+                if not has_detection and loc != "商店":
+                    return "商店"
+                if inner < 1 and loc != "医院":
+                    return "医院"
+                return None
+            # fallback == "none" → 继续正常 political 逻辑
+
             is_police = getattr(player, 'is_police', False)
             is_captain = getattr(player, 'is_captain', False)
 
@@ -1168,7 +1250,7 @@ class BasicAIController(PlayerController):
                 if loc != "警察局":
                     return "警察局"
 
-            # 已是队长 → 发育阶段留在警察局（警察保护），发育完成后正常发育
+            # 已是队长 → 原有逻辑不变
             if is_captain:
                 # 检查警察是否全部部署完毕
                 all_deployed = all(
@@ -1421,8 +1503,15 @@ class BasicAIController(PlayerController):
             self._init_police_dev_plan(alive_units, player, state)
             self._police_dev_initialized = True
 
+        # ===== political 队长优先唤醒：debuff 后大概率被杀，必须抢救 =====
+        if self.personality == "political" and disabled_units:
+            wake_cmd = self._police_wake_step(disabled_units, state)
+            if wake_cmd:
+                return [wake_cmd]
+
         # ===== 检查犯罪目标 =====
         criminal_target = self._find_criminal_target(player, state)
+
 
         # ===== 阶段3：有犯罪目标且至少一个警察已完成换装 → 攻击 =====
         if criminal_target:
@@ -1714,12 +1803,17 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
 
     def _cmd_police_political(self, player, state, available: List[str]) -> List[str]:
+        # ---- 降级检查：队长被占 / 警察系统不可用 → 不生成任何政治命令 ----
+        fallback = self._political_should_fallback(player, state)
+        if fallback == "defensive":
+            return []   # 不生成任何警察/政治相关命令
+
         commands = []
         loc = self._get_location_str(player)
         is_police = getattr(player, 'is_police', False)
         is_captain = getattr(player, 'is_captain', False)
 
-# 举报犯罪者（需要在警察局，除非有远程举报天赋）
+        # 举报犯罪者（需要在警察局，除非有远程举报天赋）
         if "report" in available and is_police:
             can_remote = False
             talent = getattr(player, 'talent', None)
@@ -1860,6 +1954,31 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
     #  目标选择
     # ════════════════════════════════════════════════════════
+    def _political_should_fallback(self, player, state):
+        """Check if political AI should fall back to defensive logic.
+        Called every turn - purely reads current state, no persistent flags.
+        Returns: "none" (no fallback) | "defensive" (use defensive logic)
+        """
+        police = getattr(state, 'police', None)
+        if not police:
+            return "defensive"
+
+        # Police system permanently disabled → fallback
+        # (献予律法之诗 can reverse this, so next turn this may return "none")
+        if police.permanently_disabled:
+            return "defensive"
+
+        # Already captain → no fallback
+        if police.captain_id == player.player_id:
+            return "none"
+
+        # Another player is captain → fallback (wait for captain to die/lose authority)
+        if police.has_captain():
+            return "defensive"
+
+        # No captain, can go compete → no fallback
+        return "none"
+
     def _should_become_captain(self, player, state) -> bool:
         """判断是否应该竞选警察队长"""
         if not getattr(player, 'is_police', False):
