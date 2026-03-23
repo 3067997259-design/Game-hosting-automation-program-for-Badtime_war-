@@ -2396,6 +2396,15 @@ class BasicAIController(PlayerController):
             """找到威胁度最大的敌人所在位置（因为这游戏没有距离概念啦）
             aggressive 人格会优先去发育者（从未攻击过任何人的玩家）所在位置
             """
+            # 预计算全场最强玩家的 power（避免在循环内重复计算）
+            max_power = max(
+                (self._estimate_power(state.get_player(other_pid))
+                 for other_pid in state.player_order
+                 if other_pid != player.player_id
+                 and state.get_player(other_pid) and state.get_player(other_pid).is_alive()),
+                default=0
+            )
+
             candidates = []
             for pid in state.player_order:
                 if pid == player.player_id:
@@ -2404,6 +2413,8 @@ class BasicAIController(PlayerController):
                 if target and target.is_alive():
                     target_loc = self._get_location_str(target)
                     threat = self._threat_scores.get(target.name, 0)
+                    target_power = self._estimate_power(target)
+
                     # aggressive 优先骚扰发育者
                     if self.personality == "aggressive":
                         target_name = getattr(target, 'name', '')
@@ -2411,17 +2422,13 @@ class BasicAIController(PlayerController):
                         is_passive = (target_name not in self._players_who_attacked
                                     and target_pid not in self._players_who_attacked)
                         if is_passive:
-                            s += 30 + target_power * 0.3  # 越肉的发育者越危险
+                            threat += 30 + target_power * 0.3  # 越肉的发育者越危险
 
-                # 新增：全场最强玩家额外加分
-                # 甲最多的人是最大的后期威胁，所有人都应该优先针对
-                target_power = self._estimate_power(target)
-                max_power = max(self._estimate_power(state.get_player(pid))
-                                for pid in state.player_order
-                                if pid != player.player_id
-                                and state.get_player(pid) and state.get_player(pid).is_alive())
-                if target_power >= max_power:
-                    s += 40  # 最强玩家额外 +40 优先级
+                    # 全场最强玩家额外加分
+                    # 甲最多的人是最大的后期威胁，所有人都应该优先针对
+                    if target_power >= max_power:
+                        threat += 40  # 最强玩家额外 +40 优先级
+
                     candidates.append((target_loc, threat))
 
             if not candidates:
