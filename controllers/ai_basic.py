@@ -2098,6 +2098,10 @@ class BasicAIController(PlayerController):
                 s += 40
             return s
 
+        candidates.sort(key=score, reverse=True)
+        return candidates[0]
+
+
     def _can_attack_target(self, player, target, state) -> bool:
         """检查是否可能攻击目标（考虑距离和武器）"""
         weapons = getattr(player, 'weapons', [])
