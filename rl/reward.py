@@ -4,7 +4,7 @@ rl/reward.py
 奖励追踪器（四层奖励结构）
 
 第一层：终局奖励（Terminal Reward）
-  获胜 +75~100（零击杀-15, 零攻击额外-10）/ 死亡 -100 / 全灭 -50
+  获胜 +100 / 死亡 -100 / 平局(全灭) -75
 
 第二层：势函数差分（Potential-Based Reward Shaping）
   r_shaping = gamma * Phi(s') - Phi(s)
@@ -234,7 +234,7 @@ def behavior_penalty(player, game_state, action_type, action_success, action_idx
             r -= 2.0 * (move_streak - 2)  # 第3次-2, 第4次-4, 第5次-6...
     else:
         player._rl_move_streak = 0
-    # 通用重复行动惩罚：完全相同的动作（同目标同武器/同目的地）连续重复 4 次以上
+    # 通用重复行动惩罚：完全相同的动作（同目标同武器/同目的地）连续重复 5 次及以上
     if action_idx is not None:
         history = getattr(player, '_rl_action_idx_history', [])
         history.append(action_idx)
