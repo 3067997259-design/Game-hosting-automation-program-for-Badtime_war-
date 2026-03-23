@@ -1510,8 +1510,6 @@ class BasicAIController(PlayerController):
         # ===== 检查犯罪目标 =====
         criminal_target = self._find_criminal_target(player, state)
 
-        # ===== 检查犯罪目标 =====
-        criminal_target = self._find_criminal_target(player, state)
 
         # ===== 阶段3：有犯罪目标且至少一个警察已完成换装 → 攻击 =====
         if criminal_target:
