@@ -2054,7 +2054,13 @@ class BasicAIController(PlayerController):
         if not candidates:
             return None
 
-        # 评分
+                # 评分
+        # 预计算全场最强候选的 power
+        max_power = max(
+            (self._estimate_power(c) for c in candidates),
+            default=0
+        )
+
         def score(t):
             s = 0
             s += self._threat_scores.get(t.name, 0) * 2
@@ -2066,9 +2072,7 @@ class BasicAIController(PlayerController):
             s -= self._count_outer_armor(t) * 15
             s -= self._count_inner_armor(t) * 10
             if self.personality == "assassin":
-                s += max(0, 3 - t.hp) * 20  # 天赋局：偏好残血
-                # 无天赋局所有人都是1HP，上面的加分是常量
-                # 额外加入护甲偏好：刺客优先打没护甲的
+                s += max(0, 3 - t.hp) * 20
                 if self._count_outer_armor(t) == 0:
                     s += 40
                 if self._count_inner_armor(t) == 0:
@@ -2079,20 +2083,20 @@ class BasicAIController(PlayerController):
                 is_passive = (target_name not in self._players_who_attacked
                             and target_pid not in self._players_who_attacked)
                 if is_passive:
-                    s += 50  # 优先攻击没打过人的发育者
-            # 武器有效性：所有武器都被克制的目标大幅降分
+                    target_power = self._estimate_power(t)
+                    s += 30 + target_power * 0.3  # 越肉的发育者越危险
+            # 武器有效性
             if self._all_weapons_countered(player, t):
                 s -= 200
-            # 队长 + 警察保护 + 无 AOE → 打不动，不浪费行动
+            # 队长保护
             if getattr(t, 'is_captain', False):
                 has_aoe = self._has_aoe_weapon(player)
                 if not has_aoe and self._captain_has_police_escort(t, state):
                     s -= 500
-
+            # 全场最强玩家额外加分
+            if self._estimate_power(t) >= max_power:
+                s += 40
             return s
-
-        candidates.sort(key=score, reverse=True)
-        return candidates[0]
 
     def _can_attack_target(self, player, target, state) -> bool:
         """检查是否可能攻击目标（考虑距离和武器）"""
