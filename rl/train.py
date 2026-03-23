@@ -50,6 +50,7 @@ def make_env(
     seed: int = 0,
     rank: int = 0,
     n_stack: int = 1,
+    opponent_pool=None,
 ):
     """返回一个创建 BadtimeWarEnv 的闭包，供 DummyVecEnv 使用。"""
     def _init():
@@ -63,6 +64,7 @@ def make_env(
                     num_opponents=num_opponents,
                     max_rounds=max_rounds,
                     n_stack=n_stack,
+                    opponent_pool=opponent_pool,
                 )
                 env = Monitor(env)
                 env.reset(seed=seed + rank)
@@ -193,6 +195,47 @@ class CurriculumCallback(BaseCallback):
             # set_attr does NOT penetrate wrappers (sets on Monitor, not BadtimeWarEnv)
             venv.env_method("set_num_opponents", new_opponents)
 
+class SelfPlayCallback(BaseCallback):
+    """
+    定期保存当前模型到对手池，并更新环境的对手池引用。
+    """
+    def __init__(
+        self,
+        pool: "OpponentPool",
+        save_freq: int = 500_000,  # 每 50 万步保存一次到对手池
+        initial_basic_ai_prob: float = 0.5,  # 初始 BasicAI 混入概率
+        final_basic_ai_prob: float = 0.1,    # 最终 BasicAI 混入概率
+        anneal_steps: int = 5_000_000,       # 线性退火步数
+        verbose: int = 0,
+    ):
+        super().__init__(verbose)
+        self.pool = pool
+        self.save_freq = save_freq
+        self.initial_basic_ai_prob = initial_basic_ai_prob
+        self.final_basic_ai_prob = final_basic_ai_prob
+        self.anneal_steps = anneal_steps
+
+    def _on_step(self) -> bool:
+        if self.n_calls % self.save_freq == 0:
+            # 保存当前模型到对手池
+            self.pool.save_current_model(self.model, self.num_timesteps)
+
+            # 线性退火 BasicAI 概率
+            progress = min(self.num_timesteps / self.anneal_steps, 1.0)
+            new_prob = self.initial_basic_ai_prob + (
+                self.final_basic_ai_prob - self.initial_basic_ai_prob
+            ) * progress
+            self.pool.basic_ai_prob = new_prob
+
+            if self.verbose >= 1:
+                n_models = len(self.pool.get_available_models())
+                print(
+                    f"  [SelfPlay] Saved model at step {self.num_timesteps} | "
+                    f"Pool size: {n_models} | BasicAI prob: {new_prob:.1%}"
+                )
+
+        return True
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  训练主函数
@@ -218,6 +261,22 @@ def train(args: argparse.Namespace):
     else:
         stages = []
         initial_opponents = args.opponents
+    # 在创建环境之前
+    opponent_pool = None
+    if args.self_play:
+        from rl.self_play import OpponentPool
+        opponent_pool = OpponentPool(
+            pool_dir=str(ckpt_dir / "opponent_pool"),
+            n_stack=args.n_stack,
+            max_pool_size=args.pool_size,
+            basic_ai_prob=args.initial_basic_ai_prob,
+        )
+        # 如果提供了种子模型，先放入对手池
+        if args.seed_model:
+            from sb3_contrib import MaskablePPO as _MaskablePPO
+            seed_m = _MaskablePPO.load(args.seed_model)
+            opponent_pool.save_current_model(seed_m, step=0)
+            del seed_m
 # ── 训练环境 ──────────────────────────────────────────────────
     env_fns = [
         make_env(
@@ -226,6 +285,7 @@ def train(args: argparse.Namespace):
             seed=args.seed,
             rank=i,
             n_stack=args.n_stack,
+            opponent_pool=opponent_pool,
         )
         for i in range(args.n_envs)
     ]
@@ -320,6 +380,18 @@ def train(args: argparse.Namespace):
 
     if curriculum_cb is not None:
         callback_list.append(curriculum_cb)
+
+    if args.self_play and opponent_pool is not None:
+        self_play_cb = SelfPlayCallback(
+            pool=opponent_pool,
+            save_freq=max(args.self_play_save_freq // args.n_envs, 1),
+            initial_basic_ai_prob=args.initial_basic_ai_prob,
+            final_basic_ai_prob=args.final_basic_ai_prob,
+            anneal_steps=args.timesteps,
+            verbose=1,
+        )
+        callback_list.append(self_play_cb)
+
     callbacks = CallbackList(callback_list)
 
     # ── 训练 ─────────────────────────────────────────────────────
@@ -354,6 +426,8 @@ def train(args: argparse.Namespace):
 
     train_env.close()
     eval_env.close()
+
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -419,6 +493,20 @@ def parse_args() -> argparse.Namespace:
                 help="课程升级胜率阈值（全局，如果未指定 --curriculum-thresholds）")
     p.add_argument("--curriculum-thresholds", type=float, nargs="+", default=None,
                 help="每阶段课程升级胜率阈值（例如 0.55 0.40 表示两次升级的阈值）")
+
+    # Self-play 参数
+    p.add_argument("--self-play", action="store_true",
+                help="启用 self-play 训练")
+    p.add_argument("--seed-model", type=str, default=None,
+                help="Self-play 种子模型路径（.zip）")
+    p.add_argument("--pool-size", type=int, default=20,
+                help="对手池最大模型数量")
+    p.add_argument("--self-play-save-freq", type=int, default=500_000,
+                help="Self-play 模型保存频率（步数）")
+    p.add_argument("--initial-basic-ai-prob", type=float, default=0.5,
+                help="Self-play 初始 BasicAI 混入概率")
+    p.add_argument("--final-basic-ai-prob", type=float, default=0.1,
+                help="Self-play 最终 BasicAI 混入概率")
 
     return p.parse_args()
 

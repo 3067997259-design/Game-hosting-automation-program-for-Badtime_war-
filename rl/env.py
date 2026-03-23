@@ -149,6 +149,7 @@ class BadtimeWarEnv(gym.Env):
         max_rounds: int = 50,
         render_mode: Optional[str] = None,
         n_stack: int = 1,
+        opponent_pool=None,
     ):
         super().__init__()
 
@@ -156,6 +157,7 @@ class BadtimeWarEnv(gym.Env):
         self.max_rounds = max_rounds
         self.render_mode = render_mode
         self.n_stack = n_stack
+        self.opponent_pool = opponent_pool
 
         # ── Gym 空间 ──
         self.observation_space = spaces.Box(
@@ -199,6 +201,9 @@ class BadtimeWarEnv(gym.Env):
     # ══════════════════════════════════════════════════════════════════════════
     #  reset
     # ══════════════════════════════════════════════════════════════════════════
+    def set_opponent_pool(self, pool):
+        """供 SelfPlayCallback 调用，设置对手池（下次 reset 生效）。"""
+        self.opponent_pool = pool
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -215,11 +220,17 @@ class BadtimeWarEnv(gym.Env):
         self._rl_controller = _SyncRLController(self)
         self._rl_player = Player("rl_0", "RL_Agent", self._rl_controller)
 
-        # 创建 AI 对手
+        # 创建对手（self-play 或 BasicAI）
         ai_players = []
         for i in range(self.num_opponents):
-            ai_ctrl = create_random_ai_controller(player_name=f"AI_{i}")
-            p = Player(f"ai_{i}", f"AI_{i}", ai_ctrl)
+            if self.opponent_pool is not None:
+                ctrl = self.opponent_pool.sample_opponent_controller()
+                # 如果是 OpponentRLController，重置帧堆叠
+                if hasattr(ctrl, 'reset_stack'):
+                    ctrl.reset_stack()
+            else:
+                ctrl = create_random_ai_controller(player_name=f"AI_{i}")
+            p = Player(f"ai_{i}", f"AI_{i}", ctrl)
             ai_players.append(p)
 
         # 随机化玩家顺序，避免 RL 永远是零号玩家，在开局时吃到不必要的针对
