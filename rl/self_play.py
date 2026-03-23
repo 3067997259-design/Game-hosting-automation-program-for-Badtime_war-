@@ -105,7 +105,8 @@ class OpponentPool:
         self.basic_ai_prob = basic_ai_prob
         self._model_cache: Dict[str, MaskablePPO] = {}  # 缓存已加载的模型
 
-    def save_current_model(self, model: MaskablePPO, step: int):
+    from stable_baselines3.common.base_class import BaseAlgorithm
+    def save_current_model(self, model: BaseAlgorithm, step: int):
         """保存当前模型到对手池。"""
         path = self.pool_dir / f"opponent_step_{step}"
         model.save(str(path))
