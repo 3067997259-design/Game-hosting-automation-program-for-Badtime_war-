@@ -562,6 +562,45 @@ class BasicAIController(PlayerController):
                 return True
         return False
 
+    def _count_opponents_without_immunity(self, player, state) -> int:
+        """统计没有病毒免疫的存活对手数量"""
+        count = 0
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            p = state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            if not self._has_virus_immunity(p):
+                count += 1
+        return count
+
+    def _should_release_virus(self, player, state) -> bool:
+        """判断 assassin 是否应该在医院释放病毒"""
+        # 仅 assassin 人格
+        if self.personality != "assassin":
+            return False
+        # 必须在医院
+        if self._get_location_str(player) != "医院":
+            return False
+        # 病毒已激活则不放
+        virus = getattr(state, 'virus', None)
+        if virus and getattr(virus, 'is_active', False):
+            return False
+        # 自己必须有病毒免疫
+        if not self._has_virus_immunity(player):
+            return False
+        # 警察成员（非队长）不能放毒（游戏规则阻止）
+        if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
+            return False
+        # 对手免疫人数检查
+        alive_count = len([p for p in state.players.values() if p.is_alive()])
+        vulnerable = self._count_opponents_without_immunity(player, state)
+        if alive_count >= 4:
+            return vulnerable >= 2
+        else:
+            return vulnerable >= 1
+
     # ════════════════════════════════════════════════════════
     #  核心：候选命令生成
     # ════════════════════════════════════════════════════════
@@ -638,8 +677,14 @@ class BasicAIController(PlayerController):
             if candidates:
                 candidates.append("forfeit")
                 return candidates
+        # ===== Assassin 主动放毒 =====
+        if self._should_release_virus(player, state) and "special" in available_actions:
+            debug_ai_basic(player.name, "Assassin 在医院放毒！")
+            candidates.append("special 释放病毒")
+            # 不 return —— 放毒是"顺手"行为，继续生成其他候选命令
+            # 放毒命令会排在候选列表前面，优先被尝试
 
-        # ===== 极危险情况 / 持续危险模式 =====
+        # ===== 危险情况 / 持续危险模式 =====
         if self._is_critical(player, state):
             self._danger_mode = True
 
@@ -933,7 +978,8 @@ class BasicAIController(PlayerController):
             return has_real_weapon and has_armor and has_inner
 
         elif self.personality == "assassin":
-            return has_real_weapon and self._has_stealth(player)
+            has_armor = self._count_outer_armor(player) > 0
+            return has_real_weapon and self._has_stealth(player) and has_armor
 
         elif self.personality == "builder":
             has_armor = self._count_outer_armor(player) >= 2
@@ -1062,6 +1108,9 @@ class BasicAIController(PlayerController):
                     commands.append("interact 防毒面具")
                 if vouchers < 1:
                     commands.append("interact 打工")
+                # assassin 在医院顺手放毒
+                if self._should_release_virus(player, state) and "special" in available:
+                    commands.insert(0, "special 释放病毒")  # 插到最前面，优先放毒
 
             elif loc == "军事基地":
                 if not has_pass:
@@ -1157,6 +1206,9 @@ class BasicAIController(PlayerController):
                 return "商店"
             if not self._has_stealth(player) and loc != "商店":
                 return "商店"
+                # 新增：有凭证但没有病毒免疫 → 去医院拿面具（顺便可以放毒）
+            if not self._has_virus_immunity(player) and vouchers >= 1 and loc != "医院":
+                return "医院"
             return self._find_nearest_enemy_location(player, state)
 
         elif self.personality == "political":
@@ -1448,6 +1500,15 @@ class BasicAIController(PlayerController):
         if not self._police_dev_initialized:
             self._init_police_dev_plan(alive_units, player, state)
             self._police_dev_initialized = True
+
+        # ===== political 队长优先唤醒：debuff 后大概率被杀，必须抢救 =====
+        if self.personality == "political" and disabled_units:
+            wake_cmd = self._police_wake_step(disabled_units, state)
+            if wake_cmd:
+                return [wake_cmd]
+
+        # ===== 检查犯罪目标 =====
+        criminal_target = self._find_criminal_target(player, state)
 
         # ===== 检查犯罪目标 =====
         criminal_target = self._find_criminal_target(player, state)
