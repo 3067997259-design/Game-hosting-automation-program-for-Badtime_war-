@@ -201,15 +201,22 @@ class CurriculumCallback(BaseCallback):
 
 class SelfPlayCallback(BaseCallback):
     """
-    定期保存当前模型到对手池，并更新环境的对手池引用。
+    Self-play 回调：质量门控保存 + BasicAI 概率退火。
+
+    - 持续追踪最近 N 局的胜率
+    - 只有胜率 >= min_win_rate 时才保存模型到对手池
+    - BasicAI 概率退火与保存解耦，按步数线性退火
+    - 保存频率仍受 save_freq 限制（即使胜率达标，两次保存之间至少间隔 save_freq 步）
     """
     def __init__(
         self,
         pool: "OpponentPool",
-        save_freq: int = 500_000,  # 每 50 万步保存一次到对手池
-        initial_basic_ai_prob: float = 0.5,  # 初始 BasicAI 混入概率
-        final_basic_ai_prob: float = 0.1,    # 最终 BasicAI 混入概率
-        anneal_steps: int = 5_000_000,       # 线性退火步数
+        save_freq: int = 500_000,
+        initial_basic_ai_prob: float = 0.5,
+        final_basic_ai_prob: float = 0.1,
+        anneal_steps: int = 5_000_000,
+        min_win_rate: float = 0.45,
+        win_rate_window: int = 200,
         verbose: int = 0,
     ):
         super().__init__(verbose)
@@ -218,28 +225,51 @@ class SelfPlayCallback(BaseCallback):
         self.initial_basic_ai_prob = initial_basic_ai_prob
         self.final_basic_ai_prob = final_basic_ai_prob
         self.anneal_steps = anneal_steps
+        self.min_win_rate = min_win_rate
+        self.win_rate_window = win_rate_window
+        self._episode_wins: list[bool] = []
+        self._last_save_step: int = 0
 
     def _on_step(self) -> bool:
-        if self.n_calls % self.save_freq == 0:
-            # 保存当前模型到对手池
-            self.pool.save_current_model(self.model, self.num_timesteps)
+        # ── 1. 收集胜率数据 ──
+        infos = self.locals.get("infos", [])
+        for info in infos:
+            ep_info = info.get("episode")
+            if ep_info is not None:
+                winner = info.get("winner")
+                self._episode_wins.append(winner == "rl_0")
 
-            # 线性退火 BasicAI 概率
+        # ── 2. 定期检查是否保存 + 退火 ──
+        if self.n_calls % self.save_freq == 0:
+            # 2a. 计算当前胜率
+            current_win_rate = None
+            if len(self._episode_wins) >= self.win_rate_window:
+                recent = self._episode_wins[-self.win_rate_window:]
+                current_win_rate = sum(recent) / len(recent)
+
+            # 2b. 质量门控：只有胜率达标才保存
+            saved = False
+            if current_win_rate is not None and current_win_rate >= self.min_win_rate:
+                self.pool.save_current_model(self.model, self.num_timesteps)
+                self._last_save_step = self.num_timesteps
+                saved = True
+
+            # 2c. 退火（无论是否保存都执行）
             progress = min(self.num_timesteps / self.anneal_steps, 1.0)
             new_prob = self.initial_basic_ai_prob + (
                 self.final_basic_ai_prob - self.initial_basic_ai_prob
             ) * progress
             self.pool.basic_ai_prob = new_prob
-
-            # 关键修复：通过 env_method 将新概率传播到所有子进程环境
-            # SubprocVecEnv 下每个 env 有独立的 OpponentPool 副本，
-            # 必须显式通知它们更新 basic_ai_prob
             self.training_env.env_method("update_basic_ai_prob", new_prob)
 
+            # 2d. 日志
             if self.verbose >= 1:
                 n_models = len(self.pool.get_available_models())
+                wr_str = f"{current_win_rate:.1%}" if current_win_rate is not None else "N/A (< {self.win_rate_window} episodes)"
+                save_str = "SAVED" if saved else f"SKIPPED (need >= {self.min_win_rate:.0%})"
                 print(
-                    f"  [SelfPlay] Saved model at step {self.num_timesteps} | "
+                    f"  [SelfPlay] Step {self.num_timesteps} | "
+                    f"Win rate: {wr_str} | {save_str} | "
                     f"Pool size: {n_models} | BasicAI prob: {new_prob:.1%}"
                 )
 
@@ -397,6 +427,7 @@ def train(args: argparse.Namespace):
             initial_basic_ai_prob=args.initial_basic_ai_prob,
             final_basic_ai_prob=args.final_basic_ai_prob,
             anneal_steps=args.timesteps,
+            min_win_rate=args.min_save_win_rate,
             verbose=1,
         )
         callback_list.append(self_play_cb)
@@ -516,6 +547,8 @@ def parse_args() -> argparse.Namespace:
                 help="Self-play 初始 BasicAI 混入概率")
     p.add_argument("--final-basic-ai-prob", type=float, default=0.1,
                 help="Self-play 最终 BasicAI 混入概率")
+    p.add_argument("--min-save-win-rate", type=float, default=0.45,
+                help="Self-play 质量门控：胜率低于此值时不保存模型到对手池")
 
     return p.parse_args()
 
