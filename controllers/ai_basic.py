@@ -1202,6 +1202,8 @@ class BasicAIController(PlayerController):
         elif self.personality == "assassin":
             if vouchers < 1 and loc != "home":
                 return "home"
+            if outer < 1 and loc != "home":
+                return "home"
             if not has_weapon and loc != "商店":
                 return "商店"
             if not self._has_stealth(player) and loc != "商店":
