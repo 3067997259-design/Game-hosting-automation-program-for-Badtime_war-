@@ -5,10 +5,11 @@ Self-play 对手控制器 + 对手池管理。
 """
 
 from __future__ import annotations
+import logging
 import os
 import random
 from pathlib import Path
-from typing import Any, Optional, List, Dict
+from typing import Any, Optional, List, Dict, TYPE_CHECKING
 
 import numpy as np
 from sb3_contrib import MaskablePPO
@@ -17,6 +18,11 @@ from controllers.base import PlayerController
 from rl.action_space import ACTION_COUNT, IDX_FORFEIT, build_action_mask, idx_to_command
 from rl.obs_builder import OBS_DIM, build_obs
 from rl.rl_controller import RLController
+
+if TYPE_CHECKING:
+    from stable_baselines3.common.base_class import BaseAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 class OpponentRLController(RLController):
@@ -105,7 +111,6 @@ class OpponentPool:
         self.basic_ai_prob = basic_ai_prob
         self._model_cache: Dict[str, MaskablePPO] = {}  # 缓存已加载的模型
 
-    from stable_baselines3.common.base_class import BaseAlgorithm
     def save_current_model(self, model: BaseAlgorithm, step: int):
         """保存当前模型到对手池。"""
         path = self.pool_dir / f"opponent_step_{step}"
@@ -145,21 +150,35 @@ class OpponentPool:
         if not available or random.random() < self.basic_ai_prob:
             return create_random_ai_controller(player_name="AI")
 
-        # 从池中随机选一个模型
-        model_path = random.choice(available)
-        cache_key = str(model_path)
+        # 清理缓存中已不存在于磁盘的模型（主进程可能已删除旧文件）
+        available_set = {str(p) for p in available}
+        stale_keys = [k for k in self._model_cache if k not in available_set]
+        for k in stale_keys:
+            del self._model_cache[k]
 
-        # 使用缓存避免重复加载
-        if cache_key not in self._model_cache:
-            self._model_cache[cache_key] = MaskablePPO.load(str(model_path))
+        # 从池中随机选一个模型（带重试，防止主进程并发删除导致 FileNotFoundError）
+        random.shuffle(available)
+        for model_path in available:
+            cache_key = str(model_path)
+            try:
+                # 使用缓存避免重复加载
+                if cache_key not in self._model_cache:
+                    self._model_cache[cache_key] = MaskablePPO.load(str(model_path))
 
-        # 创建 OpponentRLController（共享模型对象，不重复加载）
-        ctrl = OpponentRLController(
-            n_stack=self.n_stack,
-            _model=self._model_cache[cache_key],
-        )
+                # 创建 OpponentRLController（共享模型对象，不重复加载）
+                ctrl = OpponentRLController(
+                    n_stack=self.n_stack,
+                    _model=self._model_cache[cache_key],
+                )
+                return ctrl
+            except (FileNotFoundError, OSError) as e:
+                # 主进程的 _cleanup_old_models 可能在 glob 和 load 之间删除了文件
+                logger.warning("对手模型加载失败（可能已被清理）: %s — %s", model_path, e)
+                self._model_cache.pop(cache_key, None)
+                continue
 
-        return ctrl
+        # 所有模型都加载失败，回退到 BasicAI
+        return create_random_ai_controller(player_name="AI")
 
     def __getstate__(self):
         state = self.__dict__.copy()
