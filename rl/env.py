@@ -205,6 +205,11 @@ class BadtimeWarEnv(gym.Env):
         """供 SelfPlayCallback 调用，设置对手池（下次 reset 生效）。"""
         self.opponent_pool = pool
 
+    def update_basic_ai_prob(self, new_prob: float):
+        """供 SelfPlayCallback 调用，更新对手池的 BasicAI 概率（SubprocVecEnv 兼容）。"""
+        if self.opponent_pool is not None:
+            self.opponent_pool.basic_ai_prob = new_prob
+
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
 

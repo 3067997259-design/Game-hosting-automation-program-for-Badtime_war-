@@ -38,6 +38,10 @@ from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 
 from rl.env import BadtimeWarEnv
 from rl.feature_extractor import GRUFeatureExtractor
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rl.self_play import OpponentPool
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -226,6 +230,11 @@ class SelfPlayCallback(BaseCallback):
                 self.final_basic_ai_prob - self.initial_basic_ai_prob
             ) * progress
             self.pool.basic_ai_prob = new_prob
+
+            # 关键修复：通过 env_method 将新概率传播到所有子进程环境
+            # SubprocVecEnv 下每个 env 有独立的 OpponentPool 副本，
+            # 必须显式通知它们更新 basic_ai_prob
+            self.training_env.env_method("update_basic_ai_prob", new_prob)
 
             if self.verbose >= 1:
                 n_models = len(self.pool.get_available_models())
