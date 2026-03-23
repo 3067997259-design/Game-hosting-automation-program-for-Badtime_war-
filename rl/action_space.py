@@ -551,6 +551,12 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
                     )
                     if not has_unsharpened:
                         continue
+                # 蓄力：额外检查武器是否已蓄力完成
+                if op.startswith("蓄力"):
+                    weapon_name = op[2:]  # "蓄力电磁步枪" → "电磁步枪"
+                    w_obj = next((w for w in (player.weapons or []) if w and w.name == weapon_name), None)
+                    if w_obj and w_obj.is_charged:
+                        continue  # 已蓄力，不允许再次蓄力
                 mask[IDX_SPECIAL_BASE + si] = True
 
     # ── 警察行动 ──────────────────────────────────────────────────
