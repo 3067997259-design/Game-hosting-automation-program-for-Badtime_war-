@@ -265,7 +265,7 @@ class SelfPlayCallback(BaseCallback):
             # 2d. 日志
             if self.verbose >= 1:
                 n_models = len(self.pool.get_available_models())
-                wr_str = f"{current_win_rate:.1%}" if current_win_rate is not None else "N/A (< {self.win_rate_window} episodes)"
+                wr_str = f"{current_win_rate:.1%}" if current_win_rate is not None else f"N/A (< {self.win_rate_window} episodes)"
                 save_str = "SAVED" if saved else f"SKIPPED (need >= {self.min_win_rate:.0%})"
                 print(
                     f"  [SelfPlay] Step {self.num_timesteps} | "
