@@ -4,7 +4,7 @@ rl/reward.py
 奖励追踪器（四层奖励结构）
 
 第一层：终局奖励（Terminal Reward）
-  获胜 +75~100（零击杀-15, 零攻击额外-10）/ 死亡 -100 / 全灭 -50
+  获胜 +100 / 死亡 -100 / 平局(全灭) -75
 
 第二层：势函数差分（Potential-Based Reward Shaping）
   r_shaping = gamma * Phi(s') - Phi(s)
@@ -170,7 +170,7 @@ def event_reward(events: List[Dict[str, Any]], player_id: str) -> float:
                 if result.get("stunned"):
                     r += 4.0                                 # 造成眩晕
                 if result.get("killed"):
-                    r += 20.0                                # 击杀
+                    r += 30.0                                # 击杀
             else:
                 r -= 1.0                                     # 攻击未命中/被克制 =
 
@@ -208,7 +208,7 @@ def event_reward(events: List[Dict[str, Any]], player_id: str) -> float:
 #  第四层：行为惩罚
 # ─────────────────────────────────────────────────────────────────────────────
 
-def behavior_penalty(player, game_state, action_type, action_success) -> float:
+def behavior_penalty(player, game_state, action_type, action_success, action_idx=None) -> float:
     r = 0.0
 
     if action_type == "forfeit":
@@ -234,6 +234,25 @@ def behavior_penalty(player, game_state, action_type, action_success) -> float:
             r -= 2.0 * (move_streak - 2)  # 第3次-2, 第4次-4, 第5次-6...
     else:
         player._rl_move_streak = 0
+    # 通用重复行动惩罚：完全相同的动作（同目标同武器/同目的地）连续重复 5 次及以上
+    if action_idx is not None:
+        history = getattr(player, '_rl_action_idx_history', [])
+        history.append(action_idx)
+        # 只保留最近 20 条，避免无限增长
+        if len(history) > 20:
+            history = history[-20:]
+        player._rl_action_idx_history = history
+
+        # 从末尾往前数连续相同的 action_idx
+        streak = 1
+        for i in range(len(history) - 2, -1, -1):
+            if history[i] == action_idx:
+                streak += 1
+            else:
+                break
+
+        if streak >= 5:
+            r -= 3.0 * (streak - 4)  # 第5次: -3, 第6次: -6, 第7次: -9...
 
     return r
 
@@ -280,7 +299,7 @@ class RewardTracker:
 # ── 第 277-308 行，compute() 方法 ──
 # 移除终局 early return，让所有四层都参与计算
 
-    def compute(self, player, game_state, action_type, action_success) -> float:
+    def compute(self, player, game_state, action_type, action_success, action_idx=None) -> float:
         total = 0.0
 
         if game_state.game_over:
@@ -288,7 +307,7 @@ class RewardTracker:
             if winner == self.rl_player_id:
                 total += 100.0
             elif winner == "nobody":
-                total += -50.0
+                total += -75.0
             else:
                 total += -100.0
 
@@ -310,7 +329,7 @@ class RewardTracker:
 
         # ── 第四层：行为惩罚 ──
         total += self.beta * behavior_penalty(
-            player, game_state, action_type, action_success
+            player, game_state, action_type, action_success, action_idx
         )
 
         return total

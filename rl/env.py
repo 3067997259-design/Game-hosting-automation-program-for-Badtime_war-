@@ -293,7 +293,7 @@ class BadtimeWarEnv(gym.Env):
             raw_obs = build_obs(self._rl_player, self._state)
             obs = self._stack_obs(raw_obs)
             reward = self._reward_tracker.compute(
-                self._rl_player, self._state, "forfeit", False
+                self._rl_player, self._state, "forfeit", False, action_idx=IDX_FORFEIT
             )
             info: dict[str, Any] = {"action_masks": self.action_masks()}
             if self._state:
@@ -336,7 +336,7 @@ class BadtimeWarEnv(gym.Env):
 
         # 计算奖励
         reward = self._reward_tracker.compute(
-            self._rl_player, self._state, action_type, action_success
+            self._rl_player, self._state, action_type, action_success, action_idx=action
         )
 
         raw_obs = build_obs(self._rl_player, self._state)
