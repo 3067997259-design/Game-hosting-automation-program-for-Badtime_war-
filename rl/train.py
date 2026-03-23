@@ -285,6 +285,7 @@ def train(args: argparse.Namespace):
             seed=args.seed,
             rank=i,
             n_stack=args.n_stack,
+            opponent_pool=opponent_pool,
         )
         for i in range(args.n_envs)
     ]
@@ -379,6 +380,18 @@ def train(args: argparse.Namespace):
 
     if curriculum_cb is not None:
         callback_list.append(curriculum_cb)
+
+    if args.self_play and opponent_pool is not None:
+        self_play_cb = SelfPlayCallback(
+            pool=opponent_pool,
+            save_freq=max(args.self_play_save_freq // args.n_envs, 1),
+            initial_basic_ai_prob=args.initial_basic_ai_prob,
+            final_basic_ai_prob=args.final_basic_ai_prob,
+            anneal_steps=args.timesteps,
+            verbose=1,
+        )
+        callback_list.append(self_play_cb)
+
     callbacks = CallbackList(callback_list)
 
     # ── 训练 ─────────────────────────────────────────────────────

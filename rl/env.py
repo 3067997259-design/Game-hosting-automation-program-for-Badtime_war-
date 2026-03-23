@@ -157,6 +157,7 @@ class BadtimeWarEnv(gym.Env):
         self.max_rounds = max_rounds
         self.render_mode = render_mode
         self.n_stack = n_stack
+        self.opponent_pool = opponent_pool
 
         # ── Gym 空间 ──
         self.observation_space = spaces.Box(

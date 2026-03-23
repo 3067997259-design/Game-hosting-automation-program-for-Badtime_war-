@@ -30,9 +30,15 @@ class OpponentRLController(RLController):
     只需要重写 get_command() 来做模型推理。
     """
 
-    def __init__(self, model_path: str, n_stack: int = 30):
+    def __init__(self, model_path: str | None = None, n_stack: int = 30,
+                 *, _model: MaskablePPO | None = None):
         super().__init__()
-        self.model = MaskablePPO.load(model_path)
+        if _model is not None:
+            self.model = _model
+        elif model_path is not None:
+            self.model = MaskablePPO.load(model_path)
+        else:
+            raise ValueError("Either model_path or _model must be provided")
         self.n_stack = n_stack
         self._obs_stack = np.zeros(OBS_DIM * n_stack, dtype=np.float32)
         self._player_id: Optional[str] = None
@@ -112,11 +118,11 @@ class OpponentPool:
         models = sorted(self.pool_dir.glob("opponent_step_*.zip"), key=lambda p: p.stat().st_mtime)
         while len(models) > self.max_pool_size:
             oldest = models.pop(0)
-            oldest.unlink()
-            # 从缓存中移除
+            # 从缓存中移除（在 unlink 之前计算 key）
             cache_key = str(oldest)
             if cache_key in self._model_cache:
                 del self._model_cache[cache_key]
+            oldest.unlink()
 
     def get_available_models(self) -> List[Path]:
         """返回池中所有可用的模型路径。"""
@@ -147,12 +153,10 @@ class OpponentPool:
             self._model_cache[cache_key] = MaskablePPO.load(str(model_path))
 
         # 创建 OpponentRLController（共享模型对象，不重复加载）
-        ctrl = OpponentRLController.__new__(OpponentRLController)
-        RLController.__init__(ctrl)
-        ctrl.model = self._model_cache[cache_key]
-        ctrl.n_stack = self.n_stack
-        ctrl._obs_stack = np.zeros(OBS_DIM * self.n_stack, dtype=np.float32)
-        ctrl._player_id = None
+        ctrl = OpponentRLController(
+            n_stack=self.n_stack,
+            _model=self._model_cache[cache_key],
+        )
 
         return ctrl
 
