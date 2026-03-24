@@ -879,7 +879,7 @@ class BasicAIController(PlayerController):
                 return True
         # 被锁定且完全没有护甲
         locked_count = self._count_locked_by(player, state)
-        if locked_count > 1:
+        if locked_count >= 1:
             total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
             if total_armor <= 1:
                 return True
@@ -2320,7 +2320,9 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
 
     def _is_danger_resolved(self, player) -> bool:
-        """判断危险状态是否已解除：至少2层护甲（外层+内层总计）"""
+        """判断危险状态是否已解除：触发条件不再成立 且 至少2层护甲"""
+        if self._is_critical(player, self._game_state):
+            return False
         total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
         return total_armor >= 2
 
