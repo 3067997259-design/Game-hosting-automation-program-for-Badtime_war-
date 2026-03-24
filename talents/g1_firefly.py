@@ -208,8 +208,9 @@ class G1MythFire(BaseTalent):
         if target.player_id != self.player_id:
             return raw_damage
         reduced = raw_damage * 0.5
+        attacker_name = attacker.name if attacker else "环境"
         prompt_manager.show("talent", "g1mythfire.damage_reduction",
-                           attacker_name=attacker.name, target_name=target.name,
+                           attacker_name=attacker_name, target_name=target.name,
                            original_damage=raw_damage, reduced_damage=reduced,
                            level=PromptLevel.NORMAL)
         return reduced
