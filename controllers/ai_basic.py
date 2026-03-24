@@ -2391,6 +2391,12 @@ class BasicAIController(PlayerController):
             # 武器有效性
             if self._all_weapons_countered(player, t):
                 s -= 200
+            # 隐身且无探测 → 大幅降分（打不到）
+            if getattr(t, 'is_invisible', False) and not getattr(player, 'has_detection', False):
+                markers_obj = getattr(state, 'markers', None)
+                if markers_obj and hasattr(markers_obj, 'is_visible_to'):
+                    if not markers_obj.is_visible_to(t.player_id, player.player_id, player.has_detection):
+                        s -= 300  # 看不到的目标大幅降分
             # 队长保护
             if getattr(t, 'is_captain', False):
                 has_aoe = self._has_aoe_weapon(player)
