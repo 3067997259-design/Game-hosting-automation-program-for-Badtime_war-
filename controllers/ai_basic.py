@@ -111,8 +111,8 @@ NEED_PROVIDERS = {
         ("军事基地", "AT力场", "pass"),
     ],
     "military_pass": [
-        ("军事基地", "办理通行证", "free"),
-],
+        ("军事基地", "通行证", "free"),
+    ],
 }
 
 # 属性克制：attacker_attr → 能有效打的 armor_attr 集合
@@ -1329,8 +1329,8 @@ class BasicAIController(PlayerController):
                 unmet.append(("detection", 2))
             elif need == "stealth" and not has_stealth:
                 unmet.append(("stealth", 3))
-            elif need == "second_weapon" and len(weapon_attrs - {Attribute.ORDINARY}) < 1:
-                # 需要至少1件非普通武器（或2件不同属性武器）
+            elif need == "second_weapon" and len(weapons) < 2:
+                # 需要至少2件真实武器（与 _is_development_complete 一致）
                 unmet.append(("second_weapon", 3))
         if self.personality == "builder":
             has_pass = getattr(player, 'has_military_pass', False)
@@ -1374,6 +1374,8 @@ class BasicAIController(PlayerController):
             score -= enemies * 1  # 进攻型不太在意
         else:
             score -= enemies * 3  # 防御型很在意
+            if enemies >= 3:
+                score -= 10  # 重兵之地额外大幅扣分，避免防御型冒险
 
         # 3. 效率加分：一个地方能同时满足多个需求
         satisfiable_count = 0
@@ -1396,26 +1398,36 @@ class BasicAIController(PlayerController):
 
     def _already_has_item(self, player, item_name) -> bool:
         """检查玩家是否已拥有某物品/装备/法术"""
-        # 武器
-        if item_name in ("小刀", "高斯步枪", "电磁步枪", "魔法弹幕"):
+        # 武器（非法术类）
+        if item_name in ("小刀", "高斯步枪", "电磁步枪"):
             return any(w.name == item_name for w in player.weapons if w)
-        # 法术（魔法所的东西都是法术）
+        # 法术（魔法所的东西都是法术，包括魔法弹幕）
         learned = self._get_learned_spells(player)
         if item_name in ("魔法护盾", "魔法弹幕", "远程魔法弹幕", "封闭", "地震", "地动山摇", "隐身术", "探测魔法"):
+            # 魔法弹幕既是法术也会变成武器，两者都检查
+            if item_name == "魔法弹幕":
+                return (item_name in learned
+                        or any(w.name == item_name for w in player.weapons if w))
             return item_name in learned
         # 护甲
         if item_name in ("盾牌", "陶瓷护甲", "AT力场"):
             return self._has_armor_by_name(player, item_name)
-        # 手术（内甲）
-        if item_name in ("晶化皮肤手术", "额外心脏手术", "不老泉手术"):
-            # 简化：检查内甲数量
-            return self._count_inner_armor(player) >= 1  # 粗略检查
+        # 手术（内甲）：按具体手术名检查对应的护甲片
+        surgery_armor_map = {
+            "晶化皮肤手术": "晶化皮肤",
+            "额外心脏手术": "额外心脏",
+            "不老泉手术": "不老泉",
+        }
+        if item_name in surgery_armor_map:
+            return self._has_armor_by_name(player, surgery_armor_map[item_name])
         # 物品
         if item_name in ("热成像仪", "隐身衣", "隐形涂层", "雷达"):
             if item_name == "热成像仪" or item_name == "雷达":
                 return getattr(player, 'has_detection', False)
             if item_name in ("隐身衣", "隐形涂层", "隐身术"):
                 return self._has_stealth(player)
+        if item_name == "通行证":
+            return getattr(player, 'has_military_pass', False)
         if item_name == "凭证":
             return getattr(player, 'vouchers', 0) >= 1
         if item_name == "打工":
