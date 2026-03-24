@@ -866,6 +866,20 @@ class BasicAIController(PlayerController):
         develop = self._cmd_develop(player, state, available_actions)
         candidates.extend(develop)
 
+        # ===== 发育受阻：develop 为空但发育未完成 =====
+        if not develop and not self._is_development_complete(player, state):
+            if self.personality in ("aggressive", "assassin", "balanced"):
+                debug_ai_basic(player.name, "发育受阻，转为进攻冲散人群")
+                attack_cmds = self._cmd_attack(player, state, available_actions)
+                for cmd in attack_cmds:
+                    if cmd not in candidates:
+                        candidates.append(cmd)
+            # 兜底：去敌人最少的有用地点
+            if not candidates:
+                fallback_loc = self._pick_fallback_destination(player, state)
+                if fallback_loc:
+                    candidates.append(f"move {fallback_loc}")
+
         # ===== 发育完成后主动进攻 =====
         if self._is_development_complete(player, state):
             debug_ai_basic(player.name, "发育完成，尝试进攻")
@@ -895,6 +909,38 @@ class BasicAIController(PlayerController):
                 seen.add(cmd)
                 deduped.append(cmd)
         return deduped
+
+
+
+    def _pick_fallback_destination(self, player, state) -> Optional[str]:
+        """发育受阻时的兜底：在能满足需求的地点中选敌人最少的"""
+        unmet_needs = self._get_unmet_needs(player, state)
+        if not unmet_needs:
+            return self._find_nearest_enemy_location(player, state)
+
+        loc = self._get_location_str(player)
+        # 收集所有能满足至少一个需求的地点
+        useful_locs = set()
+        for need_key, _ in unmet_needs:
+            for (ploc, item_name, _) in NEED_PROVIDERS.get(need_key, []):
+                if not self._already_has_item(player, item_name):
+                    useful_locs.add(ploc)
+
+        # 排除当前位置和已在的 home
+        useful_locs.discard(loc)
+        if self._is_at_home(player):
+            useful_locs.discard("home")
+
+        if not useful_locs:
+            return self._find_nearest_enemy_location(player, state)
+
+        # 按敌人数排序，选最少的
+        scored = []
+        for dest in useful_locs:
+            enemies = self._count_enemies_at(dest, player, state)
+            scored.append((dest, enemies))
+        scored.sort(key=lambda x: x[1])
+        return scored[0][0]
 
     # ════════════════════════════════════════════════════════
     #  警察缓存读取（Bug3/Bug13修复：正确使用 police.units）
@@ -1087,7 +1133,7 @@ class BasicAIController(PlayerController):
 
     def _is_development_complete(self, player, state) -> bool:
         """判断发育是否完成"""
-        real_weapons = [w for w in player.weapons if w and w.name != "拳击"]
+        real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
         has_real_weapon = len(real_weapons) > 0
 
         if self.personality == "aggressive":
@@ -1166,7 +1212,6 @@ class BasicAIController(PlayerController):
                 commands.append("special 磨刀")
                 return commands  # 磨刀最高优先级，不生成其他命令
 
-        # 替换为简单状态日志：
         debug_ai_development_plan(player.name,
             f"状态: loc={loc} vouchers={vouchers} weapon={has_weapon} "
             f"outer={outer} inner={inner} pass={has_pass} detect={has_detection}")
@@ -1216,6 +1261,8 @@ class BasicAIController(PlayerController):
                         commands.append("interact 隐身术")
                     if "地震" not in learned:
                         commands.append("interact 地震")
+                    if "地震" in learned and "地动山摇" not in learned:
+                        commands.append("interact 地动山摇")
                     if "封闭" not in learned:
                         commands.append("interact 封闭")
 
@@ -1263,11 +1310,23 @@ class BasicAIController(PlayerController):
                         if "election" in available:
                             commands.append("election")
 
+        # ---- 蓄力：interact 之后、move 之前 ----
+        if "special" in available and not commands:
+            emr = next((w for w in weapons if w and getattr(w, 'name', '') == "电磁步枪"), None)
+            if emr and not getattr(emr, 'is_charged', False):
+                commands.append("special 蓄力电磁步枪")
+            if not commands:
+                gauss = next((w for w in weapons if w and getattr(w, 'name', '') == "高斯步枪"), None)
+                if gauss and not getattr(gauss, 'is_charged', False):
+                    commands.append("special 蓄力高斯步枪")
+
+
         # ---- 移动到目标地点 ----
         if "move" in available and not commands:
             next_loc = self._pick_ideal_destination(player, state)
             if next_loc and next_loc != loc:
-                commands.append(f"move {next_loc}")
+                if not (next_loc == "home" and self._is_at_home(player)):
+                    commands.append(f"move {next_loc}")
 
         return commands
 
@@ -1302,10 +1361,16 @@ class BasicAIController(PlayerController):
         for dest in candidate_locs:
             if dest == loc:
                 continue
+            if dest == "home" and self._is_at_home(player):
+                continue
             score = self._score_destination(dest, unmet_needs, player, state, vouchers, has_pass)
             if score > best_score:
                 best_score = score
                 best_loc = dest
+
+        # 发育受阻判断：所有有用地点都被敌人压制
+        if best_score <= 0 and unmet_needs:
+            return None
 
         return best_loc
 
@@ -1313,7 +1378,7 @@ class BasicAIController(PlayerController):
         """返回当前未满足的需求列表（按人格优先级排序）"""
         needs_order = PERSONALITY_NEEDS.get(self.personality, PERSONALITY_NEEDS["balanced"])
 
-        weapons = [w for w in player.weapons if w and w.name != "拳击"]
+        weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
         has_weapon = len(weapons) > 0
         weapon_attrs = set(self._get_weapon_attr(w) for w in weapons)
         outer = self._count_outer_armor(player)
@@ -1377,14 +1442,16 @@ class BasicAIController(PlayerController):
                 score += priority  # 完全满足
                 break  # 每个需求只计一次
 
-        # 2. 敌人惩罚（人越多越危险）
         enemies = self._count_enemies_at(dest, player, state)
         if self.personality in ("aggressive", "assassin"):
-            score -= enemies * 1  # 进攻型不太在意
+            score -= enemies * 0.5
         else:
-            score -= enemies * 3  # 防御型很在意
-            if enemies >= 3:
-                score -= 10  # 重兵之地额外大幅扣分，避免防御型冒险
+            if enemies == 1:
+                score -= 0.5
+            elif enemies == 2:
+                score -= 2.5
+            elif enemies >= 3:
+                score -= enemies * 2 + 3
 
         # 3. 效率加分：一个地方能同时满足多个需求
         satisfiable_count = 0
@@ -1398,10 +1465,6 @@ class BasicAIController(PlayerController):
             score += 3  # 一站式加分
         if satisfiable_count >= 3:
             score += 3  # 更多加分
-
-        # 4. home 特殊处理：每个人的家是独立的，不会撞车
-        if dest == "home":
-            score += 1  # 安全加分
 
         return score
 
@@ -1487,14 +1550,16 @@ class BasicAIController(PlayerController):
 
 
     def _count_enemies_at(self, location: str, player, state) -> int:
-        """统计某地点的存活敌人数量"""
         count = 0
         for pid in state.player_order:
             if pid == player.player_id:
                 continue
             target = state.get_player(pid)
             if target and target.is_alive():
-                if self._get_location_str(target) == location:
+                target_loc = self._get_location_str(target)
+                if target_loc == location:
+                    count += 1
+                elif location == "home" and target_loc == f"home_{player.player_id}":
                     count += 1
         return count
 
@@ -1623,7 +1688,6 @@ class BasicAIController(PlayerController):
                     commands.append(f"attack {target.name} {weapon.name}")
 
         elif weapon_range == "area":
-            # 区域武器：需要同地点有目标
             if "attack" in available:
                 same_loc_targets = self._get_same_location_targets(player, state)
                 if same_loc_targets:
@@ -1632,6 +1696,11 @@ class BasicAIController(PlayerController):
                         commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
                     else:
                         commands.append(f"attack {target.name} {weapon.name}")
+                else:
+                    # area 武器 move 兜底：先移动到目标位置
+                    target_loc = self._get_location_str(target)
+                    if target_loc and "move" in available:
+                        commands.append(f"move {target_loc}")
             return commands
 
         else:
@@ -2439,8 +2508,12 @@ class BasicAIController(PlayerController):
         if not weapons:
             return None
 
+        # 过滤掉 None，让所有武器（含拳击）参与评分，由 weapon_score 决定优劣
+        pool = [w for w in weapons if w]
+        if not pool:
+            return None
+
         target_outer_attrs = self._get_outer_armor_attr(target)
-        # 如果没有外层护甲，检查内层（外层打完后会打内层）
         if not target_outer_attrs:
             target_outer_attrs = self._get_inner_armor_attr(target)
 
@@ -2448,6 +2521,12 @@ class BasicAIController(PlayerController):
             s = 0
             dmg = self._get_weapon_damage(w)
             s += dmg * 10
+
+            # 蓄力必须但未蓄力 → 打不出去，大幅扣分
+            if (getattr(w, 'requires_charge', False)
+                    and getattr(w, 'charge_mandatory', True)
+                    and not getattr(w, 'is_charged', False)):
+                s -= 200
 
             w_attr = self._get_weapon_attr(w)
             if target_outer_attrs and w_attr in EFFECTIVE_AGAINST:
@@ -2459,23 +2538,30 @@ class BasicAIController(PlayerController):
                         s += 20
                         break
                 if not has_effective:
-                    s -= 50  # 所有外甲都克制这把武器，大幅降分
+                    s -= 50
 
             # 射程适配
             wr = self._get_weapon_range(w)
             if self._same_location(player, target):
                 if wr == "melee":
                     s += 10
+                elif wr == "area":
+                    s += 5  # area 同地点也能打
             else:
                 if wr == "ranged":
                     s += 15
                 elif wr == "melee":
                     s -= 20
 
+            # 控制效果加分（同地点时更有价值）
+            tags = getattr(w, 'special_tags', []) or []
+            has_control = any(t in tags for t in ("shock_2_targets", "stun_on_hit"))
+            if has_control and self._same_location(player, target):
+                s += 15
+
             return s
 
-        # 使用 weapon_score 排序
-        sorted_weapons = sorted(weapons, key=weapon_score, reverse=True)
+        sorted_weapons = sorted(pool, key=weapon_score, reverse=True)
         return sorted_weapons[0]
 
     def _pick_attack_layer(self, player, target, weapon) -> tuple:
@@ -2854,13 +2940,14 @@ class BasicAIController(PlayerController):
         has_pass = getattr(player, 'has_military_pass', False)
 
         if loc == "魔法所":
-            # 魔法弹幕（近战魔法）→ 远程魔法弹幕（远程魔法）→ 地震（范围魔法）
             if "魔法弹幕" not in learned:
                 return "interact 魔法弹幕"
             if "远程魔法弹幕" not in learned:
                 return "interact 远程魔法弹幕"
             if "地震" not in learned:
                 return "interact 地震"
+            if "地动山摇" not in learned:
+                return "interact 地动山摇"
             return None
 
         elif loc == "军事基地" and has_pass:
@@ -3303,21 +3390,27 @@ class BasicAIController(PlayerController):
         has_aoe = self._has_aoe_weapon(player)
 
         if has_aoe:
-            # 已有AOE武器，找有警察的地点去打
             pc = self._police_cache or {}
             for unit in pc.get("units", []):
                 if unit.get("is_alive") and unit.get("location"):
                     unit_loc = unit["location"]
-                    if loc == unit_loc:
-                        # 同地点，直接攻击
-                        aoe_name = self._get_aoe_weapon_name(player)
-                        if aoe_name:
+                    aoe_name = self._get_aoe_weapon_name(player)
+                    if aoe_name:
+                        # 检查是否需要蓄力
+                        aoe_w = next((w for w in player.weapons
+                                    if w and w.name == aoe_name), None)
+                        if (aoe_w
+                                and getattr(aoe_w, 'requires_charge', False)
+                                and not getattr(aoe_w, 'is_charged', False)):
+                            if "special" in available:
+                                commands.append(f"special 蓄力{aoe_name}")
+                            return commands
+
+                        if loc == unit_loc:
                             commands.append(f"attack {unit['id']} {aoe_name}")
-                        return commands
-                    else:
-                        # 不同地点，移动过去
-                        commands.append(f"move {unit_loc}")
-                        return commands
+                        else:
+                            commands.append(f"move {unit_loc}")
+                    return commands
         else:
             # 没有AOE武器，去拿一个
             # 优先去人少的地方：魔法所（地震）或军事基地（电磁步枪）
@@ -3326,7 +3419,11 @@ class BasicAIController(PlayerController):
 
             if enemies_magic <= enemies_military:
                 if loc == "魔法所" and "interact" in available:
-                    commands.append("interact 地震")
+                    learned = self._get_learned_spells(player)
+                    if "地震" in learned and "地动山摇" not in learned:
+                        commands.append("interact 地动山摇")
+                    elif "地震" not in learned:
+                        commands.append("interact 地震")
                 else:
                     commands.append("move 魔法所")
             else:
@@ -3334,7 +3431,6 @@ class BasicAIController(PlayerController):
                     commands.append("interact 电磁步枪")
                 else:
                     commands.append("move 军事基地")
-
         return commands
 
     def _has_aoe_weapon(self, player) -> bool:
