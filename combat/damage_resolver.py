@@ -83,6 +83,17 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             hologram_bonus=hologram_bonus
         ))
 
+    # ---- 天赋受伤减免（如火萤IV型 -50%）----  <-- 新增
+    if target.talent and hasattr(target.talent, 'modify_incoming_damage'):
+        original_raw = raw
+        raw = target.talent.modify_incoming_damage(target, attacker, None, raw)
+        if raw != original_raw:
+            damage_reduced_text = prompt_manager.get_prompt(
+                "combat", "damage_reduced",
+                default="受伤减免后：{damage}"
+            )
+            result["details"].append(damage_reduced_text.format(damage=raw))
+
     final_damage = quantize_damage(raw)
     result["final_damage"] = final_damage
     remaining = final_damage
