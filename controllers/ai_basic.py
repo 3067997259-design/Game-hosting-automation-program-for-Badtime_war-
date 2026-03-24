@@ -65,6 +65,56 @@ LOCATION_ITEMS = {
     "警察局": [],
 }
 
+# 需求 → 可满足该需求的 (地点, 物品名, 前置条件) 列表
+# 前置条件: "voucher" = 需凭证, "pass" = 需通行证, "free" = 免费, "voucher_consume" = 需凭证且消耗所有
+NEED_PROVIDERS = {
+    "weapon": [
+        ("home", "小刀", "free"),
+        ("商店", "小刀", "voucher"),
+        ("魔法所", "魔法弹幕", "free"),       # 学习1回合
+        ("军事基地", "高斯步枪", "pass"),
+    ],
+    "outer_armor": [
+        ("home", "盾牌", "free"),
+        ("商店", "陶瓷护甲", "voucher"),
+        ("魔法所", "魔法护盾", "free"),        # 学习1回合
+        ("军事基地", "AT力场", "pass"),
+    ],
+    "inner_armor": [
+        ("医院", "晶化皮肤手术", "voucher_consume"),
+        ("医院", "额外心脏手术", "voucher_consume"),
+        ("医院", "不老泉手术", "voucher_consume"),
+    ],
+    "detection": [
+        ("商店", "热成像仪", "voucher"),
+        ("魔法所", "探测魔法", "free"),
+        ("军事基地", "雷达", "pass"),
+    ],
+    "stealth": [
+        ("商店", "隐身衣", "voucher"),
+        ("魔法所", "隐身术", "free"),
+        ("军事基地", "隐形涂层", "pass"),
+    ],
+    "voucher": [
+        ("home", "凭证", "free"),
+        ("商店", "打工", "free"),
+        ("医院", "打工", "free"),
+    ],
+    "second_weapon": [
+        ("魔法所", "魔法弹幕", "free"),
+        ("军事基地", "高斯步枪", "pass"),
+        ("商店", "小刀", "voucher"),
+    ],
+    "second_outer_armor": [
+        ("商店", "陶瓷护甲", "voucher"),
+        ("魔法所", "魔法护盾", "free"),
+        ("军事基地", "AT力场", "pass"),
+    ],
+    "military_pass": [
+        ("军事基地", "办理通行证", "free"),
+],
+}
+
 # 属性克制：attacker_attr → 能有效打的 armor_attr 集合
 EFFECTIVE_AGAINST = {
     Attribute.ORDINARY: {Attribute.ORDINARY, Attribute.MAGIC},
@@ -86,6 +136,57 @@ SPELL_PREREQUISITES = {
     "魔法护盾": [],
     "封闭": [],
     "隐身术": [],
+}
+
+# 人格 → 需求优先级列表（按重要性排序）
+# 每个元素是 (need_key, condition_fn_name)
+# condition_fn_name 是 None 表示无条件需要，否则是检查方法名
+PERSONALITY_NEEDS = {
+    "aggressive": [
+        "voucher",           # 先拿凭证
+        "weapon",            # 拿武器
+        "outer_armor",       # 拿1件外甲
+        "second_weapon",     # 拿第2件不同属性武器（新增）
+        "second_outer_armor", # 拿第2件外甲（新增）
+    ],
+    "defensive": [
+        "voucher",
+        "outer_armor",       # 先拿甲
+        "second_outer_armor", # 第2件外甲
+        "weapon",
+        "detection",
+        "inner_armor",
+    ],
+    "assassin": [
+        "voucher",
+        "weapon",
+        "outer_armor",
+        "stealth",           # 隐身
+        "second_weapon",     # 第2件武器（新增）
+        "second_outer_armor", # 第2件外甲（新增）
+    ],
+    "balanced": [
+        "voucher",
+        "weapon",
+        "outer_armor",
+        "second_outer_armor",
+        "detection",
+        "inner_armor",       # 新增
+    ],
+    "builder": [
+        "voucher",
+        "outer_armor",
+        "weapon",
+        "second_outer_armor",
+        "inner_armor",
+        # builder 还需要通行证和军事基地装备，这个特殊处理
+    ],
+    "political": [
+        "voucher",
+        "weapon",
+        "outer_armor",
+        # political 的特殊逻辑（去警察局）保留在外部
+    ],
 }
 
 
@@ -981,8 +1082,9 @@ class BasicAIController(PlayerController):
         has_real_weapon = len(real_weapons) > 0
 
         if self.personality == "aggressive":
-            has_armor = self._count_outer_armor(player) > 0
-            return has_real_weapon and has_armor
+            has_armor = self._count_outer_armor(player) >= 2
+            has_two_weapons = len(real_weapons) >= 2
+            return has_two_weapons and has_armor
 
         elif self.personality == "defensive":
             has_armor = self._count_outer_armor(player) >= 2
@@ -990,8 +1092,9 @@ class BasicAIController(PlayerController):
             return has_real_weapon and has_armor and has_inner
 
         elif self.personality == "assassin":
-            has_armor = self._count_outer_armor(player) > 0
-            return has_real_weapon and self._has_stealth(player) and has_armor
+            has_armor = self._count_outer_armor(player) >= 2
+            has_two_weapons = len(real_weapons) >= 2
+            return has_two_weapons and self._has_stealth(player) and has_armor
 
         elif self.personality == "builder":
             has_armor = self._count_outer_armor(player) >= 2
@@ -1021,8 +1124,9 @@ class BasicAIController(PlayerController):
             return has_real_weapon and has_armor and all_deployed
 
         else:  # balanced
-            has_armor = self._count_outer_armor(player) >= 1
-            return has_real_weapon and has_armor
+            has_outer = self._count_outer_armor(player) >= 2
+            has_inner = self._count_inner_armor(player) >= 1
+            return has_real_weapon and has_outer and has_inner
 
     # ════════════════════════════════════════════════════════
     #  命令生成器：起床
@@ -1152,170 +1256,214 @@ class BasicAIController(PlayerController):
 
         # ---- 移动到目标地点 ----
         if "move" in available and not commands:
-            next_loc = self._pick_develop_destination(player, state)
+            next_loc = self._pick_ideal_destination(player, state)
             if next_loc and next_loc != loc:
                 commands.append(f"move {next_loc}")
 
         return commands
 
-    def _pick_develop_destination(self, player, state) -> Optional[str]:
-        """选择下一个发育目标地点（考虑敌人位置）"""
-        ideal = self._pick_ideal_destination(player, state)
-        if ideal is None:
-            return None
-
-        # 进攻型人格不做安全过滤
-        if self.personality in ("aggressive", "assassin"):
-            return ideal
-
-        # 非进攻型：检查目标地点敌人数量
-        enemies = self._count_enemies_at(ideal, player, state)
-        if enemies >= 2:
-            alt = self._find_safer_alternative(ideal, player, state)
-            if alt is not None:
-                return alt
-        return ideal
 
     def _pick_ideal_destination(self, player, state) -> Optional[str]:
-        """纯需求驱动的目标地点选择（不考虑敌人）"""
-        weapons = getattr(player, 'weapons', [])
-        has_weapon = any(w for w in weapons if w and getattr(w, 'name', '') != "拳击")
+        """动态需求驱动的目标地点选择"""
+        # 1. 收集当前未满足的需求
+        unmet_needs = self._get_unmet_needs(player, state)
+        if not unmet_needs:
+            # 发育完成
+            if self.personality in ("aggressive", "assassin", "balanced"):
+                return self._find_nearest_enemy_location(player, state)
+            return None
+
+        # 2. political 特殊路径（警察局逻辑保留）
+        if self.personality == "political":
+            result = self._political_destination(player, state, unmet_needs)
+            if result is not None:
+                return result
+
+        # 3. 对每个候选地点评分
+        loc = self._get_location_str(player)
+        vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+
+        # 候选地点（排除当前位置和警察局）
+        candidate_locs = ["home", "商店", "魔法所", "医院", "军事基地"]
+
+        best_loc = None
+        best_score = -999
+
+        for dest in candidate_locs:
+            if dest == loc:
+                continue
+            score = self._score_destination(dest, unmet_needs, player, state, vouchers, has_pass)
+            if score > best_score:
+                best_score = score
+                best_loc = dest
+
+        return best_loc
+
+    def _get_unmet_needs(self, player, state) -> list:
+        """返回当前未满足的需求列表（按人格优先级排序）"""
+        needs_order = PERSONALITY_NEEDS.get(self.personality, PERSONALITY_NEEDS["balanced"])
+
+        weapons = [w for w in player.weapons if w and w.name != "拳击"]
+        has_weapon = len(weapons) > 0
+        weapon_attrs = set(self._get_weapon_attr(w) for w in weapons)
         outer = self._count_outer_armor(player)
         inner = self._count_inner_armor(player)
         vouchers = getattr(player, 'vouchers', 0)
-        has_pass = getattr(player, 'has_military_pass', False)
         has_detection = getattr(player, 'has_detection', False)
+        has_stealth = self._has_stealth(player)
+
+        unmet = []
+        for need in needs_order:
+            if need == "voucher" and vouchers < 1:
+                unmet.append(("voucher", 3))  # (need_key, priority_weight)
+            elif need == "weapon" and not has_weapon:
+                unmet.append(("weapon", 5))
+            elif need == "outer_armor" and outer < 1:
+                unmet.append(("outer_armor", 4))
+            elif need == "second_outer_armor" and outer < 2:
+                unmet.append(("second_outer_armor", 3))
+            elif need == "inner_armor" and inner < 1:
+                unmet.append(("inner_armor", 2))
+            elif need == "detection" and not has_detection:
+                unmet.append(("detection", 2))
+            elif need == "stealth" and not has_stealth:
+                unmet.append(("stealth", 3))
+            elif need == "second_weapon" and len(weapon_attrs - {Attribute.ORDINARY}) < 1:
+                # 需要至少1件非普通武器（或2件不同属性武器）
+                unmet.append(("second_weapon", 3))
+        if self.personality == "builder":
+            has_pass = getattr(player, 'has_military_pass', False)
+            if not has_pass:
+                unmet.append(("military_pass", 4))  # 需要通行证
+
+        return unmet
+
+    def _score_destination(self, dest, unmet_needs, player, state, vouchers, has_pass) -> float:
+        """对一个候选地点评分"""
+        score = 0.0
+
+        # 1. 能满足多少需求（按优先级加权）
+        for need_key, priority in unmet_needs:
+            providers = NEED_PROVIDERS.get(need_key, [])
+            for (ploc, item_name, prereq) in providers:
+                if ploc != dest:
+                    continue
+                # 检查前置条件
+                if prereq == "voucher" and vouchers < 1:
+                    score += priority * 0.3  # 没凭证但可以打工，打折
+                    continue
+                if prereq == "pass" and not has_pass:
+                    if vouchers >= 1:
+                        score += priority * 0.5  # 可以强买通行证，打折
+                    else:
+                        score += priority * 0.1  # 需要先拿凭证再强买，大打折
+                    continue
+                if prereq == "voucher_consume" and vouchers < 1:
+                    score += priority * 0.2  # 需要先拿凭证
+                    continue
+                # 检查是否已有该物品（避免重复获取）
+                if self._already_has_item(player, item_name):
+                    continue
+                score += priority  # 完全满足
+                break  # 每个需求只计一次
+
+        # 2. 敌人惩罚（人越多越危险）
+        enemies = self._count_enemies_at(dest, player, state)
+        if self.personality in ("aggressive", "assassin"):
+            score -= enemies * 1  # 进攻型不太在意
+        else:
+            score -= enemies * 3  # 防御型很在意
+
+        # 3. 效率加分：一个地方能同时满足多个需求
+        satisfiable_count = 0
+        for need_key, _ in unmet_needs:
+            providers = NEED_PROVIDERS.get(need_key, [])
+            for (ploc, item_name, _) in providers:
+                if ploc == dest and not self._already_has_item(player, item_name):
+                    satisfiable_count += 1
+                    break
+        if satisfiable_count >= 2:
+            score += 3  # 一站式加分
+        if satisfiable_count >= 3:
+            score += 3  # 更多加分
+
+        # 4. home 特殊处理：每个人的家是独立的，不会撞车
+        if dest == "home":
+            score += 1  # 安全加分
+
+        return score
+
+    def _already_has_item(self, player, item_name) -> bool:
+        """检查玩家是否已拥有某物品/装备/法术"""
+        # 武器
+        if item_name in ("小刀", "高斯步枪", "电磁步枪", "魔法弹幕"):
+            return any(w.name == item_name for w in player.weapons if w)
+        # 法术（魔法所的东西都是法术）
+        learned = self._get_learned_spells(player)
+        if item_name in ("魔法护盾", "魔法弹幕", "远程魔法弹幕", "封闭", "地震", "地动山摇", "隐身术", "探测魔法"):
+            return item_name in learned
+        # 护甲
+        if item_name in ("盾牌", "陶瓷护甲", "AT力场"):
+            return self._has_armor_by_name(player, item_name)
+        # 手术（内甲）
+        if item_name in ("晶化皮肤手术", "额外心脏手术", "不老泉手术"):
+            # 简化：检查内甲数量
+            return self._count_inner_armor(player) >= 1  # 粗略检查
+        # 物品
+        if item_name in ("热成像仪", "隐身衣", "隐形涂层", "雷达"):
+            if item_name == "热成像仪" or item_name == "雷达":
+                return getattr(player, 'has_detection', False)
+            if item_name in ("隐身衣", "隐形涂层", "隐身术"):
+                return self._has_stealth(player)
+        if item_name == "凭证":
+            return getattr(player, 'vouchers', 0) >= 1
+        if item_name == "打工":
+            return False  # 打工永远可以做
+        return False
+
+    def _political_destination(self, player, state, unmet_needs) -> Optional[str]:
+        """political 人格的特殊目的地逻辑（警察局相关）"""
+        fallback = self._political_should_fallback(player, state)
+        if fallback == "defensive":
+            return None  # 返回 None 让通用评分逻辑处理
+
+        is_police = getattr(player, 'is_police', False)
+        is_captain = getattr(player, 'is_captain', False)
         loc = self._get_location_str(player)
 
-        if self.personality == "aggressive":
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if not has_weapon and loc != "商店":
-                return "商店"
-            if outer < 1 and loc != "home":
-                return "home"
-            return self._find_nearest_enemy_location(player, state)
+        # 还没加入警察 → 先满足基本需求再去警察局
+        if not is_police:
+            # 如果还有武器或外甲需求，先满足
+            has_basic = any(w for w in player.weapons if w and w.name != "拳击") and self._count_outer_armor(player) > 0
+            if has_basic:
+                if loc != "警察局":
+                    return "警察局"
+            else:
+                return None  # 让通用逻辑处理基本需求
 
-        elif self.personality == "defensive":
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if outer < 1 and loc != "home":
-                return "home"
-            if outer < 2 and loc != "商店":
-                return "商店"
-            if not has_weapon and loc != "商店":
-                return "商店"
-            if not has_detection and loc != "商店":
-                return "商店"
-            if inner < 1 and loc != "医院":
-                return "医院"
-            return None
+        # 已加入但还没当队长 → 去警察局竞选
+        if is_police and not is_captain:
+            if loc != "警察局":
+                return "警察局"
+            return None  # 已在警察局
 
-        elif self.personality == "assassin":
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if outer < 1 and loc != "home":
-                return "home"
-            if not has_weapon and loc != "商店":
-                return "商店"
-            if not self._has_stealth(player) and loc != "商店":
-                return "商店"
-                # 新增：有凭证但没有病毒免疫 → 去医院拿面具（顺便可以放毒）
-            if not self._has_virus_immunity(player) and vouchers >= 1 and loc != "医院":
-                return "医院"
-            return self._find_nearest_enemy_location(player, state)
-
-        elif self.personality == "political":
-            # ---- 降级检查：队长被占 / 警察系统不可用 → 走 defensive 路线 ----
-            fallback = self._political_should_fallback(player, state)
-            if fallback == "defensive":
-                # 复用 defensive 的目标地点逻辑（第 1129-1142 行的完整副本）
-                if vouchers < 1 and loc != "home":
-                    return "home"
-                if outer < 1 and loc != "home":
-                    return "home"
-                if outer < 2 and loc != "商店":
-                    return "商店"
-                if not has_weapon and loc != "商店":
-                    return "商店"
-                if not has_detection and loc != "商店":
-                    return "商店"
-                if inner < 1 and loc != "医院":
-                    return "医院"
+        # 已是队长 → 检查警察部署，然后让通用逻辑处理自身发育
+        if is_captain:
+            all_deployed = all(
+                a.get("phase") in ("stationed", "stationed_default", None)
+                for a in self._police_dev_assignments.values()
+            ) if self._police_dev_assignments else False
+            if not all_deployed:
+                if loc != "警察局":
+                    return "警察局"
                 return None
-            # fallback == "none" → 继续正常 political 逻辑
-
-            is_police = getattr(player, 'is_police', False)
-            is_captain = getattr(player, 'is_captain', False)
-
-            # 还没加入警察 → 先拿基本装备再去警察局
-            if not is_police:
-                if not has_weapon and loc != "home":
-                    return "home"
-                if outer < 1 and loc != "home":
-                    return "home"
-                if loc != "警察局":
-                    return "警察局"
-
-            # 已加入但还没当队长 → 去警察局竞选
-            if is_police and not is_captain:
-                if loc != "警察局":
-                    return "警察局"
-
-            # 已是队长 → 原有逻辑不变
-            if is_captain:
-                # 检查警察是否全部部署完毕
-                all_deployed = all(
-                    a.get("phase") in ("stationed", "stationed_default", None)
-                    for a in self._police_dev_assignments.values()
-                ) if self._police_dev_assignments else False
-
-                if not all_deployed:
-                    # 警察还在发育/部署，队长留在警察局
-                    if loc != "警察局":
-                        return "警察局"
-                    return None  # 已在警察局，等待
-
-                # 警察全部部署完毕，队长开始自己的发育
-                if vouchers < 1 and loc != "home":
-                    return "home"
-                if not has_weapon and loc != "home":
-                    return "home"
-                if outer < 1 and loc != "home":
-                    return "home"
-                if outer < 2 and loc != "商店":
-                    return "商店"
-                return None  # 发育完成
-
-        elif self.personality == "builder":
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if outer < 1 and loc != "home":
-                return "home"
-            if not has_weapon and loc != "商店":
-                return "商店"
-            if outer < 2 and loc != "商店":
-                return "商店"
-            if inner < 1 and loc != "医院":
-                return "医院"
-            if not has_pass and loc != "军事基地":
-                return "军事基地"
-            if has_pass and loc != "军事基地":
-                return "军事基地"
+            # 警察部署完毕，让通用逻辑处理
             return None
 
-        else:  # balanced
-            if vouchers < 1 and loc != "home":
-                return "home"
-            if outer < 1 and loc != "home":
-                return "home"
-            if not has_weapon and loc != "商店":
-                return "商店"
-            if not has_detection and vouchers >= 2 and loc != "商店":
-                return "商店"
-            if outer < 2 and loc != "商店":
-                return "商店"
-            return self._find_nearest_enemy_location(player, state)
+        return None
+
+
 
     def _count_enemies_at(self, location: str, player, state) -> int:
         """统计某地点的存活敌人数量"""
@@ -1329,39 +1477,6 @@ class BasicAIController(PlayerController):
                     count += 1
         return count
 
-    def _find_safer_alternative(self, original: str, player, state) -> Optional[str]:
-        """为非进攻型人格寻找更安全的替代发育地点
-
-        替代逻辑：
-        - 商店 ↔ 魔法所（都能获得武器、护甲、探测）
-        - 医院 → 无直接替代，但可以先去商店/魔法所做其他发育
-        - home → 不替代（每个人的家是独立的，一般不会有敌人）
-        """
-        # 替代映射：原目标 → 可替代地点列表
-        alternatives_map = {
-            "商店": ["魔法所"],
-            "魔法所": ["商店"],
-            "医院": ["商店", "魔法所"],
-            "军事基地": ["商店", "魔法所"],
-        }
-        candidates = alternatives_map.get(original, [])
-        loc = self._get_location_str(player)
-
-        best = None
-        best_enemies = 999
-        for alt_loc in candidates:
-            if alt_loc == loc:
-                continue
-            enemies = self._count_enemies_at(alt_loc, player, state)
-            if enemies < best_enemies:
-                best_enemies = enemies
-                best = alt_loc
-
-        # 只有替代地点确实更安全时才替代
-        original_enemies = self._count_enemies_at(original, player, state)
-        if best is not None and best_enemies < original_enemies:
-            return best
-        return None
 
     # ════════════════════════════════════════════════════════
     #  命令生成器：攻击（Bug6修复：检查 ENGAGED_WITH/LOCKED_BY）
