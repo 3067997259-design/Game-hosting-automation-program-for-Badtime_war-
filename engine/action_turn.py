@@ -366,30 +366,57 @@ class ActionTurnManager:
             if not rewards:
                 return msg, "recruit", not msg.startswith("❌")  # CHANGED: 无奖励=失败
             # ══ CONTROLLER 改动：加入警察三选二走 controller ══
+            # 在 choice 之前过滤不可用的奖励
+            from models.equipment import make_armor as _ma_check
+            filtered_rewards = []
+            for r in rewards:
+                if r == "盾牌":
+                    test_armor = _ma_check("盾牌")
+                    if test_armor:
+                        can_equip, _ = player.armor.check_can_equip(test_armor)
+                        if not can_equip:
+                            continue  # 已有盾牌，不提供此选项
+                if r == "警棍":
+                    if player.has_weapon("警棍"):
+                        continue  # 已有警棍，不提供此选项
+                filtered_rewards.append(r)
+
+            # 如果过滤后选项不足2个，补充"购买凭证"（可重复选）
+            while len(filtered_rewards) < 2:
+                filtered_rewards.append("购买凭证")
             display.show_info("加入警察！请从以下三项中选择两项奖励：")
             choice1 = player.controller.choose(
-                "选择第1项：", rewards,
+                "选择第1项：", filtered_rewards,
                 context={"phase": "T1", "situation": "recruit_pick_1"}
             )
-            remaining = [o for o in rewards if o != choice1]
+            remaining = [o for o in filtered_rewards if o != choice1]
             choice2 = player.controller.choose(
                 "选择第2项：", remaining,
                 context={"phase": "T1", "situation": "recruit_pick_2"}
             )
             # ══ CONTROLLER 改动结束 ══
             from models.equipment import make_weapon as _mw, make_armor as _ma
+            reward_results = []
             for choice in [choice1, choice2]:
                 if choice == "购买凭证":
                     player.vouchers += 1
+                    reward_results.append(f"购买凭证（当前：{player.vouchers}张）")
                 elif choice == "警棍":
                     w = _mw("警棍")
                     if w:
                         player.add_weapon(w)
+                        reward_results.append("警棍")
                 elif choice == "盾牌":
                     a = _ma("盾牌")
                     if a:
-                        player.add_armor(a)
-            msg += f"\n选择了：{choice1}、{choice2}"
+                        success, reason = player.add_armor(a)
+                        if success:
+                            reward_results.append("盾牌")
+                        else:
+                            # 装备失败，改为发放购买凭证作为补偿
+                            player.vouchers += 1
+                            reward_results.append(f"盾牌装备失败（{reason}），改为获得购买凭证（当前：{player.vouchers}张）")
+            msg += f"\n选择了：{'、'.join(reward_results)}"
             return msg, "recruit", True                        # CHANGED
 
         elif action == "election":
