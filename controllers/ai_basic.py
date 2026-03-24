@@ -736,6 +736,12 @@ class BasicAIController(PlayerController):
         self._read_police_state(state)
         self._update_combat_status(player, state)
         self._cleanup_dead_players(state)  # Bug18
+        # political fallback 判定（每轮重新计算，不持久化）
+        # 当已有队长但不是自己、或警察全灭时，采用 balanced 策略
+        self._political_in_balanced_fallback = (
+            self.personality == "political"
+            and self._political_should_fallback(player, state) != "none"
+        )
 
         candidates = []
 
@@ -827,14 +833,16 @@ class BasicAIController(PlayerController):
         if (getattr(player, 'is_police', False)
             and not getattr(player, 'is_captain', False)
             and self.personality == "political"):
-            # 非队长警察成员只做政治行动（竞选、举报等），不生成攻击命令
-            political = self._cmd_police_political(player, state, available_actions)
-            candidates.extend(political)
-            # 加发育命令作为备选
-            develop = self._cmd_develop(player, state, available_actions)
-            candidates.extend(develop)
-            candidates.append("forfeit")
-            return candidates
+            if not self._political_in_balanced_fallback:
+                # 正常政治路径：只做政治行动（竞选、举报等），不生成攻击命令
+                political = self._cmd_police_political(player, state, available_actions)
+                candidates.extend(political)
+                develop = self._cmd_develop(player, state, available_actions)
+                candidates.extend(develop)
+                candidates.append("forfeit")
+                return candidates
+            # else: fallback 激活 → 不走早期返回，按 balanced 策略继续到下面的通用逻辑
+            debug_ai_basic(player.name, "political fallback 激活：采用 balanced 行动策略")
 
         # ===== 战斗状态 =====
         if self._in_combat and self._combat_target:
@@ -879,7 +887,7 @@ class BasicAIController(PlayerController):
 
         # ===== 发育受阻：develop 为空但发育未完成 =====
         if not develop and not self._is_development_complete(player, state):
-            if self.personality in ("aggressive", "assassin", "balanced"):
+            if self.personality in ("aggressive", "assassin", "balanced") or getattr(self, '_political_in_balanced_fallback', False):
                 debug_ai_basic(player.name, "发育受阻，转为进攻冲散人群")
                 attack_cmds = self._cmd_attack(player, state, available_actions)
                 for cmd in attack_cmds:
@@ -1170,13 +1178,11 @@ class BasicAIController(PlayerController):
 
         elif self.personality == "political":
             fallback = self._political_should_fallback(player, state)
-            if fallback == "defensive":
-                # Use defensive completion criteria when political path is blocked
-                if self._count_outer_armor(player) < 1:
-                    return False
-                if not has_real_weapon:
-                    return False
-                return True
+            if fallback != "none":
+                # fallback 时使用 balanced 完成标准（2外甲+1内甲+1武器）
+                has_outer = self._count_outer_armor(player) >= 2
+                has_inner = self._count_inner_armor(player) >= 1
+                return has_real_weapon and has_outer and has_inner
             else:
                 is_captain = getattr(player, 'is_captain', False)
                 if not is_captain:
@@ -1348,7 +1354,7 @@ class BasicAIController(PlayerController):
         unmet_needs = self._get_unmet_needs(player, state)
         if not unmet_needs:
             # 发育完成
-            if self.personality in ("aggressive", "assassin", "balanced"):
+            if self.personality in ("aggressive", "assassin", "balanced") or getattr(self, '_political_in_balanced_fallback', False):  
                 return self._find_nearest_enemy_location(player, state)
             return None
 
@@ -1387,7 +1393,11 @@ class BasicAIController(PlayerController):
 
     def _get_unmet_needs(self, player, state) -> list:
         """返回当前未满足的需求列表（按人格优先级排序）"""
-        needs_order = PERSONALITY_NEEDS.get(self.personality, PERSONALITY_NEEDS["balanced"])
+        # political fallback 时使用 balanced 的需求列表（6项而非3项）
+        effective_personality = self.personality
+        if getattr(self, '_political_in_balanced_fallback', False):
+            effective_personality = "balanced"
+        needs_order = PERSONALITY_NEEDS.get(effective_personality, PERSONALITY_NEEDS["balanced"])
 
         weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
         has_weapon = len(weapons) > 0
