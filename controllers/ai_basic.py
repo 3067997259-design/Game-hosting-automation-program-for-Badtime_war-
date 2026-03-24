@@ -879,9 +879,9 @@ class BasicAIController(PlayerController):
                 return True
         # 被锁定且完全没有护甲
         locked_count = self._count_locked_by(player, state)
-        if locked_count > 1:
+        if locked_count >= 1:
             total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
-            if total_armor <= 1:
+            if total_armor == 0:
                 return True
         # 被锚定
         if self._is_anchored(player, state):
