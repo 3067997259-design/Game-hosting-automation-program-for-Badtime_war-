@@ -446,18 +446,29 @@ class BasicAIController(PlayerController):
 
         # ---- 涟漪 ----
         if situation == "ripple_choose_method":
+            # 单人模式下方式二（献诗）收益更高
             for opt in options:
-                if "锚定" in opt:
+                if "献诗" in opt:
                     return opt
             return options[0]
         if situation == "resurrection_pick_target":
+            # 单人模式下挂自己收益最大
+            if self._player and self._player.name in options:
+                return self._player.name
             return options[0]
         if situation == "ripple_anchor_type":
             for opt in options:
                 if "击杀" in opt:
                     return opt
             return options[0]
-        if situation in ("ripple_anchor_kill_target", "ripple_anchor_armor_target", "ripple_poem_target"):
+        if situation == "ripple_poem_target":
+            # 献诗选自己（触发爱与记忆之诗，4发伤害）
+            if self._player and self._player.name in options:
+                return self._player.name
+            player_opts = [o for o in options if o != "取消"]
+            return player_opts[0] if player_opts else options[0]
+
+        if situation in ("ripple_anchor_kill_target", "ripple_anchor_armor_target"):
             player_opts = [o for o in options if o != "取消"]
             if player_opts:
                 return max(player_opts, key=lambda name: self._threat_scores.get(name, 0))
