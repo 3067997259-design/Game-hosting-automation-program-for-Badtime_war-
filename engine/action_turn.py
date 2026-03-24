@@ -386,13 +386,13 @@ class ActionTurnManager:
                 filtered_rewards.append("购买凭证")
             display.show_info("加入警察！请从以下三项中选择两项奖励：")
             choice1 = player.controller.choose(
-            choice1 = player.controller.choose(
                 "选择第1项：", filtered_rewards,
                 context={"phase": "T1", "situation": "recruit_pick_1"}
             )
             remaining = [o for o in filtered_rewards if o != choice1]
             choice2 = player.controller.choose(
                 "选择第2项：", remaining,
+                context={"phase": "T1", "situation": "recruit_pick_2"}
             )
             # ══ CONTROLLER 改动结束 ══
             from models.equipment import make_weapon as _mw, make_armor as _ma
