@@ -1,5 +1,4 @@
 """游戏初始化（Phase 4 完整版 + AI 支持）：玩家类型+天赋选择+不重复"""
-
 from models.player import Player
 from models.equipment import make_weapon
 from engine.game_state import GameState
@@ -324,6 +323,34 @@ def setup_game():
             print("  天赋系统未启用。")
             break
         print("  请输入 y 或 n。")
+
+    # ════════════════════════════════════════════════════════
+    #  第五步半：日志记录
+    # ════════════════════════════════════════════════════════
+
+    # 判断天赋是否启用
+    talent_enabled = any(
+        p.talent is not None
+        for p in (game_state.get_player(pid) for pid in game_state.player_order)
+        if p is not None
+    )
+
+    print(f"\n  ─── 日志记录 ───")
+    while True:
+        log_choice = input("  是否将本局游戏记录到日志文件？(y/n，默认n)：").strip().lower()
+        if log_choice in ("y", "yes", "是"):
+            from engine.game_logger import GameLogger
+            logger = GameLogger(num_human, num_ai, talent_enabled)
+            logger.write_header(game_state, ai_players_info)
+            game_state.logger = logger
+            print(f"  ✓ 日志记录已启用，文件: {logger.log_path}")
+            break
+        elif log_choice in ("n", "no", "否", ""):
+            print("  日志记录未启用。")
+            break
+        print("  请输入 y 或 n。")
+
+
     # ════════════════════════════════════════════════════════
     #  第六步：演示速度（仅含AI时询问）
     # ════════════════════════════════════════════════════════
@@ -368,6 +395,10 @@ def setup_game():
     # 全AI模式不需要按回车
     if game_mode != "all_ai":
         input("  按回车键开始游戏...")
+
+    # 激活日志记录（在所有设置完成后、游戏循环开始前）
+    if game_state.logger:
+        game_state.logger.activate(game_state)
 
     return game_state
 

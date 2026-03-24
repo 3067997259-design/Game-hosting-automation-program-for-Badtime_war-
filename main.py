@@ -19,6 +19,10 @@ def main():
     except KeyboardInterrupt:
         print("\n\n  游戏被手动中断。")
         print("  感谢游玩《起闯战争》！")
+    finally:
+        # 关闭日志记录器（如果启用）
+        if hasattr(game_state, 'logger') and game_state.logger:
+            game_state.logger.close()
 
 
 if __name__ == "__main__":

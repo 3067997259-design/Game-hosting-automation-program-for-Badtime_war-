@@ -1,4 +1,9 @@
 """全局游戏状态（Phase 3 完整版）"""
+from __future__ import annotations
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from engine.game_logger import GameLogger
 
 from models.markers import MarkerManager
 from models.police import PoliceData
@@ -54,6 +59,7 @@ class GameState:
         # 游戏状态
         self.game_over = False
         self.winner: Optional[str] = None
+        self.logger: Optional[GameLogger] = None  # 游戏日志记录器
 
     def add_player(self, player):
         self.players[player.player_id] = player
