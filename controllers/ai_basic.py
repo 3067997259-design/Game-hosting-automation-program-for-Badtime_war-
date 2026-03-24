@@ -1594,13 +1594,11 @@ class BasicAIController(PlayerController):
                 elif attr == Attribute.ORDINARY:
                     needs_tech = True    # 普通甲 → 科技武器克制
                 elif attr == Attribute.MAGIC:
-                    needs_magic = False  # 魔法甲 → 普通武器克制，但警棍伤害太低
-                    needs_tech = False   # 魔法甲也被科技打，但不是克制
-                    # 魔法甲被普通克制，但警棍只有1伤害
-                    # 高斯步枪（科技）对魔法甲同属性有效
-                    # 魔法弹幕（魔法）对魔法甲同属性有效
-                    # 所以魔法甲目标：高斯和魔法弹幕都行，优先高斯（科技打魔法有效）
-                    needs_tech = True
+                    # 魔法甲 → 普通武器克制（但警棍伤害太低）
+                    # 魔法弹幕（魔法）对魔法甲有效（MAGIC ∈ EFFECTIVE_AGAINST[MAGIC]）
+                    # 高斯步枪（科技）对魔法甲无效（MAGIC ∉ EFFECTIVE_AGAINST[TECH]）
+                    # 所以魔法甲目标：优先魔法弹幕
+                    needs_magic = True
 
             if needs_magic and not needs_tech:
                 # 优先魔法弹幕路线
