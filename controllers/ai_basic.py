@@ -866,8 +866,6 @@ class BasicAIController(PlayerController):
         develop = self._cmd_develop(player, state, available_actions)
         candidates.extend(develop)
 
-        # 在第 867 行 candidates.extend(develop) 之后，第 869 行之前，插入：
-
         # ===== 发育受阻：develop 为空但发育未完成 =====
         if not develop and not self._is_development_complete(player, state):
             if self.personality in ("aggressive", "assassin", "balanced"):
@@ -1135,7 +1133,7 @@ class BasicAIController(PlayerController):
 
     def _is_development_complete(self, player, state) -> bool:
         """判断发育是否完成"""
-        real_weapons = [w for w in player.weapons if w and getattr(w, 'base_damage', 0) >= 1]
+        real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
         has_real_weapon = len(real_weapons) > 0
 
         if self.personality == "aggressive":
@@ -1200,7 +1198,7 @@ class BasicAIController(PlayerController):
         commands = []
         loc = self._get_location_str(player)
         weapons = getattr(player, 'weapons', [])
-        has_weapon = any(w for w in weapons if w and getattr(w, 'base_damage', 0) >= 1)
+        has_weapon = any(w for w in weapons if w and getattr(w, 'name', '') != "拳击")
         outer = self._count_outer_armor(player)
         inner = self._count_inner_armor(player)
         vouchers = getattr(player, 'vouchers', 0)
@@ -1214,7 +1212,6 @@ class BasicAIController(PlayerController):
                 commands.append("special 磨刀")
                 return commands  # 磨刀最高优先级，不生成其他命令
 
-        # 替换为简单状态日志：
         debug_ai_development_plan(player.name,
             f"状态: loc={loc} vouchers={vouchers} weapon={has_weapon} "
             f"outer={outer} inner={inner} pass={has_pass} detect={has_detection}")
@@ -1262,7 +1259,6 @@ class BasicAIController(PlayerController):
                         commands.append("interact 探测魔法")
                     if "隐身术" not in learned and self.personality == "assassin":
                         commands.append("interact 隐身术")
-                    # 第 1217-1220 行，替换为：
                     if "地震" not in learned:
                         commands.append("interact 地震")
                     if "地震" in learned and "地动山摇" not in learned:
@@ -1362,7 +1358,6 @@ class BasicAIController(PlayerController):
         best_loc = None
         best_score = -999
 
-        # 替换循环部分：
         for dest in candidate_locs:
             if dest == loc:
                 continue
@@ -1383,7 +1378,7 @@ class BasicAIController(PlayerController):
         """返回当前未满足的需求列表（按人格优先级排序）"""
         needs_order = PERSONALITY_NEEDS.get(self.personality, PERSONALITY_NEEDS["balanced"])
 
-        weapons = [w for w in player.weapons if w and getattr(w, 'base_damage', 0) >= 1]
+        weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
         has_weapon = len(weapons) > 0
         weapon_attrs = set(self._get_weapon_attr(w) for w in weapons)
         outer = self._count_outer_armor(player)
@@ -1692,7 +1687,6 @@ class BasicAIController(PlayerController):
                 else:
                     commands.append(f"attack {target.name} {weapon.name}")
 
-        # 替换为：
         elif weapon_range == "area":
             if "attack" in available:
                 same_loc_targets = self._get_same_location_targets(player, state)
@@ -2514,9 +2508,10 @@ class BasicAIController(PlayerController):
         if not weapons:
             return None
 
-        # 优先选 base_damage >= 1 的武器
-        strong_weapons = [w for w in weapons if w and getattr(w, 'base_damage', 0) >= 1]
-        pool = strong_weapons if strong_weapons else weapons
+        # 过滤掉 None，让所有武器（含拳击）参与评分，由 weapon_score 决定优劣
+        pool = [w for w in weapons if w]
+        if not pool:
+            return None
 
         target_outer_attrs = self._get_outer_armor_attr(target)
         if not target_outer_attrs:
@@ -2944,7 +2939,6 @@ class BasicAIController(PlayerController):
         learned = self._get_learned_spells(player)
         has_pass = getattr(player, 'has_military_pass', False)
 
-        # 替换为：
         if loc == "魔法所":
             if "魔法弹幕" not in learned:
                 return "interact 魔法弹幕"
@@ -3395,7 +3389,6 @@ class BasicAIController(PlayerController):
         # 检查是否已有AOE武器
         has_aoe = self._has_aoe_weapon(player)
 
-        # 替换 has_aoe 分支为：
         if has_aoe:
             pc = self._police_cache or {}
             for unit in pc.get("units", []):
@@ -3424,7 +3417,6 @@ class BasicAIController(PlayerController):
             enemies_magic = self._count_enemies_at("魔法所", player, state)
             enemies_military = self._count_enemies_at("军事基地", player, state)
 
-            # 替换为：
             if enemies_magic <= enemies_military:
                 if loc == "魔法所" and "interact" in available:
                     learned = self._get_learned_spells(player)
@@ -3434,6 +3426,11 @@ class BasicAIController(PlayerController):
                         commands.append("interact 地震")
                 else:
                     commands.append("move 魔法所")
+            else:
+                if loc == "军事基地" and "interact" in available:
+                    commands.append("interact 电磁步枪")
+                else:
+                    commands.append("move 军事基地")
         return commands
 
     def _has_aoe_weapon(self, player) -> bool:
