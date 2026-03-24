@@ -803,7 +803,7 @@ class BasicAIController(PlayerController):
                             candidates.extend(fight_cmds)
                             candidates.append("forfeit")
                             return candidates
-                if self.personality == "aggressive":
+                if self.personality in ("aggressive", "assassin"):
                     aggressive_cmds = self._aggressive_survival_strategy(player, state, available_actions)
                     candidates.extend(aggressive_cmds)
                 danger_cmds = self._cmd_danger_develop(player, state, available_actions)
@@ -970,8 +970,13 @@ class BasicAIController(PlayerController):
     def _is_critical(self, player, state) -> bool:
         if player.hp <= 0.5:
             return True
-        if player.hp <= 1.0 and self._count_outer_armor(player) == 0:
-            return True
+        if self.personality in ("aggressive", "assassin"):
+            # aggressive/assassin 只有完全裸奔才进入危机模式
+            if player.hp <= 1.0 and self._count_outer_armor(player) == 0 and self._count_inner_armor(player) == 0:
+                return True
+        else:
+            if player.hp <= 1.0 and self._count_outer_armor(player) == 0:
+                return True
         # 被警察围攻
         pc = self._police_cache or {}
         if pc.get("report_target") == player.player_id:
@@ -982,8 +987,12 @@ class BasicAIController(PlayerController):
         locked_count = self._count_locked_by(player, state)
         if locked_count >= 1:
             total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
-            if total_armor <= 1:
-                return True
+            if self.personality in ("aggressive", "assassin"):
+                if total_armor == 0:
+                    return True
+            else:
+                if total_armor <= 1:
+                    return True
         # 被锚定
         if self._is_anchored(player, state):
             return True
@@ -1539,6 +1548,20 @@ class BasicAIController(PlayerController):
                     player.player_id, "ENGAGED_WITH", target.player_id)
 
             if not is_engaged:
+                # 检查目标是否对自己可见
+                markers_obj = getattr(state, 'markers', None)
+                target_visible = True
+                if markers_obj and hasattr(markers_obj, 'is_visible_to'):
+                    target_visible = markers_obj.is_visible_to(
+                        target.player_id, player.player_id,
+                        getattr(player, 'has_detection', False))
+
+                if not target_visible:
+                    # 目标隐身且自己没有探测 → 不生成 find，改为获取探测手段
+                    detection_cmds = self._cmd_get_detection(player, state, available)
+                    commands.extend(detection_cmds)
+                    return commands
+
                 if "find" in available:
                     # 先确认在同一地点
                     if self._same_location(player, target):
@@ -1570,6 +1593,21 @@ class BasicAIController(PlayerController):
                     target.player_id, "LOCKED_BY", player.player_id)
 
             if not is_locked:
+                # 检查目标是否对自己可见
+                markers_obj = getattr(state, 'markers', None)
+                target_visible = True
+                if markers_obj and hasattr(markers_obj, 'is_visible_to'):
+                    target_visible = markers_obj.is_visible_to(
+                        target.player_id, player.player_id,
+                        getattr(player, 'has_detection', False))
+
+                if not target_visible:
+                    # 目标隐身且自己没有探测 → 不生成 lock，改为获取探测手段
+                    detection_cmds = self._cmd_get_detection(player, state, available)
+                    commands.extend(detection_cmds)
+                    return commands
+
+
                 if "lock" in available:
                     commands.append(f"lock {target.name}")
                     return commands
@@ -1605,6 +1643,47 @@ class BasicAIController(PlayerController):
                 else:
                     commands.append(f"attack {target.name} {weapon.name}")
             return commands
+
+        return commands
+
+    def _cmd_get_detection(self, player, state, available: List[str]) -> List[str]:
+        """生成获取探测手段的命令（当目标隐身且自己没有探测时）"""
+        commands = []
+        loc = self._get_location_str(player)
+        has_detection = getattr(player, 'has_detection', False)
+        if has_detection:
+            return commands  # 已有探测，不需要
+
+        vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+
+        # 当前位置能拿探测手段就直接拿
+        if "interact" in available:
+            if loc == "商店" and vouchers >= 1:
+                commands.append("interact 热成像仪")
+                return commands
+            if loc == "魔法所":
+                learned = self._get_learned_spells(player)
+                if "探测魔法" not in learned:
+                    commands.append("interact 探测魔法")
+                    return commands
+            if loc == "军事基地" and has_pass:
+                commands.append("interact 雷达")
+                return commands
+
+        # 不在能拿探测的地方 → 移动过去
+        if "move" in available:
+            # 优先去魔法所（免费），其次商店（需凭证），最后军事基地（需通行证）
+            if loc != "魔法所":
+                commands.append("move 魔法所")
+            elif vouchers >= 1 and loc != "商店":
+                commands.append("move 商店")
+            elif has_pass and loc != "军事基地":
+                commands.append("move 军事基地")
+            else:
+                # 没凭证也没通行证 → 去魔法所学探测魔法（免费）
+                if loc != "魔法所":
+                    commands.append("move 魔法所")
 
         return commands
 
@@ -2105,8 +2184,15 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
 
     def _aggressive_survival_strategy(self, player, state, available: List[str]) -> List[str]:
-        """Bug14修复：检查 target is None"""
+        """aggressive/assassin 危险模式策略：裸奔时撤退，不反击"""
         commands = []
+        total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
+
+        # 完全裸奔 → 不反击，直接返回空列表，让 _cmd_danger_develop 接管
+        if total_armor == 0:
+            return commands
+
+        # 有至少 1 件甲但仍在危机模式（比如 HP <= 0.5）→ 允许反击
         target = self._pick_target(player, state)
         if target is None:
             return commands
