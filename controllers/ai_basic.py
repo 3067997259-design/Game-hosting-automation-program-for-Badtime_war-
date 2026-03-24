@@ -710,7 +710,19 @@ class BasicAIController(PlayerController):
                 if candidates:
                     candidates.append("forfeit")
                     return candidates
+        # ===== 非队长警察成员：不主动攻击，优先竞选 =====
 
+        if (getattr(player, 'is_police', False)
+            and not getattr(player, 'is_captain', False)
+            and self.personality == "political"):
+            # 非队长警察成员只做政治行动（竞选、举报等），不生成攻击命令
+            political = self._cmd_police_political(player, state, available_actions)
+            candidates.extend(political)
+            # 加发育命令作为备选
+            develop = self._cmd_develop(player, state, available_actions)
+            candidates.extend(develop)
+            candidates.append("forfeit")
+            return candidates
 
         # ===== 战斗状态 =====
         if self._in_combat and self._combat_target:
@@ -859,18 +871,18 @@ class BasicAIController(PlayerController):
             return True
         if player.hp <= 1.0 and self._count_outer_armor(player) == 0:
             return True
-        # 被警察围攻（Bug修复：只检查 "dispatched"，不检查不存在的 "enforcing"）
+        # 被警察围攻
         pc = self._police_cache or {}
         if pc.get("report_target") == player.player_id:
             phase = pc.get("report_phase", "idle")
             if phase == "dispatched":
                 return True
-        # 被多人锁定
+        # 被锁定且完全没有护甲
         locked_count = self._count_locked_by(player, state)
-        if locked_count >= 2:
-            return True
-        if locked_count >= 1 and player.hp <= 1.0:
-            return True
+        if locked_count > 1:
+            total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
+            if total_armor <= 1:
+                return True
         # 被锚定
         if self._is_anchored(player, state):
             return True
@@ -1499,6 +1511,15 @@ class BasicAIController(PlayerController):
                 return ["study"]
 
         # ===== 初始化发育计划 =====
+        criminal_target = self._find_criminal_target(player, state)
+
+        # 新增：如果犯罪目标变了，重新初始化发育计划
+        if criminal_target:
+            new_target_id = criminal_target.player_id
+            if hasattr(self, '_last_criminal_target_id') and self._last_criminal_target_id != new_target_id:
+                self._police_dev_initialized = False
+            self._last_criminal_target_id = new_target_id
+
         if not self._police_dev_initialized:
             self._init_police_dev_plan(alive_units, player, state)
             self._police_dev_initialized = True
@@ -1541,14 +1562,79 @@ class BasicAIController(PlayerController):
         return commands
 
     def _init_police_dev_plan(self, alive_units, player, state):
-        """初始化警察发育计划：分配3个单位的目标配置"""
-        enemies_magic = self._count_enemies_at("魔法所", player, state)
-        enemies_military = self._count_enemies_at("军事基地", player, state)
-
+        """初始化警察发育计划：根据犯罪目标护甲属性分配3个单位的目标配置"""
         sorted_units = sorted(alive_units, key=lambda u: u["id"])
 
-        assignments = {}
-        if len(sorted_units) >= 1:
+        # ===== 第一步：检查犯罪目标的护甲属性 =====
+        criminal_target = self._find_criminal_target(player, state)
+        target_armor_attrs = set()
+        if criminal_target:
+            # 先看外层（攻击时先打外层）
+            outer = self._get_outer_armor_attr(criminal_target)
+            if outer:
+                target_armor_attrs = set(outer)
+            else:
+                # 无外层看内层
+                inner = self._get_inner_armor_attr(criminal_target)
+                if inner:
+                    target_armor_attrs = set(inner)
+
+        # ===== 第二步：根据目标护甲决定优先武器 =====
+        # 默认路线（无目标或目标无甲）：按敌人分布选
+        # 有目标有甲：优先能克制目标护甲的武器
+        from utils.attribute import Attribute
+
+        if target_armor_attrs:
+            needs_magic = False  # 需要魔法弹幕
+            needs_tech = False   # 需要高斯步枪
+
+            for attr in target_armor_attrs:
+                if attr == Attribute.TECH:
+                    needs_magic = True   # 科技甲 → 魔法武器克制
+                elif attr == Attribute.ORDINARY:
+                    needs_tech = True    # 普通甲 → 科技武器克制
+                elif attr == Attribute.MAGIC:
+                    # 魔法甲 → 普通武器克制（但警棍伤害太低）
+                    # 魔法弹幕（魔法）对魔法甲有效（MAGIC ∈ EFFECTIVE_AGAINST[MAGIC]）
+                    # 高斯步枪（科技）对魔法甲无效（MAGIC ∉ EFFECTIVE_AGAINST[TECH]）
+                    # 所以魔法甲目标：优先魔法弹幕
+                    needs_magic = True
+
+            if needs_magic and not needs_tech:
+                # 优先魔法弹幕路线
+                first_dest = "魔法所"
+                first_weapon = "魔法弹幕"
+                first_armor = "魔法护盾"
+                first_station = "军事基地"
+                second_dest = "军事基地"
+                second_weapon = "高斯步枪"
+                second_armor = "AT力场"
+                second_station = "商店"
+            elif needs_tech and not needs_magic:
+                # 优先高斯步枪路线
+                first_dest = "军事基地"
+                first_weapon = "高斯步枪"
+                first_armor = "AT力场"
+                first_station = "商店"
+                second_dest = "魔法所"
+                second_weapon = "魔法弹幕"
+                second_armor = "魔法护盾"
+                second_station = "军事基地"
+            else:
+                # 两种都需要（目标有多层不同属性甲）或都不特别需要
+                # 回退到原有逻辑：按敌人分布选
+                enemies_magic = self._count_enemies_at("魔法所", player, state)
+                enemies_military = self._count_enemies_at("军事基地", player, state)
+                if enemies_magic <= enemies_military:
+                    first_dest, first_weapon, first_armor, first_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
+                    second_dest, second_weapon, second_armor, second_station = "军事基地", "高斯步枪", "AT力场", "商店"
+                else:
+                    first_dest, first_weapon, first_armor, first_station = "军事基地", "高斯步枪", "AT力场", "商店"
+                    second_dest, second_weapon, second_armor, second_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
+        else:
+            # 无目标或目标无甲 → 原有逻辑
+            enemies_magic = self._count_enemies_at("魔法所", player, state)
+            enemies_military = self._count_enemies_at("军事基地", player, state)
             if enemies_magic <= enemies_military:
                 first_dest, first_weapon, first_armor, first_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
                 second_dest, second_weapon, second_armor, second_station = "军事基地", "高斯步枪", "AT力场", "商店"
@@ -1556,6 +1642,9 @@ class BasicAIController(PlayerController):
                 first_dest, first_weapon, first_armor, first_station = "军事基地", "高斯步枪", "AT力场", "商店"
                 second_dest, second_weapon, second_armor, second_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
 
+        # ===== 第三步：分配（和原来一样） =====
+        assignments = {}
+        if len(sorted_units) >= 1:
             assignments[sorted_units[0]["id"]] = {
                 "dest": first_dest,
                 "target_weapon": first_weapon,
@@ -1563,7 +1652,6 @@ class BasicAIController(PlayerController):
                 "station": first_station,
                 "phase": "pending",
             }
-
         if len(sorted_units) >= 2:
             assignments[sorted_units[1]["id"]] = {
                 "dest": second_dest,
@@ -1572,7 +1660,6 @@ class BasicAIController(PlayerController):
                 "station": second_station,
                 "phase": "pending",
             }
-
         if len(sorted_units) >= 3:
             assignments[sorted_units[2]["id"]] = {
                 "dest": None,
@@ -1746,15 +1833,18 @@ class BasicAIController(PlayerController):
             unit_loc = unit.get("location")
 
             score = 0
-            # 能有效打击目标护甲的加分
+            can_be_effective = False
             if target_armor_attrs:
                 effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
                 for armor_attr in target_armor_attrs:
                     if armor_attr in effective_set:
-                        score += 10
+                        score += 100  # 能有效打击是最重要的条件
+                        can_be_effective = True
                         break
+                if not can_be_effective:
+                    score -= 200  # 打不动的大幅降分，确保不会被位置加分覆盖
             else:
-                score += 5  # 无甲，任何武器都行
+                score += 50  # 无甲，任何武器都行
 
             # 已在目标位置的加分（省一步 move）
             if unit_loc == target_loc:
@@ -1794,8 +1884,8 @@ class BasicAIController(PlayerController):
                             if any(a in other_effective for a in target_armor_attrs):
                                 # 把这个警察 move 到目标位置，会和当前警察交换
                                 return f"police move {other_unit['id']} {target_loc}"
-                    # 没有能打的警察，还是攻击（可能打到非克制的甲）
-                    return f"police attack {uid} {target_player.player_id}"
+                    # 没有能打的警察 → 返回 None，让 _cmd_captain 继续尝试其他操作
+                    return None
 
             return f"police attack {uid} {target_player.player_id}"
     # ════════════════════════════════════════════════════════
@@ -2130,7 +2220,10 @@ class BasicAIController(PlayerController):
         if not weapons:
             return None
 
-        target_outer_attrs = self._get_outer_armor_attr(target)  # List[Attribute]
+        target_outer_attrs = self._get_outer_armor_attr(target)
+        # 如果没有外层护甲，检查内层（外层打完后会打内层）
+        if not target_outer_attrs:
+            target_outer_attrs = self._get_inner_armor_attr(target)
 
         def weapon_score(w):
             s = 0
@@ -2502,21 +2595,27 @@ class BasicAIController(PlayerController):
         return commands
 
     def _all_weapons_countered(self, player, target) -> bool:
-        """检查玩家所有武器是否都被目标外甲克制"""
+        """检查玩家所有武器是否都被目标护甲克制（检查所有层）"""
         weapons = getattr(player, 'weapons', [])
         if not weapons:
             return True  # 没武器视为被克制
 
         target_outer_attrs = self._get_outer_armor_attr(target)
-        if not target_outer_attrs:
-            return False  # 目标无外甲，任何武器都有效
+        target_inner_attrs = self._get_inner_armor_attr(target)
+
+        if not target_outer_attrs and not target_inner_attrs:
+            return False  # 目标无甲，任何武器都有效
+
+        # 需要检查的护甲层：如果有外层就检查外层，否则检查内层
+        # （因为攻击时先打外层，外层打完才打内层）
+        check_attrs = target_outer_attrs if target_outer_attrs else target_inner_attrs
 
         for w in weapons:
             w_attr = self._get_weapon_attr(w)
             effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
-            for armor_attr in target_outer_attrs:
+            for armor_attr in check_attrs:
                 if armor_attr in effective_set:
-                    return False  # 至少有一把武器能打
+                    return False  # 至少有一把武器能打当前层
         return True
 
     def _has_non_ordinary_weapon(self, player) -> bool:
