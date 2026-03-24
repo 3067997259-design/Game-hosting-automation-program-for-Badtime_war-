@@ -223,20 +223,7 @@ class PromptManager:
         self._load_prompts()
 
     def get_prompt(self, category: str, key: str, default: Any = None, **kwargs) -> Any:
-        """
-        获取提示文本，支持嵌套键和变量替换
-
-        Args:
-            category: 类别，如 "ui", "combat", "talent"
-            key: 键路径，如 "attack.hit" 或 "g1mythfire.lore"
-            default: 默认值，如果找不到提示则返回
-            **kwargs: 替换变量，如 player_name="张三"
-
-        Returns:
-            替换变量后的文本（字符串）或原始值
-        """
         try:
-            # 分割嵌套键
             parts = key.split('.')
             value = self.prompts.get(category, {})
 
@@ -244,24 +231,29 @@ class PromptManager:
                 if isinstance(value, dict):
                     value = value.get(part, {})
                 else:
-                    return default if default is not None else f"[Missing: {category}.{key}]"
+                    # 原来: return default if default is not None else f"[Missing: ...]"
+                    fallback = self._format_default(default, kwargs)
+                    return fallback if fallback is not None else f"[Missing: {category}.{key}]"
 
-            # 如果最终是空字典，返回默认值
             if isinstance(value, dict) and not value:
-                return default if default is not None else f"[Missing: {category}.{key}]"
+                # 原来: return default if default is not None else f"[Missing: ...]"
+                fallback = self._format_default(default, kwargs)
+                return fallback if fallback is not None else f"[Missing: {category}.{key}]"
 
-            # 如果最终是字符串，进行变量替换
             if isinstance(value, str) and kwargs:
                 try:
                     return value.format(**kwargs)
                 except KeyError as e:
-                    return default if default is not None else f"[Format Error: {category}.{key} missing {e}]"
+                    # 原来: return default if default is not None else f"[Format Error: ...]"
+                    fallback = self._format_default(default, kwargs)
+                    return fallback if fallback is not None else f"[Format Error: {category}.{key} missing {e}]"
 
-            # 返回原始值（可能是列表、数字等）
             return value
 
         except Exception as e:
-            return default if default is not None else f"[Error: {category}.{key} - {e}]"
+            # 原来: return default if default is not None else f"[Error: ...]"
+            fallback = self._format_default(default, kwargs)
+            return fallback if fallback is not None else f"[Error: {category}.{key} - {e}]"
 
     def show(self, category: str, key: str, level: Optional[PromptLevel] = None, **kwargs):
         """
@@ -338,6 +330,15 @@ class PromptManager:
             # 使用更友好的标题
             title = "天赋背景故事"
             self.show_formatted(title, lore, level)
+
+    def _format_default(self, default, kwargs):
+        """对 default 值应用 kwargs 格式化"""
+        if default is not None and isinstance(default, str) and kwargs:
+            try:
+                return default.format(**kwargs)
+            except (KeyError, IndexError, ValueError):
+                return default
+        return default
 
     def show_critical(self, category: str, key: str, **kwargs):
         """显示关键提示（始终显示）"""

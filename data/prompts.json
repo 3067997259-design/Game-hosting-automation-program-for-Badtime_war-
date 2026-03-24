@@ -318,7 +318,13 @@
         "「我要点菜」",
         "「不是，就没有一个正经译法吗？！」"
       ],
-      "activate": "「原初天赋3：天星」{player_name}落下了天星！"
+      "activate": "「原初天赋3：天星」{player_name}落下了天星！",
+      "damage": "   → {target_name} 受到 1.0 点伤害（无视克制） HP: {old_hp} → {new_hp}",
+      "petrify": "   → {target_name} 进入石化状态 🗿",
+      "death": "   💀 {target_name} 被天星击杀！",
+      "stun": "   💫 {target_name} 进入眩晕状态！",
+      "police_death": "   → 警察{unit_id} 被天星击杀！HP: {old_hp} → 0",
+      "police_damage": "   → 警察{unit_id} 受到1.0伤害+石化 HP: {old_hp} → {new_hp}"
     },
     "t4hexagram": {
       "lore": [
