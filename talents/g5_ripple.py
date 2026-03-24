@@ -1891,7 +1891,6 @@ class Ripple(BaseTalent):
                 ).format(target_name=target.name))
 
         result_msg = "\n".join(lines)
-        display.show_info(result_msg)
         return result_msg
 
     # ================================================================

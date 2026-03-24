@@ -402,13 +402,13 @@ class BasicAIController(PlayerController):
         # ---- 加入警察 ----
         if situation in ("recruit_pick_1", "recruit_pick_2"):
             if self.personality == "aggressive":
-                priority = ["警棍", "盾牌", "凭证"]
+                priority = ["警棍", "盾牌", "购买凭证"]
             elif self.personality == "defensive":
-                priority = ["盾牌", "警棍", "凭证"]
+                priority = ["盾牌", "警棍", "购买凭证"]
             elif self.personality == "political":
-                priority = ["凭证", "警棍", "盾牌"]
+                priority = ["购买凭证", "警棍", "盾牌"]
             else:
-                priority = ["盾牌", "凭证", "警棍"]
+                priority = ["盾牌", "购买凭证", "警棍"]
             for preferred in priority:
                 if preferred in options:
                     return preferred
@@ -1155,6 +1155,15 @@ class BasicAIController(PlayerController):
         real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
         has_real_weapon = len(real_weapons) > 0
 
+        # 死者苏生：未学习或未挂载时，发育未完成
+        if (player.talent
+            and hasattr(player.talent, 'name')
+            and player.talent.name == "死者苏生"):
+            if hasattr(player.talent, 'learned') and not player.talent.learned:
+                return False
+            if hasattr(player.talent, 'mounted_on') and player.talent.mounted_on is None:
+                return False
+
         if self.personality == "aggressive":
             has_armor = self._count_outer_armor(player) >= 2
             has_two_weapons = len(real_weapons) >= 2
@@ -1282,6 +1291,16 @@ class BasicAIController(PlayerController):
                         commands.append("interact 地动山摇")
                     if "封闭" not in learned:
                         commands.append("interact 封闭")
+                    # 死者苏生：在魔法所学习（通过T0系统，不需要interact命令）
+                    # 如果有死者苏生天赋且未学习，留在魔法所等待T0触发
+                    if (player.talent
+                        and hasattr(player.talent, 'learned')
+                        and not player.talent.learned
+                        and hasattr(player.talent, 'name')
+                        and player.talent.name == "死者苏生"):
+                        # 返回一个forfeit让AI留在魔法所，T0会在下一轮触发学习
+                        if not commands:
+                            commands.append("forfeit")
 
 
             elif loc == "医院":
@@ -1354,8 +1373,19 @@ class BasicAIController(PlayerController):
         unmet_needs = self._get_unmet_needs(player, state)
         if not unmet_needs:
             # 发育完成
-            if self.personality in ("aggressive", "assassin", "balanced") or getattr(self, '_political_in_balanced_fallback', False):  
+            if self.personality in ("aggressive", "assassin", "balanced") or getattr(self, '_political_in_balanced_fallback', False):
                 return self._find_nearest_enemy_location(player, state)
+            return None
+
+        # ---- 死者苏生：未学习时优先去魔法所 ----
+        if (player.talent
+            and hasattr(player.talent, 'learned')
+            and not player.talent.learned
+            and hasattr(player.talent, 'name')
+            and player.talent.name == "死者苏生"):
+            if self._get_location_str(player) != "魔法所":
+                return "魔法所"
+            # 已在魔法所 → 不需要移动，T0会自动触发学习
             return None
 
         # 2. political 特殊路径（警察局逻辑保留）
