@@ -1539,7 +1539,7 @@ def test_group_12(T):
         assert isinstance(result, dict)
 
     def test_weaponless_with_bloodfire_incoming():
-        """无武器伤害不走萤火受伤减免（weapon=None分支跳过）"""
+        """无武器伤害也走萤火受伤减免（weapon=None分支同样调用modify_incoming_damage）"""
         if 'BloodFire' not in T:
             return
         gs, ps = make_test_env()
@@ -1550,7 +1550,7 @@ def test_group_12(T):
             raw_damage_override=1.0,
             damage_attribute_override="普通"
         )
-        # 不应崩溃，无武器分支不调modify_incoming_damage
+        # 不应崩溃，无武器分支也会调用modify_incoming_damage
         assert isinstance(result, dict)
 
     def test_normal_weapon_kill_triggers_anchor_check():
