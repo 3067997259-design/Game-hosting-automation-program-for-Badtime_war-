@@ -822,6 +822,11 @@ class BasicAIController(PlayerController):
                         fight_cmds = self._cmd_fight_police(player, state, available_actions)
                         if fight_cmds:
                             candidates.extend(fight_cmds)
+                            # 保留 danger_develop 作为 fallback（fight 命令可能被引擎拒绝）
+                            danger_fallback = self._cmd_danger_develop(player, state, available_actions)
+                            for cmd in danger_fallback:
+                                if cmd not in candidates:
+                                    candidates.append(cmd)
                             candidates.append("forfeit")
                             return candidates
 
@@ -837,9 +842,18 @@ class BasicAIController(PlayerController):
                 political = self._cmd_police_political(player, state, available_actions)
                 candidates.extend(political)
                 develop = self._cmd_develop(player, state, available_actions)
-                candidates.extend(develop)
+                for cmd in develop:
+                    if cmd not in candidates:
+                        candidates.append(cmd)
                 candidates.append("forfeit")
-                return candidates
+                # 去重后返回（早返回路径也需要去重）
+                seen = set()
+                deduped = []
+                for cmd in candidates:
+                    if cmd not in seen:
+                        seen.add(cmd)
+                        deduped.append(cmd)
+                return deduped
             debug_ai_basic(player.name, "political fallback 激活：采用 balanced 行动策略")
 
         # political develop_only 模式：不进入/不维持战斗
@@ -1250,7 +1264,10 @@ class BasicAIController(PlayerController):
                     commands.append("election")
             elif "move" in available:
                 commands.append("move 警察局")
-            return commands
+            # 如果在警察局但 recruit/election 都不可用，不返回空列表，
+            # fall through 到通用发育逻辑
+            if commands:
+                return commands
 
         if "interact" in available:
             # ---- 阶段1：在home拿凭证/盾牌 ----
@@ -1564,7 +1581,7 @@ class BasicAIController(PlayerController):
         if item_name == "凭证":
             return getattr(player, 'vouchers', 0) >= 1
         if item_name == "打工":
-            return False  # 打工总是可以做的（用于攒凭证给医院手术等）
+            return getattr(player, 'vouchers', 0) >= 1  # 有凭证时游戏引擎禁止打工
         return False
 
     def _political_destination(self, player, state, unmet_needs) -> Optional[str]:
