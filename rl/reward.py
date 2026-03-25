@@ -252,7 +252,7 @@ def behavior_penalty(player, game_state, action_type, action_success, action_idx
                 break
 
         if streak >= 5:
-            r -= 3.0 * (streak - 4)  # 第5次: -3, 第6次: -6, 第7次: -9...
+            r -= 4.0 * (streak - 4)  # 第5次: -4, 第6次: -8, 第7次: -12...
 
     return r
 

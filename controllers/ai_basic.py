@@ -1564,7 +1564,7 @@ class BasicAIController(PlayerController):
         if item_name == "凭证":
             return getattr(player, 'vouchers', 0) >= 1
         if item_name == "打工":
-            return False  # 打工永远可以做
+            return getattr(player, 'vouchers', 0) >= 1  # 有凭证就不需要打工
         return False
 
     def _political_destination(self, player, state, unmet_needs) -> Optional[str]:
