@@ -364,6 +364,10 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
             if prereq and prereq not in getattr(player, 'learned_spells', set()):
                 continue
 
+            # 凭证/打工：已有凭证时不允许
+            if item in ("凭证", "打工") and has_voucher:
+                continue
+
             # === Ownership checks ===
             # 法术：已学会则跳过（AT力场除外，可重新展开）
             if item in learned_spells and item != "AT力场":

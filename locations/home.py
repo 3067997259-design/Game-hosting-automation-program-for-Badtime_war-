@@ -24,6 +24,10 @@ def can_interact(player, item_name, game_state=None):
     if item_name not in HOME_MENU:
         return False, f"家中没有「{item_name}」这个项目"
 
+    # 凭证：已有凭证时不允许再拿（凭证是资格开关，有1张就够了）
+    if item_name == "凭证" and player.vouchers >= 1:
+        return False, "你已经有购买凭证了，不需要再拿。"
+
     # 盾牌：检查是否已有同名外层护甲
     if item_name == "盾牌":
         from models.equipment import make_armor
