@@ -822,11 +822,7 @@ class BasicAIController(PlayerController):
                         fight_cmds = self._cmd_fight_police(player, state, available_actions)
                         if fight_cmds:
                             candidates.extend(fight_cmds)
-                            candidates.append("forfeit")
-                            return candidates
-                if self.personality in ("aggressive", "assassin"):
-                    aggressive_cmds = self._aggressive_survival_strategy(player, state, available_actions)
-                    candidates.extend(aggressive_cmds)
+
                 danger_cmds = self._cmd_danger_develop(player, state, available_actions)
                 candidates.extend(danger_cmds)
                 if candidates:
@@ -1044,14 +1040,9 @@ class BasicAIController(PlayerController):
 
     def _is_critical(self, player, state) -> bool:
         if player.hp <= 0.5:
+                return True
+        if player.hp <= 1.0 and self._count_outer_armor(player) == 0:
             return True
-        if self.personality in ("aggressive", "assassin"):
-            # aggressive/assassin 只有完全裸奔才进入危机模式
-            if player.hp <= 1.0 and self._count_outer_armor(player) == 0 and self._count_inner_armor(player) == 0:
-                return True
-        else:
-            if player.hp <= 1.0 and self._count_outer_armor(player) == 0:
-                return True
         # 被警察围攻
         pc = self._police_cache or {}
         if pc.get("report_target") == player.player_id:
@@ -1062,12 +1053,8 @@ class BasicAIController(PlayerController):
         locked_count = self._count_locked_by(player, state)
         if locked_count >= 1:
             total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
-            if self.personality in ("aggressive", "assassin"):
-                if total_armor == 0:
-                    return True
-            else:
-                if total_armor <= 1:
-                    return True
+            if total_armor <= 1:
+                return True
         # 被锚定
         if self._is_anchored(player, state):
             return True
@@ -2310,36 +2297,6 @@ class BasicAIController(PlayerController):
         return commands
 
     # ════════════════════════════════════════════════════════
-    #  命令生成器：生存
-    # ════════════════════════════════════════════════════════
-
-    def _aggressive_survival_strategy(self, player, state, available: List[str]) -> List[str]:
-        """aggressive/assassin 危险模式策略：裸奔时撤退，不反击"""
-        commands = []
-        total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
-
-        # 完全裸奔 → 不反击，直接返回空列表，让 _cmd_danger_develop 接管
-        if total_armor == 0:
-            return commands
-
-        # 有至少 1 件甲但仍在危机模式（比如 HP <= 0.5）→ 允许反击
-        target = self._pick_target(player, state)
-        if target is None:
-            return commands
-
-        # 在同一地点，反击
-        if self._same_location(player, target):
-            attack_cmds = self._cmd_attack(player, state, available, target)
-            commands.extend(attack_cmds)
-        else:
-            # 去找目标
-            target_loc = self._get_location_str(target)
-            if target_loc and "move" in available:
-                commands.append(f"move {target_loc}")
-
-        return commands
-
-    # ════════════════════════════════════════════════════════
     #  命令生成器：病毒应急（Bug16修复：接收 available_actions）
     # ════════════════════════════════════════════════════════
 
@@ -3082,21 +3039,28 @@ class BasicAIController(PlayerController):
             return "魔法所"
 
     def _should_continue_combat(self, player, target) -> bool:
-        if not target or not target.is_alive():
-            return False
-        if player.hp <= 0.5 and self.personality != "aggressive":
-            return False
-        if self._is_at_disadvantage(player, target) and self.personality == "defensive":
-            return False
-        # 所有武器被目标护甲克制 → 退出近战
-        if self._all_weapons_countered(player, target):
-            return False
-        # political 非 full_balanced 时不继续战斗（避免犯法），队长除外
-        if (self.personality == "political"
-            and not self._political_in_balanced_fallback
-            and not getattr(player, 'is_captain', False)):
-            return False
-        return True
+            if not target or not target.is_alive():
+                return False
+            # aggressive：只有被打到无甲才撤退
+            if self.personality == "aggressive":
+                total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
+                if total_armor == 0:
+                    return False
+            else:
+                # 其他人格：HP <= 0.5 时退出
+                if player.hp <= 0.5:
+                    return False
+            if self._is_at_disadvantage(player, target) and self.personality == "defensive":
+                return False
+            # 所有武器被目标护甲克制 → 退出近战
+            if self._all_weapons_countered(player, target):
+                return False
+            # political 非 full_balanced 时不继续战斗（避免犯法），队长除外
+            if (self.personality == "political"
+                and not self._political_in_balanced_fallback
+                and not getattr(player, 'is_captain', False)):
+                return False
+            return True
 
     def _is_at_disadvantage(self, player, target) -> bool:
         """是否处于劣势"""
