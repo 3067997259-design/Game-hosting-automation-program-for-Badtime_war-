@@ -822,7 +822,7 @@ class BasicAIController(PlayerController):
                         fight_cmds = self._cmd_fight_police(player, state, available_actions)
                         if fight_cmds:
                             candidates.extend(fight_cmds)
-                            candidates.append("forfeit")
+
                 danger_cmds = self._cmd_danger_develop(player, state, available_actions)
                 candidates.extend(danger_cmds)
                 if candidates:
