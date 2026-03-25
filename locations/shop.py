@@ -39,6 +39,10 @@ def can_interact(player, item_name, game_state=None):
     if item_name not in SHOP_MENU:
         return False, f"商店没有「{item_name}」"
 
+    # 打工：已有凭证时不允许（凭证是资格开关，有1张就够了）
+    if item_name == "打工" and player.vouchers >= 1:
+        return False, "你已经有购买凭证了，不需要再打工。"
+
     # 免费项目直接通过
     if item_name in FREE_ITEMS:
         return True, ""

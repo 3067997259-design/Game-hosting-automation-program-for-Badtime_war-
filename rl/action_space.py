@@ -292,10 +292,11 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
     """
     返回 108 维 bool 数组，True 表示该动作当前合法可选。
 
-    设计原则（保守放行）：
+    设计原则：
     - 先用 ActionTurnManager._get_available_actions() 获取粗粒度合法动作类型
     - 再结合玩家状态细化到具体动作索引
     - 宁可多放行（游戏引擎做最终验证），不漏掉合法动作
+    - 对于引擎层面已禁止的操作（如已有凭证时拿凭证/打工），直接裁剪
     """
     mask = np.zeros(ACTION_COUNT, dtype=bool)
 
