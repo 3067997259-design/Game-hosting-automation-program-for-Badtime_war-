@@ -830,20 +830,16 @@ class BasicAIController(PlayerController):
                 if candidates:
                     candidates.append("forfeit")
                     return candidates
-        # ===== 非队长警察成员：不主动攻击，优先竞选 =====
-
-        if (getattr(player, 'is_police', False)
-            and not getattr(player, 'is_captain', False)
+        # ===== Political 非队长：优先政治路径（含未入警阶段） =====
+        if (not getattr(player, 'is_captain', False)
             and self.personality == "political"):
             if not self._political_in_balanced_fallback:
-                # 正常政治路径：只做政治行动（竞选、举报等），不生成攻击命令
                 political = self._cmd_police_political(player, state, available_actions)
                 candidates.extend(political)
                 develop = self._cmd_develop(player, state, available_actions)
                 candidates.extend(develop)
                 candidates.append("forfeit")
                 return candidates
-            # else: fallback 激活 → 不走早期返回，按 balanced 策略继续到下面的通用逻辑
             debug_ai_basic(player.name, "political fallback 激活：采用 balanced 行动策略")
 
         # political develop_only 模式：不进入/不维持战斗
@@ -1240,6 +1236,21 @@ class BasicAIController(PlayerController):
         debug_ai_development_plan(player.name,
             f"状态: loc={loc} vouchers={vouchers} weapon={has_weapon} "
             f"outer={outer} inner={inner} pass={has_pass} detect={has_detection}")
+
+        # Political 特殊处理：基本需求满足后，跳过通用发育，直奔警察局
+        if (self.personality == "political"
+            and self._political_fallback_level == "none"
+            and not getattr(player, 'is_captain', False)
+            and outer >= 1):
+            debug_ai_development_plan(player.name, "political 基本需求已满足，直奔警察局路线")
+            if loc == "警察局":
+                if not getattr(player, 'is_police', False) and "recruit" in available:
+                    commands.append("recruit")
+                elif getattr(player, 'is_police', False) and "election" in available:
+                    commands.append("election")
+            elif "move" in available:
+                commands.append("move 警察局")
+            return commands
 
         if "interact" in available:
             # ---- 阶段1：在home拿凭证/盾牌 ----
