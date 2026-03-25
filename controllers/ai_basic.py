@@ -822,26 +822,38 @@ class BasicAIController(PlayerController):
                         fight_cmds = self._cmd_fight_police(player, state, available_actions)
                         if fight_cmds:
                             candidates.extend(fight_cmds)
+                            # 保留 danger_develop 作为 fallback（fight 命令可能被引擎拒绝）
+                            danger_fallback = self._cmd_danger_develop(player, state, available_actions)
+                            for cmd in danger_fallback:
+                                if cmd not in candidates:
+                                    candidates.append(cmd)
+                            candidates.append("forfeit")
+                            return candidates
 
                 danger_cmds = self._cmd_danger_develop(player, state, available_actions)
                 candidates.extend(danger_cmds)
                 if candidates:
                     candidates.append("forfeit")
                     return candidates
-        # ===== 非队长警察成员：不主动攻击，优先竞选 =====
-
-        if (getattr(player, 'is_police', False)
-            and not getattr(player, 'is_captain', False)
+        # ===== Political 非队长：优先政治路径（含未入警阶段） =====
+        if (not getattr(player, 'is_captain', False)
             and self.personality == "political"):
             if not self._political_in_balanced_fallback:
-                # 正常政治路径：只做政治行动（竞选、举报等），不生成攻击命令
                 political = self._cmd_police_political(player, state, available_actions)
                 candidates.extend(political)
                 develop = self._cmd_develop(player, state, available_actions)
-                candidates.extend(develop)
+                for cmd in develop:
+                    if cmd not in candidates:
+                        candidates.append(cmd)
                 candidates.append("forfeit")
-                return candidates
-            # else: fallback 激活 → 不走早期返回，按 balanced 策略继续到下面的通用逻辑
+                # 去重后返回（早返回路径也需要去重）
+                seen = set()
+                deduped = []
+                for cmd in candidates:
+                    if cmd not in seen:
+                        seen.add(cmd)
+                        deduped.append(cmd)
+                return deduped
             debug_ai_basic(player.name, "political fallback 激活：采用 balanced 行动策略")
 
         # political develop_only 模式：不进入/不维持战斗
@@ -1239,6 +1251,24 @@ class BasicAIController(PlayerController):
             f"状态: loc={loc} vouchers={vouchers} weapon={has_weapon} "
             f"outer={outer} inner={inner} pass={has_pass} detect={has_detection}")
 
+        # Political 特殊处理：基本需求满足后，跳过通用发育，直奔警察局
+        if (self.personality == "political"
+            and self._political_fallback_level == "none"
+            and not getattr(player, 'is_captain', False)
+            and outer >= 1):
+            debug_ai_development_plan(player.name, "political 基本需求已满足，直奔警察局路线")
+            if loc == "警察局":
+                if not getattr(player, 'is_police', False) and "recruit" in available:
+                    commands.append("recruit")
+                elif getattr(player, 'is_police', False) and "election" in available:
+                    commands.append("election")
+            elif "move" in available:
+                commands.append("move 警察局")
+            # 如果在警察局但 recruit/election 都不可用，不返回空列表，
+            # fall through 到通用发育逻辑
+            if commands:
+                return commands
+
         if "interact" in available:
             # ---- 阶段1：在home拿凭证/盾牌 ----
             if loc == "home" or self._is_at_home(player):
@@ -1253,11 +1283,11 @@ class BasicAIController(PlayerController):
             elif loc == "商店":
                 if not has_weapon:
                     commands.append("interact 小刀")
-                if vouchers >= 2 and not has_detection:
+                if vouchers >= 1 and not has_detection:
                     commands.append("interact 热成像仪")
                 if vouchers >= 1 and outer < 2 and not self._has_armor_by_name(player, "陶瓷护甲"):
                     commands.append("interact 陶瓷护甲")
-                if self.personality == "assassin" and vouchers >= 2:
+                if self.personality == "assassin" and vouchers >= 1:
                     commands.append("interact 隐身衣")
                 if has_weapon and self._has_melee_only(player):
                     has_stone = any(getattr(i, 'name', '') == "磨刀石" for i in getattr(player, 'items', []))
@@ -1551,7 +1581,7 @@ class BasicAIController(PlayerController):
         if item_name == "凭证":
             return getattr(player, 'vouchers', 0) >= 1
         if item_name == "打工":
-            return getattr(player, 'vouchers', 0) >= 1  # 有凭证就不需要打工
+            return getattr(player, 'vouchers', 0) >= 1  # 有凭证时游戏引擎禁止打工
         return False
 
     def _political_destination(self, player, state, unmet_needs) -> Optional[str]:
@@ -2216,9 +2246,9 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
 
     def _cmd_police_political(self, player, state, available: List[str]) -> List[str]:
-        # ---- 降级检查：队长被占 / 警察系统不可用 → 不生成任何政治命令 ----
+        # ---- 降级检查：队长被占 / 警察系统不可用 / 有犯罪记录 → 不生成任何政治命令 ----
         fallback = self._political_fallback_level
-        if fallback == "full_balanced":
+        if fallback in ("full_balanced", "develop_only"):
             return []   # 不生成任何警察/政治相关命令
 
         commands = []
@@ -3039,28 +3069,28 @@ class BasicAIController(PlayerController):
             return "魔法所"
 
     def _should_continue_combat(self, player, target) -> bool:
-            if not target or not target.is_alive():
+        if not target or not target.is_alive():
+            return False
+        # aggressive：只有被打到无甲才撤退
+        if self.personality == "aggressive":
+            total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
+            if total_armor == 0:
                 return False
-            # aggressive：只有被打到无甲才撤退
-            if self.personality == "aggressive":
-                total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
-                if total_armor == 0:
-                    return False
-            else:
-                # 其他人格：HP <= 0.5 时退出
-                if player.hp <= 0.5:
-                    return False
-            if self._is_at_disadvantage(player, target) and self.personality == "defensive":
+        else:
+            # 其他人格：HP <= 0.5 时退出
+            if player.hp <= 0.5:
                 return False
-            # 所有武器被目标护甲克制 → 退出近战
-            if self._all_weapons_countered(player, target):
-                return False
-            # political 非 full_balanced 时不继续战斗（避免犯法），队长除外
-            if (self.personality == "political"
+        if self._is_at_disadvantage(player, target) and self.personality == "defensive":
+            return False
+        # 所有武器被目标护甲克制 → 退出近战
+        if self._all_weapons_countered(player, target):
+            return False
+        # political 非 full_balanced 时不继续战斗（避免犯法），队长除外
+        if (self.personality == "political"
                 and not self._political_in_balanced_fallback
                 and not getattr(player, 'is_captain', False)):
-                return False
-            return True
+            return False
+        return True
 
     def _is_at_disadvantage(self, player, target) -> bool:
         """是否处于劣势"""
