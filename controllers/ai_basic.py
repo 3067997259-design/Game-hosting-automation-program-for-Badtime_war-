@@ -738,10 +738,14 @@ class BasicAIController(PlayerController):
         self._cleanup_dead_players(state)  # Bug18
         # political fallback 判定（每轮重新计算，不持久化）
         # 当已有队长但不是自己、或警察全灭时，采用 balanced 策略
-        self._political_in_balanced_fallback = (
-            self.personality == "political"
-            and self._political_should_fallback(player, state) != "none"
-        )
+        if self.personality == "political":
+            self._political_fallback_level = self._political_should_fallback(player, state)
+            self._political_in_balanced_fallback = (self._political_fallback_level == "full_balanced")
+            self._political_develop_only = (self._political_fallback_level == "develop_only")
+        else:
+            self._political_fallback_level = "none"
+            self._political_in_balanced_fallback = False
+            self._political_develop_only = False
 
         candidates = []
 
@@ -844,6 +848,11 @@ class BasicAIController(PlayerController):
             # else: fallback 激活 → 不走早期返回，按 balanced 策略继续到下面的通用逻辑
             debug_ai_basic(player.name, "political fallback 激活：采用 balanced 行动策略")
 
+        # political develop_only 模式：不进入/不维持战斗
+        if self._political_develop_only and self._in_combat:
+            self._in_combat = False
+            self._combat_target = None
+
         # ===== 战斗状态 =====
         if self._in_combat and self._combat_target:
             if self._should_continue_combat(player, self._combat_target):
@@ -868,7 +877,7 @@ class BasicAIController(PlayerController):
                         return candidates
 
         # ===== 击杀机会 =====
-        if self._has_kill_opportunity(player, state):
+        if self._has_kill_opportunity(player, state) and not self._political_develop_only:
             debug_ai_basic(player.name, "发现击杀机会！")
             kill_cmds = self._cmd_attack(player, state, available_actions)
             if kill_cmds:
@@ -887,7 +896,7 @@ class BasicAIController(PlayerController):
 
         # ===== 发育受阻：develop 为空但发育未完成 =====
         if not develop and not self._is_development_complete(player, state):
-            if self.personality in ("aggressive", "assassin", "balanced") or getattr(self, '_political_in_balanced_fallback', False):
+            if self.personality in ("aggressive", "assassin", "balanced") or self._political_in_balanced_fallback:
                 debug_ai_basic(player.name, "发育受阻，转为进攻冲散人群")
                 attack_cmds = self._cmd_attack(player, state, available_actions)
                 for cmd in attack_cmds:
@@ -900,12 +909,25 @@ class BasicAIController(PlayerController):
                     candidates.append(f"move {fallback_loc}")
 
         # ===== 发育完成后主动进攻 =====
-        if self._is_development_complete(player, state):
+        if self._is_development_complete(player, state) and not self._political_develop_only:
             debug_ai_basic(player.name, "发育完成，尝试进攻")
             attack_cmds = self._cmd_attack(player, state, available_actions)
             for cmd in attack_cmds:
                 if cmd not in candidates:
                     candidates.insert(0, cmd)
+
+        # ===== political full_balanced + 有犯罪记录：优先攻击警察清除犯罪 =====
+        if (self._political_in_balanced_fallback
+            and self.personality == "political"
+            and getattr(player, 'is_criminal', False)):
+            police = getattr(state, 'police', None)
+            if police and police.any_alive() and not police.has_captain():
+                # 无队长时击杀警察可清除犯罪记录
+                fight_cmds = self._cmd_fight_police(player, state, available_actions)
+                if fight_cmds:
+                    for cmd in fight_cmds:
+                        if cmd not in candidates:
+                            candidates.insert(0, cmd)  # 高优先级
 
         # ===== 政治型 =====
         if self.personality == "political":
@@ -913,7 +935,8 @@ class BasicAIController(PlayerController):
             candidates.extend(political)
 
         # ===== 常规攻击补充 =====
-        if "attack" in available_actions or "find" in available_actions or "lock" in available_actions:
+        is_political_no_attack = self._political_develop_only or (self.personality == "political" and self._political_fallback_level == "none")
+        if not is_political_no_attack and ("attack" in available_actions or "find" in available_actions or "lock" in available_actions):
             attack = self._cmd_attack(player, state, available_actions)
             for cmd in attack:
                 if cmd not in candidates:
@@ -1187,7 +1210,7 @@ class BasicAIController(PlayerController):
 
         elif self.personality == "political":
             fallback = self._political_should_fallback(player, state)
-            if fallback != "none":
+            if fallback in ("full_balanced", "develop_only"):
                 # fallback 时使用 balanced 完成标准（2外甲+1内甲+1武器）
                 has_outer = self._count_outer_armor(player) >= 2
                 has_inner = self._count_inner_armor(player) >= 1
@@ -2378,28 +2401,41 @@ class BasicAIController(PlayerController):
     #  目标选择
     # ════════════════════════════════════════════════════════
     def _political_should_fallback(self, player, state):
-        """Check if political AI should fall back to defensive logic.
+        """Check if political AI should fall back.
         Called every turn - purely reads current state, no persistent flags.
-        Returns: "none" (no fallback) | "defensive" (use defensive logic)
+        Returns:
+            "none"         — 正常政治路径（去警察局、recruit、竞选）
+            "develop_only" — 只发育不攻击（有犯罪记录但队长位空，还有机会洗白）
+            "full_balanced" — 完全 balanced 策略含攻击（已有其他队长/警察全灭，政治路径无望）
         """
         police = getattr(state, 'police', None)
         if not police:
-            return "defensive"
+            return "full_balanced"
 
-        # Police system permanently disabled → fallback
-        # (献予律法之诗 can reverse this, so next turn this may return "none")
+        # 警察系统永久禁用 → 完全 balanced
         if police.permanently_disabled:
-            return "defensive"
+            return "full_balanced"
 
-        # Already captain → no fallback
+        # 自己已是队长 → 正常（队长有自己的指挥逻辑）
         if police.captain_id == player.player_id:
             return "none"
 
-        # Another player is captain → fallback (wait for captain to die/lose authority)
+        # 有其他队长 → 完全 balanced（解禁攻击，需要战斗求生）
         if police.has_captain():
-            return "defensive"
+            return "full_balanced"
 
-        # No captain, can go compete → no fallback
+        # 无队长，检查自己是否有犯罪记录
+        is_criminal = getattr(player, 'is_criminal', False)
+        if not is_criminal:
+            # 也检查 police.is_criminal（双重保险）
+            is_criminal = police.is_criminal(player.player_id)
+
+        if is_criminal:
+            # 有犯罪记录但队长位空 → 只发育不攻击
+            # （犯罪记录可能被献予律法之诗清除，所以每轮重新检查）
+            return "develop_only"
+
+        # 无队长、无犯罪 → 正常政治路径
         return "none"
 
     def _should_become_captain(self, player, state) -> bool:
@@ -3067,6 +3103,9 @@ class BasicAIController(PlayerController):
             return False
         # 所有武器被目标护甲克制 → 退出近战
         if self._all_weapons_countered(player, target):
+            return False
+        # political 非 full_balanced 时不继续战斗（避免犯法）
+        if self.personality == "political" and not getattr(self, '_political_in_balanced_fallback', False):
             return False
         return True
 
