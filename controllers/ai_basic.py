@@ -822,6 +822,8 @@ class BasicAIController(PlayerController):
                         fight_cmds = self._cmd_fight_police(player, state, available_actions)
                         if fight_cmds:
                             candidates.extend(fight_cmds)
+                            candidates.append("forfeit")
+                            return candidates
 
                 danger_cmds = self._cmd_danger_develop(player, state, available_actions)
                 candidates.extend(danger_cmds)
@@ -1253,11 +1255,11 @@ class BasicAIController(PlayerController):
             elif loc == "商店":
                 if not has_weapon:
                     commands.append("interact 小刀")
-                if vouchers >= 2 and not has_detection:
+                if vouchers >= 1 and not has_detection:
                     commands.append("interact 热成像仪")
                 if vouchers >= 1 and outer < 2 and not self._has_armor_by_name(player, "陶瓷护甲"):
                     commands.append("interact 陶瓷护甲")
-                if self.personality == "assassin" and vouchers >= 2:
+                if self.personality == "assassin" and vouchers >= 1:
                     commands.append("interact 隐身衣")
                 if has_weapon and self._has_melee_only(player):
                     has_stone = any(getattr(i, 'name', '') == "磨刀石" for i in getattr(player, 'items', []))
@@ -1551,7 +1553,7 @@ class BasicAIController(PlayerController):
         if item_name == "凭证":
             return getattr(player, 'vouchers', 0) >= 1
         if item_name == "打工":
-            return getattr(player, 'vouchers', 0) >= 1  # 有凭证就不需要打工
+            return False  # 打工总是可以做的（用于攒凭证给医院手术等）
         return False
 
     def _political_destination(self, player, state, unmet_needs) -> Optional[str]:
@@ -2216,9 +2218,9 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
 
     def _cmd_police_political(self, player, state, available: List[str]) -> List[str]:
-        # ---- 降级检查：队长被占 / 警察系统不可用 → 不生成任何政治命令 ----
+        # ---- 降级检查：队长被占 / 警察系统不可用 / 有犯罪记录 → 不生成任何政治命令 ----
         fallback = self._political_fallback_level
-        if fallback == "full_balanced":
+        if fallback in ("full_balanced", "develop_only"):
             return []   # 不生成任何警察/政治相关命令
 
         commands = []
@@ -3039,28 +3041,28 @@ class BasicAIController(PlayerController):
             return "魔法所"
 
     def _should_continue_combat(self, player, target) -> bool:
-            if not target or not target.is_alive():
+        if not target or not target.is_alive():
+            return False
+        # aggressive：只有被打到无甲才撤退
+        if self.personality == "aggressive":
+            total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
+            if total_armor == 0:
                 return False
-            # aggressive：只有被打到无甲才撤退
-            if self.personality == "aggressive":
-                total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
-                if total_armor == 0:
-                    return False
-            else:
-                # 其他人格：HP <= 0.5 时退出
-                if player.hp <= 0.5:
-                    return False
-            if self._is_at_disadvantage(player, target) and self.personality == "defensive":
+        else:
+            # 其他人格：HP <= 0.5 时退出
+            if player.hp <= 0.5:
                 return False
-            # 所有武器被目标护甲克制 → 退出近战
-            if self._all_weapons_countered(player, target):
-                return False
-            # political 非 full_balanced 时不继续战斗（避免犯法），队长除外
-            if (self.personality == "political"
+        if self._is_at_disadvantage(player, target) and self.personality == "defensive":
+            return False
+        # 所有武器被目标护甲克制 → 退出近战
+        if self._all_weapons_countered(player, target):
+            return False
+        # political 非 full_balanced 时不继续战斗（避免犯法），队长除外
+        if (self.personality == "political"
                 and not self._political_in_balanced_fallback
                 and not getattr(player, 'is_captain', False)):
-                return False
-            return True
+            return False
+        return True
 
     def _is_at_disadvantage(self, player, target) -> bool:
         """是否处于劣势"""
