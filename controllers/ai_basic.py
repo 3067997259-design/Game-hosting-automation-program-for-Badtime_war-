@@ -916,19 +916,6 @@ class BasicAIController(PlayerController):
                 if cmd not in candidates:
                     candidates.insert(0, cmd)
 
-        # ===== political full_balanced + 有犯罪记录：优先攻击警察清除犯罪 =====
-        if (self._political_in_balanced_fallback
-            and self.personality == "political"
-            and getattr(player, 'is_criminal', False)):
-            police = getattr(state, 'police', None)
-            if police and police.any_alive() and not police.has_captain():
-                # 无队长时击杀警察可清除犯罪记录
-                fight_cmds = self._cmd_fight_police(player, state, available_actions)
-                if fight_cmds:
-                    for cmd in fight_cmds:
-                        if cmd not in candidates:
-                            candidates.insert(0, cmd)  # 高优先级
-
         # ===== 政治型 =====
         if self.personality == "political":
             political = self._cmd_police_political(player, state, available_actions)
@@ -1209,7 +1196,7 @@ class BasicAIController(PlayerController):
             return has_real_weapon and has_armor and has_inner and has_pass
 
         elif self.personality == "political":
-            fallback = self._political_should_fallback(player, state)
+            fallback = self._political_fallback_level
             if fallback in ("full_balanced", "develop_only"):
                 # fallback 时使用 balanced 完成标准（2外甲+1内甲+1武器）
                 has_outer = self._count_outer_armor(player) >= 2
@@ -1582,8 +1569,8 @@ class BasicAIController(PlayerController):
 
     def _political_destination(self, player, state, unmet_needs) -> Optional[str]:
         """political 人格的特殊目的地逻辑（警察局相关）"""
-        fallback = self._political_should_fallback(player, state)
-        if fallback == "defensive":
+        fallback = self._political_fallback_level
+        if fallback in ("full_balanced", "develop_only"):
             return None  # 返回 None 让通用评分逻辑处理
 
         is_police = getattr(player, 'is_police', False)
@@ -2243,8 +2230,8 @@ class BasicAIController(PlayerController):
 
     def _cmd_police_political(self, player, state, available: List[str]) -> List[str]:
         # ---- 降级检查：队长被占 / 警察系统不可用 → 不生成任何政治命令 ----
-        fallback = self._political_should_fallback(player, state)
-        if fallback == "defensive":
+        fallback = self._political_fallback_level
+        if fallback == "full_balanced":
             return []   # 不生成任何警察/政治相关命令
 
         commands = []
@@ -3104,8 +3091,10 @@ class BasicAIController(PlayerController):
         # 所有武器被目标护甲克制 → 退出近战
         if self._all_weapons_countered(player, target):
             return False
-        # political 非 full_balanced 时不继续战斗（避免犯法）
-        if self.personality == "political" and not getattr(self, '_political_in_balanced_fallback', False):
+        # political 非 full_balanced 时不继续战斗（避免犯法），队长除外
+        if (self.personality == "political"
+            and not self._political_in_balanced_fallback
+            and not getattr(player, 'is_captain', False)):
             return False
         return True
 
