@@ -193,7 +193,7 @@ class PoliceEngine:
 
         # 检查是否有存活的警察单位不在目标位置（即需要追踪的单位）
         units_needing_track = [
-            u for u in self.police.alive_units()
+            u for u in self.police.active_units()
             if u.is_on_map() and u.location != target.location
         ]
         if not units_needing_track:
@@ -215,7 +215,7 @@ class PoliceEngine:
 
         # [FIX] 所有不在目标位置的存活警察单位立刻到达
         guided_units = []
-        for unit in self.police.alive_units():
+        for unit in self.police.active_units():
             if unit.is_on_map() and unit.location != target.location:
                 unit.location = target.location
                 guided_units.append(unit.unit_id)
@@ -238,7 +238,7 @@ class PoliceEngine:
         target_loc = target.location
 
         # 移动所有存活警察单位到目标位置
-        for unit in self.police.alive_units():
+        for unit in self.police.active_units():
             unit.location = target_loc
 
         self.police.report_phase = "dispatched"
@@ -313,7 +313,7 @@ class PoliceEngine:
             if not unit.is_alive():
                 continue
             old_hp = unit.hp
-            result = self._resolve_attack_on_police(weapon, unit)
+            result = self._resolve_attack_on_police(weapon, unit, attacker=attacker)
             messages.append(f"  → {unit.unit_id}: {result}")
             if old_hp > 0 and unit.hp <= 0:
                 killed_any = True
@@ -337,7 +337,7 @@ class PoliceEngine:
 
         return f"⚔️ {attacker.name} 用「{attack_method}」攻击警察！\n" + "\n".join(messages)
 
-    def _resolve_attack_on_police(self, weapon, unit, raw_damage_override=None, ignore_counter=False):
+    def _resolve_attack_on_police(self, weapon, unit, raw_damage_override=None, ignore_counter=False, attacker=None):
         """
         对警察单位的伤害结算（自定义，不走 resolve_damage）。
         警察护甲模型：最多1外层 + 1内层，简化结算。
@@ -352,6 +352,21 @@ class PoliceEngine:
             raw_damage = weapon.get_effective_damage()
         else:
             raw_damage = raw_damage_override if raw_damage_override is not None else 1.0
+        # ---- 天赋：修改输出伤害（如火萤IV型 +100%）----
+        damage_multiplier = 1.0
+        if attacker and hasattr(attacker, 'talent') and attacker.talent:
+            mod = attacker.talent.modify_outgoing_damage(attacker, None, weapon, raw_damage)
+            if mod:
+                if "damage_multiplier_override" in mod:
+                    damage_multiplier = mod["damage_multiplier_override"]
+                if "bonus_damage" in mod:
+                    raw_damage += mod["bonus_damage"]
+        raw_damage = raw_damage * damage_multiplier
+
+        # ---- 全息影像：警察单位在影像内额外+0.5伤害 ----
+        hologram_bonus = self._get_hologram_bonus_for_unit(unit)
+        if hologram_bonus > 0:
+            raw_damage += hologram_bonus
         final_damage = quantize_damage(raw_damage)
         remaining = final_damage
 
@@ -497,6 +512,18 @@ class PoliceEngine:
         else:
             msg += f" HP恢复至 {result['new_hp']}"
         return msg
+
+    def _get_hologram_bonus_for_unit(self, unit):
+        """检查警察单位是否在全息影像区域内，返回额外伤害值"""
+        if not unit or not unit.location:
+            return 0
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and p.talent and hasattr(p.talent, '_get_bonus_damage'):
+                if hasattr(p.talent, 'active') and p.talent.active:
+                    if hasattr(p.talent, 'location') and p.talent.location == unit.location:
+                        return p.talent._get_bonus_damage()
+        return 0
 
     def _is_in_hologram_range(self, location):
         """检查某地点是否在全息影像范围内"""
@@ -1048,7 +1075,7 @@ class PoliceEngine:
         if target_id and not self.police.has_captain():
             target = self.state.get_player(target_id)
             if target and target.is_alive():
-                for unit in self.police.alive_units():
+                for unit in self.police.active_units():
                     if unit.is_on_map() and unit.location != target.location:
                         # 方式B：自动赶到，标记为刚到达
                         unit.location = target.location
