@@ -115,7 +115,8 @@ class Star(BaseTalent):
             if pe:
                 pe._resolve_attack_on_police(
                     weapon=None, unit=unit,
-                    raw_damage_override=1.0, ignore_counter=True
+                    raw_damage_override=1.0, ignore_counter=True,
+                    attacker=player
                 )
                 unit.last_attacker_id = player.player_id
             else:
