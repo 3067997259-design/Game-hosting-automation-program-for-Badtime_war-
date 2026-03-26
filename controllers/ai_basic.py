@@ -1405,11 +1405,11 @@ class BasicAIController(PlayerController):
                         else:
                             commands.append("interact 高斯步枪")
 
-                # 蓄力高斯步枪
-                if has_gauss and "special" in available:
-                    gauss = next((w for w in weapons if w and w.name == "高斯步枪"), None)
-                    if gauss and not getattr(gauss, 'is_charged', False):
-                        commands.append("special 蓄力高斯步枪")
+            # 蓄力高斯步枪（与 interact 块同级，避免 interact 不可用时跳过蓄力）
+            if has_gauss and "special" in available and not commands:
+                gauss = next((w for w in weapons if w and w.name == "高斯步枪"), None)
+                if gauss and not getattr(gauss, 'is_charged', False):
+                    commands.append("special 蓄力高斯步枪")
 
             # 移动到需要的地点
             if "move" in available and not commands:
