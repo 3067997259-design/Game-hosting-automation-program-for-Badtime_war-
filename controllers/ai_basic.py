@@ -257,6 +257,20 @@ class BasicAIController(PlayerController):
         except (ValueError, TypeError):
             return 0.0
 
+    def _has_firefly_talent(self, player) -> bool:
+        """检查玩家是否持有火萤IV型天赋"""
+        talent = getattr(player, 'talent', None)
+        if talent and hasattr(talent, 'name') and talent.name == "火萤IV型-完全燃烧":
+            return True
+        return False
+
+    def _firefly_debuff_active(self, player) -> bool:
+        """检查火萤IV型的 debuff 是否已生效"""
+        talent = getattr(player, 'talent', None)
+        if talent and hasattr(talent, 'debuff_started'):
+            return talent.debuff_started
+        return False
+
 
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command
@@ -1095,8 +1109,54 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
     #  阶段评估
     # ════════════════════════════════════════════════════════
+    def _is_critical_firefly(self, player, state) -> bool:
+        """火萤IV型的危险判定：更激进，不轻易进入危险模式"""
+        # 被警察围攻仍然算危险
+        pc = self._police_cache or {}
+        if pc.get("report_target") == player.player_id:
+            phase = pc.get("report_phase", "idle")
+            if phase == "dispatched":
+                return True
+        # 被锚定仍然算危险
+        if self._is_anchored(player, state):
+            return True
+
+        if self._firefly_debuff_active(player):
+            # debuff 已生效：不再因为没有护甲而陷入危险
+            # 只有 hp <= 0.5 时才算危险（但火萤 0.5 不眩晕，T0 自愈到 1）
+            # 所以实际上几乎不会进入危险模式
+            return False
+        else:
+            # debuff 未生效：
+            # 条件1：无护甲 + 对方（engaged_with 的人）有伤害>1的武器
+            # 条件2：无护甲 + 被>1人锁定
+            outer = self._count_outer_armor(player)
+            if outer > 0:
+                return False  # 有护甲就不危险
+
+            # 无护甲时检查条件1：engaged_with 的对手有伤害>1武器
+            markers = getattr(state, 'markers', None)
+            if markers:
+                engaged = markers.get_related(player.player_id, "ENGAGED_WITH")
+                for eid in engaged:
+                    enemy = state.get_player(eid)
+                    if enemy and enemy.is_alive():
+                        enemy_best_dmg = self._best_weapon_damage(enemy)
+                        if enemy_best_dmg > 1.0:
+                            return True
+
+            # 无护甲时检查条件2：被>1人锁定
+            locked_count = self._count_locked_by(player, state)
+            if locked_count > 1:
+                return True
+
+            return False
 
     def _is_critical(self, player, state) -> bool:
+        # 火萤IV型：自定义危险判定
+        if self._has_firefly_talent(player):
+            return self._is_critical_firefly(player, state)
+
         if player.hp <= 0.5:
                 return True
         if player.hp <= 1.0 and self._count_outer_armor(player) == 0:
@@ -1219,6 +1279,23 @@ class BasicAIController(PlayerController):
             if hasattr(player.talent, 'mounted_on') and player.talent.mounted_on is None:
                 return False
 
+        # 火萤IV型：天赋感知的发育标准
+        if self._has_firefly_talent(player):
+            real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
+            if self._firefly_debuff_active(player):
+                # debuff 已生效：需要磨过的小刀 + 高斯步枪
+                has_sharpened_knife = any(
+                    w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
+                    for w in real_weapons
+                )
+                has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
+                return has_sharpened_knife and has_gauss
+            else:
+                # debuff 未生效：2武器 + 1外甲
+                has_two_weapons = len(real_weapons) >= 2
+                has_outer = self._count_outer_armor(player) >= 1
+                return has_two_weapons and has_outer
+
         if self.personality == "aggressive":
             has_armor = self._count_outer_armor(player) >= 2
             has_two_weapons = len(real_weapons) >= 2
@@ -1274,6 +1351,144 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
     #  命令生成器：发育
     # ════════════════════════════════════════════════════════
+    def _cmd_develop_firefly(self, player, state, available: List[str]) -> List[str]:
+        """火萤IV型专用发育路径"""
+        commands = []
+        loc = self._get_location_str(player)
+        weapons = getattr(player, 'weapons', [])
+        real_weapons = [w for w in weapons if w and getattr(w, 'name', '') != "拳击"]
+        outer = self._count_outer_armor(player)
+        vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+
+        # 磨刀优先（与通用逻辑一致）
+        if "special" in available:
+            has_stone = any(getattr(i, 'name', '') == "磨刀石" for i in getattr(player, 'items', []))
+            has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons if w)
+            if has_stone and has_unsharpened:
+                commands.append("special 磨刀")
+                return commands
+
+        debuff_active = self._firefly_debuff_active(player)
+
+        if debuff_active:
+            # === debuff 已生效：不拿护甲，专注高级武器 ===
+            has_sharpened_knife = any(
+                w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
+                for w in real_weapons
+            )
+            has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
+
+            if "interact" in available:
+                # 磨过的小刀路线：home 拿小刀 → 商店拿磨刀石 → 磨刀
+                if not has_sharpened_knife:
+                    has_knife = any(w.name == "小刀" for w in real_weapons)
+                    if not has_knife:
+                        if loc == "home" or self._is_at_home(player):
+                            commands.append("interact 小刀")
+                        elif loc == "商店":
+                            commands.append("interact 小刀")  # 商店也有小刀
+                    else:
+                        # 有小刀但没磨，去商店拿磨刀石
+                        has_stone = any(getattr(i, 'name', '') == "磨刀石" for i in getattr(player, 'items', []))
+                        if not has_stone and loc == "商店":
+                            if vouchers >= 1:
+                                commands.append("interact 磨刀石")
+                            else:
+                                commands.append("interact 打工")
+
+                # 高斯步枪路线：军事基地
+                if not has_gauss:
+                    if loc == "军事基地":
+                        if not has_pass:
+                            commands.append("interact 通行证")
+                        else:
+                            commands.append("interact 高斯步枪")
+
+                # 蓄力高斯步枪
+                if has_gauss and "special" in available:
+                    gauss = next((w for w in weapons if w and w.name == "高斯步枪"), None)
+                    if gauss and not getattr(gauss, 'is_charged', False):
+                        commands.append("special 蓄力高斯步枪")
+
+            # 移动到需要的地点
+            if "move" in available and not commands:
+                if not has_sharpened_knife:
+                    has_knife = any(w.name == "小刀" for w in real_weapons)
+                    if not has_knife:
+                        if loc != "home" and not self._is_at_home(player):
+                            commands.append("move home")
+                    else:
+                        has_stone = any(getattr(i, 'name', '') == "磨刀石" for i in getattr(player, 'items', []))
+                        if not has_stone:
+                            if loc != "商店":
+                                commands.append("move 商店")
+                elif not has_gauss:
+                    if loc != "军事基地":
+                        commands.append("move 军事基地")
+        else:
+            # === debuff 未生效：2武器 + 1外甲，不拿隐身/探测 ===
+            if "interact" in available:
+                if loc == "home" or self._is_at_home(player):
+                    if vouchers < 1:
+                        commands.append("interact 凭证")
+                    if not any(w.name == "小刀" for w in real_weapons):
+                        commands.append("interact 小刀")
+                    if outer < 1 and not self._has_armor_by_name(player, "盾牌"):
+                        commands.append("interact 盾牌")
+                elif loc == "商店":
+                    if vouchers < 1:
+                        commands.append("interact 打工")
+                    if outer < 1 and not self._has_armor_by_name(player, "陶瓷护甲"):
+                        commands.append("interact 陶瓷护甲")
+                    # 磨刀石（如果有未磨小刀）
+                    has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons if w)
+                    has_stone = any(getattr(i, 'name', '') == "磨刀石" for i in getattr(player, 'items', []))
+                    if has_unsharpened and not has_stone and vouchers >= 1:
+                        commands.append("interact 磨刀石")
+                elif loc == "魔法所":
+                    learned = self._get_learned_spells(player)
+                    if "魔法弹幕" not in learned and len(real_weapons) < 2:
+                        commands.append("interact 魔法弹幕")
+                    if "魔法护盾" not in learned and outer < 1:
+                        commands.append("interact 魔法护盾")
+                    # 不拿探测魔法、隐身术
+                    if "地震" not in learned:
+                        commands.append("interact 地震")
+                    if "地震" in learned and "地动山摇" not in learned:
+                        commands.append("interact 地动山摇")
+                elif loc == "军事基地":
+                    if not has_pass:
+                        commands.append("interact 通行证")
+                    elif has_pass:
+                        if len(real_weapons) < 2:
+                            commands.append("interact 高斯步枪")
+                            commands.append("interact 电磁步枪")
+                        if outer < 1 and not self._has_armor_by_name(player, "AT力场"):
+                            commands.append("interact AT力场")
+                        # 不拿雷达、隐形涂层
+                elif loc == "医院":
+                    # 火萤不主动去医院拿内甲（debuff 未生效时也不需要）
+                    if vouchers < 1:
+                        commands.append("interact 打工")
+
+            # 蓄力
+            if "special" in available and not commands:
+                gauss = next((w for w in weapons if w and w.name == "高斯步枪"), None)
+                if gauss and not getattr(gauss, 'is_charged', False):
+                    commands.append("special 蓄力高斯步枪")
+                emr = next((w for w in weapons if w and w.name == "电磁步枪"), None)
+                if emr and not getattr(emr, 'is_charged', False):
+                    commands.append("special 蓄力电磁步枪")
+
+            # 移动
+            if "move" in available and not commands:
+                next_loc = self._pick_ideal_destination(player, state)
+                if next_loc and next_loc != loc:
+                    if not (next_loc == "home" and self._is_at_home(player)):
+                        commands.append(f"move {next_loc}")
+
+        return commands
 
     def _cmd_develop(self, player, state, available: List[str]) -> List[str]:
         commands = []
@@ -1296,6 +1511,10 @@ class BasicAIController(PlayerController):
         debug_ai_development_plan(player.name,
             f"状态: loc={loc} vouchers={vouchers} weapon={has_weapon} "
             f"outer={outer} inner={inner} pass={has_pass} detect={has_detection}")
+
+        # 火萤IV型：专用发育路径
+        if self._has_firefly_talent(player):
+            return self._cmd_develop_firefly(player, state, available)
 
         # Political 特殊处理：基本需求满足后，跳过通用发育，直奔警察局
         if (self.personality == "political"
@@ -1733,6 +1952,9 @@ class BasicAIController(PlayerController):
         commands = []
         markers = getattr(state, 'markers', None)
         weapon_range = self._get_weapon_range(weapon)
+        # 救世主状态：远程武器不应该到这里（_pick_weapon 已过滤），但防御性处理
+        if self._is_in_savior_state(player) and weapon_range == "ranged":
+            weapon_range = "melee"  # 降级为近战路径
 
         if weapon_range == "melee":
             # 近战：需要先 find（建立ENGAGED_WITH）
@@ -2539,6 +2761,39 @@ class BasicAIController(PlayerController):
                     count += 1
         return count
 
+    def _estimate_talent_adjusted_damage(self, player, weapon=None) -> float:
+        """估算考虑天赋修正后的实际伤害（用于评估其他玩家的威胁）
+
+        如果 weapon 为 None，则返回该玩家最强武器的天赋修正后伤害。
+        """
+        if weapon is not None:
+            base_dmg = self._get_weapon_damage(weapon)
+        else:
+            # 找最强武器
+            weapons = getattr(player, 'weapons', [])
+            if not weapons:
+                return 0.0
+            base_dmg = max((self._get_weapon_damage(w) for w in weapons if w), default=0.0)
+
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return base_dmg
+
+        # 火萤IV型：所有伤害×2
+        if hasattr(talent, 'name') and talent.name == "火萤IV型-完全燃烧":
+            return base_dmg * 2.0
+
+        # 救世主状态：近战+temp_attack_bonus
+        if hasattr(talent, 'is_savior') and talent.is_savior:
+            bonus = getattr(talent, 'temp_attack_bonus', 0.0)
+            # 只有近战武器才有加成，但估算时按最大值算
+            return base_dmg + bonus
+
+        # 一刀缭断：有使用次数时近战×2（但只有一次，影响有限）
+        # 不在这里加成，因为是一次性的
+
+        return base_dmg
+
     def _best_weapon_damage(self, player) -> float:
         """获取玩家最强武器的伤害值"""
         weapons = getattr(player, 'weapons', [])
@@ -2546,7 +2801,7 @@ class BasicAIController(PlayerController):
             return 0.0
         best =0.0
         for w in weapons:
-            dmg = self._get_weapon_damage(w)
+            dmg = self._estimate_talent_adjusted_damage(player, w)
             if dmg > best:
                 best = dmg
         return best
@@ -2617,6 +2872,16 @@ class BasicAIController(PlayerController):
             # 全场最强玩家额外加分
             if self._estimate_power(t) >= max_power:
                 s += 40
+            # 火萤 debuff 生效后的目标偏好
+            if self._has_firefly_talent(player) and self._firefly_debuff_active(player):
+                # 优先攻击没有伤害>=2武器的玩家
+                enemy_best_dmg = self._best_weapon_damage(t)
+                if enemy_best_dmg < 2.0:
+                    s += 60  # 大幅加分：优先打弱者
+                else:
+                    # 所有人都有高伤害武器时，优先打 hp+护盾总值低的
+                    total_effective_hp = t.hp + self._count_outer_armor(t) + self._count_inner_armor(t)
+                    s += max(0, 10 - total_effective_hp) * 15  # 总值越低分越高
             return s
 
         candidates.sort(key=score, reverse=True)
@@ -2635,6 +2900,9 @@ class BasicAIController(PlayerController):
                 if self._same_location(player, target):
                     return True
             elif wr == "ranged":
+                # 救世主状态禁用远程
+                if self._is_in_savior_state(player):
+                    continue
                 return True  # 远程不需要同地点
             elif wr == "melee":
                 if self._same_location(player, target):
@@ -2653,6 +2921,11 @@ class BasicAIController(PlayerController):
 
         # 过滤掉 None，让所有武器（含拳击）参与评分，由 weapon_score 决定优劣
         pool = [w for w in weapons if w]
+        # 救世主状态：过滤掉远程武器（validator 会拒绝，避免浪费重试）
+        if self._is_in_savior_state(player):
+            melee_and_area = [w for w in pool if self._get_weapon_range(w) != "ranged"]
+            if melee_and_area:
+                pool = melee_and_area
         if not pool:
             return None
 
@@ -2663,6 +2936,11 @@ class BasicAIController(PlayerController):
         def weapon_score(w):
             s = 0
             dmg = self._get_weapon_damage(w)
+            # 救世主状态：近战武器加上临时攻击力加成
+            if self._is_in_savior_state(player) and self._get_weapon_range(w) == "melee":
+                talent = getattr(player, 'talent', None)
+                if talent and hasattr(talent, 'temp_attack_bonus'):
+                    dmg += talent.temp_attack_bonus
             s += dmg * 10
 
             # 蓄力必须但未蓄力 → 打不出去，大幅扣分
@@ -2768,9 +3046,12 @@ class BasicAIController(PlayerController):
     # ════════════════════════════════════════════════════════
 
     def _is_danger_resolved(self, player) -> bool:
-        """判断危险状态是否已解除：触发条件不再成立 且 至少2层护甲"""
+        """判断危险状态是否已解除"""
         if self._is_critical(player, self._game_state):
             return False
+        # 火萤 debuff 生效后不要求护甲来解除危险
+        if self._has_firefly_talent(player) and self._firefly_debuff_active(player):
+            return True
         total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
         return total_armor >= 2
 
@@ -3187,7 +3468,7 @@ class BasicAIController(PlayerController):
 
         weapons = getattr(player, 'weapons', [])
         for w in weapons:
-            power += self._get_weapon_damage(w) * 15
+            power += self._estimate_talent_adjusted_damage(player, w) * 15
 
         outer = self._count_outer_armor(player)
         inner = self._count_inner_armor(player)
