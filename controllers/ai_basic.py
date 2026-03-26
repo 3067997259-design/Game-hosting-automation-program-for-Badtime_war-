@@ -1366,6 +1366,11 @@ class BasicAIController(PlayerController):
 
             elif loc == "警察局":
                 if self.personality == "political":
+                    # 集结优先于一切
+                    police = getattr(state, 'police', None)
+                    if police and police.report_phase == "reported" and police.reporter_id == player.player_id:
+                        commands.append("assemble")
+                        return commands
                     if not getattr(player, 'is_police', False):
                         if "recruit" in available:
                             commands.append("recruit")
@@ -2256,8 +2261,37 @@ class BasicAIController(PlayerController):
         is_police = getattr(player, 'is_police', False)
         is_captain = getattr(player, 'is_captain', False)
 
+        # 集结（最高优先级！举报后必须先集结才能做其他事）
+        if "assemble" in available:
+            police = getattr(state, 'police', None)
+            if police and police.report_phase == "reported" and police.reporter_id == player.player_id:
+                commands.append("assemble")
+                return commands  # 集结是最高优先级，立即返回
+
+        # 追踪指引（集结后的后续操作）
+        if "track_guide" in available:
+            police = getattr(state, 'police', None)
+            if police and police.reporter_id == player.player_id:
+                pe = getattr(state, 'police_engine', None)
+                if pe:
+                    can_track, _ = pe.can_track_guide(player.player_id)
+                    if can_track:
+                        commands.append("track")
+                        return commands  # 追踪指引也是高优先级
+
         # 举报犯罪者（需要在警察局，除非有远程举报天赋）
-        if "report" in available and is_police:
+        # 前置检查：report_phase 必须为 idle 才能举报
+        # （available_actions 无条件包含 "report"，不能仅靠 "report" in available 判断）
+        police_data = getattr(state, 'police', None)
+        report_phase = getattr(police_data, 'report_phase', 'idle') if police_data else 'idle'
+        has_captain = police_data.has_captain() if police_data and hasattr(police_data, 'has_captain') else False
+        is_self_criminal = police_data.is_criminal(player.player_id) if police_data and hasattr(police_data, 'is_criminal') else False
+
+        if ("report" in available
+                and is_police
+                and report_phase == "idle"       # 没有正在处理的举报
+                and not has_captain              # 没有队长时才能举报
+                and not is_self_criminal):       # 自己没有犯罪记录
             can_remote = False
             talent = getattr(player, 'talent', None)
             if talent and hasattr(talent, 'can_remote_report'):
@@ -2270,12 +2304,10 @@ class BasicAIController(PlayerController):
                         continue
                     target = state.get_player(pid)
                     if target and target.is_alive():
-                        # Bug修复：使用 player.is_criminal 和 police.is_criminal()
                         target_is_criminal = getattr(target, 'is_criminal', False)
                         if not target_is_criminal:
-                            police = getattr(state, 'police', None)
-                            if police and hasattr(police, 'is_criminal'):
-                                target_is_criminal = police.is_criminal(target.player_id)
+                            if police_data and hasattr(police_data, 'is_criminal'):
+                                target_is_criminal = police_data.is_criminal(target.player_id)
                         if target_is_criminal:
                             commands.append(f"report {target.name}")
                             break
@@ -2285,7 +2317,11 @@ class BasicAIController(PlayerController):
             commands.append("recruit")
 
         # 竞选队长
-        if "election" in available and is_police and not is_captain and loc == "警察局":
+        if ("election" in available
+                and is_police
+                and not is_captain
+                and not has_captain          # 新增：系统中没有队长才能竞选
+                and loc == "警察局"):
             commands.append("election")
 
         # 指定执法目标
