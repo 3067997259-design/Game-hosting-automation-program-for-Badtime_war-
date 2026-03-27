@@ -74,6 +74,9 @@ class G1MythFire(BaseTalent):
 
     def _process_debuff(self, me, round_num):
         """debuff判定与执行"""
+        # 更新5轮行动窗口（必须在debuff判定前调用）
+        self._update_window(round_num)
+
         # 首次计算debuff开始轮次
         if self.debuff_start_round is None:
             self.debuff_start_round = self._calc_debuff_start_round()
@@ -105,6 +108,7 @@ class G1MythFire(BaseTalent):
                     self.ardent_wish_charges -= 1  # 这层炽愿的2次抵扣用完
                 prompt_manager.show("talent", "g1mythfire.ardent_wish_consume",
                                 player_name=me.name,
+                                remaining=self.ardent_wish_debuff_uses,
                                 level=PromptLevel.NORMAL)
                 return
         # 没有护甲时炽愿不能抵扣debuff（保留炽愿用于额外生命）
@@ -210,6 +214,31 @@ class G1MythFire(BaseTalent):
     #  T0：0.5血自动恢复
     # ============================================
 
+    def on_turn_start(self, player):
+        """T0：如果HP=0.5，自动恢复到1"""
+        if player.player_id != self.player_id:
+            return None
+        if not player.is_alive():
+            return None
+
+        if player.hp <= 0.5 and player.hp > 0:
+            old_hp = player.hp
+            player.hp = min(1.0, player.max_hp)
+            # 同时确保不是眩晕状态
+            if player.is_stunned:
+                player.is_stunned = False
+                self.state.markers.on_stun_recover(player.player_id)
+            prompt_manager.show("talent", "g1mythfire.auto_heal",
+                               player_name=player.name,
+                               old_hp=old_hp, new_hp=player.hp,
+                               level=PromptLevel.IMPORTANT)
+
+        return None  # 不消耗回合，正常继续
+
+    # ============================================
+    #  5轮行动窗口追踪（后续延迟用）
+    # ============================================
+
     def _update_window(self, round_num):
         """更新5轮行动窗口"""
         if not self.debuff_started:
@@ -220,7 +249,7 @@ class G1MythFire(BaseTalent):
         # 每5轮重置窗口
         elif round_num - self.window_start_round >= 5:
             self.window_start_round = round_num
-        self.window_action_count = 0
+            self.window_action_count = 0
 
     # ============================================
     #  行动回合结束：统计行动次数
@@ -307,6 +336,8 @@ class G1MythFire(BaseTalent):
         name = me.name if me else self.player_id
         prompt_manager.show("talent", "g1mythfire.ardent_wish_gain",
                         player_name=name,
+                        charges=self.ardent_wish_charges,
+                        debuff_uses=self.ardent_wish_debuff_uses,
                         level=PromptLevel.IMPORTANT)
 
     # ============================================
