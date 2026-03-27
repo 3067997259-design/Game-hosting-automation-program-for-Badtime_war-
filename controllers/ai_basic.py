@@ -1935,6 +1935,37 @@ class BasicAIController(PlayerController):
         if not weapon:
             return commands
 
+        # Fix: 目标受警察保护时，强制切换到AOE武器绕过单体免疫
+        pe = getattr(state, 'police_engine', None)
+        if pe and pe.is_protected_by_police(target.player_id):
+            if self._get_weapon_range(weapon) != "area":
+                aoe_name = self._get_aoe_weapon_name(player)
+                if aoe_name:
+                    # 先从玩家武器列表找实体
+                    aoe_weapon = next((w for w in getattr(player, 'weapons', [])
+                                    if w and w.name == aoe_name), None)
+                    if not aoe_weapon:
+                        # 学会的法术不在weapons列表里，用make_weapon创建
+                        aoe_weapon = make_weapon(aoe_name)
+                    if aoe_weapon:
+                        # 检查是否需要蓄力（如电磁步枪）
+                        if (getattr(aoe_weapon, 'requires_charge', False)
+                                and getattr(aoe_weapon, 'charge_mandatory', True)
+                                and not getattr(aoe_weapon, 'is_charged', False)):
+                            if "special" in available:
+                                commands.append(f"special 蓄力{aoe_name}")
+                                debug_ai_attack_generation(player.name,
+                                    aoe_name, f"目标 {target.name} 受警察保护，AOE武器需蓄力")
+                            return commands
+                        weapon = aoe_weapon
+                        debug_ai_attack_generation(player.name,
+                            weapon.name, f"目标 {target.name} 受警察保护，强制切换AOE武器: {aoe_name}")
+                else:
+                    # 真的没有AOE武器，跳过攻击（不浪费回合在必定失败的近战上）
+                    debug_ai_attack_generation(player.name,
+                        weapon.name, f"目标 {target.name} 受警察保护且无AOE武器，跳过攻击")
+                    return commands
+
         # 检查武器是否被目标护甲克制
         if self._all_weapons_countered(player, target):
             # 所有武器都被克制，不生成攻击命令
