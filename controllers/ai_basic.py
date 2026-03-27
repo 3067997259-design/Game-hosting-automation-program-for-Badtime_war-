@@ -4095,16 +4095,11 @@ def create_ai_controller(personality: str = "balanced",
     return controller
 
 
-def create_random_ai_controller(player_name: str = "",
-                                 **kwargs) -> BasicAIController:
-    """创建随机人格的AI控制器"""
+def create_random_ai_controller(player_name: str = "", **kwargs) -> BasicAIController:
     import random
     personalities = [
         "aggressive", "defensive", "assassin",
         "balanced", "builder", "political"
     ]
-    # 权重：balanced和aggressive更常见
-    weights = [25, 15, 15, 30, 10, 5]
-    personality = random.choices(personalities, weights=weights, k=1)[0]
-    return create_ai_controller(personality=personality,
-                                player_name=player_name, **kwargs)
+    personality = random.choice(personalities)
+    return create_ai_controller(personality=personality, player_name=player_name, **kwargs)

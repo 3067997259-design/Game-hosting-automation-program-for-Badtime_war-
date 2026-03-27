@@ -57,12 +57,12 @@ TALENT_TABLE = [
 # ════════════════════════════════════════════════════════
 
 AI_TALENT_PREFERENCE = {
-    "aggressive": [8, 1, 3, 5, 4, 2, 9, 6, 10, 11, 7, 12],
-    "defensive":  [11, 7, 2, 6, 4, 3, 10, 9, 1, 8, 12, 5],
-    "political":  [6, 5, 7, 2, 4, 11, 3, 1, 9, 10, 8, 12],
-    "assassin":   [5, 1, 10, 2, 4, 9, 8, 3, 6, 7, 11, 12],
-    "builder":    [12, 7, 11, 6, 4, 2, 3, 9, 1, 10, 5, 8],
-    "balanced":   [4, 2, 1, 3, 6, 5, 7, 11, 8, 9, 10, 12],
+    "aggressive": [8, 1, 10, 3, 5, 9, 4, 2],
+    "defensive":  [11, 7, 2, 3, 10, 4, 9, 12],
+    "political":  [6, 7, 11, 2, 4, 3, 9],
+    "assassin":   [5, 1, 10, 8, 9, 2, 4],
+    "builder":    [12, 7, 11, 4, 3, 2, 9],
+    "balanced":   [4, 1, 5, 3, 2, 9, 11, 12],
 }
 
 AI_PERSONALITIES = ["balanced", "aggressive", "defensive",
@@ -72,6 +72,8 @@ AI_NAME_POOL = [
     "阿尔法", "贝塔", "伽马", "德尔塔", "艾普西隆", "泽塔",
     "影", "刃", "霜", "焰", "雷", "风",
 ]
+
+TALENT_DECAY_FACTOR = 0.75
 
 
 def setup_game():
@@ -570,24 +572,33 @@ def _ai_pick_talent(personality: str, available, taken: set):
         debug_system(f"可用天赋: {[n for n, _, _, _ in available]}")
 
     # 按照偏好顺序查找
-    for talent_num in preference:
+    candidates = []
+    weights = []
+    for i, talent_num in enumerate(preference):
         if talent_num in taken:
-            if is_debug_enabled():
-                debug_system(f"天赋 {talent_num} 已被选，跳过")
             continue
         for n, name, cls, desc in available:
             if n == talent_num:
-                if is_debug_enabled():
-                    debug_system(f"根据偏好选择天赋 {talent_num}: {name}")
-                return (n, name, cls)
+                candidates.append((n, name, cls))
+                weights.append(TALENT_DECAY_FACTOR ** i)
+                break
 
-    # 偏好列表里的都被选走了 → 随机选一个
-    if available:
+    if not candidates:
+        # 偏好列表里的天赋全被选走（理论上不应发生）→ 随机兜底
+        remaining = [(n, name, cls) for n, name, cls, desc in available if n not in taken]
+        if remaining:
+            chosen = random.choice(remaining)
+            if is_debug_enabled():
+                debug_system(f"偏好天赋均不可用，随机选择: {chosen[0]}: {chosen[1]}")
+            return chosen
+        # 真的没有可用天赋了
         chosen = random.choice(available)
-        if is_debug_enabled():
-            debug_system(f"偏好天赋均不可用，随机选择: {chosen[0]}: {chosen[1]}")
         return (chosen[0], chosen[1], chosen[2])
 
+    selected = random.choices(candidates, weights=weights, k=1)[0]
     if is_debug_enabled():
-        debug_system(f"无可用天赋")
-    return None
+        total_w = sum(weights)
+        probs = [f"{c[1]}({w/total_w:.1%})" for c, w in zip(candidates, weights)]
+        debug_system(f"加权随机选择天赋: {' > '.join(probs)}")
+        debug_system(f"选中: {selected[1]}")
+    return selected
