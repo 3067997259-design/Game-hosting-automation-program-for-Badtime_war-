@@ -3468,7 +3468,7 @@ class BasicAIController(PlayerController):
 
         weapons = getattr(player, 'weapons', [])
         for w in weapons:
-            power += self._estimate_talent_adjusted_damage(player, w) * 15
+            power += self._estimate_talent_adjusted_damage(player, w) * 15 if w else 0
 
         outer = self._count_outer_armor(player)
         inner = self._count_inner_armor(player)
