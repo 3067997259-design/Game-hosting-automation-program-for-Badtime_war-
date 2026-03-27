@@ -984,6 +984,14 @@ class BasicAIController(PlayerController):
                 if cmd not in candidates:
                     candidates.insert(0, cmd)
 
+        # >>> 新增：所有目标都受警察保护且无AOE → 去拿AOE武器
+        if self._is_stuck_by_police_protection(player, state):
+            debug_ai_basic(player.name, "所有目标受警察保护且无AOE，去获取AOE武器")
+            aoe_cmds = self._cmd_fight_police(player, state, available_actions)
+            for cmd in aoe_cmds:
+                if cmd not in candidates:
+                    candidates.insert(0, cmd)
+
         # ===== 政治型 =====
         if self.personality == "political":
             political = self._cmd_police_political(player, state, available_actions)
@@ -1934,6 +1942,14 @@ class BasicAIController(PlayerController):
                 weapon.name, f"所有武器被目标 {target.name} 护甲克制，跳过攻击")
             return commands
 
+        # >>> 新增：目标受警察保护且自己没有AOE武器 → 不生成单体攻击命令
+        pe = getattr(state, 'police_engine', None)
+        if pe and pe.is_protected_by_police(target.player_id):
+            if not self._has_aoe_weapon(player):
+                debug_ai_attack_generation(player.name,
+                    weapon.name, f"目标 {target.name} 受警察保护且无AOE武器，跳过攻击")
+                return commands
+
         cmds = self._build_attack_cmd(player, target, weapon, state, available)
         commands.extend(cmds)
 
@@ -2166,6 +2182,10 @@ class BasicAIController(PlayerController):
             if attack_cmd:
                 return [attack_cmd]
 
+        for _uid, _assign in self._police_dev_assignments.items():
+            if _assign.get("phase") == "combat":
+                _assign["phase"] = "stationed"
+
         # ===== 新增：唤醒处于debuff的警察 =====
         # 优先级：在攻击之后、发育之前
         # 如果有犯罪目标但没有active单位可攻击，唤醒最重要
@@ -2306,6 +2326,8 @@ class BasicAIController(PlayerController):
                 continue
 
             phase = assignment.get("phase", "pending")
+            if phase == "combat":
+                continue
             unit_loc = unit.get("location")
             dest = assignment.get("dest")
 
@@ -2359,6 +2381,8 @@ class BasicAIController(PlayerController):
                 continue
 
             phase = assignment.get("phase", "pending")
+            if phase == "combat":
+                continue
             station = assignment.get("station")
             unit_loc = unit.get("location")
 
@@ -2376,6 +2400,7 @@ class BasicAIController(PlayerController):
                     return f"police move {uid} {station}"
 
         return None  # 所有单位已部署
+
 
 
     def _police_wake_step(self, disabled_units, state) -> Optional[str]:
@@ -2486,11 +2511,12 @@ class BasicAIController(PlayerController):
         uid = best_unit["id"]
         unit_loc = best_unit.get("location")
 
-        # 如果最佳警察不在目标位置，移动过去（交换机制会自动处理）
+        # 出口1: 最佳单位不在目标位置 → move
         if unit_loc != target_loc:
+            if uid in self._police_dev_assignments:                          # 新增
+                self._police_dev_assignments[uid]["phase"] = "combat"        # 新增
             return f"police move {uid} {target_loc}"
         else:
-            # 检查是否会无效攻击（避免重复浪费）
             weapon_name = best_unit.get("weapon", "警棍")
             weapon = make_weapon(weapon_name) if weapon_name else make_weapon("警棍")
             w_attr = weapon.attribute if weapon else Attribute.ORDINARY
@@ -2499,7 +2525,6 @@ class BasicAIController(PlayerController):
                 effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
                 can_hit = any(a in effective_set for a in target_armor_attrs)
                 if not can_hit:
-                    # 当前警察打不动，尝试换一个能打的过来
                     for other_unit in active_units:
                         if other_unit["id"] == uid:
                             continue
@@ -2508,12 +2533,18 @@ class BasicAIController(PlayerController):
                             other_attr = other_weapon.attribute
                             other_effective = EFFECTIVE_AGAINST.get(other_attr, set())
                             if any(a in other_effective for a in target_armor_attrs):
-                                # 把这个警察 move 到目标位置，会和当前警察交换
-                                return f"police move {other_unit['id']} {target_loc}"
-                    # 没有能打的警察 → 返回 None，让 _cmd_captain 继续尝试其他操作
+                                # 出口2: 换一个能打的过来
+                                other_id = other_unit['id']                              # 新增
+                                if other_id in self._police_dev_assignments:              # 新增
+                                    self._police_dev_assignments[other_id]["phase"] = "combat"  # 新增
+                                return f"police move {other_id} {target_loc}"            # 改用 other_id
                     return None
 
+            # 出口3: 直接攻击
+            if uid in self._police_dev_assignments:                          # 新增
+                self._police_dev_assignments[uid]["phase"] = "combat"        # 新增
             return f"police attack {uid} {target_player.player_id}"
+
     # ════════════════════════════════════════════════════════
     #  命令生成器：政治行动
     # ════════════════════════════════════════════════════════
@@ -2801,6 +2832,8 @@ class BasicAIController(PlayerController):
             return 0.0
         best =0.0
         for w in weapons:
+            if not w:
+                continue
             dmg = self._estimate_talent_adjusted_damage(player, w)
             if dmg > best:
                 best = dmg
@@ -2864,8 +2897,14 @@ class BasicAIController(PlayerController):
                 if markers_obj and hasattr(markers_obj, 'is_visible_to'):
                     if not markers_obj.is_visible_to(t.player_id, player.player_id, player.has_detection):
                         s -= 300  # 看不到的目标大幅降分
-            # 队长保护
-            if getattr(t, 'is_captain', False):
+            # 警察保护（替换原有的仅队长检查）
+            pe = getattr(state, 'police_engine', None)
+            if pe and pe.is_protected_by_police(t.player_id):
+                has_aoe = self._has_aoe_weapon(player)
+                if not has_aoe:
+                    s -= 500
+            elif getattr(t, 'is_captain', False):
+                # 队长但当前不受保护（无同地点警察）→ 小幅降分
                 has_aoe = self._has_aoe_weapon(player)
                 if not has_aoe and self._captain_has_police_escort(t, state):
                     s -= 500
@@ -3468,7 +3507,7 @@ class BasicAIController(PlayerController):
 
         weapons = getattr(player, 'weapons', [])
         for w in weapons:
-            power += self._estimate_talent_adjusted_damage(player, w) * 15
+            power += self._estimate_talent_adjusted_damage(player, w) * 15 if w else 0
 
         outer = self._count_outer_armor(player)
         inner = self._count_inner_armor(player)
@@ -3878,6 +3917,25 @@ class BasicAIController(PlayerController):
         if "地震" in learned or "地动山摇" in learned:
             return True
         return False
+
+    def _is_stuck_by_police_protection(self, player, state) -> bool:
+        """检查是否所有存活目标都受警察保护，且自己没有AOE武器"""
+        if self._has_aoe_weapon(player):
+            return False
+        pe = getattr(state, 'police_engine', None)
+        if not pe:
+            return False
+        alive_targets = []
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            p = state.get_player(pid)
+            if p and p.is_alive():
+                alive_targets.append(p)
+        if not alive_targets:
+            return False
+        # 所有存活目标都受保护才算 stuck
+        return all(pe.is_protected_by_police(t.player_id) for t in alive_targets)
 
     def _get_aoe_weapon_name(self, player) -> Optional[str]:
         for w in getattr(player, 'weapons', []):
