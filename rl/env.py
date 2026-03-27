@@ -385,11 +385,11 @@ class BadtimeWarEnv(gym.Env):
             while not self._state.game_over and not self._game_over_flag:
                 self._round_manager.run_one_round()
 
-                # 安全网：超过最大轮数
-                if self._state.is_max_rounds_reached():
-                    self._max_rounds_reached = True
+                # 检查胜利
+                winner_id = self._state.check_victory()
+                if winner_id:
                     self._state.game_over = True
-                    self._state.winner = "nobody"
+                    self._state.winner = winner_id
                     break
 
                 # 安全网：超过最大轮数
