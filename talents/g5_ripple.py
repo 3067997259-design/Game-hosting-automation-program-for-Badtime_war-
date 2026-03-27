@@ -36,7 +36,7 @@ class Ripple(BaseTalent):
         "不良少年": "诡计",
         "六爻": "阴阳",
         "死者苏生": "彼岸",
-        "火萤IV型-完全燃烧": "纷争",
+        "火萤IV型-完全燃烧": "飞萤",
         "请一直，注视着我": "追光",
         "愿负世，照拂黎明": "负世",
         "往世的涟漪": "爱与记忆",
@@ -1425,7 +1425,7 @@ class Ripple(BaseTalent):
             msg = self._poem_yinyang(target)
         elif poem_type == "彼岸":
             msg = self._poem_shore(target)
-        elif poem_type == "纷争":
+        elif poem_type == "飞萤":
             msg = self._poem_strife(caster, target)
         elif poem_type == "追光":
             msg = self._poem_light(target)
@@ -1714,7 +1714,7 @@ class Ripple(BaseTalent):
         ).format(target_name=target.name)
 
     def _poem_strife(self, caster, target):
-        """纷争之诗：为火萤IV型-完全燃烧的持有者增强"""
+        """飞萤之诗：为火萤IV型-完全燃烧的持有者增强"""
         display.show_info(prompt_manager.get_prompt(
             "talent", "g5ripple.poem_strife_immediate_action",
             default="🔥 {target_name} 获得一次立刻行动！"
@@ -1729,14 +1729,22 @@ class Ripple(BaseTalent):
             target.talent.grant_ardent_wish()
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_strife_completion",
-                default="🔥 {target_name} 完成立刻行动！\n   获得特殊物品「炽愿」\n   （可抵扣1次debuff效果结算）"
+                default="🔥 {target_name} 完成立刻行动！\n"
+                        "   获得特殊物品「炽愿」\n"
+                        "   （可抵扣2次debuff + 0.5额外生命值）"
             ).format(target_name=target.name)
         else:
-            # 如果目标天赋没有grant_ardent_wish方法，尝试直接设置字段
-            target.talent.has_ardent_wish = True
+            # 兼容性回退：如果目标天赋没有grant_ardent_wish方法
+            if hasattr(target.talent, 'ardent_wish_charges'):
+                target.talent.ardent_wish_charges += 1
+                target.talent.ardent_wish_debuff_uses += 2
+            else:
+                target.talent.has_ardent_wish = True  # 旧版兼容
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_strife_completion",
-                default="🔥 {target_name} 完成立刻行动！\n   获得特殊物品「炽愿」\n   （可抵扣1次debuff效果结算）"
+                default="🔥 {target_name} 完成立刻行动！\n"
+                        "   获得特殊物品「炽愿」\n"
+                        "   （可抵扣2次debuff + 0.5额外生命值）"
             ).format(target_name=target.name)
 
     def _poem_light(self, target):

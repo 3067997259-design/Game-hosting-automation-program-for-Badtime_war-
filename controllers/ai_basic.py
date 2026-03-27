@@ -857,7 +857,7 @@ class BasicAIController(PlayerController):
             # 不再 return，继续生成其他候选命令
 
         # ===== 救世主状态：最高攻击优先级 =====
-        if self._is_in_savior_state(player) and player.hp > 0.5:
+        if self._is_in_savior_state(player) and self._get_effective_hp(player) > 0.5:
             debug_ai_basic(player.name, "救世主状态激活，优先攻击")
             # 优先攻击最后一个攻击自己的人
             last_attacker = self._get_last_attacker(player, state)
@@ -1269,15 +1269,16 @@ class BasicAIController(PlayerController):
 
             # 只有在无护甲时，才比较 hp vs damage
             if outer_count == 0 and inner_count == 0:
-                if target.hp <= best_dmg:
+                eff_hp = self._get_effective_hp(target)
+                if eff_hp <= best_dmg:
                     if self._can_attack_target(player, target, state):
                         debug_ai_basic(player.name,
-                            f"击杀机会: {target.name} HP={target.hp} 无护甲 dmg={best_dmg}")
+                            f"击杀机会: {target.name} HP={target.hp}(有效{eff_hp}) 无护甲 dmg={best_dmg}")
                         return True
             # 有护甲时，需要更高伤害穿透
             elif outer_count == 0 and inner_count > 0:
                 # 外层清了只剩内层，如果伤害足够打破最后内层+hp
-                if target.hp <= 0.5 and best_dmg >= 1.0:
+                if self._get_effective_hp(target) <= 0.5 and best_dmg >= 1.0:
                     if self._can_attack_target(player, target, state):
                         return True
 
@@ -2967,11 +2968,11 @@ class BasicAIController(PlayerController):
                 s += 50
             if self._same_location(player, t):
                 s += 30
-            s += max(0, 5 - t.hp) * 10
+            s += max(0, 5 - self._get_effective_hp(t)) * 10
             s -= self._count_outer_armor(t) * 15
             s -= self._count_inner_armor(t) * 10
             if self.personality == "assassin":
-                s += max(0, 3 - t.hp) * 20
+                s += max(0, 3 - self._get_effective_hp(t)) * 20
                 if self._count_outer_armor(t) == 0:
                     s += 40
                 if self._count_inner_armor(t) == 0:
@@ -3015,7 +3016,7 @@ class BasicAIController(PlayerController):
                     s += 60  # 大幅加分：优先打弱者
                 else:
                     # 所有人都有高伤害武器时，优先打 hp+护盾总值低的
-                    total_effective_hp = t.hp + self._count_outer_armor(t) + self._count_inner_armor(t)
+                    total_effective_hp = self._get_effective_hp(t) + self._count_outer_armor(t) + self._count_inner_armor(t)
                     s += max(0, 10 - total_effective_hp) * 15  # 总值越低分越高
             return s
 
@@ -3596,10 +3597,29 @@ class BasicAIController(PlayerController):
         enemy_power = self._estimate_power(target)
         return my_power < enemy_power * 0.7
 
+    def _get_effective_hp(self, player) -> float:
+        """获取玩家的有效生命值（含天赋额外HP）
+
+        - 愿负世：救世主状态的临时HP
+        - 火萤IV型：炽愿层数 × 0.5
+        """
+        hp = player.hp
+        talent = getattr(player, 'talent', None)
+        if talent:
+            # 愿负世：救世主临时HP
+            temp_hp = getattr(talent, 'temp_hp', 0.0)
+            if temp_hp > 0:
+                hp += temp_hp
+            # 火萤IV型：炽愿额外HP
+            charges = getattr(talent, 'ardent_wish_charges', 0)
+            if charges > 0:
+                hp += charges * 0.5
+        return hp
+
     def _estimate_power(self, player) -> float:
         """估算玩家战力"""
         power = 0.0
-        power += player.hp * 10
+        power += self._get_effective_hp(player) * 10
 
         weapons = getattr(player, 'weapons', [])
         for w in weapons:

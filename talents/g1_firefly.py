@@ -7,12 +7,15 @@
   - HP降至0.5时不进入眩晕，下一行动回合开始时(T0)自动恢复HP至1
 
 效果B 后期代价debuff：
-  - debuff开始轮次 = 10 + (开局玩家人数-2)*3 + 累计击杀数*5
-  - 特殊延迟：前10轮累计行动回合<6次 → 延迟到累计行动达5次那轮
+  - debuff开始轮次 = 15 + (开局玩家人数-2)*5 + 累计击杀数*10
+  - 前期延迟：前15轮累计行动 < 5+(人数-2)*2 次 → 延迟
+  - 后期延缓：每5轮窗口内行动<2次 → 该次debuff跳过
   - 从debuff轮开始，每轮R0：
     1. 有外层护甲/护盾 → 摧毁一件
     2. 没有外层 → 扣1点内层护甲
     3. 没有任何护甲 → 跳过（不致死）
+  - 炽愿（增强版）：每层可抵扣2次debuff（需有护甲可扣时生效）
+    + 受攻击时充当额外生命值（每层0.5HP）  
 """
 
 from talents.base_talent import BaseTalent, PromptLevel
@@ -31,15 +34,20 @@ class G1MythFire(BaseTalent):
 
         # 统计
         self.kill_count = 0
-        self.action_turn_count = 0
+        self.action_turn_count = 0  # 累计行动次数（全局）
 
         # debuff
         self.debuff_started = False
-        self.debuff_start_round = None  # 延迟计算，首次R0时算
+        self.debuff_start_round = None
         self.initial_player_count = 0
 
-        # 炽愿（涟漪献诗给的抵扣道具）
-        self.has_ardent_wish = False
+        # 后续延迟：每5轮窗口追踪
+        self.window_action_count = 0  # 当前5轮窗口内的行动次数
+        self.window_start_round = None  # 当前窗口起始轮次（debuff开始后才启用）
+
+        # 炽愿（涟漪献诗给的抵扣道具）— 增强版
+        self.ardent_wish_charges = 0  # 炽愿层数
+        self.ardent_wish_debuff_uses = 0  # 当前活跃炽愿的剩余debuff抵扣次数
 
     # ============================================
     #  注册
@@ -82,35 +90,57 @@ class G1MythFire(BaseTalent):
                                player_name=me.name, round_num=round_num,
                                level=PromptLevel.IMPORTANT)
 
-        # 炽愿抵扣
-        if self.has_ardent_wish:
-            self.has_ardent_wish = False
-            prompt_manager.show("talent", "g1mythfire.ardent_wish_consume",
-                               player_name=me.name,
-                               level=PromptLevel.NORMAL)
-            return
+        # 炽愿抵扣（增强版：每层抵扣2次，仅在有护甲时生效）
+        if self.ardent_wish_charges > 0:
+            has_armor = bool(
+                me.armor.get_active(ArmorLayer.OUTER) or
+                me.armor.get_active(ArmorLayer.INNER)
+            )
+            if has_armor:
+                if self.ardent_wish_debuff_uses <= 0:
+                    # 开始消耗新的一层炽愿
+                    self.ardent_wish_debuff_uses = 2
+                self.ardent_wish_debuff_uses -= 1
+                if self.ardent_wish_debuff_uses <= 0:
+                    self.ardent_wish_charges -= 1  # 这层炽愿的2次抵扣用完
+                prompt_manager.show("talent", "g1mythfire.ardent_wish_consume",
+                                player_name=me.name,
+                                level=PromptLevel.NORMAL)
+                return
+        # 没有护甲时炽愿不能抵扣debuff（保留炽愿用于额外生命）
 
         # 执行debuff：扣护甲
         self._execute_debuff(me, round_num)
 
     def _calc_debuff_start_round(self):
-        """计算debuff开始轮次（基础公式）"""
+        """计算debuff开始轮次（增强公式）"""
         n = self.initial_player_count
         k = self.kill_count
-        return 10 + (n - 2) * 3 + k * 5
+        return 15 + (n - 2) * 5 + k * 10
 
     def _get_effective_start_round(self, current_round):
         """考虑特殊延迟条款后的实际开始轮次"""
         base = self._calc_debuff_start_round()
 
-        # 特殊延迟：前10轮累计行动<6次 → 延迟到累计行动达5次那轮
-        if current_round <= 10 and self.action_turn_count < 6:
-            # 还没达标，继续延迟
-            return max(base, current_round + 1)  # 至少比当前轮大
+        # === 前15轮延迟保护 ===
+        n = self.initial_player_count
+        early_threshold = 5 + (n - 2) * 2  # 4人局=9次
+        if current_round <= 15 and self.action_turn_count < early_threshold:
+            return max(base, current_round + 1)
 
-        # 如果前10轮内行动不足6次，debuff被延迟
-        # 延迟到累计行动达5次那轮（通过on_turn_end追踪）
+        # === 后续延迟：每5轮窗口内行动<2次则延缓 ===
+        if current_round > 15 and current_round >= base:
+            if self._is_window_delay_active(current_round):
+                return current_round + 1  # 延缓到下一轮
+
         return base
+
+    def _is_window_delay_active(self, current_round):
+        """检查当前5轮窗口内行动是否不足2次"""
+        if self.window_start_round is None:
+            return False
+        # 窗口内行动不足2次 → 延缓
+        return self.window_action_count < 2
 
     def _execute_debuff(self, me, round_num):
         """执行一次debuff扣除"""
@@ -147,30 +177,50 @@ class G1MythFire(BaseTalent):
                            player_name=me.name,
                            level=PromptLevel.NORMAL)
 
+    def receive_damage_to_temp_hp(self, remaining_damage):
+        """炽愿额外生命值：每层炽愿 = 0.5 HP，吸收穿透护甲后的伤害"""
+        if self.ardent_wish_charges <= 0 or remaining_damage <= 0:
+            return remaining_damage
+
+        ardent_hp = self.ardent_wish_charges * 0.5
+        absorbed = min(remaining_damage, ardent_hp)
+        remaining_damage -= absorbed
+
+        # 消耗对应的炽愿层数（每层0.5 HP）
+        import math
+        charges_consumed = math.ceil(absorbed / 0.5)
+        charges_consumed = min(charges_consumed, self.ardent_wish_charges)
+        self.ardent_wish_charges -= charges_consumed
+
+        # 如果炽愿耗尽，重置debuff抵扣计数
+        if self.ardent_wish_charges <= 0:
+            self.ardent_wish_debuff_uses = 0
+
+        me = self.state.get_player(self.player_id)
+        name = me.name if me else self.player_id
+        prompt_manager.show("talent", "g1mythfire.ardent_wish_absorb",
+                        player_name=name,
+                        absorbed=absorbed,
+                        remaining_charges=self.ardent_wish_charges,
+                        level=PromptLevel.NORMAL)
+
+        return remaining_damage
+
     # ============================================
     #  T0：0.5血自动恢复
     # ============================================
 
-    def on_turn_start(self, player):
-        """T0：如果HP=0.5，自动恢复到1"""
-        if player.player_id != self.player_id:
-            return None
-        if not player.is_alive():
-            return None
-
-        if player.hp <= 0.5 and player.hp > 0:
-            old_hp = player.hp
-            player.hp = min(1.0, player.max_hp)
-            # 同时确保不是眩晕状态
-            if player.is_stunned:
-                player.is_stunned = False
-                self.state.markers.on_stun_recover(player.player_id)
-            prompt_manager.show("talent", "g1mythfire.auto_heal",
-                               player_name=player.name,
-                               old_hp=old_hp, new_hp=player.hp,
-                               level=PromptLevel.IMPORTANT)
-
-        return None  # 不消耗回合，正常继续
+    def _update_window(self, round_num):
+        """更新5轮行动窗口"""
+        if not self.debuff_started:
+            return
+        if self.window_start_round is None:
+            self.window_start_round = round_num
+            self.window_action_count = 0
+        # 每5轮重置窗口
+        elif round_num - self.window_start_round >= 5:
+            self.window_start_round = round_num
+        self.window_action_count = 0
 
     # ============================================
     #  行动回合结束：统计行动次数
@@ -179,10 +229,12 @@ class G1MythFire(BaseTalent):
     def on_turn_end(self, player, action_type):
         if player.player_id != self.player_id:
             return
-        # 放弃行动不计
         if action_type == "forfeit":
             return
         self.action_turn_count += 1
+        # 5轮窗口内行动计数
+        if self.debuff_started and self.window_start_round is not None:
+            self.window_action_count += 1
 
     # ============================================
     #  伤害修正：输出+100%
@@ -249,13 +301,13 @@ class G1MythFire(BaseTalent):
     # ============================================
 
     def grant_ardent_wish(self):
-        """获得炽愿道具（抵扣1次debuff）"""
-        self.has_ardent_wish = True
+        """获得1层炽愿（增强版：抵扣2次debuff + 0.5额外生命值）"""
+        self.ardent_wish_charges += 1
         me = self.state.get_player(self.player_id)
         name = me.name if me else self.player_id
         prompt_manager.show("talent", "g1mythfire.ardent_wish_gain",
-                           player_name=name,
-                           level=PromptLevel.IMPORTANT)
+                        player_name=name,
+                        level=PromptLevel.IMPORTANT)
 
     # ============================================
     #  描述
@@ -273,14 +325,17 @@ class G1MythFire(BaseTalent):
         if self.debuff_start_round is not None:
             parts.append(f"debuff起始轮：{self.debuff_start_round}")
         if self.debuff_started:
-            parts.append("⚠️ debuff已激活")
-        if self.has_ardent_wish:
-            parts.append("持有「炽愿」")
+            parts.append("debuff已激活")
+            if self.window_start_round is not None:
+                parts.append(f"窗口行动：{self.window_action_count}/2")
+        if self.ardent_wish_charges > 0:
+            parts.append(f"炽愿×{self.ardent_wish_charges}（抵扣剩余{self.ardent_wish_debuff_uses}）")
         return " | ".join(parts)
 
     def describe(self):
         return (
             f"【{self.name}】"
             f"\n  常驻：伤害+100% | 受伤-50% | 0.5血不眩晕(T0自愈)"
-            f"\n  debuff = 10+(人数-2)×3+击杀×5 轮后每轮R0扣护甲"
-            f"\n  前10轮行动<6次则延迟")
+            f"\n  debuff = 15+(人数-2)×5+击杀×10 轮后每轮R0扣护甲"
+            f"\n  前15轮行动不足则延迟 | 后续每5轮行动<2次则延缓"
+            f"\n  炽愿：每层抵扣2次debuff + 0.5额外生命值")

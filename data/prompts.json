@@ -81,7 +81,9 @@
       ],
       "activate": "「神代天赋1：火萤IV型-完全燃烧」{player_name}-火萤IV型，已就位，开始清扫战场",
       "debuff_start": " {player_name} 的失熵症debuff开始！（第{round_num}轮）",
-      "ardent_wish_consume": " {player_name} 消耗「炽愿」抵扣本次debuff！",
+      "ardent_wish_consume": " {player_name} 的「炽愿」抵扣本次debuff！（剩余抵扣次数：{remaining}）",
+      "ardent_wish_absorb": "🔥 {player_name} 的「炽愿」吸收了 {absorbed} 点伤害！（剩余炽愿：{remaining_charges}层）",
+      "ardent_wish_gain": "🔥 {player_name} 获得了「炽愿」！当前{charges}层（debuff抵扣{debuff_uses}次 + 额外HP {charges}×0.5）",
       "debuff_outer": " 失熵症：摧毁 {player_name} 的外层护甲「{armor_name}」！",
       "debuff_inner_destroy": "失熵症debuff：摧毁 {player_name} 的内层护甲「{armor_name}」！",
       "debuff_inner_damage": "失熵症debuff：{player_name} 的「{armor_name}」护甲值 {old_hp} → {new_hp}",
@@ -89,7 +91,7 @@
       "auto_heal": "{player_name} 没有退路，只能向前 HP: {old_hp} → {new_hp}",
       "damage_reduction": "：{attacker_name} 对 {target_name} 的伤害 {original_damage} → {reduced_damage}",
       "kill_record": "🔥 {killer_name} 击杀了 {victim_name}！累计击杀：{kill_count}\n debuff起始轮次重算为：{debuff_round}",
-      "ardent_wish_gain": "🔥 {player_name} 获得了「炽愿」！可抵扣1次debuff。"
+      "debuff_delayed_low_activity": "🔥 {player_name} 近5轮行动不足2次，本次失熵症延缓执行。"
     },
     "g2eternity": {
       "lore": [
@@ -262,7 +264,7 @@
       "poem_yinyang": "☯️ {target_name} 的「六爻」增强！\n 充能+1（当前{charges}）\n 下{free_choices}次发动可指定效果",
       "poem_shore": "💀✨ {target_name} 的「死者苏生」增强！\n 复活后可获得全游戏任意一件物品或法术\n （不含扩展/天赋物品，不含抽象权能）",
       "poem_strife_immediate_action": "🔥 {target_name} 获得一次立刻行动！",
-      "poem_strife_completion": "🔥 {target_name} 完成立刻行动！\n 获得特殊物品「炽愿」（可抵扣1次debuff效果结算）",
+      "poem_strife_completion": "🔥 {target_name} 完成立刻行动！\n 获得特殊物品「炽愿」（可抵扣2次debuff + 0.5额外生命值）",
       "poem_light_enhanced": "✨{target_name} 的「请一直，注视着我」增强！\n 易伤+1.0 | 可用次数+1",
       "poem_light_fallback": "✨{target_name} 的全息影像已增强！\n ",
       "poem_bear": "🌅 {target_name} 的「愿负世，照拂黎明」增强！\n 额外+2神性（当前：{divinity}）\n 新增：可花1回合主动启动（启动后获1额外行动）\n 被动触发时再+2神性",
