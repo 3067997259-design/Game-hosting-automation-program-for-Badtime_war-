@@ -388,34 +388,68 @@ class BasicAIController(PlayerController):
                         return opt
                 return options[-1]
 
-            # 请一直，注视着我（全息影像）：被攻击或同地点有多个敌人或者对警察单位起了杀心时发动
+            # 请一直，注视着我（全息影像）：优化后的三条件发动逻辑
             if "注视" in talent_name:
-                attackers = len(self._been_attacked_by)
-                if attackers >= 1:
+                should_activate = False
+
+                if self._player and self._game_state:
+                    my_loc = self._get_location_str(self._player)
+                    pc = self._police_cache or {}
+
+                    # --- 辅助：计算同地点的敌人+警察总数 ---
+                    nearby_players = self._get_same_location_targets(
+                        self._player, self._game_state)
+                    nearby_police_count = 0
+                    for unit in pc.get("units", []):
+                        if (unit.get("is_alive")
+                                and unit.get("location")
+                                and unit["location"] == my_loc):
+                            nearby_police_count += 1
+                    nearby_total = len(nearby_players) + nearby_police_count
+
+                    # --- 条件1：发育完成 且 同地点敌人+警察 >= 2 ---
+                    if (not should_activate
+                            and self._is_development_complete(
+                                self._player, self._game_state)
+                            and nearby_total >= 2):
+                        should_activate = True
+
+                    # --- 条件2：正在交战 且 本轮被攻击过
+                    #            且 攻击者与自己在同一地点 ---
+                    if not should_activate and self._in_combat and self._been_attacked_by:
+                        for attacker_name in self._been_attacked_by:
+                            # 通过名字找到攻击者玩家对象
+                            for pid in self._game_state.player_order:
+                                atk = self._game_state.get_player(pid)
+                                if (atk and atk.is_alive()
+                                        and atk.name == attacker_name
+                                        and self._same_location(self._player, atk)):
+                                    should_activate = True
+                                    break
+                            if should_activate:
+                                break
+
+                    # --- 条件3：有AOE武器 且 自己是执法对象
+                    #            且 存在不在自己位置的存活警察 ---
+                    if not should_activate and self._has_aoe_weapon(self._player):
+                        is_enforcement_target = (
+                            pc.get("report_target") == self._my_id
+                            and pc.get("report_phase", "idle")
+                                in ("reported", "assembled", "dispatched")
+                        )
+                        if is_enforcement_target:
+                            for unit in pc.get("units", []):
+                                if (unit.get("is_alive")
+                                        and unit.get("location")
+                                        and unit["location"] != my_loc):
+                                    should_activate = True
+                                    break
+
+                if should_activate:
                     for opt in options:
                         if "发动" in opt:
                             return opt
-                if self._player and self._game_state:
-                    nearby = self._get_same_location_targets(self._player, self._game_state)
-                    if len(nearby) >= 2:
-                        for opt in options:
-                            if "发动" in opt:
-                                return opt
-                    # 新增：有AOE武器且地图上有不在自己位置的警察单位 → 发动全息影像把警察拉过来
-                    if self._has_aoe_weapon(self._player):
-                        pc = self._police_cache or {}
-                        units = pc.get("units", [])
-                        has_remote_police = False
-                        for unit in units:
-                            if (unit.get("is_alive")
-                                    and unit.get("location")
-                                    and unit["location"] != self._get_location_str(self._player)):
-                                has_remote_police = True
-                                break
-                        if has_remote_police:
-                            for opt in options:
-                                if "发动" in opt:
-                                    return opt
+                # 不满足任何条件 → 不发动
                 for opt in options:
                     if "不发动" in opt or "正常" in opt:
                         return opt
@@ -823,7 +857,7 @@ class BasicAIController(PlayerController):
             # 不再 return，继续生成其他候选命令
 
         # ===== 救世主状态：最高攻击优先级 =====
-        if self._is_in_savior_state(player) and player.hp > 0.5:
+        if self._is_in_savior_state(player) and self._get_effective_hp(player) > 0.5:
             debug_ai_basic(player.name, "救世主状态激活，优先攻击")
             # 优先攻击最后一个攻击自己的人
             last_attacker = self._get_last_attacker(player, state)
@@ -1235,15 +1269,16 @@ class BasicAIController(PlayerController):
 
             # 只有在无护甲时，才比较 hp vs damage
             if outer_count == 0 and inner_count == 0:
-                if target.hp <= best_dmg:
+                eff_hp = self._get_effective_hp(target)
+                if eff_hp <= best_dmg:
                     if self._can_attack_target(player, target, state):
                         debug_ai_basic(player.name,
-                            f"击杀机会: {target.name} HP={target.hp} 无护甲 dmg={best_dmg}")
+                            f"击杀机会: {target.name} HP={target.hp}(有效{eff_hp}) 无护甲 dmg={best_dmg}")
                         return True
             # 有护甲时，需要更高伤害穿透
             elif outer_count == 0 and inner_count > 0:
                 # 外层清了只剩内层，如果伤害足够打破最后内层+hp
-                if target.hp <= 0.5 and best_dmg >= 1.0:
+                if self._get_effective_hp(target) <= 0.5 and best_dmg >= 1.0:
                     if self._can_attack_target(player, target, state):
                         return True
 
@@ -2933,11 +2968,11 @@ class BasicAIController(PlayerController):
                 s += 50
             if self._same_location(player, t):
                 s += 30
-            s += max(0, 5 - t.hp) * 10
+            s += max(0, 5 - self._get_effective_hp(t)) * 10
             s -= self._count_outer_armor(t) * 15
             s -= self._count_inner_armor(t) * 10
             if self.personality == "assassin":
-                s += max(0, 3 - t.hp) * 20
+                s += max(0, 3 - self._get_effective_hp(t)) * 20
                 if self._count_outer_armor(t) == 0:
                     s += 40
                 if self._count_inner_armor(t) == 0:
@@ -2981,7 +3016,7 @@ class BasicAIController(PlayerController):
                     s += 60  # 大幅加分：优先打弱者
                 else:
                     # 所有人都有高伤害武器时，优先打 hp+护盾总值低的
-                    total_effective_hp = t.hp + self._count_outer_armor(t) + self._count_inner_armor(t)
+                    total_effective_hp = self._get_effective_hp(t) + self._count_outer_armor(t) + self._count_inner_armor(t)
                     s += max(0, 10 - total_effective_hp) * 15  # 总值越低分越高
             return s
 
@@ -3562,10 +3597,29 @@ class BasicAIController(PlayerController):
         enemy_power = self._estimate_power(target)
         return my_power < enemy_power * 0.7
 
+    def _get_effective_hp(self, player) -> float:
+        """获取玩家的有效生命值（含天赋额外HP）
+
+        - 愿负世：救世主状态的临时HP
+        - 火萤IV型：炽愿层数 × 0.5
+        """
+        hp = player.hp
+        talent = getattr(player, 'talent', None)
+        if talent:
+            # 愿负世：救世主临时HP
+            temp_hp = getattr(talent, 'temp_hp', 0.0)
+            if temp_hp > 0:
+                hp += temp_hp
+            # 火萤IV型：炽愿额外HP
+            charges = getattr(talent, 'ardent_wish_charges', 0)
+            if charges > 0:
+                hp += charges * 0.5
+        return hp
+
     def _estimate_power(self, player) -> float:
         """估算玩家战力"""
         power = 0.0
-        power += player.hp * 10
+        power += self._get_effective_hp(player) * 10
 
         weapons = getattr(player, 'weapons', [])
         for w in weapons:

@@ -34,7 +34,7 @@ from engine.prompt_manager import prompt_manager
 
 class Hologram(BaseTalent):
     name = "请一直，注视着我"
-    description = "主动1次：展开3轮全息影像。隐身无效/+0.5伤害/禁锁定找到/自动面对面。"
+    description = "主动1次：展开全息影像（3-6轮，按存活人数）。隐身无效/+0.5伤害/禁锁定找到/自动面对面。"
     tier = "神代"
 
     def __init__(self, player_id, game_state):
@@ -72,7 +72,8 @@ class Hologram(BaseTalent):
             return None
         if self.active:
             return None  # 已有一个影像展开中
-        return f"发动天赋：{self.name}（在当前地点展开全息影像，持续3轮）"
+        duration = self._get_initial_duration()
+        return f"发动天赋：{self.name}（在当前地点展开全息影像，持续{duration}轮）"
 
     def execute_t0(self, player):
         if self.active:
@@ -494,8 +495,18 @@ class Hologram(BaseTalent):
         )
 
     def _get_initial_duration(self):
-        """初始持续轮数（ver1.9：增强后不再缩短持续时间，始终为3轮）"""
-        return 3
+        """初始持续轮数：基于存活玩家数动态计算
+
+        2人 → 3轮, 每多1人 +1轮, 最多6轮
+        公式: min(3 + max(alive_count - 2, 0), 6)
+        """
+        alive_count = 0
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and p.is_alive():
+                alive_count += 1
+        alive_count = max(alive_count, 2)  # 至少按2人算
+        return min(3 + (alive_count - 2), 6)
 
     # ============================================
     #  描述
@@ -520,7 +531,7 @@ class Hologram(BaseTalent):
     def describe(self):
         return (
             f"【{self.name}】"
-            f"\n  主动{self.max_uses}次：在所在地点展开全息影像，持续3轮"
+            f"\n  主动{self.max_uses}次：在所在地点展开全息影像，持续{self._get_initial_duration()}轮"
             f"\n  隐身无效 | 受伤+{self._get_bonus_damage()} | 非发动者禁锁定/找到"
             f"\n  进入影像自动与发动者建立面对面"
             f"\n  连续停留2轮→震荡 | 非玩家单位沉沦"
