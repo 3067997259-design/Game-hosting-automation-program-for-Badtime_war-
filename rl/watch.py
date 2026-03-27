@@ -81,7 +81,7 @@ def watch(model_path: str, num_opponents: int = 1, max_rounds: Optional[int] = N
 
     print(f"\n{'='*60}")
     print(f"  对局开始: RL_Agent vs {num_opponents} AI")
-    print(f"  最大轮数: {max_rounds}")
+    print(f"  最大轮数: {state.max_rounds}")
     print(f"{'='*60}\n")
 
     done = False

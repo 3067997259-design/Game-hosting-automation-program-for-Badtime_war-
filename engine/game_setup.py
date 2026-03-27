@@ -57,12 +57,12 @@ TALENT_TABLE = [
 # ════════════════════════════════════════════════════════
 
 AI_TALENT_PREFERENCE = {
-    "aggressive": [8, 1, 3, 5, 4, 2, 9, 6, 10, 11, 7, 12],
-    "defensive":  [11, 7, 2, 6, 4, 3, 10, 9, 1, 8, 12, 5],
-    "political":  [6, 5, 7, 2, 4, 11, 3, 1, 9, 10, 8, 12],
-    "assassin":   [5, 1, 10, 2, 4, 9, 8, 3, 6, 7, 11, 12],
-    "builder":    [12, 7, 11, 6, 4, 2, 3, 9, 1, 10, 5, 8],
-    "balanced":   [4, 2, 1, 3, 6, 5, 7, 11, 8, 9, 10, 12],
+    "aggressive": [8, 1, 10, 3, 5, 9, 4, 2],
+    "defensive":  [11, 7, 2, 3, 10, 4, 9, 12],
+    "political":  [6, 7, 11, 2, 4, 3, 9],
+    "assassin":   [5, 1, 10, 8, 9, 2, 4],
+    "builder":    [12, 7, 11, 4, 3, 2, 9],
+    "balanced":   [4, 1, 5, 3, 2, 9, 11, 12],
 }
 
 AI_PERSONALITIES = ["balanced", "aggressive", "defensive",
@@ -72,6 +72,8 @@ AI_NAME_POOL = [
     "阿尔法", "贝塔", "伽马", "德尔塔", "艾普西隆", "泽塔",
     "影", "刃", "霜", "焰", "雷", "风",
 ]
+
+TALENT_DECAY_FACTOR = 0.75
 
 
 def setup_game():
@@ -475,18 +477,15 @@ def _talent_selection(game_state, ai_players_info=None):
         if pid in ai_pids:
             personality = ai_personality_map.get(pid, "balanced")
             chosen = _ai_pick_talent(personality, available, taken)
-            if chosen:
-                n, name, cls = chosen
-                talent_inst = cls(pid, game_state)
-                player.talent = talent_inst
-                player.talent_name = name
-                talent_inst.on_register()
-                # 显示天赋激活效果
-                talent_inst.show_activation(player_name=player.name, show_lore=True)
-                taken.add(n)
-                print(f"  🤖 {player.name}（AI·{personality}）自动选择天赋【{name}】")
-            else:
-                print(f"  🤖 {player.name}（AI）选择不使用天赋。")
+            n, name, cls = chosen
+            talent_inst = cls(pid, game_state)
+            player.talent = talent_inst
+            player.talent_name = name
+            talent_inst.on_register()
+            # 显示天赋激活效果
+            talent_inst.show_activation(player_name=player.name, show_lore=True)
+            taken.add(n)
+            print(f"  🤖 {player.name}（AI·{personality}）自动选择天赋【{name}】")
             continue
 
         # ──── 人类手动选择（原逻辑保留） ────
@@ -550,8 +549,10 @@ def _talent_selection(game_state, ai_players_info=None):
 
 def _ai_pick_talent(personality: str, available, taken: set):
     """
-    AI 根据人格偏好从可用天赋中选择。
-    返回 (编号, 名称, 类) 或 None（不选）。
+    AI 根据人格偏好从可用天赋中加权随机选择。
+    返回 (编号, 名称, 类)。
+
+    调用方保证 available 非空且已排除 taken，因此总能返回结果。
 
     【调试增强】添加详细的选择过程日志，便于验证AI是否按倾向选择。
     """
@@ -569,25 +570,27 @@ def _ai_pick_talent(personality: str, available, taken: set):
         debug_system(f"已选天赋: {taken}")
         debug_system(f"可用天赋: {[n for n, _, _, _ in available]}")
 
-    # 按照偏好顺序查找
-    for talent_num in preference:
-        if talent_num in taken:
-            if is_debug_enabled():
-                debug_system(f"天赋 {talent_num} 已被选，跳过")
-            continue
+    # 按照偏好顺序查找（available 已由调用方排除 taken）
+    candidates = []
+    weights = []
+    for i, talent_num in enumerate(preference):
         for n, name, cls, desc in available:
             if n == talent_num:
-                if is_debug_enabled():
-                    debug_system(f"根据偏好选择天赋 {talent_num}: {name}")
-                return (n, name, cls)
+                candidates.append((n, name, cls))
+                weights.append(TALENT_DECAY_FACTOR ** i)
+                break
 
-    # 偏好列表里的都被选走了 → 随机选一个
-    if available:
+    if not candidates:
+        # 偏好列表里的天赋全被选走（理论上不应发生）→ 随机兜底
         chosen = random.choice(available)
         if is_debug_enabled():
             debug_system(f"偏好天赋均不可用，随机选择: {chosen[0]}: {chosen[1]}")
         return (chosen[0], chosen[1], chosen[2])
 
+    selected = random.choices(candidates, weights=weights, k=1)[0]
     if is_debug_enabled():
-        debug_system(f"无可用天赋")
-    return None
+        total_w = sum(weights)
+        probs = [f"{c[1]}({w/total_w:.1%})" for c, w in zip(candidates, weights)]
+        debug_system(f"加权随机选择天赋: {' > '.join(probs)}")
+        debug_system(f"选中: {selected[1]}")
+    return selected
