@@ -477,18 +477,15 @@ def _talent_selection(game_state, ai_players_info=None):
         if pid in ai_pids:
             personality = ai_personality_map.get(pid, "balanced")
             chosen = _ai_pick_talent(personality, available, taken)
-            if chosen:
-                n, name, cls = chosen
-                talent_inst = cls(pid, game_state)
-                player.talent = talent_inst
-                player.talent_name = name
-                talent_inst.on_register()
-                # 显示天赋激活效果
-                talent_inst.show_activation(player_name=player.name, show_lore=True)
-                taken.add(n)
-                print(f"  🤖 {player.name}（AI·{personality}）自动选择天赋【{name}】")
-            else:
-                print(f"  🤖 {player.name}（AI）选择不使用天赋。")
+            n, name, cls = chosen
+            talent_inst = cls(pid, game_state)
+            player.talent = talent_inst
+            player.talent_name = name
+            talent_inst.on_register()
+            # 显示天赋激活效果
+            talent_inst.show_activation(player_name=player.name, show_lore=True)
+            taken.add(n)
+            print(f"  🤖 {player.name}（AI·{personality}）自动选择天赋【{name}】")
             continue
 
         # ──── 人类手动选择（原逻辑保留） ────
@@ -552,8 +549,10 @@ def _talent_selection(game_state, ai_players_info=None):
 
 def _ai_pick_talent(personality: str, available, taken: set):
     """
-    AI 根据人格偏好从可用天赋中选择。
-    返回 (编号, 名称, 类) 或 None（不选）。
+    AI 根据人格偏好从可用天赋中加权随机选择。
+    返回 (编号, 名称, 类)。
+
+    调用方保证 available 非空且已排除 taken，因此总能返回结果。
 
     【调试增强】添加详细的选择过程日志，便于验证AI是否按倾向选择。
     """
@@ -571,12 +570,10 @@ def _ai_pick_talent(personality: str, available, taken: set):
         debug_system(f"已选天赋: {taken}")
         debug_system(f"可用天赋: {[n for n, _, _, _ in available]}")
 
-    # 按照偏好顺序查找
+    # 按照偏好顺序查找（available 已由调用方排除 taken）
     candidates = []
     weights = []
     for i, talent_num in enumerate(preference):
-        if talent_num in taken:
-            continue
         for n, name, cls, desc in available:
             if n == talent_num:
                 candidates.append((n, name, cls))
@@ -585,14 +582,9 @@ def _ai_pick_talent(personality: str, available, taken: set):
 
     if not candidates:
         # 偏好列表里的天赋全被选走（理论上不应发生）→ 随机兜底
-        remaining = [(n, name, cls) for n, name, cls, desc in available if n not in taken]
-        if remaining:
-            chosen = random.choice(remaining)
-            if is_debug_enabled():
-                debug_system(f"偏好天赋均不可用，随机选择: {chosen[0]}: {chosen[1]}")
-            return chosen
-        # 真的没有可用天赋了
         chosen = random.choice(available)
+        if is_debug_enabled():
+            debug_system(f"偏好天赋均不可用，随机选择: {chosen[0]}: {chosen[1]}")
         return (chosen[0], chosen[1], chosen[2])
 
     selected = random.choices(candidates, weights=weights, k=1)[0]
