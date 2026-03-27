@@ -388,34 +388,68 @@ class BasicAIController(PlayerController):
                         return opt
                 return options[-1]
 
-            # 请一直，注视着我（全息影像）：被攻击或同地点有多个敌人或者对警察单位起了杀心时发动
+            # 请一直，注视着我（全息影像）：优化后的三条件发动逻辑
             if "注视" in talent_name:
-                attackers = len(self._been_attacked_by)
-                if attackers >= 1:
+                should_activate = False
+
+                if self._player and self._game_state:
+                    my_loc = self._get_location_str(self._player)
+                    pc = self._police_cache or {}
+
+                    # --- 辅助：计算同地点的敌人+警察总数 ---
+                    nearby_players = self._get_same_location_targets(
+                        self._player, self._game_state)
+                    nearby_police_count = 0
+                    for unit in pc.get("units", []):
+                        if (unit.get("is_alive")
+                                and unit.get("location")
+                                and unit["location"] == my_loc):
+                            nearby_police_count += 1
+                    nearby_total = len(nearby_players) + nearby_police_count
+
+                    # --- 条件1：发育完成 且 同地点敌人+警察 >= 2 ---
+                    if (not should_activate
+                            and self._is_development_complete(
+                                self._player, self._game_state)
+                            and nearby_total >= 2):
+                        should_activate = True
+
+                    # --- 条件2：正在交战 且 本轮被攻击过
+                    #            且 攻击者与自己在同一地点 ---
+                    if not should_activate and self._in_combat and self._been_attacked_by:
+                        for attacker_name in self._been_attacked_by:
+                            # 通过名字找到攻击者玩家对象
+                            for pid in self._game_state.player_order:
+                                atk = self._game_state.get_player(pid)
+                                if (atk and atk.is_alive()
+                                        and atk.name == attacker_name
+                                        and self._same_location(self._player, atk)):
+                                    should_activate = True
+                                    break
+                            if should_activate:
+                                break
+
+                    # --- 条件3：有AOE武器 且 自己是执法对象
+                    #            且 存在不在自己位置的存活警察 ---
+                    if not should_activate and self._has_aoe_weapon(self._player):
+                        is_enforcement_target = (
+                            pc.get("report_target") == self._my_id
+                            and pc.get("report_phase", "idle")
+                                in ("reported", "assembled", "dispatched")
+                        )
+                        if is_enforcement_target:
+                            for unit in pc.get("units", []):
+                                if (unit.get("is_alive")
+                                        and unit.get("location")
+                                        and unit["location"] != my_loc):
+                                    should_activate = True
+                                    break
+
+                if should_activate:
                     for opt in options:
                         if "发动" in opt:
                             return opt
-                if self._player and self._game_state:
-                    nearby = self._get_same_location_targets(self._player, self._game_state)
-                    if len(nearby) >= 2:
-                        for opt in options:
-                            if "发动" in opt:
-                                return opt
-                    # 新增：有AOE武器且地图上有不在自己位置的警察单位 → 发动全息影像把警察拉过来
-                    if self._has_aoe_weapon(self._player):
-                        pc = self._police_cache or {}
-                        units = pc.get("units", [])
-                        has_remote_police = False
-                        for unit in units:
-                            if (unit.get("is_alive")
-                                    and unit.get("location")
-                                    and unit["location"] != self._get_location_str(self._player)):
-                                has_remote_police = True
-                                break
-                        if has_remote_police:
-                            for opt in options:
-                                if "发动" in opt:
-                                    return opt
+                # 不满足任何条件 → 不发动
                 for opt in options:
                     if "不发动" in opt or "正常" in opt:
                         return opt
