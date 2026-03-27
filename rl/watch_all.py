@@ -15,6 +15,7 @@ from sb3_contrib import MaskablePPO
 from rl.env import BadtimeWarEnv
 from rl.watch import action_name  # 复用 RL 动作名翻译
 from rl.action_space import get_opponent_slots
+from typing import Optional
 
 
 # ─────────────────────────────────────────────────────────────
@@ -125,7 +126,7 @@ def _print_ai_actions(actions):
 #  主观战函数
 # ─────────────────────────────────────────────────────────────
 
-def watch_all(model_path: str, num_opponents: int = 1, max_rounds: int = 50, n_stack: int = 1):
+def watch_all(model_path: str, num_opponents: int = 1, max_rounds: Optional[int] = None, n_stack: int = 1):
     print(f"加载模型: {model_path}")
     model = MaskablePPO.load(model_path)
 
@@ -260,7 +261,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description="观战 RL 对局（完整版，含 AI 行动）")
     p.add_argument("--model", type=str, required=True, help="模型路径 (.zip)")
     p.add_argument("--opponents", type=int, default=1)
-    p.add_argument("--max-rounds", type=int, default=50)
+    p.add_argument("--max-rounds", type=int, default=None)
     p.add_argument("--n-stack", type=int, default=30)
     args = p.parse_args()
 

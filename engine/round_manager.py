@@ -14,16 +14,26 @@ class RoundManager:
         self.state.police_engine = self.police_engine
 
     def run_game_loop(self):
-        while not self.state.game_over:
-            self.run_one_round()
-            winner_id = self.state.check_victory()
-            if winner_id:
-                self.state.game_over = True
-                if winner_id == "nobody":
-                    display.show_info("所有玩家都已死亡……无人获胜。")
-                else:
-                    winner = self.state.get_player(winner_id)
-                    display.show_victory(winner.name if winner else winner_id)
+            while not self.state.game_over:
+                self.run_one_round()
+                winner_id = self.state.check_victory()
+                if winner_id:
+                    self.state.game_over = True
+                    self.state.winner = winner_id
+                    if winner_id == "nobody":
+                        display.show_info("所有玩家都已死亡……无人获胜。")
+                    else:
+                        winner = self.state.get_player(winner_id)
+                        display.show_victory(winner.name if winner else winner_id)
+                    return
+
+                # 最大轮数安全网
+                if self.state.is_max_rounds_reached():
+                    self.state.game_over = True
+                    self.state.winner = "nobody"
+                    display.show_info(
+                        f"⚠️ 达到最大轮数限制（{self.state.max_rounds}轮），游戏判定平局。")
+                    return
 
     def run_one_round(self):
         self.state.current_round += 1

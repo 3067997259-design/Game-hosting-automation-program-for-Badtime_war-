@@ -392,6 +392,13 @@ def setup_game():
 
     print()
 
+    # ════════════════════════════════════════════════════════
+    #  设置最大轮数（动态默认：每人 50 轮）
+    # ════════════════════════════════════════════════════════
+    player_count = len(game_state.player_order)
+    game_state.max_rounds = GameState.compute_default_max_rounds(player_count)
+    show_info(f"最大轮数限制：{game_state.max_rounds}轮（{player_count}人 × 50）")
+
     # 全AI模式不需要按回车
     if game_mode != "all_ai":
         input("  按回车键开始游戏...")
