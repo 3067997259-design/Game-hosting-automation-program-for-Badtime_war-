@@ -1939,27 +1939,66 @@ class BasicAIController(PlayerController):
         pe = getattr(state, 'police_engine', None)
         if pe and pe.is_protected_by_police(target.player_id):
             if self._get_weapon_range(weapon) != "area":
-                aoe_name = self._get_aoe_weapon_name(player)
-                if aoe_name:
-                    # 先从玩家武器列表找实体
-                    aoe_weapon = next((w for w in getattr(player, 'weapons', [])
-                                    if w and w.name == aoe_name), None)
-                    if not aoe_weapon:
-                        # 学会的法术不在weapons列表里，用make_weapon创建
-                        aoe_weapon = make_weapon(aoe_name)
-                    if aoe_weapon:
+                aoe_names = self._get_all_aoe_weapon_names(player)
+                if aoe_names:
+                    # 遍历所有AOE武器，按属性克制+可用性评分选最佳
+                    target_armor_attrs = self._get_outer_armor_attr(target)
+                    if not target_armor_attrs:
+                        target_armor_attrs = self._get_inner_armor_attr(target)
+
+                    ready_candidates = []   # [(score, weapon)]
+                    charge_candidate = None
+                    for aoe_name in aoe_names:
+                        # 先从玩家武器列表找实体
+                        aoe_weapon = next((w for w in getattr(player, 'weapons', [])
+                                        if w and w.name == aoe_name), None)
+                        if not aoe_weapon:
+                            # 学会的法术不在weapons列表里，用make_weapon创建
+                            aoe_weapon = make_weapon(aoe_name)
+                        if not aoe_weapon:
+                            continue  # 无法创建武器实例，跳过
                         # 检查是否需要蓄力（如电磁步枪）
                         if (getattr(aoe_weapon, 'requires_charge', False)
                                 and getattr(aoe_weapon, 'charge_mandatory', True)
                                 and not getattr(aoe_weapon, 'is_charged', False)):
-                            if "special" in available:
-                                commands.append(f"special 蓄力{aoe_name}")
-                                debug_ai_attack_generation(player.name,
-                                    aoe_name, f"目标 {target.name} 受警察保护，AOE武器需蓄力")
-                            return commands
-                        weapon = aoe_weapon
+                            # 需要蓄力，记录为备选但继续找不需要蓄力的
+                            if charge_candidate is None:
+                                charge_candidate = (aoe_name, aoe_weapon)
+                            continue
+                        # 可直接使用，按属性克制评分
+                        score = self._get_weapon_damage(aoe_weapon) * 10
+                        w_attr = self._get_weapon_attr(aoe_weapon)
+                        if target_armor_attrs:
+                            effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
+                            if any(a in effective_set for a in target_armor_attrs):
+                                score += 50  # 能克制目标护甲，大幅加分
+                            else:
+                                score -= 30  # 打不动，降分
+                        ready_candidates.append((score, aoe_weapon))
+
+                    # 从可直接使用的候选中选最佳
+                    ready_weapon = None
+                    if ready_candidates:
+                        ready_candidates.sort(key=lambda x: x[0], reverse=True)
+                        ready_weapon = ready_candidates[0][1]
+
+                    if ready_weapon:
+                        weapon = ready_weapon
                         debug_ai_attack_generation(player.name,
-                            weapon.name, f"目标 {target.name} 受警察保护，强制切换AOE武器: {aoe_name}")
+                            weapon.name, f"目标 {target.name} 受警察保护，强制切换AOE武器: {weapon.name}")
+                    elif charge_candidate:
+                        # 没有可直接使用的，蓄力第一个需要蓄力的
+                        c_name, c_weapon = charge_candidate
+                        if "special" in available:
+                            commands.append(f"special 蓄力{c_name}")
+                            debug_ai_attack_generation(player.name,
+                                c_name, f"目标 {target.name} 受警察保护，AOE武器需蓄力")
+                        return commands
+                    else:
+                        # 所有AOE武器名都无法创建实体（理论上不应发生）
+                        debug_ai_attack_generation(player.name,
+                            weapon.name, f"目标 {target.name} 受警察保护，AOE武器实体化失败，跳过攻击")
+                        return commands
                 else:
                     # 真的没有AOE武器，跳过攻击（不浪费回合在必定失败的近战上）
                     debug_ai_attack_generation(player.name,
@@ -1972,14 +2011,6 @@ class BasicAIController(PlayerController):
             debug_ai_attack_generation(player.name,
                 weapon.name, f"所有武器被目标 {target.name} 护甲克制，跳过攻击")
             return commands
-
-        # >>> 新增：目标受警察保护且自己没有AOE武器 → 不生成单体攻击命令
-        pe = getattr(state, 'police_engine', None)
-        if pe and pe.is_protected_by_police(target.player_id):
-            if not self._has_aoe_weapon(player):
-                debug_ai_attack_generation(player.name,
-                    weapon.name, f"目标 {target.name} 受警察保护且无AOE武器，跳过攻击")
-                return commands
 
         cmds = self._build_attack_cmd(player, target, weapon, state, available)
         commands.extend(cmds)
@@ -3979,6 +4010,24 @@ class BasicAIController(PlayerController):
         if "地震" in learned:
             return "地震"
         return None
+
+    def _get_all_aoe_weapon_names(self, player) -> List[str]:
+        """返回玩家拥有的所有AOE武器名列表（武器列表优先，然后是已学法术）"""
+        names = []
+        seen = set()
+        for w in getattr(player, 'weapons', []):
+            name = w.name if hasattr(w, 'name') else str(w)
+            if name in POLICE_AOE_WEAPONS and name not in seen:
+                names.append(name)
+                seen.add(name)
+        learned = getattr(player, 'learned_spells', set())
+        if "地动山摇" in learned and "地动山摇" not in seen:
+            names.append("地动山摇")
+            seen.add("地动山摇")
+        if "地震" in learned and "地震" not in seen:
+            names.append("地震")
+            seen.add("地震")
+        return names
 
     def _armor_counters_weapon(self, player, weapon_name) -> bool:
         """检查玩家的护甲是否克制指定武器"""
