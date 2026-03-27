@@ -146,7 +146,7 @@ class BadtimeWarEnv(gym.Env):
     def __init__(
         self,
         num_opponents: int = 3,
-        max_rounds: int = 50,
+        max_rounds: Optional[int] = None,
         render_mode: Optional[str] = None,
         n_stack: int = 1,
         opponent_pool=None,
@@ -244,6 +244,13 @@ class BadtimeWarEnv(gym.Env):
         for p in all_players:
             self._state.add_player(p)
 
+        # 设置最大轮数：显式指定 > 动态默认
+        if self.max_rounds is not None:
+            self._state.max_rounds = self.max_rounds
+        else:
+            self._state.max_rounds = GameState.compute_default_max_rounds(
+                len(self._state.player_order))
+
         # 创建轮次管理器
         self._round_manager = RoundManager(self._state)
 
@@ -320,7 +327,7 @@ class BadtimeWarEnv(gym.Env):
         truncated = bool(self._max_rounds_reached)
         if not truncated and not self._state.game_over:
             # env 侧也检查一次（防御性）
-            if self._state.current_round >= self.max_rounds:
+            if self._state.is_max_rounds_reached():
                 truncated = True
                 self._max_rounds_reached = True
                 self._state.game_over = True
@@ -378,15 +385,15 @@ class BadtimeWarEnv(gym.Env):
             while not self._state.game_over and not self._game_over_flag:
                 self._round_manager.run_one_round()
 
-                # 检查胜利
-                winner_id = self._state.check_victory()
-                if winner_id:
+                # 安全网：超过最大轮数
+                if self._state.is_max_rounds_reached():
+                    self._max_rounds_reached = True
                     self._state.game_over = True
-                    self._state.winner = winner_id
+                    self._state.winner = "nobody"
                     break
 
                 # 安全网：超过最大轮数
-                if self._state.current_round >= self.max_rounds:
+                if self._state.is_max_rounds_reached():
                     self._max_rounds_reached = True
                     self._state.game_over = True
                     self._state.winner = "nobody"

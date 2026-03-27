@@ -20,6 +20,7 @@ class GameState:
         # 轮次
         self.current_round = 0
         self.current_phase = "not_started"
+        self.max_rounds: Optional[int] = None   # 新增：None = 无限制
 
         # AI 演示速度控制
         self.ai_delay = 0.0         # 每次行动后的延迟秒数（0=不延迟）
@@ -88,6 +89,15 @@ class GameState:
         if len(alive) == 0:
             return "nobody"
         return None
+
+    @staticmethod
+    def compute_default_max_rounds(player_count: int) -> int:
+        """动态计算默认最大轮数：每人 50 轮"""
+        return player_count * 50
+
+    def is_max_rounds_reached(self) -> bool:
+        """检查是否达到最大轮数限制"""
+        return self.max_rounds is not None and self.current_round >= self.max_rounds
 
     def log_event(self, event_type, **kwargs):
         event = {

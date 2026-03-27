@@ -39,6 +39,7 @@ from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 from rl.env import BadtimeWarEnv
 from rl.feature_extractor import GRUFeatureExtractor
 from typing import TYPE_CHECKING
+from typing import Optional
 
 if TYPE_CHECKING:
     from rl.self_play import OpponentPool
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
 
 def make_env(
     num_opponents: int = 3,
-    max_rounds: int = 100,
+    max_rounds: Optional[int] = None,
     seed: int = 0,
     rank: int = 0,
     n_stack: int = 1,
@@ -440,7 +441,11 @@ def train(args: argparse.Namespace):
     if args.curriculum:
         thresholds_str = ', '.join(f"{t:.0%}" for t in curriculum_cb.win_thresholds)   # type: ignore
         print(f"  课程学习: 启用 ({' → '.join(str(s) for s in stages)}, 阈值 [{thresholds_str}])")
-    print(f"  最大轮数: {args.max_rounds}")
+    if args.max_rounds is not None:
+        print(f"  最大轮数: {args.max_rounds}（手动指定）")
+    else:
+        default_mr = (args.opponents + 1) * 50
+        print(f"  最大轮数: {default_mr}（动态默认，{args.opponents + 1}人 × 50）")
     print(f"  总步数: {args.timesteps:,}")
     print(f"  并行环境: {args.n_envs}")
     print(f"  日志目录: {log_dir}")
@@ -482,8 +487,8 @@ def parse_args() -> argparse.Namespace:
     # 环境参数
     p.add_argument("--opponents", type=int, default=3,
                    help="对手数量 (1-5)")
-    p.add_argument("--max-rounds", type=int, default=100,
-                   help="每局最大轮数")
+    p.add_argument("--max-rounds", type=int, default=None,
+                   help="每局最大轮数（默认：动态计算，多一个人多增加五十轮）")
 
     # 训练参数
     p.add_argument("--timesteps", type=int, default=1_000_000,
