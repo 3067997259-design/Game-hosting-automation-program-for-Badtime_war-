@@ -34,7 +34,7 @@ from engine.prompt_manager import prompt_manager
 
 class Hologram(BaseTalent):
     name = "请一直，注视着我"
-    description = description = "主动1次：展开全息影像（3-6轮，按存活人数）。隐身无效/+0.5伤害/禁锁定找到/自动面对面。"
+    description = "主动1次：展开全息影像（3-6轮，按存活人数）。隐身无效/+0.5伤害/禁锁定找到/自动面对面。"
     tier = "神代"
 
     def __init__(self, player_id, game_state):
