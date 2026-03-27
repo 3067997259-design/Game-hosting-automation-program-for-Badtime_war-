@@ -2832,6 +2832,8 @@ class BasicAIController(PlayerController):
             return 0.0
         best =0.0
         for w in weapons:
+            if not w:
+                continue
             dmg = self._estimate_talent_adjusted_damage(player, w)
             if dmg > best:
                 best = dmg
