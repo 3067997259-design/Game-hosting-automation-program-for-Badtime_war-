@@ -191,7 +191,7 @@ class PoliceEngine:
         if not target or not target.is_alive():
             return False, "执法目标已不存在"
 
-        # 检查是否有存活的警察单位不在目标位置（即需要追踪的单位）
+        # 检查是否有可行动的警察单位不在目标位置（被控单位无法移动，不计入）
         units_needing_track = [
             u for u in self.police.active_units()
             if u.is_on_map() and u.location != target.location
@@ -213,7 +213,7 @@ class PoliceEngine:
         if not target or not target.is_alive():
             return "❌ 执法目标已不存在"
 
-        # [FIX] 所有不在目标位置的存活警察单位立刻到达
+        # [FIX] 所有不在目标位置的可行动警察单位立刻到达（被控单位无法响应指引）
         guided_units = []
         for unit in self.police.active_units():
             if unit.is_on_map() and unit.location != target.location:
@@ -237,7 +237,7 @@ class PoliceEngine:
 
         target_loc = target.location
 
-        # 移动所有存活警察单位到目标位置
+        # 移动所有可行动的警察单位到目标位置（被控单位无法移动）
         for unit in self.police.active_units():
             unit.location = target_loc
 
@@ -354,14 +354,15 @@ class PoliceEngine:
             raw_damage = raw_damage_override if raw_damage_override is not None else 1.0
         # ---- 天赋：修改输出伤害（如火萤IV型 +100%）----
         damage_multiplier = 1.0
+        bonus_damage = 0.0
         if attacker and hasattr(attacker, 'talent') and attacker.talent:
             mod = attacker.talent.modify_outgoing_damage(attacker, None, weapon, raw_damage)
             if mod:
                 if "damage_multiplier_override" in mod:
                     damage_multiplier = mod["damage_multiplier_override"]
                 if "bonus_damage" in mod:
-                    raw_damage += mod["bonus_damage"]
-        raw_damage = raw_damage * damage_multiplier
+                    bonus_damage += mod["bonus_damage"]
+        raw_damage = raw_damage * damage_multiplier + bonus_damage
 
         # ---- 全息影像：警察单位在影像内额外+0.5伤害 ----
         hologram_bonus = self._get_hologram_bonus_for_unit(unit)
