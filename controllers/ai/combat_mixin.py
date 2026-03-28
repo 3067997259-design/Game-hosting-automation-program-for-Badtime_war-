@@ -252,7 +252,10 @@ class CombatMixin:
         return True
     def _has_non_ordinary_weapon(self, player) -> bool:
         """检查玩家是否拥有非普通属性的武器（魔法或科技）"""
-        for w in player.weapons:
+        from utils.attribute import Attribute
+        for w in getattr(player, 'weapons', []):
+            if not w:
+                continue
             attr = self._get_weapon_attr(w)
             if attr in (Attribute.MAGIC, Attribute.TECH):
                 return True
@@ -290,14 +293,15 @@ class CombatMixin:
         - 如果选军事基地，到达时会触发强买通行证
         - 没凭证 → 去魔法所（免费）
         """
+        from utils.attribute import Attribute
         vouchers = getattr(player, 'vouchers', 0)
         has_magic_weapon = any(
             self._get_weapon_attr(w) == Attribute.MAGIC
-            for w in player.weapons
+            for w in getattr(player, 'weapons', []) if w
         )
         has_tech_weapon = any(
             self._get_weapon_attr(w) == Attribute.TECH
-            for w in player.weapons
+            for w in getattr(player, 'weapons', []) if w
         )
         if vouchers < 1:
             # 没凭证，只能去魔法所（免费学法术）
@@ -521,6 +525,55 @@ class CombatMixin:
                 return piece
         # 没有可克制的，选第一个
         return armor_pieces[0]
+    # ════════════════════════════════════════════════════════
+    #  探测手段获取
+    # ════════════════════════════════════════════════════════
+
+    def _cmd_get_detection(self, player, state, available: List[str]) -> List[str]:
+        """生成获取探测手段的命令（当目标隐身且自己没有探测时）"""
+        commands = []
+        loc = self._get_location_str(player)
+        has_detection = getattr(player, 'has_detection', False)
+        if has_detection:
+            return commands  # 已有探测，不需要
+
+        vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+
+        # 当前位置能拿探测手段就直接拿
+        if "interact" in available:
+            if loc == "商店" and vouchers >= 1:
+                commands.append("interact 热成像仪")
+                return commands
+            if loc == "魔法所":
+                learned = self._get_learned_spells(player)
+                if "探测魔法" not in learned:
+                    commands.append("interact 探测魔法")
+                    return commands
+            if loc == "军事基地" and has_pass:
+                commands.append("interact 雷达")
+                return commands
+
+        # 不在能拿探测的地方 → 移动过去
+        if "move" in available:
+            # 优先去魔法所（免费），其次商店（需凭证），最后军事基地（需通行证）
+            if loc != "魔法所":
+                commands.append("move 魔法所")
+            elif vouchers >= 1 and loc != "商店":
+                commands.append("move 商店")
+            elif has_pass and loc != "军事基地":
+                commands.append("move 军事基地")
+            else:
+                # 没凭证也没通行证 → 去魔法所学探测魔法（免费）
+                if loc != "魔法所":
+                    commands.append("move 魔法所")
+
+        return commands
+
+    # ════════════════════════════════════════════════════════
+    #  属性克制工具
+    # ════════════════════════════════════════════════════════
+
     def _pick_counter_attr(self, target_armor_attr) -> 'Attribute':
         """根据目标护甲属性，选择克制它的武器属性"""
         from utils.attribute import Attribute

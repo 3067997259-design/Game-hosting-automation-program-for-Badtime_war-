@@ -86,16 +86,6 @@ class BasicAIController(
         self._combat_just_ended_at = None
 
     # ════════════════════════════════════════════════════════
-    #  救世主状态检查 (原 lines 704-709)
-    # ════════════════════════════════════════════════════════
-
-    def _is_in_savior_state(self, player) -> bool:
-        talent = getattr(player, 'talent', None)
-        if talent and hasattr(talent, 'is_savior') and talent.is_savior:
-            return True
-        return False
-
-    # ════════════════════════════════════════════════════════
     #  接口实现：get_command (原 lines 282-308)
     # ════════════════════════════════════════════════════════
 
@@ -386,6 +376,37 @@ class BasicAIController(
                 seen.add(cmd)
                 deduped.append(cmd)
         return deduped
+
+
+    def _pick_fallback_destination(self, player, state) -> Optional[str]:
+        """发育受阻时的兜底：在能满足需求的地点中选敌人最少的"""
+        unmet_needs = self._get_unmet_needs(player, state)
+        if not unmet_needs:
+            return self._find_nearest_enemy_location(player, state)
+
+        loc = self._get_location_str(player)
+        # 收集所有能满足至少一个需求的地点
+        useful_locs = set()
+        for need_key, _ in unmet_needs:
+            for (ploc, item_name, _) in NEED_PROVIDERS.get(need_key, []):
+                if not self._already_has_item(player, item_name):
+                    useful_locs.add(ploc)
+
+        # 排除当前位置和已在的 home
+        useful_locs.discard(loc)
+        if self._is_at_home(player):
+            useful_locs.discard("home")
+
+        if not useful_locs:
+            return self._find_nearest_enemy_location(player, state)
+
+        # 按敌人数排序，选最少的
+        scored = []
+        for dest in useful_locs:
+            enemies = self._count_enemies_at(dest, player, state)
+            scored.append((dest, enemies))
+        scored.sort(key=lambda x: x[1])
+        return scored[0][0]
 
 
 # ════════════════════════════════════════════════════════════════

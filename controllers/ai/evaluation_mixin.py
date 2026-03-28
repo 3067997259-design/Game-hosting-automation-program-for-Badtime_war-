@@ -206,73 +206,10 @@ class EvaluationMixin:
             self._in_combat = False
             self._combat_target = None
 
-        def _should_continue_combat(self, player, target) -> bool:
-        if not target or not target.is_alive():
-            return False
-        # aggressive：只有被打到无甲才撤退
-        if self.personality == "aggressive":
-            total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
-            if total_armor == 0:
-                return False
-        else:
-            # 其他人格：HP <= 0.5 时退出
-            if player.hp <= 0.5:
-                return False
-        if self._is_at_disadvantage(player, target) and self.personality == "defensive":
-            return False
-        # 所有武器被目标护甲克制 → 退出近战
-        if self._all_weapons_countered(player, target):
-            return False
-        # political 非 full_balanced 时不继续战斗（避免犯法），队长除外
-        if (self.personality == "political"
-                and not self._political_in_balanced_fallback
-                and not getattr(player, 'is_captain', False)):
-            return False
-        return True
-    def _is_at_disadvantage(self, player, target) -> bool:
-        """是否处于劣势"""
-        my_power = self._estimate_power(player)
-        enemy_power = self._estimate_power(target)
-        return my_power < enemy_power * 0.7
-    def _estimate_talent_adjusted_damage(self, player, weapon=None) -> float:
-        """估算考虑天赋修正后的实际伤害（用于评估其他玩家的威胁）
-        如果 weapon 为 None，则返回该玩家最强武器的天赋修正后伤害。
-        """
-        if weapon is not None:
-            base_dmg = self._get_weapon_damage(weapon)
-        else:
-            # 找最强武器
-            weapons = getattr(player, 'weapons', [])
-            if not weapons:
-                return 0.0
-            base_dmg = max((self._get_weapon_damage(w) for w in weapons if w), default=0.0)
-        talent = getattr(player, 'talent', None)
-        if not talent:
-            return base_dmg
-        # 火萤IV型：所有伤害×2
-        if hasattr(talent, 'name') and talent.name == "火萤IV型-完全燃烧":
-            return base_dmg * 2.0
-        # 救世主状态：近战+temp_attack_bonus
-        if hasattr(talent, 'is_savior') and talent.is_savior:
-            bonus = getattr(talent, 'temp_attack_bonus', 0.0)
-            # 只有近战武器才有加成，但估算时按最大值算
-            return base_dmg + bonus
-        # 一刀缭断：有使用次数时近战×2（共2次）
-        # 不在这里加成，因为是有限次数的爆发
-        return base_dmg
-    def _best_weapon_damage(self, player) -> float:
-        """获取玩家最强武器的伤害值"""
-        weapons = getattr(player, 'weapons', [])
-        if not weapons:
-            return 0.0
-        best =0.0
-        for w in weapons:
-            if not w:
-                continue
-            dmg = self._estimate_talent_adjusted_damage(player, w)
-            if dmg > best:
-                best = dmg
-        return best
+    # ════════════════════════════════════════════════════════
+    #  战斗持续判定
+    # ════════════════════════════════════════════════════════
+
     def _should_continue_combat(self, player, target) -> bool:
         if not target or not target.is_alive():
             return False
@@ -296,11 +233,17 @@ class EvaluationMixin:
                 and not getattr(player, 'is_captain', False)):
             return False
         return True
+
     def _is_at_disadvantage(self, player, target) -> bool:
         """是否处于劣势"""
         my_power = self._estimate_power(player)
         enemy_power = self._estimate_power(target)
         return my_power < enemy_power * 0.7
+
+    # ════════════════════════════════════════════════════════
+    #  伤害估算
+    # ════════════════════════════════════════════════════════
+
     def _estimate_talent_adjusted_damage(self, player, weapon=None) -> float:
         """估算考虑天赋修正后的实际伤害（用于评估其他玩家的威胁）
         如果 weapon 为 None，则返回该玩家最强武器的天赋修正后伤害。
@@ -327,12 +270,13 @@ class EvaluationMixin:
         # 一刀缭断：有使用次数时近战×2（共2次）
         # 不在这里加成，因为是有限次数的爆发
         return base_dmg
+
     def _best_weapon_damage(self, player) -> float:
         """获取玩家最强武器的伤害值"""
         weapons = getattr(player, 'weapons', [])
         if not weapons:
             return 0.0
-        best =0.0
+        best = 0.0
         for w in weapons:
             if not w:
                 continue
@@ -488,6 +432,17 @@ class EvaluationMixin:
             if dest and dest != loc:
                 commands.append(f"move {dest}")
         return commands
+    def _needs_virus_cure(self, player, state) -> bool:
+        """Bug2修复：防御 state.virus 为 None"""
+        virus = getattr(state, 'virus', None)
+        if virus is None:
+            return False
+        if not getattr(virus, 'is_active', False):
+            return False
+        if self._has_virus_immunity(player):
+            return False
+        return True
+
     def _pick_safe_armor_destination(self, player, state) -> Optional[str]:
         """危险模式下选择目的地：安全 + 能拿护甲"""
         loc = self._get_location_str(player)

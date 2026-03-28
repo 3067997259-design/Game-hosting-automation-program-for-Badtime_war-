@@ -455,4 +455,291 @@ class PoliceMixin:
                     return True
         return False
 
-    
+    # ════════════════════════════════════════════════════════
+    #  Political 降级判定
+    # ════════════════════════════════════════════════════════
+
+    def _political_should_fallback(self, player, state):
+        """Check if political AI should fall back.
+        Returns:
+            "none"         — 正常政治路径
+            "develop_only" — 只发育不攻击
+            "full_balanced" — 完全 balanced 策略含攻击
+        """
+        police = getattr(state, 'police', None)
+        if not police:
+            return "full_balanced"
+        if police.permanently_disabled:
+            return "full_balanced"
+        if police.captain_id == player.player_id:
+            return "none"
+        if police.has_captain():
+            return "full_balanced"
+        is_criminal = getattr(player, 'is_criminal', False)
+        if not is_criminal:
+            is_criminal = police.is_criminal(player.player_id)
+        if is_criminal:
+            return "develop_only"
+        return "none"
+
+    def _should_become_captain(self, player, state) -> bool:
+        """判断是否应该竞选警察队长"""
+        if not getattr(player, 'is_police', False):
+            return False
+        police = getattr(state, 'police', None)
+        if not police:
+            return False
+        captain_id = getattr(police, 'captain_id', None)
+        if captain_id is not None:
+            return False
+        if getattr(police, 'permanently_disabled', False):
+            return False
+        return True
+
+    # ════════════════════════════════════════════════════════
+    #  警察发育计划（队长用）
+    # ════════════════════════════════════════════════════════
+
+    def _init_police_dev_plan(self, alive_units, player, state):
+        """初始化警察发育计划：根据犯罪目标护甲属性分配3个单位的目标配置"""
+        sorted_units = sorted(alive_units, key=lambda u: u["id"])
+        criminal_target = self._find_criminal_target(player, state)
+        target_armor_attrs = set()
+        if criminal_target:
+            outer = self._get_outer_armor_attr(criminal_target)
+            if outer:
+                target_armor_attrs = set(outer)
+            else:
+                inner = self._get_inner_armor_attr(criminal_target)
+                if inner:
+                    target_armor_attrs = set(inner)
+        from utils.attribute import Attribute
+        if target_armor_attrs:
+            needs_magic = False
+            needs_tech = False
+            for attr in target_armor_attrs:
+                if attr == Attribute.TECH:
+                    needs_magic = True
+                elif attr == Attribute.ORDINARY:
+                    needs_tech = True
+                elif attr == Attribute.MAGIC:
+                    needs_magic = True
+            if needs_magic and not needs_tech:
+                first_dest, first_weapon, first_armor, first_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
+                second_dest, second_weapon, second_armor, second_station = "军事基地", "高斯步枪", "AT力场", "商店"
+            elif needs_tech and not needs_magic:
+                first_dest, first_weapon, first_armor, first_station = "军事基地", "高斯步枪", "AT力场", "商店"
+                second_dest, second_weapon, second_armor, second_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
+            else:
+                enemies_magic = self._count_enemies_at("魔法所", player, state)
+                enemies_military = self._count_enemies_at("军事基地", player, state)
+                if enemies_magic <= enemies_military:
+                    first_dest, first_weapon, first_armor, first_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
+                    second_dest, second_weapon, second_armor, second_station = "军事基地", "高斯步枪", "AT力场", "商店"
+                else:
+                    first_dest, first_weapon, first_armor, first_station = "军事基地", "高斯步枪", "AT力场", "商店"
+                    second_dest, second_weapon, second_armor, second_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
+        else:
+            enemies_magic = self._count_enemies_at("魔法所", player, state)
+            enemies_military = self._count_enemies_at("军事基地", player, state)
+            if enemies_magic <= enemies_military:
+                first_dest, first_weapon, first_armor, first_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
+                second_dest, second_weapon, second_armor, second_station = "军事基地", "高斯步枪", "AT力场", "商店"
+            else:
+                first_dest, first_weapon, first_armor, first_station = "军事基地", "高斯步枪", "AT力场", "商店"
+                second_dest, second_weapon, second_armor, second_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
+        assignments = {}
+        if len(sorted_units) >= 1:
+            assignments[sorted_units[0]["id"]] = {
+                "dest": first_dest, "target_weapon": first_weapon,
+                "target_armor": first_armor, "station": first_station, "phase": "pending",
+            }
+        if len(sorted_units) >= 2:
+            assignments[sorted_units[1]["id"]] = {
+                "dest": second_dest, "target_weapon": second_weapon,
+                "target_armor": second_armor, "station": second_station, "phase": "pending",
+            }
+        if len(sorted_units) >= 3:
+            assignments[sorted_units[2]["id"]] = {
+                "dest": None, "target_weapon": None,
+                "target_armor": None, "station": "魔法所", "phase": "stationed_default",
+            }
+        self._police_dev_assignments = assignments
+
+    def _police_develop_step(self, active_units) -> Optional[str]:
+        """执行一步警察发育：移动→换武器→换护甲，每回合1条命令"""
+        for unit in active_units:
+            uid = unit["id"]
+            assignment = self._police_dev_assignments.get(uid)
+            if not assignment:
+                continue
+            phase = assignment.get("phase", "pending")
+            if phase == "combat":
+                continue
+            unit_loc = unit.get("location")
+            dest = assignment.get("dest")
+            if phase == "pending":
+                if dest and unit_loc != dest:
+                    assignment["phase"] = "moving"
+                    return f"police move {uid} {dest}"
+                elif dest and unit_loc == dest:
+                    assignment["phase"] = "equip_weapon"
+                    phase = "equip_weapon"
+            if phase == "moving":
+                if unit_loc == dest:
+                    assignment["phase"] = "equip_weapon"
+                    phase = "equip_weapon"
+                else:
+                    return f"police move {uid} {dest}"
+            if phase == "equip_weapon":
+                target_weapon = assignment.get("target_weapon")
+                current_weapon = unit.get("weapon", "警棍")
+                if target_weapon and current_weapon != target_weapon:
+                    assignment["phase"] = "equip_armor"
+                    return f"police equip {uid} {target_weapon}"
+                else:
+                    assignment["phase"] = "equip_armor"
+                    phase = "equip_armor"
+            if phase == "equip_armor":
+                target_armor = assignment.get("target_armor")
+                current_armor = unit.get("outer_armor", "盾牌")
+                if target_armor and current_armor != target_armor:
+                    assignment["phase"] = "ready_to_deploy"
+                    return f"police equip {uid} {target_armor}"
+                else:
+                    assignment["phase"] = "ready_to_deploy"
+        return None
+
+    def _police_deploy_step(self, alive_units) -> Optional[str]:
+        """部署警察到驻扎位置"""
+        for unit in alive_units:
+            uid = unit["id"]
+            assignment = self._police_dev_assignments.get(uid)
+            if not assignment:
+                continue
+            phase = assignment.get("phase", "pending")
+            if phase == "combat":
+                continue
+            station = assignment.get("station")
+            unit_loc = unit.get("location")
+            if phase in ("ready_to_deploy", "stationed_default"):
+                if station and unit_loc != station:
+                    assignment["phase"] = "deploying"
+                    return f"police move {uid} {station}"
+                else:
+                    assignment["phase"] = "stationed"
+            if phase == "deploying":
+                if unit_loc == station:
+                    assignment["phase"] = "stationed"
+                else:
+                    return f"police move {uid} {station}"
+        return None
+
+    def _police_wake_step(self, disabled_units, state) -> Optional[str]:
+        """唤醒处于debuff的警察单位（队长远程唤醒）"""
+        pe = getattr(state, 'police_engine', None)
+        for unit in disabled_units:
+            uid = unit["id"]
+            if unit.get("is_submerged", False):
+                unit_loc = unit.get("location")
+                if pe and unit_loc and pe._is_in_hologram_range(unit_loc):
+                    continue
+            return f"police wake {uid}"
+        return None
+
+    # ════════════════════════════════════════════════════════
+    #  犯罪目标查找与攻击
+    # ════════════════════════════════════════════════════════
+
+    def _find_criminal_target(self, player, state):
+        """找到最高威胁的犯罪目标"""
+        pc = self._police_cache or {}
+        report_target = pc.get("report_target")
+        if report_target and pc.get("report_phase") == "dispatched":
+            target_player = state.get_player(report_target)
+            if target_player and target_player.is_alive():
+                return target_player
+        best = None
+        best_score = -1
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            p = state.get_player(pid)
+            if p and p.is_alive():
+                is_criminal = getattr(p, 'is_criminal', False)
+                if not is_criminal:
+                    police = getattr(state, 'police', None)
+                    if police and hasattr(police, 'is_criminal'):
+                        is_criminal = police.is_criminal(pid)
+                if is_criminal:
+                    score = self._threat_scores.get(p.name, 0)
+                    if score > best_score:
+                        best_score = score
+                        best = p
+        return best
+
+    def _police_attack_criminal(self, target, active_units, state) -> Optional[str]:
+        """选择武器属性能有效打击目标护甲的警察单位进行攻击"""
+        from utils.attribute import Attribute
+        target_player = target
+        target_loc = self._get_location_str(target_player)
+        target_armor_attrs = self._get_outer_armor_attr(target_player)
+        if not target_armor_attrs:
+            target_armor_attrs = self._get_inner_armor_attr(target_player)
+        best_unit = None
+        best_score = -1
+        for unit in active_units:
+            uid = unit["id"]
+            weapon_name = unit.get("weapon", "警棍")
+            weapon = make_weapon(weapon_name) if weapon_name else None
+            if not weapon:
+                weapon = make_weapon("警棍")
+            w_attr = weapon.attribute if weapon else Attribute.ORDINARY
+            unit_loc = unit.get("location")
+            score = 0
+            if target_armor_attrs:
+                effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
+                can_be_effective = any(a in effective_set for a in target_armor_attrs)
+                if can_be_effective:
+                    score += 100
+                else:
+                    score -= 200
+            else:
+                score += 50
+            if unit_loc == target_loc:
+                score += 20
+            if score > best_score:
+                best_score = score
+                best_unit = unit
+        if not best_unit:
+            return None
+        uid = best_unit["id"]
+        unit_loc = best_unit.get("location")
+        if unit_loc != target_loc:
+            if uid in self._police_dev_assignments:
+                self._police_dev_assignments[uid]["phase"] = "combat"
+            return f"police move {uid} {target_loc}"
+        else:
+            weapon_name = best_unit.get("weapon", "警棍")
+            weapon = make_weapon(weapon_name) if weapon_name else make_weapon("警棍")
+            w_attr = weapon.attribute if weapon else Attribute.ORDINARY
+            if target_armor_attrs:
+                effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
+                can_hit = any(a in effective_set for a in target_armor_attrs)
+                if not can_hit:
+                    for other_unit in active_units:
+                        if other_unit["id"] == uid:
+                            continue
+                        other_weapon = make_weapon(other_unit.get("weapon", "警棍"))
+                        if other_weapon:
+                            other_attr = other_weapon.attribute
+                            other_effective = EFFECTIVE_AGAINST.get(other_attr, set())
+                            if any(a in other_effective for a in target_armor_attrs):
+                                other_id = other_unit['id']
+                                if other_id in self._police_dev_assignments:
+                                    self._police_dev_assignments[other_id]["phase"] = "combat"
+                                return f"police move {other_id} {target_loc}"
+                    return None
+            if uid in self._police_dev_assignments:
+                self._police_dev_assignments[uid]["phase"] = "combat"
+            return f"police attack {uid} {target_player.player_id}"
