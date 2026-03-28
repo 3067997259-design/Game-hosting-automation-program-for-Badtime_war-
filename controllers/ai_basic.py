@@ -1463,15 +1463,6 @@ class BasicAIController(PlayerController):
             self._in_combat = False
             self._combat_target = None
 
-        if current_target:
-            self._in_combat = True
-            self._combat_target = current_target
-        else:
-            if self._in_combat:
-                debug_ai_basic(player.name, "退出战斗状态（目标丢失）")
-            self._in_combat = False
-            self._combat_target = None
-
 
 
     def _is_development_complete(self, player, state) -> bool:
@@ -2185,10 +2176,10 @@ class BasicAIController(PlayerController):
                         ready_candidates.sort(key=lambda x: x[0], reverse=True)
                         ready_weapon = ready_candidates[0][1]
                         # 如果最佳AOE也打不穿护甲，不浪费回合
-                    if ready_candidates[0][0] < -20:
-                        debug_ai_attack_generation(player.name,
-                            weapon.name, f"目标 {target.name} 受警察保护，所有AOE武器无法克制护甲")
-                        return commands  # 返回空，让上层逻辑去获取有效武器
+                        if ready_candidates[0][0] < -20:
+                            debug_ai_attack_generation(player.name,
+                                weapon.name, f"目标 {target.name} 受警察保护，所有AOE武器无法克制护甲")
+                            return commands  # 返回空，让上层逻辑去获取有效武器
 
                     if ready_weapon:
                         weapon = ready_weapon
