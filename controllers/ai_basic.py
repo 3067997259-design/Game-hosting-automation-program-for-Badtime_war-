@@ -1591,22 +1591,6 @@ class BasicAIController(PlayerController):
                 if gauss and not getattr(gauss, 'is_charged', False):
                     commands.append("special 蓄力高斯步枪")
 
-            # 移动：优先去魔法所学魔法弹幕（确保双属性武器）
-            if "move" in available and not commands:
-                learned = self._get_learned_spells(player)
-                has_magic_weapon = any(
-                    self._get_weapon_attr(w) == Attribute.MAGIC
-                    for w in real_weapons
-                )
-                if not has_magic_weapon and "魔法弹幕" not in learned:
-                    if loc != "魔法所":
-                        commands.append("move 魔法所")
-                elif not commands:
-                    next_loc = self._pick_ideal_destination(player, state)
-                    if next_loc and next_loc != loc:
-                        if not (next_loc == "home" and self._is_at_home(player)):
-                            commands.append(f"move {next_loc}")
-
             # 移动到需要的地点
             if "move" in available and not commands:
                 if not has_sharpened_knife:
@@ -3070,8 +3054,8 @@ class BasicAIController(PlayerController):
             # 只有近战武器才有加成，但估算时按最大值算
             return base_dmg + bonus
 
-        # 一刀缭断：有使用次数时近战×2（但只有一次，影响有限）
-        # 不在这里加成，因为是一次性的
+        # 一刀缭断：有使用次数时近战×2（共2次）
+        # 不在这里加成，因为是有限次数的爆发
 
         return base_dmg
 
