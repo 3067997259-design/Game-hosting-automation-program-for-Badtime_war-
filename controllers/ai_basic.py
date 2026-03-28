@@ -241,6 +241,9 @@ class BasicAIController(PlayerController):
         self._low_threat_streak: Dict[str, int] = {} # 注意安静的人——他们可能在发育
         self._players_who_attacked: set = set() # 记录攻击过自己的玩家，识别潜在威胁和发育者
 
+        self._last_combat_location = None  # 上次战斗发生的地点
+        self._combat_just_ended_at = None  # 战斗刚结束时的地点（一次性标记）
+
     # ════════════════════════════════════════════════════════
     #  安全工具方法
     # ════════════════════════════════════════════════════════
@@ -1018,6 +1021,19 @@ class BasicAIController(PlayerController):
                         candidates.extend(rearm_cmds)
                         candidates.append("forfeit")
                         return candidates
+        # ===== 火萤：军事基地战斗结束后顺手拿电磁步枪 =====
+        if (self._has_firefly_talent(player)
+            and self._combat_just_ended_at == "军事基地"
+            and "interact" in available_actions):
+            has_emr = any(w.name == "电磁步枪" for w in getattr(player, 'weapons', []) if w)
+            has_pass = getattr(player, 'has_military_pass', False)
+            if not has_emr and has_pass:
+                loc = self._get_location_str(player)
+                if loc == "军事基地":
+                    debug_ai_basic(player.name, "火萤：军事基地战斗结束，顺手拿电磁步枪")
+                    candidates.append("interact 电磁步枪")
+                    self._combat_just_ended_at = None  # 消费掉标记
+                    # 不return，继续生成其他候选（拿装备只是顺手，不阻断其他逻辑）
 
         # ===== 火萤IV型：激进击杀机会（可打断发育）=====
         if (self._has_firefly_talent(player)
@@ -1075,7 +1091,7 @@ class BasicAIController(PlayerController):
                     candidates.insert(0, cmd)
 
         # >>> 新增：所有目标都受警察保护且无AOE → 去拿AOE武器
-        if self._is_stuck_by_police_protection(player, state):
+        if self._is_stuck_by_police(player, state):
             debug_ai_basic(player.name, "所有目标受警察保护且无AOE，去获取AOE武器")
             aoe_cmds = self._cmd_fight_police(player, state, available_actions)
             for cmd in aoe_cmds:
@@ -1431,6 +1447,21 @@ class BasicAIController(PlayerController):
                     if markers.has_relation(player.player_id, "ENGAGED_WITH", pid):
                         current_target = target
                         break
+
+        if current_target:
+            self._in_combat = True
+            self._combat_target = current_target
+            self._last_combat_location = self._get_location_str(player)
+            self._combat_just_ended_at = None  # 正在战斗，清除结束标记
+        else:
+            if self._in_combat:
+                # 战斗刚结束，记录结束地点
+                self._combat_just_ended_at = self._last_combat_location
+                debug_ai_basic(player.name, f"战斗结束于 {self._last_combat_location}")
+            else:
+                self._combat_just_ended_at = None  # 非战斗状态，不设标记
+            self._in_combat = False
+            self._combat_target = None
 
         if current_target:
             self._in_combat = True
@@ -2153,6 +2184,11 @@ class BasicAIController(PlayerController):
                     if ready_candidates:
                         ready_candidates.sort(key=lambda x: x[0], reverse=True)
                         ready_weapon = ready_candidates[0][1]
+                        # 如果最佳AOE也打不穿护甲，不浪费回合
+                    if ready_candidates[0][0] < -20:
+                        debug_ai_attack_generation(player.name,
+                            weapon.name, f"目标 {target.name} 受警察保护，所有AOE武器无法克制护甲")
+                        return commands  # 返回空，让上层逻辑去获取有效武器
 
                     if ready_weapon:
                         weapon = ready_weapon
@@ -3131,17 +3167,20 @@ class BasicAIController(PlayerController):
                 if markers_obj and hasattr(markers_obj, 'is_visible_to'):
                     if not markers_obj.is_visible_to(t.player_id, player.player_id, player.has_detection):
                         s -= 300  # 看不到的目标大幅降分
-            # 警察保护（替换原有的仅队长检查）
+            # 警察保护（属性感知）
             pe = getattr(state, 'police_engine', None)
             if pe and pe.is_protected_by_police(t.player_id):
-                has_aoe = self._has_aoe_weapon(player)
-                if not has_aoe:
-                    s -= 500
+                if not self._has_aoe_weapon(player):
+                    s -= 500  # 完全没有AOE
+                elif not self._has_effective_aoe_against(player, t):
+                    s -= 300  # 有AOE但打不穿护甲，降分但不完全放弃
+                else:
+                    s -= 50   # 有有效AOE，小幅降分（AOE伤害通常低于近战）
             elif getattr(t, 'is_captain', False):
-                # 队长但当前不受保护（无同地点警察）→ 小幅降分
-                has_aoe = self._has_aoe_weapon(player)
-                if not has_aoe and self._captain_has_police_escort(t, state):
+                if not self._has_aoe_weapon(player) and self._captain_has_police_escort(t, state):
                     s -= 500
+                elif self._has_aoe_weapon(player) and not self._has_effective_aoe_against(player, t):
+                    s -= 200  # 队长暂时不受保护但AOE打不穿，中等降分
             # 全场最强玩家额外加分
             if self._estimate_power(t) >= max_power:
                 s += 40
@@ -4110,21 +4149,44 @@ class BasicAIController(PlayerController):
         return False
 
     def _cmd_fight_police(self, player, state, available) -> List[str]:
-        """反击警察：去拿AOE武器，然后攻击同地点的警察"""
+        """反击警察：获取有效AOE武器，然后攻击同地点的警察"""
         commands = []
         loc = self._get_location_str(player)
 
-        # 检查是否已有AOE武器
-        has_aoe = self._has_aoe_weapon(player)
+        # 找出受保护的目标，确定其护甲属性
+        pe = getattr(state, 'police_engine', None)
+        target_armor_attrs = set()
+        if pe:
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive() and pe.is_protected_by_police(t.player_id):
+                    attrs = self._get_outer_armor_attr(t)
+                    if not attrs:
+                        attrs = self._get_inner_armor_attr(t)
+                    target_armor_attrs.update(attrs)
 
-        if has_aoe:
+        # 判断是否有"有效的"AOE（能克制目标护甲）
+        has_effective_aoe = False
+        if self._has_aoe_weapon(player):
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive():
+                    if self._has_effective_aoe_against(player, t):
+                        has_effective_aoe = True
+                        break
+
+        if has_effective_aoe:
+            # 已有有效AOE → 去打警察（保留原有逻辑）
             pc = self._police_cache or {}
             for unit in pc.get("units", []):
                 if unit.get("is_alive") and unit.get("location"):
                     unit_loc = unit["location"]
                     aoe_name = self._get_aoe_weapon_name(player)
                     if aoe_name:
-                        # 检查是否需要蓄力
                         aoe_w = next((w for w in player.weapons
                                     if w and w.name == aoe_name), None)
                         if (aoe_w
@@ -4133,32 +4195,55 @@ class BasicAIController(PlayerController):
                             if "special" in available:
                                 commands.append(f"special 蓄力{aoe_name}")
                             return commands
-
                         if loc == unit_loc:
                             commands.append(f"attack {unit['id']} {aoe_name}")
                         else:
                             commands.append(f"move {unit_loc}")
                     return commands
         else:
-            # 没有AOE武器，去拿一个
-            # 优先去人少的地方：魔法所（地震）或军事基地（电磁步枪）
-            enemies_magic = self._count_enemies_at("魔法所", player, state)
-            enemies_military = self._count_enemies_at("军事基地", player, state)
+            # 没有有效AOE → 根据目标护甲属性决定去哪拿
+            # 关键：如果目标有ORDINARY护甲（盾牌），必须拿TECH AOE（电磁步枪）
+            # 因为 TECH 克制 ORDINARY，而 MAGIC（地震）不克制 ORDINARY
+            from models.equipment import Attribute
+            need_tech_aoe = any(a == Attribute.ORDINARY for a in target_armor_attrs)
 
-            if enemies_magic <= enemies_military:
-                if loc == "魔法所" and "interact" in available:
-                    learned = self._get_learned_spells(player)
-                    if "地震" in learned and "地动山摇" not in learned:
-                        commands.append("interact 地动山摇")
-                    elif "地震" not in learned:
-                        commands.append("interact 地震")
+            if need_tech_aoe:
+                # 目标有普通属性护甲 → 必须去军事基地拿电磁步枪
+                has_emr = any(w.name == "电磁步枪" for w in getattr(player, 'weapons', []) if w)
+                if has_emr:
+                    # 已有电磁步枪但未蓄力
+                    emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
+                    if emr and not getattr(emr, 'is_charged', False):
+                        if "special" in available:
+                            commands.append("special 蓄力电磁步枪")
+                        return commands
                 else:
-                    commands.append("move 魔法所")
+                    has_pass = getattr(player, 'has_military_pass', False)
+                    if loc == "军事基地" and "interact" in available:
+                        if not has_pass:
+                            commands.append("interact 通行证")
+                        else:
+                            commands.append("interact 电磁步枪")
+                    else:
+                        commands.append("move 军事基地")
             else:
-                if loc == "军事基地" and "interact" in available:
-                    commands.append("interact 电磁步枪")
+                # 目标没有普通属性护甲 → 魔法AOE也行，去人少的地方
+                enemies_magic = self._count_enemies_at("魔法所", player, state)
+                enemies_military = self._count_enemies_at("军事基地", player, state)
+                if enemies_magic <= enemies_military:
+                    if loc == "魔法所" and "interact" in available:
+                        learned = self._get_learned_spells(player)
+                        if "地震" in learned and "地动山摇" not in learned:
+                            commands.append("interact 地动山摇")
+                        elif "地震" not in learned:
+                            commands.append("interact 地震")
+                    else:
+                        commands.append("move 魔法所")
                 else:
-                    commands.append("move 军事基地")
+                    if loc == "军事基地" and "interact" in available:
+                        commands.append("interact 电磁步枪")
+                    else:
+                        commands.append("move 军事基地")
         return commands
 
     def _has_aoe_weapon(self, player) -> bool:
@@ -4171,13 +4256,45 @@ class BasicAIController(PlayerController):
             return True
         return False
 
-    def _is_stuck_by_police_protection(self, player, state) -> bool:
-        """检查是否所有存活目标都受警察保护，且自己没有AOE武器"""
-        if self._has_aoe_weapon(player):
-            return False
+    def _has_effective_aoe_against(self, player, target) -> bool:
+        """检查是否拥有能克制目标护甲属性的AOE武器"""
+        target_armor_attrs = self._get_outer_armor_attr(target)
+        if not target_armor_attrs:
+            target_armor_attrs = self._get_inner_armor_attr(target)
+        if not target_armor_attrs:
+            return True  # 目标无甲，任何AOE都有效
+
+        aoe_names = self._get_all_aoe_weapon_names(player)
+        for aoe_name in aoe_names:
+            aoe_weapon = next((w for w in getattr(player, 'weapons', [])
+                            if w and w.name == aoe_name), None)
+            if not aoe_weapon:
+                from models.equipment import make_weapon
+                aoe_weapon = make_weapon(aoe_name)
+            if not aoe_weapon:
+                continue
+            # 跳过需要蓄力但未蓄力的
+            if (getattr(aoe_weapon, 'requires_charge', False)
+                    and getattr(aoe_weapon, 'charge_mandatory', True)
+                    and not getattr(aoe_weapon, 'is_charged', False)):
+                continue
+            w_attr = self._get_weapon_attr(aoe_weapon)
+            effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
+            if any(a in effective_set for a in target_armor_attrs):
+                return True
+        return False
+
+    def _is_stuck_by_police(self, player, state) -> bool:
+        """检查是否所有存活目标都受警察保护，且自己没有有效的AOE武器
+
+        两种情况都算 stuck:
+        1. 完全没有AOE武器
+        2. 有AOE武器但属性全部被目标护甲克制（如只有地震打盾牌）
+        """
         pe = getattr(state, 'police_engine', None)
         if not pe:
             return False
+
         alive_targets = []
         for pid in state.player_order:
             if pid == player.player_id:
@@ -4187,8 +4304,26 @@ class BasicAIController(PlayerController):
                 alive_targets.append(p)
         if not alive_targets:
             return False
-        # 所有存活目标都受保护才算 stuck
-        return all(pe.is_protected_by_police(t.player_id) for t in alive_targets)
+
+        # 找出所有受警察保护的目标
+        protected_targets = [t for t in alive_targets if pe.is_protected_by_police(t.player_id)]
+        if not protected_targets:
+            return False
+
+        # 如果有不受保护的目标，不算stuck（可以打别人）
+        if len(protected_targets) < len(alive_targets):
+            return False
+
+        # 所有目标都受保护 → 检查是否有有效AOE
+        if not self._has_aoe_weapon(player):
+            return True  # 完全没有AOE
+
+        # 有AOE但检查是否对所有受保护目标都无效
+        for t in protected_targets:
+            if self._has_effective_aoe_against(player, t):
+                return False  # 至少有一个目标能打穿
+
+        return True  # 有AOE但全部无效
 
     def _get_aoe_weapon_name(self, player) -> Optional[str]:
         for w in getattr(player, 'weapons', []):
