@@ -332,21 +332,30 @@ class BasicAIController(PlayerController):
                     return opt
             return options[0]
 
-        # ---- 一刀缭断 ----
+
+
         if situation == "oneslash_pick_weapon":
-            # 选伤害最高的近战武器
+            # 一刀缭断武器选择：磨过的小刀优先于蓄好力的高斯步枪
             if self._player:
                 best_name = None
                 best_dmg = -1
+                best_is_sharpened_knife = False
                 for w in getattr(self._player, 'weapons', []):
                     if w and w.name in options:
                         dmg = self._get_weapon_damage(w)
-                        if dmg > best_dmg:
+                        is_sharpened_knife = (
+                            w.name == "小刀"
+                            and getattr(w, 'base_damage', 0) >= 2
+                        )
+                        # 优先选磨过的小刀；同优先级下选伤害最高的
+                        if (is_sharpened_knife and not best_is_sharpened_knife) or \
+                           (is_sharpened_knife == best_is_sharpened_knife and dmg > best_dmg):
                             best_dmg = dmg
                             best_name = w.name
+                            best_is_sharpened_knife = is_sharpened_knife
                 if best_name:
                     return best_name
-            return options[0]  # fallback
+            return options[0]
         if situation == "oneslash_pick_target":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
 
@@ -374,15 +383,47 @@ class BasicAIController(PlayerController):
                         return opt
                 return options[-1]
 
-            # 一刀缭断：只在有面对面的高血量目标时发动
+            # 一刀缭断：满足任一条件即发动（前提：面对面）
             if talent_name == "一刀缭断":
                 if self._player and self._game_state:
-                    target = self._pick_target(self._player, self._game_state)
-                    if (self._is_development_complete(self._player, self._game_state)
-                    and target and self._same_location(self._player, target) and target.hp >= 2.0):
-                        for opt in options:
-                            if "发动" in opt:
-                                return opt
+                    state = self._game_state
+                    player = self._player
+                    markers = getattr(state, 'markers', None)
+
+                    # Find a face-to-face target
+                    engaged_target = None
+                    if markers:
+                        for pid in state.player_order:
+                            if pid == player.player_id:
+                                continue
+                            t = state.get_player(pid)
+                            if t and t.is_alive() and markers.has_relation(
+                                    player.player_id, "ENGAGED_WITH", pid):
+                                engaged_target = t
+                                break
+
+                    if engaged_target:
+                        should_activate = False
+
+                        # Condition 1: In combat AND all weapons countered by target's armor
+                        # (一刀缭断 ignores element countering, so it's the perfect counter)
+                        if self._in_combat and self._all_weapons_countered(player, engaged_target):
+                            should_activate = True
+
+                        # Condition 2: Target's effective HP + total armor count >= 3
+                        # (target is tanky enough to warrant the burst)
+                        if not should_activate:
+                            eff_hp = self._get_effective_hp(engaged_target)
+                            total_armor = (self._count_outer_armor(engaged_target)
+                                         + self._count_inner_armor(engaged_target))
+                            if eff_hp + total_armor >= 3:
+                                should_activate = True
+
+                        if should_activate:
+                            for opt in options:
+                                if "发动" in opt:
+                                    return opt
+
                 for opt in options:
                     if "不发动" in opt or "正常" in opt:
                         return opt
@@ -978,6 +1019,21 @@ class BasicAIController(PlayerController):
                         candidates.append("forfeit")
                         return candidates
 
+        # ===== 火萤IV型：激进击杀机会（可打断发育）=====
+        if (self._has_firefly_talent(player)
+            and not self._political_develop_only
+            and self._has_firefly_kill_opportunity(player, state)):
+            debug_ai_basic(player.name, "火萤发现击杀机会，打断发育！")
+            kill_cmds = self._cmd_attack(player, state, available_actions)
+            if kill_cmds:
+                candidates.extend(kill_cmds)
+                # 备用发育（万一攻击命令被引擎拒绝）
+                dev = self._cmd_develop(player, state, available_actions)
+                if dev:
+                    candidates.append(dev[0])
+                candidates.append("forfeit")
+                return candidates
+
         # ===== 击杀机会 =====
         if self._has_kill_opportunity(player, state) and not self._political_develop_only:
             debug_ai_basic(player.name, "发现击杀机会！")
@@ -1284,6 +1340,85 @@ class BasicAIController(PlayerController):
 
         return False
 
+    def _best_effective_weapon_damage(self, player, target) -> float:
+        """返回能有效打击目标当前最外层护甲的最高武器伤害（考虑属性克制）"""
+        weapons = getattr(player, 'weapons', [])
+        if not weapons:
+            return 0.0
+
+        # 获取目标当前最外层护甲属性
+        target_armor_attrs = self._get_outer_armor_attr(target)
+        if not target_armor_attrs:
+            target_armor_attrs = self._get_inner_armor_attr(target)
+
+        best = 0.0
+        for w in weapons:
+            if not w:
+                continue
+            dmg = self._get_weapon_damage(w)
+            # 火萤+100%伤害加成
+            if self._has_firefly_talent(player):
+                talent = getattr(player, 'talent', None)
+                if talent and hasattr(talent, 'modify_outgoing_damage'):
+                    mod = talent.modify_outgoing_damage(player, target, w, dmg)
+                    if mod and "damage_multiplier_override" in mod:
+                        dmg = dmg * mod["damage_multiplier_override"]
+                    if mod and "bonus_damage" in mod:
+                        dmg += mod["bonus_damage"]
+
+            if target_armor_attrs:
+                w_attr = self._get_weapon_attr(w)
+                effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
+                if not any(a in effective_set for a in target_armor_attrs):
+                    continue  # 这把武器被克制，跳过
+            if dmg > best:
+                best = dmg
+        return best
+
+    def _has_firefly_kill_opportunity(self, player, state) -> bool:
+        """火萤专用击杀机会判定（更激进，但考虑护甲克制）"""
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            target = state.get_player(pid)
+            if not target or not target.is_alive():
+                continue
+            if not self._can_attack_target(player, target, state):
+                continue
+
+            # 先检查是否所有武器都被克制
+            if self._all_weapons_countered(player, target):
+                continue
+
+            # 用能有效打击的最高伤害来判断
+            eff_dmg = self._best_effective_weapon_damage(player, target)
+            if eff_dmg <= 0:
+                continue
+
+            outer = self._count_outer_armor(target)
+            inner = self._count_inner_armor(target)
+            eff_hp = self._get_effective_hp(target)
+
+            # 无甲：伤害 >= HP
+            if outer == 0 and inner == 0:
+                if eff_hp <= eff_dmg:
+                    return True
+
+            # 1层外甲+无内甲：穿甲后溢出 >= HP（外甲通常1HP）
+            if outer <= 1 and inner == 0 and eff_hp <= (eff_dmg - 1.0):
+                return True
+
+            # 无外甲+有内甲+低HP
+            if outer == 0 and inner > 0 and eff_hp <= 0.5 and eff_dmg >= 1.0:
+                return True
+
+            # 总耐久度低于有效伤害的75%
+            total_durability = outer + inner + eff_hp
+            if total_durability <= eff_dmg * 0.75:
+                return True
+
+        return False
+
     def _update_combat_status(self, player, state):
         markers = getattr(state, 'markers', None)
         current_target = None
@@ -1326,7 +1461,6 @@ class BasicAIController(PlayerController):
         if self._has_firefly_talent(player):
             real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
             if self._firefly_debuff_active(player):
-                # debuff 已生效：需要磨过的小刀 + 高斯步枪
                 has_sharpened_knife = any(
                     w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
                     for w in real_weapons
@@ -1334,10 +1468,13 @@ class BasicAIController(PlayerController):
                 has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
                 return has_sharpened_knife and has_gauss
             else:
-                # debuff 未生效：2武器 + 1外甲
+                # debuff 未生效：2武器(不同属性) + 1外甲
                 has_two_weapons = len(real_weapons) >= 2
                 has_outer = self._count_outer_armor(player) >= 1
-                return has_two_weapons and has_outer
+                # 确保武器属性多样化（不会被单一属性甲完全克制）
+                weapon_attrs = set(self._get_weapon_attr(w) for w in real_weapons)
+                has_diverse_attrs = len(weapon_attrs) >= 2
+                return has_two_weapons and has_outer and has_diverse_attrs
 
         if self.personality == "aggressive":
             has_armor = self._count_outer_armor(player) >= 2
@@ -2917,8 +3054,8 @@ class BasicAIController(PlayerController):
             # 只有近战武器才有加成，但估算时按最大值算
             return base_dmg + bonus
 
-        # 一刀缭断：有使用次数时近战×2（但只有一次，影响有限）
-        # 不在这里加成，因为是一次性的
+        # 一刀缭断：有使用次数时近战×2（共2次）
+        # 不在这里加成，因为是有限次数的爆发
 
         return base_dmg
 

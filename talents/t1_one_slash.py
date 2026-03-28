@@ -1,6 +1,6 @@
 """
 天赋1：一刀缭断（原初）+ Controller 接入
-主动，1次使用，消耗行动回合。
+主动，2次使用，消耗行动回合。
 T0启动，选任意近战武器+面对面目标。
 本次攻击：伤害+100%，无视属性克制，最后内层不吸收溢出。
 """
@@ -11,12 +11,21 @@ from engine.prompt_manager import prompt_manager
 
 class OneSlash(BaseTalent):
     name = "一刀缭断"
-    description = "发动一次近战攻击：伤害×2，无视属性克制。"
+    description = "发动近战攻击：伤害×2，无视属性克制。共2次。"
     tier = "原初"
 
     def __init__(self, player_id, game_state):
         super().__init__(player_id, game_state)
-        self.uses_remaining = 1
+        self.max_uses = 2
+        self.uses_remaining = self.max_uses
+
+    @property
+    def uses_left(self):
+        return self.uses_remaining
+
+    @uses_left.setter
+    def uses_left(self, value):
+        self.uses_remaining = value
 
     def get_t0_option(self, player):
         if self.uses_remaining <= 0:
@@ -126,4 +135,4 @@ class OneSlash(BaseTalent):
         return msg, True
 
     def describe_status(self):
-        return f"剩余次数：{self.uses_remaining}"
+        return f"剩余次数：{self.uses_remaining}/{self.max_uses}"
