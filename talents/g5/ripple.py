@@ -157,6 +157,10 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         self.acted_last_round = False
         self.only_extra_turn = False
 
+    def on_round_end(self, round_num):
+        """轮末处理：委托给 AnchorMixin 的锚定监控"""
+        self._anchor_on_round_end(round_num)
+
     def on_turn_end(self, player, action_type):
         if player.player_id != self.player_id:
             return

@@ -559,8 +559,7 @@ class AnchorMixin:
         self.anchor_caster_backup = self._create_player_backup(player)
         self.anchor_target_snapshot = None
 
-        self.used = True
-        self.reminiscence = 0
+        self._consume_use()
         self.anchor_active = True
         self.anchor_rounds_left = 5
         self.anchor_destructive_count = 0
@@ -589,8 +588,7 @@ class AnchorMixin:
     # ================================================================
 
     def _anchor_start_combat(self, player, target):
-        self.used = True
-        self.reminiscence = 0
+        self._consume_use()
         self.anchor_active = True
         self.anchor_rounds_left = 5
         self.anchor_destructive_count = 0
