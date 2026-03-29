@@ -316,6 +316,10 @@ class ChooseMixin:
         # ---- 默认 ----
         return options[0]
 
+    # ════════════════════════════════════════════════════════
+    #  choose_multi：多选决策
+    # ════════════════════════════════════════════════════════
+
     def choose_multi(
         self, prompt: str, options: List[str],
         max_count: int, min_count: int = 0,
@@ -329,6 +333,10 @@ class ChooseMixin:
         # 取 min_count 和 max_count 之间的合理数量
         count = max(min_count, min(max_count, len(sorted_opts)))
         return sorted_opts[:count]
+
+    # ════════════════════════════════════════════════════════
+    #  confirm：确认决策
+    # ════════════════════════════════════════════════════════
 
     def confirm(self, prompt: str, context: Optional[Dict] = None) -> bool:
         # 强买通行证：当prompt包含"强买通行证"且AI需要去军事基地时同意

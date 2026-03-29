@@ -6,6 +6,11 @@ from controllers.ai.constants import (
     make_weapon
 )
 class PoliceMixin:
+
+    # ════════════════════════════════════════════════════════
+    #  警察状态缓存
+    # ════════════════════════════════════════════════════════
+
     def _read_police_state(self, state) -> Dict:
         """读取警察系统状态，使用 ver1.9 的 PoliceData.units"""
         cache = {
@@ -60,6 +65,10 @@ class PoliceMixin:
         self._police_cache = cache
         debug_ai_detailed(self._pname(), f"警察缓存: alive={alive_count} active={active_count}")
         return cache
+
+    # ════════════════════════════════════════════════════════
+    #  队长指挥命令
+    # ════════════════════════════════════════════════════════
 
     def _cmd_captain(self, player, state, available: List[str]) -> List[str]:
         commands = []
@@ -123,6 +132,10 @@ class PoliceMixin:
         if deploy_cmd:
             return [deploy_cmd]
         return commands
+
+    # ════════════════════════════════════════════════════════
+    #  政治行动命令（非队长）
+    # ════════════════════════════════════════════════════════
 
     def _cmd_police_political(self, player, state, available: List[str]) -> List[str]:
         # ---- 降级检查：队长被占 / 警察系统不可用 / 有犯罪记录 → 不生成任何政治命令 ----
@@ -226,6 +239,10 @@ class PoliceMixin:
             # 队长不需要回警察局
         return commands
 
+    # ════════════════════════════════════════════════════════
+    #  警察追击与反击
+    # ════════════════════════════════════════════════════════
+
     def _is_pursued_by_police(self, player, state) -> bool:
         """检查是否正在被警察追击"""
         pc = self._police_cache or {}
@@ -303,7 +320,7 @@ class PoliceMixin:
             # 没有有效AOE → 根据目标护甲属性决定去哪拿
             # 关键：如果目标有ORDINARY护甲（盾牌），必须拿TECH AOE（电磁步枪）
             # 因为 TECH 克制 ORDINARY，而 MAGIC（地震）不克制 ORDINARY
-            from models.equipment import Attribute
+            from utils.attribute import Attribute
             need_tech_aoe = any(a == Attribute.ORDINARY for a in target_armor_attrs)
             if need_tech_aoe:
                 # 目标有普通属性护甲 → 必须去军事基地拿电磁步枪
@@ -343,6 +360,10 @@ class PoliceMixin:
                     else:
                         commands.append("move 军事基地")
         return commands
+    # ════════════════════════════════════════════════════════
+    #  AOE 武器查询
+    # ════════════════════════════════════════════════════════
+
     def _has_aoe_weapon(self, player) -> bool:
         for w in getattr(player, 'weapons', []):
             name = w.name if hasattr(w, 'name') else str(w)

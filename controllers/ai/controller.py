@@ -131,8 +131,6 @@ class BasicAIController(
         self.player_name = player.name
         self._player = player
         self._game_state = state
-        if not hasattr(self, '_virus_prevention_done'):
-            self._virus_prevention_done = False
 
         current_round = getattr(state, 'current_round', 0)
         if current_round > self._round_number:
