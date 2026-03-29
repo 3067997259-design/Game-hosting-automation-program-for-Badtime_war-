@@ -1,11 +1,29 @@
 """HelpersMixin —— 装备查询、位置判断、工具方法"""
-from typing import List, Optional, Any
+from __future__ import annotations
+from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS, LOCATIONS,
     debug_ai_basic
 )
 
+if TYPE_CHECKING:
+    pass  # 避免循环导入；下方类型注解仅供 Pylance 使用
+
+
 class HelpersMixin:
+    """装备查询、位置判断、工具方法。
+
+    以下类型注解仅用于消除 Pylance 对 mixin 属性的 unknown-member 报错，
+    实际值由 BasicAIController.__init__ 初始化。
+    """
+
+    # ---- Pylance 类型提示（运行时不赋值）----
+    player_name: Optional[str]
+    personality: str
+    _threat_scores: Dict[str, float]
+    _players_who_attacked: set
+    _police_cache: Optional[Dict]
+    _game_state: Any
 
     # ════════════════════════════════════════════════════════
     #  基础工具

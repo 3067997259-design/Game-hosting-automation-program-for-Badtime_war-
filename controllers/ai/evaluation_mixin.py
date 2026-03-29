@@ -1,9 +1,31 @@
 """EvaluationMixin —— 威胁评估、战力估算、阶段判定"""
-from typing import List, Optional, Any
+from __future__ import annotations
+from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.constants import EFFECTIVE_AGAINST, debug_ai_basic, debug_ai_kill_opportunity
+
+if TYPE_CHECKING:
+    pass
 
 
 class EvaluationMixin:
+    """威胁评估、战力估算、阶段判定。
+
+    以下类型注解仅用于消除 Pylance 对 mixin 属性的 unknown-member 报错，
+    实际值由 BasicAIController.__init__ 初始化。
+    """
+
+    # ---- Pylance 类型提示（运行时不赋值）----
+    personality: str
+    _police_cache: Optional[Dict]
+    _threat_scores: Dict[str, float]
+    _low_threat_streak: Dict[str, int]
+    _been_attacked_by: set
+    _in_combat: bool
+    _combat_target: Any
+    _last_combat_location: Optional[str]
+    _combat_just_ended_at: Optional[str]
+    _political_in_balanced_fallback: bool
+    _game_state: Any
 
     # ════════════════════════════════════════════════════════
     #  危险判定

@@ -1,12 +1,29 @@
 """DevelopMixin —— 发育命令、目的地选择、病毒应急"""
-from typing import List, Optional, Any
+from __future__ import annotations
+from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.constants import (
     NEED_PROVIDERS, PERSONALITY_NEEDS,
     debug_ai_basic, debug_ai_development_plan
 )
 
+if TYPE_CHECKING:
+    pass
+
 
 class DevelopMixin:
+    """发育命令、目的地选择、病毒应急。
+
+    以下类型注解仅用于消除 Pylance 对 mixin 属性的 unknown-member 报错，
+    实际值由 BasicAIController.__init__ 初始化。
+    """
+
+    # ---- Pylance 类型提示（运行时不赋值）----
+    personality: str
+    _political_fallback_level: str
+    _political_in_balanced_fallback: bool
+    _police_dev_assignments: Dict[str, Dict]
+    _missile_cooldown: int
+    _my_id: Optional[str]
 
     # ════════════════════════════════════════════════════════
     #  发育完成判定

@@ -1,11 +1,31 @@
 """PoliceMixin —— 警察系统相关：缓存、队长、政治、反击"""
-from typing import List, Dict, Optional, Any
+from __future__ import annotations
+from typing import TYPE_CHECKING, List, Dict, Optional, Any
 from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS,
     debug_ai_basic, debug_ai_detailed,
     make_weapon
 )
+
+if TYPE_CHECKING:
+    pass
+
+
 class PoliceMixin:
+    """警察系统相关：缓存、队长、政治、反击。
+
+    以下类型注解仅用于消除 Pylance 对 mixin 属性的 unknown-member 报错，
+    实际值由 BasicAIController.__init__ 初始化。
+    """
+
+    # ---- Pylance 类型提示（运行时不赋值）----
+    personality: str
+    _my_id: Optional[str]
+    _police_cache: Optional[Dict]
+    _police_dev_assignments: Dict[str, Dict]
+    _police_dev_initialized: bool
+    _threat_scores: Dict[str, float]
+    _political_fallback_level: str
 
     # ════════════════════════════════════════════════════════
     #  警察状态缓存

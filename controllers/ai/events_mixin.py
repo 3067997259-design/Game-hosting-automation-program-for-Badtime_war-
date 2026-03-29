@@ -1,12 +1,20 @@
 """EventsMixin —— 事件处理、轮次回调、响应窗口、调试输出"""
-from typing import List, Dict, Optional, Any
+from __future__ import annotations
+from typing import TYPE_CHECKING, List, Dict, Optional, Any
 from controllers.ai.constants import debug_ai_basic
+
+if TYPE_CHECKING:
+    pass
 
 
 class EventsMixin:
-    """事件驱动的回调方法集合"""
+    """事件驱动的回调方法集合。
 
-    # ---- 类型声明（消除 IDE 属名未知警告）----
+    以下类型注解仅用于消除 Pylance 对 mixin 属性的 unknown-member 报错，
+    实际值由 BasicAIController.__init__ 初始化。
+    """
+
+    # ---- Pylance 类型提示（运行时不赋值）----
     event_log: List[Dict]
     player_name: Optional[str]
     _my_id: Optional[str]
