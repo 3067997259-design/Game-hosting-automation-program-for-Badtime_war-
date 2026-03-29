@@ -980,6 +980,9 @@ class AnchorMixin:
 
     def _anchor_resolve_combat(self, target):
         me = self._get_caster()
+        if not me:
+            self._anchor_cleanup()
+            return
 
         adjusted_count = self.anchor_destructive_count
         if (self.anchor_destructive_count > 1
