@@ -8,22 +8,12 @@ from controllers.ai.constants import (
 )
 
 if TYPE_CHECKING:
-    pass
+    from controllers.ai.controller import BasicAIController
+
+_Base = BasicAIController if TYPE_CHECKING else object
 
 
-class CombatMixin:
-    """攻击命令、目标选择、武器选择。
-
-    以下类型注解仅用于消除 Pylance 对 mixin 属性的 unknown-member 报错，
-    实际值由 BasicAIController.__init__ 初始化。
-    """
-
-    # ---- Pylance 类型提示（运行时不赋值）----
-    personality: str
-    _threat_scores: Dict[str, float]
-    _been_attacked_by: set
-    _players_who_attacked: set
-    _police_cache: Optional[Dict]
+class CombatMixin(_Base):
 
     # ════════════════════════════════════════════════════════
     #  攻击命令生成

@@ -5,25 +5,12 @@ import random
 from controllers.ai.constants import debug_ai_basic
 
 if TYPE_CHECKING:
-    pass
+    from controllers.ai.controller import BasicAIController
+
+_Base = BasicAIController if TYPE_CHECKING else object
 
 
-class ChooseMixin:
-    """choose / choose_multi / confirm 接口实现。
-
-    以下类型注解仅用于消除 Pylance 对 mixin 属性的 unknown-member 报错，
-    实际值由 BasicAIController.__init__ 初始化。
-    """
-
-    # ---- Pylance 类型提示（运行时不赋值）----
-    personality: str
-    _threat_scores: Dict[str, float]
-    _been_attacked_by: set
-    _in_combat: bool
-    _player: Any
-    _game_state: Any
-    _my_id: Optional[str]
-    _police_cache: Optional[Dict]
+class ChooseMixin(_Base):
 
     # ════════════════════════════════════════════════════════
     #  choose：单选决策

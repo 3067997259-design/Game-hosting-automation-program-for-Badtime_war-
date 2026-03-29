@@ -8,24 +8,12 @@ from controllers.ai.constants import (
 )
 
 if TYPE_CHECKING:
-    pass
+    from controllers.ai.controller import BasicAIController
+
+_Base = BasicAIController if TYPE_CHECKING else object
 
 
-class PoliceMixin:
-    """警察系统相关：缓存、队长、政治、反击。
-
-    以下类型注解仅用于消除 Pylance 对 mixin 属性的 unknown-member 报错，
-    实际值由 BasicAIController.__init__ 初始化。
-    """
-
-    # ---- Pylance 类型提示（运行时不赋值）----
-    personality: str
-    _my_id: Optional[str]
-    _police_cache: Optional[Dict]
-    _police_dev_assignments: Dict[str, Dict]
-    _police_dev_initialized: bool
-    _threat_scores: Dict[str, float]
-    _political_fallback_level: str
+class PoliceMixin(_Base):
 
     # ════════════════════════════════════════════════════════
     #  警察状态缓存

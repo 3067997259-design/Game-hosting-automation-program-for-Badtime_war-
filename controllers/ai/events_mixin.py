@@ -4,36 +4,12 @@ from typing import TYPE_CHECKING, List, Dict, Optional, Any
 from controllers.ai.constants import debug_ai_basic
 
 if TYPE_CHECKING:
-    pass
+    from controllers.ai.controller import BasicAIController
+
+_Base = BasicAIController if TYPE_CHECKING else object
 
 
-class EventsMixin:
-    """事件驱动的回调方法集合。
-
-    以下类型注解仅用于消除 Pylance 对 mixin 属性的 unknown-member 报错，
-    实际值由 BasicAIController.__init__ 初始化。
-    """
-
-    # ---- Pylance 类型提示（运行时不赋值）----
-    event_log: List[Dict]
-    player_name: Optional[str]
-    _my_id: Optional[str]
-    _threat_scores: Dict[str, float]
-    _been_attacked_by: set
-    _players_who_attacked: set
-    _game_state: Any
-    _round_number: int
-    _action_used: bool
-    _missile_cooldown: int
-    _current_phase: str
-    personality: str
-    _police_cache: Optional[Dict]
-    _in_combat: bool
-    _combat_target: Any
-    _last_commands: List[str]
-    _virus_active: bool
-    _virus_location: Optional[str]
-    _low_threat_streak: Dict[str, int]
+class EventsMixin(_Base):
 
     # ════════════════════════════════════════════════════════
     #  on_event (原 lines 714-771)

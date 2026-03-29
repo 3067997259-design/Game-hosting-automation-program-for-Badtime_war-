@@ -7,23 +7,14 @@ from controllers.ai.constants import (
 )
 
 if TYPE_CHECKING:
-    pass  # 避免循环导入；下方类型注解仅供 Pylance 使用
+    from controllers.ai.controller import BasicAIController
+
+# Pylance 辅助基类：TYPE_CHECKING 时继承 BasicAIController 获取完整类型，
+# 运行时退化为 object，不影响 MRO。
+_Base = BasicAIController if TYPE_CHECKING else object
 
 
-class HelpersMixin:
-    """装备查询、位置判断、工具方法。
-
-    以下类型注解仅用于消除 Pylance 对 mixin 属性的 unknown-member 报错，
-    实际值由 BasicAIController.__init__ 初始化。
-    """
-
-    # ---- Pylance 类型提示（运行时不赋值）----
-    player_name: Optional[str]
-    personality: str
-    _threat_scores: Dict[str, float]
-    _players_who_attacked: set
-    _police_cache: Optional[Dict]
-    _game_state: Any
+class HelpersMixin(_Base):
 
     # ════════════════════════════════════════════════════════
     #  基础工具
