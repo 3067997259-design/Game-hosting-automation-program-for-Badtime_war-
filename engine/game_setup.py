@@ -310,7 +310,7 @@ def setup_game():
                     print("  请输入有效编号。")
 
             pid = f"p{player_index}"
-            controller = BasicAIController(personality=personality)
+            controller = BasicAIController(personality=personality)  # type: ignore[abstract]
             player = Player(pid, ai_name, controller=controller)
             game_state.add_player(player)
             used_names.add(ai_name)
