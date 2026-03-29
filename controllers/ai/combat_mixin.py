@@ -277,8 +277,8 @@ class CombatMixin:
             return None
         elif loc == "军事基地" and has_pass:
             # 高斯步枪（近战科技）、电磁步枪（范围科技）
-            has_gauss = any(w.name == "高斯步枪" for w in player.weapons)
-            has_emr = any(w.name == "电磁步枪" for w in player.weapons)
+            has_gauss = any(w.name == "高斯步枪" for w in player.weapons if w)
+            has_emr = any(w.name == "电磁步枪" for w in player.weapons if w)
             if not has_gauss:
                 return "interact 高斯步枪"
             if not has_emr:

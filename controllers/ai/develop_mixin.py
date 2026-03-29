@@ -223,7 +223,7 @@ class DevelopMixin:
         # ---- 磨刀优先：有磨刀石+未磨小刀 → 立即磨刀 ----
         if "special" in available:
             has_stone = any(getattr(i, 'name', '') == "磨刀石" for i in getattr(player, 'items', []))
-            has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons)
+            has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons if w)
             if has_stone and has_unsharpened:
                 commands.append("special 磨刀")
                 return commands  # 磨刀最高优先级，不生成其他命令
@@ -271,7 +271,7 @@ class DevelopMixin:
                     commands.append("interact 隐身衣")
                 if has_weapon and self._has_melee_only(player):
                     has_stone = any(getattr(i, 'name', '') == "磨刀石" for i in getattr(player, 'items', []))
-                    has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons)
+                    has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons if w)
                     # 只在没有磨刀石且有未磨的小刀时才买
                     if not has_stone and has_unsharpened:
                         commands.append("interact 磨刀石")

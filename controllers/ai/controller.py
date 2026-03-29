@@ -85,6 +85,11 @@ class BasicAIController(
         self._last_combat_location = None
         self._combat_just_ended_at = None
 
+        # 病毒预防标记（每局一次）
+        self._virus_prevention_done: bool = False
+        # 行动标记（轮次内）
+        self._action_used: bool = False
+
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command (原 lines 282-308)
     # ════════════════════════════════════════════════════════

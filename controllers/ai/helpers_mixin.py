@@ -6,6 +6,11 @@ from controllers.ai.constants import (
 )
 
 class HelpersMixin:
+
+    # ════════════════════════════════════════════════════════
+    #  基础工具
+    # ════════════════════════════════════════════════════════
+
     def _pname(self) -> str:
         return self.player_name or "AI"
     @staticmethod
@@ -16,6 +21,10 @@ class HelpersMixin:
             return float(value)
         except (ValueError, TypeError):
             return 0.0
+    # ════════════════════════════════════════════════════════
+    #  天赋状态检查
+    # ════════════════════════════════════════════════════════
+
     def _has_firefly_talent(self, player) -> bool:
         """检查玩家是否持有火萤IV型天赋"""
         talent = getattr(player, 'talent', None)
@@ -34,6 +43,10 @@ class HelpersMixin:
         if talent and hasattr(talent, 'is_savior'):
             return talent.is_savior
         return False
+    # ════════════════════════════════════════════════════════
+    #  装备查询：护甲
+    # ════════════════════════════════════════════════════════
+
     def _has_armor_by_name(self, player, armor_name: str) -> bool:
         """检查玩家是否已有指定名称的活跃护甲"""
         armor = getattr(player, 'armor', None)
@@ -70,6 +83,10 @@ class HelpersMixin:
             from models.equipment import ArmorLayer
             return [a.attribute for a in armor.get_active(ArmorLayer.INNER)]
         return []
+    # ════════════════════════════════════════════════════════
+    #  装备查询：武器
+    # ════════════════════════════════════════════════════════
+
     def _get_weapon_damage(self, weapon) -> float:
         """获取武器有效伤害"""
         if not weapon:
@@ -115,6 +132,10 @@ class HelpersMixin:
             if self._get_weapon_range(w) != "melee":
                 return False
         return True
+    # ════════════════════════════════════════════════════════
+    #  状态检查：隐身 / 病毒免疫 / 法术
+    # ════════════════════════════════════════════════════════
+
     def _has_stealth(self, player) -> bool:
         """检查玩家是否有隐身能力"""
         # 检查隐身状态
@@ -150,6 +171,10 @@ class HelpersMixin:
     def _get_learned_spells(self, player) -> set:
         """获取玩家已学法术集合"""
         return getattr(player, 'learned_spells', set())
+    # ════════════════════════════════════════════════════════
+    #  位置查询
+    # ════════════════════════════════════════════════════════
+
     def _get_location_str(self, player) -> str:
         """获取玩家位置字符串"""
         loc = getattr(player, 'location', None)
@@ -251,6 +276,10 @@ class HelpersMixin:
                 elif location == "home" and target_loc == f"home_{player.player_id}":
                     count += 1
         return count
+    # ════════════════════════════════════════════════════════
+    #  命令格式化与验证
+    # ════════════════════════════════════════════════════════
+
     def _format_command(self, raw_cmd: str) -> str:
         """格式化命令"""
         return raw_cmd.strip()

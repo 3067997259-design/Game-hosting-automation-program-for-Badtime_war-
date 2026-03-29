@@ -4,6 +4,11 @@ from controllers.ai.constants import EFFECTIVE_AGAINST, debug_ai_basic, debug_ai
 
 
 class EvaluationMixin:
+
+    # ════════════════════════════════════════════════════════
+    #  危险判定
+    # ════════════════════════════════════════════════════════
+
     def _is_critical_firefly(self, player, state) -> bool:
         """火萤IV型的危险判定：更激进，不轻易进入危险模式"""
         # 被警察围攻仍然算危险
@@ -84,6 +89,10 @@ class EvaluationMixin:
                 if target.talent.is_anchoring(player):
                     return True
         return False
+    # ════════════════════════════════════════════════════════
+    #  击杀机会判定
+    # ════════════════════════════════════════════════════════
+
     def _has_kill_opportunity(self, player, state) -> bool:
         """Bug15修复：击杀机会需考虑护甲"""
         best_dmg = self._best_weapon_damage(player)
