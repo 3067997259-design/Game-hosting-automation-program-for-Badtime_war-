@@ -173,6 +173,8 @@ def run_single_game(num_players: int) -> dict[str, Any]:
             continue
         personality = ai_personality_map.get(pid, "balanced")
         chosen = _ai_pick_talent(personality, available, taken)
+        if chosen is None:
+            continue
         n, name, cls = chosen
         talent_inst = cls(pid, game_state)
         player.talent = talent_inst

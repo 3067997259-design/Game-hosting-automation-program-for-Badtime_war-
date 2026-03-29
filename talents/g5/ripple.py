@@ -115,7 +115,8 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
 
     def on_round_start(self, round_num):
         # V1.92: 用 _can_activate() 替代 self.used 检查
-        if not self._can_activate():
+        # 注意：锚定激活期间即使 _can_activate() 为 False 也需要保存快照
+        if not self._can_activate() and not self.anchor_active:
             return
         if self.anchor_active:
             # 锚定期间保存轮初快照（用于破坏性行动判定）
