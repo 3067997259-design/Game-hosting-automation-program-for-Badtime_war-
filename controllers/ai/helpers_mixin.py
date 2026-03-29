@@ -1,0 +1,332 @@
+"""HelpersMixin —— 装备查询、位置判断、工具方法"""
+from __future__ import annotations
+from typing import TYPE_CHECKING, List, Optional, Any, Dict
+from controllers.ai.constants import (
+    EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS, LOCATIONS,
+    debug_ai_basic
+)
+
+if TYPE_CHECKING:
+    from controllers.ai.controller import BasicAIController
+
+# Pylance 辅助基类：TYPE_CHECKING 时继承 BasicAIController 获取完整类型，
+# 运行时退化为 object，不影响 MRO。
+_Base = BasicAIController if TYPE_CHECKING else object
+
+
+class HelpersMixin(_Base):
+
+    # ════════════════════════════════════════════════════════
+    #  基础工具
+    # ════════════════════════════════════════════════════════
+
+    def _pname(self) -> str:
+        return self.player_name or "AI"
+    @staticmethod
+    def _safe_float(value) -> float:
+        if value is None:
+            return 0.0
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0
+    # ════════════════════════════════════════════════════════
+    #  天赋状态检查
+    # ════════════════════════════════════════════════════════
+
+    def _has_firefly_talent(self, player) -> bool:
+        """检查玩家是否持有火萤IV型天赋"""
+        talent = getattr(player, 'talent', None)
+        if talent and hasattr(talent, 'name') and talent.name == "火萤IV型-完全燃烧":
+            return True
+        return False
+    def _firefly_debuff_active(self, player) -> bool:
+        """检查火萤IV型的 debuff 是否已生效"""
+        talent = getattr(player, 'talent', None)
+        if talent and hasattr(talent, 'debuff_started'):
+            return talent.debuff_started
+        return False
+    def _is_in_savior_state(self, player) -> bool:
+        """检查玩家是否处于救世主状态"""
+        talent = getattr(player, 'talent', None)
+        if talent and hasattr(talent, 'is_savior'):
+            return talent.is_savior
+        return False
+    # ════════════════════════════════════════════════════════
+    #  装备查询：护甲
+    # ════════════════════════════════════════════════════════
+
+    def _has_armor_by_name(self, player, armor_name: str) -> bool:
+        """检查玩家是否已有指定名称的活跃护甲"""
+        armor = getattr(player, 'armor', None)
+        if armor and hasattr(armor, 'get_all_active'):
+            for piece in armor.get_all_active():
+                if piece.name == armor_name:
+                    return True
+        return False
+    def _count_outer_armor(self, player) -> int:
+        """统计玩家活跃的外层护甲数量"""
+        armor = getattr(player, 'armor', None)
+        if armor and hasattr(armor, 'get_active'):
+            from models.equipment import ArmorLayer
+            return len(armor.get_active(ArmorLayer.OUTER))
+        return 0
+    def _count_inner_armor(self, player) -> int:
+        """统计玩家活跃的内层护甲数量"""
+        armor = getattr(player, 'armor', None)
+        if armor and hasattr(armor, 'get_active'):
+            from models.equipment import ArmorLayer
+            return len(armor.get_active(ArmorLayer.INNER))
+        return 0
+    def _get_outer_armor_attr(self, player) -> list:
+        """获取玩家所有活跃外层护甲的属性列表"""
+        armor = getattr(player, 'armor', None)
+        if armor and hasattr(armor, 'get_active'):
+            from models.equipment import ArmorLayer
+            return [a.attribute for a in armor.get_active(ArmorLayer.OUTER)]
+        return []
+    def _get_inner_armor_attr(self, player) -> list:
+        """获取玩家所有活跃内层护甲的属性列表"""
+        armor = getattr(player, 'armor', None)
+        if armor and hasattr(armor, 'get_active'):
+            from models.equipment import ArmorLayer
+            return [a.attribute for a in armor.get_active(ArmorLayer.INNER)]
+        return []
+    # ════════════════════════════════════════════════════════
+    #  装备查询：武器
+    # ════════════════════════════════════════════════════════
+
+    def _get_weapon_damage(self, weapon) -> float:
+        """获取武器有效伤害"""
+        if not weapon:
+            return 0.0
+        if hasattr(weapon, 'get_effective_damage'):
+            return weapon.get_effective_damage()
+        return getattr(weapon, 'base_damage', 1.0)
+    def _get_weapon_range(self, weapon) -> str:
+        """获取武器的射程类型"""
+        from models.equipment import WeaponRange
+        if not weapon:
+            return "melee"
+        wr = getattr(weapon, 'weapon_range', None)
+        if wr == WeaponRange.MELEE:
+            return "melee"
+        elif wr == WeaponRange.RANGED:
+            return "ranged"
+        elif wr == WeaponRange.AREA:
+            return "area"
+        return "melee"
+    def _captain_has_police_escort(self, captain, state) -> bool:
+        """检查队长所在地点是否有活跃的警察单位"""
+        police = getattr(state, 'police', None)
+        if not police:
+            return False
+        captain_loc = self._get_location_str(captain)
+        for unit in getattr(police, 'units', []):
+            if (unit.is_alive() and not unit.is_disabled()
+                    and getattr(unit, 'location', None) == captain_loc):
+                return True
+        return False
+    def _get_weapon_attr(self, weapon):
+        """获取武器属性（返回 Attribute 枚举）"""
+        from utils.attribute import Attribute
+        attr = getattr(weapon, 'attribute', None)
+        if isinstance(attr, Attribute):
+            return attr
+        return Attribute.ORDINARY
+    def _has_melee_only(self, player) -> bool:
+        """是否只有近战武器"""
+        weapons = getattr(player, 'weapons', [])
+        for w in weapons:
+            if self._get_weapon_range(w) != "melee":
+                return False
+        return True
+    # ════════════════════════════════════════════════════════
+    #  状态检查：隐身 / 病毒免疫 / 法术
+    # ════════════════════════════════════════════════════════
+
+    def _has_stealth(self, player) -> bool:
+        """检查玩家是否有隐身能力"""
+        # 检查隐身状态
+        if getattr(player, 'is_invisible', False):
+            return True
+        # 检查物品（player.items 列表）
+        items = getattr(player, 'items', [])
+        for item in items:
+            name = getattr(item, 'name', '')
+            if name in ("隐身衣", "隐形涂层"):
+                return True
+        # 检查已学法术（player.learned_spells 是set）
+        learned = getattr(player, 'learned_spells', set())
+        if "隐身术" in learned:
+            return True
+        return False
+    def _has_virus_immunity(self, player) -> bool:
+        """检查玩家是否有病毒免疫"""
+        # 检查物品
+        items = getattr(player, 'items', [])
+        for item in items:
+            name = getattr(item, 'name', '')
+            if name == "防毒面具":
+                return True
+        # 检查已学法术
+        learned = getattr(player, 'learned_spells', set())
+        if "封闭" in learned:
+            return True
+        # 检查 has_seal 标记
+        if getattr(player, 'has_seal', False):
+            return True
+        return False
+    def _get_learned_spells(self, player) -> set:
+        """获取玩家已学法术集合"""
+        return getattr(player, 'learned_spells', set())
+    # ════════════════════════════════════════════════════════
+    #  位置查询
+    # ════════════════════════════════════════════════════════
+
+    def _get_location_str(self, player) -> str:
+        """获取玩家位置字符串"""
+        loc = getattr(player, 'location', None)
+        if loc is None:
+            return "unknown"
+        if isinstance(loc, str):
+            return loc
+        if hasattr(loc, 'name'):
+            return loc.name
+        return str(loc)
+    def _is_at_home(self, player) -> bool:
+        """是否在自己家"""
+        loc = self._get_location_str(player)
+        pid = getattr(player, 'player_id', '')
+        return loc == "home" or loc == f"home_{pid}" or "家" in loc
+    def _same_location(self, player1, player2) -> bool:
+        """两个玩家是否在同一地点"""
+        loc1 = self._get_location_str(player1)
+        loc2 = self._get_location_str(player2)
+        return loc1 == loc2 and loc1 != "unknown"
+    def _get_same_location_targets(self, player, state) -> List[Any]:
+        """获取同地点的敌方玩家"""
+        result = []
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            target = state.get_player(pid)
+            if target and target.is_alive() and self._same_location(player, target):
+                result.append(target)
+        return result
+    def _find_nearest_enemy_location(self, player, state) -> Optional[str]:
+            """找到威胁度最大的敌人所在位置（因为这游戏没有距离概念啦）
+            aggressive 人格会优先去发育者（从未攻击过任何人的玩家）所在位置
+            """
+            # 预计算全场最强玩家的 power（避免在循环内重复计算）
+            max_power = max(
+                (self._estimate_power(state.get_player(other_pid))
+                 for other_pid in state.player_order
+                 if other_pid != player.player_id
+                 and state.get_player(other_pid) and state.get_player(other_pid).is_alive()),
+                default=0
+            )
+            candidates = []
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if target and target.is_alive():
+                    target_loc = self._get_location_str(target)
+                    threat = self._threat_scores.get(target.name, 0)
+                    target_power = self._estimate_power(target)
+                    # aggressive 优先骚扰发育者
+                    if self.personality == "aggressive":
+                        target_name = getattr(target, 'name', '')
+                        target_pid = getattr(target, 'player_id', '')
+                        is_passive = (target_name not in self._players_who_attacked
+                                    and target_pid not in self._players_who_attacked)
+                        if is_passive:
+                            threat += 30 + target_power * 0.3  # 越肉的发育者越危险
+                    # 全场最强玩家额外加分
+                    # 甲最多的人是最大的后期威胁，所有人都应该优先针对
+                    if target_power >= max_power:
+                        threat += 40  # 最强玩家额外 +40 优先级
+                    candidates.append((target_loc, threat))
+            if not candidates:
+                return None
+            # 按威胁分排序
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            return candidates[0][0]
+    def _find_safe_location(self, player, state) -> Optional[str]:
+        """找到最安全的位置（按敌人数量排序）"""
+        loc = self._get_location_str(player)
+        enemies_here = len(self._get_same_location_targets(player, state))
+        if enemies_here == 0:
+            return None  # 当前已安全
+        # 收集所有候选地点及其敌人数
+        candidates = []
+        all_locations = ["home", "商店", "医院", "魔法所", "军事基地", "警察局"]
+        for test_loc in all_locations:
+            if test_loc == loc:
+                continue
+            enemies_at = self._count_enemies_at(test_loc, player, state)
+            candidates.append((test_loc, enemies_at))
+        # 按敌人数升序排序，优先去没人的地方
+        candidates.sort(key=lambda x: x[1])
+        if candidates:
+            return candidates[0][0]
+        return "home"
+    def _count_enemies_at(self, location: str, player, state) -> int:
+        count = 0
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            target = state.get_player(pid)
+            if target and target.is_alive():
+                target_loc = self._get_location_str(target)
+                if target_loc == location:
+                    count += 1
+                elif location == "home" and target_loc == f"home_{player.player_id}":
+                    count += 1
+        return count
+    # ════════════════════════════════════════════════════════
+    #  命令格式化与验证
+    # ════════════════════════════════════════════════════════
+
+    def _format_command(self, raw_cmd: str) -> str:
+        """格式化命令"""
+        return raw_cmd.strip()
+    def _validate_command(self, cmd: str, available: List[str]) -> bool:
+        """验证命令是否合法"""
+        if not cmd:
+            return False
+        parts = cmd.split()
+        if not parts:
+            return False
+        action = parts[0]
+        # 检查行动类型是否可用
+        if action in available:
+            return True
+        # 特殊命令
+        if action in ("police", "talent_activate", "special"):
+            return True
+        return False
+    def _fallback_command(self, player, state, available: List[str]) -> str:
+        """
+        Bug15修复：所有策略都失败时的兜底命令
+        优先选择安全的行动
+        """
+        debug_ai_basic(player.name, "使用兜底命令")
+        # 1) forfeit（放弃行动）永远合法
+        if "forfeit" in available:
+            return "forfeit"
+        # 2) 移动到安全位置
+        if "move" in available:
+            safe = self._find_safe_location(player, state)
+            if safe:
+                return f"move {safe}"
+            return "move home"
+        # 3) 起床
+        if "wake" in available:
+            return "wake"
+        # 4) 交互
+        if "interact" in available:
+            return "interact"
+        # 5) 实在没办法
+        return "forfeit"
