@@ -364,11 +364,12 @@ class PoemMixin:
                     if not target.is_captain:
                         lines.append("⚠️ 额外行动导致威信归零，队长身份已解除！")
 
-            # 4b：无存活警察 → 召唤新单位 + 解除永久禁用
-            police.units = [u for u in police.units if u.is_alive()]
-            msg = pe.summon_police_unit(target.location)
-            lines.append(msg)
-            lines.append("🏙️ 朝阳好市民效果：警察系统恢复运作！")
+            else:
+                # 4b：无存活警察 → 召唤新单位 + 解除永久禁用
+                police.units = [u for u in police.units if u.is_alive()]
+                msg = pe.summon_police_unit(target.location)
+                lines.append(msg)
+                lines.append("🏙️ 朝阳好市民效果：警察系统恢复运作！")
 
         # ============================================================
         #  分支5：目标是警察但不是队长，且已有队长
