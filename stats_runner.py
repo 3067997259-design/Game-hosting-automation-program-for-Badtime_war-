@@ -22,6 +22,7 @@ try:
     from engine.game_setup import (
         TALENT_TABLE, AI_TALENT_PREFERENCE, AI_PERSONALITIES,
         AI_NAME_POOL, TALENT_DECAY_FACTOR, _ai_pick_talent,
+        AI_DISABLED_TALENTS,
     )
     from models.player import Player
     from controllers.ai_basic import BasicAIController
@@ -166,7 +167,8 @@ def run_single_game(num_players: int) -> dict[str, Any]:
         player = game_state.get_player(pid)
         if player is None:
             continue
-        available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE if n not in taken]
+        available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                     if n not in taken and n not in AI_DISABLED_TALENTS]
         if not available:
             continue
         personality = ai_personality_map.get(pid, "balanced")

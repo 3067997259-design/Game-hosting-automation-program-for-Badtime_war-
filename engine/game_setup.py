@@ -24,6 +24,42 @@ from talents.g3_mythland import Mythland
 from talents.g5_ripple import Ripple
 
 import random
+import json
+import os
+
+def _load_game_config() -> dict:
+    """加载游戏配置文件"""
+    config_paths = ["config/game_config.json", "game_config.json"]
+    for path in config_paths:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"  ⚠️ 游戏配置加载失败 {path}: {e}")
+    return {}
+
+_GAME_CONFIG = _load_game_config()
+
+def _resolve_disabled_talents(raw_list, talent_table) -> set:
+    """将配置中的天赋编号/名称统一转为编号集合"""
+    disabled = set()
+    # Build name→number lookup
+    name_to_num = {name: num for num, name, cls, desc in talent_table}
+    for item in raw_list:
+        if isinstance(item, int):
+            disabled.add(item)
+        elif isinstance(item, str):
+            # Try exact match first
+            if item in name_to_num:
+                disabled.add(name_to_num[item])
+            else:
+                # Try substring match (e.g., "涟漪" matches "往世的涟漪")
+                for name, num in name_to_num.items():
+                    if item in name:
+                        disabled.add(num)
+                        break
+    return disabled
 
 TALENT_TABLE = [
     (1, "一刀缭断", OneSlash,
@@ -51,6 +87,13 @@ TALENT_TABLE = [
     (12, "神代天赋-往昔的涟漪", Ripple,
      "成为唤醒记忆的那颗流星，在命运长河中激起涟漪的石子"),
 ]
+
+AI_DISABLED_TALENTS: set = _resolve_disabled_talents(
+    _GAME_CONFIG.get("ai_disabled_talents", []), TALENT_TABLE
+)
+if AI_DISABLED_TALENTS:
+    disabled_names = [name for num, name, cls, desc in TALENT_TABLE if num in AI_DISABLED_TALENTS]
+    print(f"  ⚠️ AI禁用天赋：{', '.join(disabled_names)}")
 
 # ════════════════════════════════════════════════════════
 #  AI 人格 → 天赋偏好映射（AI 自动选天赋用）
@@ -476,7 +519,16 @@ def _talent_selection(game_state, ai_players_info=None):
         # ──── AI 自动选择 ────
         if pid in ai_pids:
             personality = ai_personality_map.get(pid, "balanced")
-            chosen = _ai_pick_talent(personality, available, taken)
+            # 过滤掉配置中禁用的天赋
+            ai_available = [(n, name, cls, desc) for n, name, cls, desc in available
+                           if n not in AI_DISABLED_TALENTS]
+            if not ai_available:
+                print(f"  {player.name}（AI）无可用天赋（全部被禁用或已选走）。")
+                continue
+            chosen = _ai_pick_talent(personality, ai_available, taken)
+            if chosen is None:
+                print(f"  {player.name}（AI）无可用天赋。")
+                continue
             n, name, cls = chosen
             talent_inst = cls(pid, game_state)
             player.talent = talent_inst
@@ -562,6 +614,12 @@ def _ai_pick_talent(personality: str, available, taken: set):
     # 获取该人格的偏好列表
     preference = AI_TALENT_PREFERENCE.get(personality,
                                            AI_TALENT_PREFERENCE["balanced"])
+
+    # 安全过滤：排除配置中禁用的天赋
+    available = [(n, name, cls, desc) for n, name, cls, desc in available
+                 if n not in AI_DISABLED_TALENTS]
+    if not available:
+        return None  # caller should handle this
 
     # 调试信息：显示人格和偏好列表
     if is_debug_enabled():
