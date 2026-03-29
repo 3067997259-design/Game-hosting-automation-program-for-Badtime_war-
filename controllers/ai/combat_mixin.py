@@ -9,6 +9,7 @@ from controllers.ai.constants import (
 
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController
+    from utils.attribute import Attribute
 
 _Base = BasicAIController if TYPE_CHECKING else object
 
