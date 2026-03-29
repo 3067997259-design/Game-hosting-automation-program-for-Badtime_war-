@@ -8,6 +8,7 @@ PoemMixin —— 献诗系统（方式二）
   - apply_hexagram_free_choice: 六爻献诗自由选择
 """
 
+from typing import Any
 from cli import display
 from engine.prompt_manager import prompt_manager
 from combat.damage_resolver import resolve_damage
@@ -18,13 +19,16 @@ class PoemMixin:
 
     # 类型声明（运行时由 Ripple.__init__ 初始化）
     POEM_MAP: dict
-    state: object
+    state: Any
     player_id: str
     used: bool
     reminiscence: float
     max_reminiscence: float
     total_uses: int
     used_poems: set
+
+    # 辅助方法（由主类 Ripple 提供）
+    def _consume_use(self) -> None: ...
 
     # ================================================================
     #  献诗入口

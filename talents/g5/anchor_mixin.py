@@ -53,20 +53,20 @@ class AnchorMixin:
     anchor_target_snapshot: Optional[dict]
     anchor_revealed_step: Optional[str]
     was_paused_by_barrier: bool
-    # 轮初快照（新增）
+    # 轮初快照（新增）—— 可为 None（锚定未激活或目标不存在时）
     _target_round_start_location: Any
-    _target_round_start_armor: list
+    _target_round_start_armor: Optional[List]
     _caster_round_start_stunned: bool
     _caster_round_start_shocked: bool
     _caster_round_start_petrified: bool
 
     # ================================================================
-    #  辅助方法（由主类提供，此处声明供类型检查）
+    #  辅助方法（由主类 Ripple 提供，此处声明供类型检查）
     # ================================================================
 
     def _get_caster(self): ...
     def _has_human_players(self) -> bool: ...
-    def is_anchor_paused(self) -> bool: ...
+    def _consume_use(self) -> None: ...
 
     # ================================================================
     #  方式一：锚定命运 —— 入口
@@ -1366,12 +1366,13 @@ class AnchorMixin:
             return
 
         if self.was_paused_by_barrier:
+            me = self._get_caster()
             display.show_info(
                 prompt_manager.get_prompt(
                     "talent", "g5ripple.barrier_end_resume",
                     default="🌊▶️ 结界已结束，{caster_name} 的锚定监控恢复（剩余{remaining_rounds}轮）"
                 ).format(
-                    caster_name=self._get_caster().name,
+                    caster_name=me.name if me else self.player_id,
                     remaining_rounds=self.anchor_rounds_left
                 )
             )

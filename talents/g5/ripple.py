@@ -70,11 +70,11 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         self.was_paused_by_barrier = False
 
         # === V1.92: 轮初快照（由 AnchorMixin._auto_judge_destructive 使用）===
-        self._target_round_start_location = None
-        self._target_round_start_armor = None
-        self._caster_round_start_stunned = False
-        self._caster_round_start_shocked = False
-        self._caster_round_start_petrified = False
+        self._target_round_start_location: object | None = None
+        self._target_round_start_armor: list | None = None
+        self._caster_round_start_stunned: bool = False
+        self._caster_round_start_shocked: bool = False
+        self._caster_round_start_petrified: bool = False
 
     # ================================================================
     #  V1.92: 消耗使用次数（替代原来的 self.used = True）
