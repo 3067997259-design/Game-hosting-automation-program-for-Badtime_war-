@@ -188,6 +188,10 @@ class EvaluationMixin:
             if total_durability <= eff_dmg * 0.75:
                 return True
         return False
+    # ════════════════════════════════════════════════════════
+    #  战斗状态更新
+    # ════════════════════════════════════════════════════════
+
     def _update_combat_status(self, player, state):
         markers = getattr(state, 'markers', None)
         current_target = None
@@ -293,6 +297,10 @@ class EvaluationMixin:
             if dmg > best:
                 best = dmg
         return best
+    # ════════════════════════════════════════════════════════
+    #  生命值与战力估算
+    # ════════════════════════════════════════════════════════
+
     def _get_effective_hp(self, player) -> float:
         """获取玩家的有效生命值（含天赋额外HP）
         - 愿负世：救世主状态的临时HP
@@ -326,6 +334,10 @@ class EvaluationMixin:
         if getattr(player, 'has_detection', False):
             power += 5
         return power
+    # ════════════════════════════════════════════════════════
+    #  威胁评估
+    # ════════════════════════════════════════════════════════
+
     def _update_threat_scores(self, player, state):
         """更新威胁分数（_update_threat_assessment的别名）"""
         self._update_threat_assessment(player, state)
@@ -388,6 +400,10 @@ class EvaluationMixin:
         for name in list(self._low_threat_streak.keys()):
             if name not in alive_threats:
                 del self._low_threat_streak[name]
+
+    # ════════════════════════════════════════════════════════
+    #  危险解除与应急发育
+    # ════════════════════════════════════════════════════════
 
     def _is_danger_resolved(self, player) -> bool:
         """判断危险状态是否已解除"""

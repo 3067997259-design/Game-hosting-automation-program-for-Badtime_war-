@@ -7,6 +7,11 @@ from controllers.ai.constants import (
 
 
 class DevelopMixin:
+
+    # ════════════════════════════════════════════════════════
+    #  发育完成判定
+    # ════════════════════════════════════════════════════════
+
     def _is_development_complete(self, player, state) -> bool:
         """判断发育是否完成"""
         real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
@@ -210,6 +215,10 @@ class DevelopMixin:
                     if not (next_loc == "home" and self._is_at_home(player)):
                         commands.append(f"move {next_loc}")
         return commands
+    # ════════════════════════════════════════════════════════
+    #  通用发育命令
+    # ════════════════════════════════════════════════════════
+
     def _cmd_develop(self, player, state, available: List[str]) -> List[str]:
         commands = []
         loc = self._get_location_str(player)
@@ -368,6 +377,10 @@ class DevelopMixin:
                 if not (next_loc == "home" and self._is_at_home(player)):
                     commands.append(f"move {next_loc}")
         return commands
+    # ════════════════════════════════════════════════════════
+    #  目的地选择与需求评估
+    # ════════════════════════════════════════════════════════
+
     def _pick_ideal_destination(self, player, state) -> Optional[str]:
         """动态需求驱动的目标地点选择"""
         # 1. 收集当前未满足的需求
@@ -574,6 +587,10 @@ class DevelopMixin:
             # 警察部署完毕，让通用逻辑处理
             return None
         return None
+    # ════════════════════════════════════════════════════════
+    #  病毒相关
+    # ════════════════════════════════════════════════════════
+
     def _someone_has_virus_immunity(self, state) -> bool:
         """检查局内是否有其他玩家持有防毒面具或封闭"""
         for pid in state.player_order:

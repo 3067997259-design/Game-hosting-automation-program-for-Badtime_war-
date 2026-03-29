@@ -4,6 +4,11 @@ import random
 from controllers.ai.constants import debug_ai_basic
 
 class ChooseMixin:
+
+    # ════════════════════════════════════════════════════════
+    #  choose：单选决策
+    # ════════════════════════════════════════════════════════
+
     def choose(
         self, prompt: str, options: List[str],
         context: Optional[Dict] = None

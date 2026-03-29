@@ -8,6 +8,11 @@ from controllers.ai.constants import (
 
 
 class CombatMixin:
+
+    # ════════════════════════════════════════════════════════
+    #  攻击命令生成
+    # ════════════════════════════════════════════════════════
+
     def _cmd_attack(self, player, state, available: List[str],
                     forced_target=None) -> List[str]:
         commands = []
@@ -209,6 +214,10 @@ class CombatMixin:
                     commands.append(f"attack {target.name} {weapon.name}")
             return commands
         return commands
+    # ════════════════════════════════════════════════════════
+    #  换武器（武器被克制时）
+    # ════════════════════════════════════════════════════════
+
     def _cmd_rearm(self, player, state, available: List[str]) -> List[str]:
         """近战中所有武器被克制后的换武器逻辑
         1. 检查当前地点能否interact到非普通属性武器 → 直接拿
@@ -324,6 +333,10 @@ class CombatMixin:
             return "军事基地"
         else:
             return "魔法所"
+    # ════════════════════════════════════════════════════════
+    #  目标选择
+    # ════════════════════════════════════════════════════════
+
     def _pick_target(self, player, state) -> Optional[Any]:
         """选择最佳攻击目标"""
         candidates = []
@@ -428,6 +441,10 @@ class CombatMixin:
                 if self._same_location(player, target):
                     return True
         return False
+    # ════════════════════════════════════════════════════════
+    #  武器选择
+    # ════════════════════════════════════════════════════════
+
     def _pick_weapon(self, player, target) -> Optional[Any]:
         """选择最佳武器"""
         weapons = getattr(player, 'weapons', [])
@@ -490,6 +507,10 @@ class CombatMixin:
             return s
         sorted_weapons = sorted(pool, key=weapon_score, reverse=True)
         return sorted_weapons[0]
+    # ════════════════════════════════════════════════════════
+    #  攻击层选择
+    # ════════════════════════════════════════════════════════
+
     def _pick_attack_layer(self, player, target, weapon) -> tuple:
         """选择攻击层和属性，返回 (layer_str, armor_attr_str)
         layer_str: "外层" / "内层" / None（无甲直接打HP）
