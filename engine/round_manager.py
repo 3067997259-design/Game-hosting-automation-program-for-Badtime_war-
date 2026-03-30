@@ -161,7 +161,7 @@ class RoundManager:
 
             # 更新行动记录
             actor.last_action_type = action_type
-            non_action_types = ("forfeit", "status", "help",
+            non_action_types = ("status", "help",
                                 "police_status", "allstatus", "shock_recover")
             if action_type not in non_action_types:
                 actor.acted_this_round = True
@@ -205,12 +205,19 @@ class RoundManager:
             i += 1
 
         # 未行动保底
+        initial_count = len(self.state.player_order)
+        alive_count = len([pid for pid in self.state.player_order
+                   if self.state.get_player(pid) and self.state.get_player(pid).is_alive()])
         for pid in self.state.player_order:
             player = self.state.get_player(pid)
             if not player or not player.is_alive():
                 continue
             if not player.acted_this_round:
-                player.no_action_streak += 1
+                # 开局>3人且仅剩2人时，保底失效
+                if initial_count > 3 and alive_count <= 2:
+                    player.no_action_streak = 0
+                else:
+                    player.no_action_streak += 1
 
     def _check_attack_crime(self, attacker):
         """攻击后犯罪检测（含天赋钩子）"""
