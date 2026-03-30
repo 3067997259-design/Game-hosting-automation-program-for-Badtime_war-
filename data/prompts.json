@@ -326,7 +326,12 @@
       "death": "   💀 {target_name} 被天星击杀！",
       "stun": "   💫 {target_name} 进入眩晕状态！",
       "police_death": "   → 警察{unit_id} 被天星击杀！HP: {old_hp} → 0",
-      "police_damage": "   → 警察{unit_id} 受到1.0伤害+石化 HP: {old_hp} → {new_hp}"
+      "police_damage": "   → 警察{unit_id} 受到1.0伤害+石化 HP: {old_hp} → {new_hp}",
+      "ripple_bounce_header": "   ⭐🌊 涟漪增强：额外指定2次目标，各造成0.5无视属性伤害！",
+      "ripple_bounce_damage": "   ⭐🌊 弹射→ {target_name} 受到0.5伤害 HP: {old_hp} → {new_hp}",
+      "ripple_bounce_kill": "   💀 {target_name} 被弹射击杀！",
+      "ripple_bounce_police_damage": "   ⭐🌊 弹射→ 警察{unit_id} 受到0.5伤害 HP: {old_hp} → {new_hp}",
+      "ripple_bounce_police_kill": "   💀 警察{unit_id} 被弹射击杀！"
     },
     "t4hexagram": {
       "lore": [
