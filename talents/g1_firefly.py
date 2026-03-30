@@ -154,7 +154,7 @@ class G1MythFire(BaseTalent):
         n = self.initial_player_count
         early_threshold = 5 + (n - 2) * 2  # 4人局=9次
         if current_round <= 15 and self.action_turn_count < early_threshold:
-            return max(base, current_round + 1)
+            return max(base if base is not None else current_round + 1, current_round + 1)
 
         # === 后续延迟：每3轮窗口内行动<1次则延缓 ===
         if current_round > 15 and current_round >= base:

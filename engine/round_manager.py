@@ -179,11 +179,14 @@ class RoundManager:
                         f"📌 {responder.name} 的额外行动回合已插入！")
 
             # === 六爻额外回合（剪刀vs布）===
-            if actor.hexagram_extra_turn:
-                actor.hexagram_extra_turn = False
-                action_queue.insert(i + 1, actor.player_id)
+            if getattr(actor, 'hexagram_extra_turn', 0) > 0:
+                # V1.92: 支持连续多个额外行动回合
+                turns_to_add = actor.hexagram_extra_turn
+                actor.hexagram_extra_turn = 0
+                for t_idx in range(turns_to_add):
+                    action_queue.insert(i + 1 + t_idx, actor.player_id)
                 display.show_info(
-                    f"📌 {actor.name} 的六爻额外行动回合已插入！")
+                    f"📌 {actor.name} 的六爻额外行动回合已插入（{turns_to_add}个）！")
 
             # === 犯罪触发的额外回合（不良少年等）===
             if getattr(actor, 'crime_extra_turn', False):
