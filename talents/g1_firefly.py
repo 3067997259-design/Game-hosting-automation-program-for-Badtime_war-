@@ -1,5 +1,5 @@
 """
-神代天赋1：火萤IV型-完全燃烧
+神代天赋1：火萤IV型-完全燃烧（V1.92）
 
 效果A 强化（常驻）：
   - 造成的所有伤害 +100%
@@ -7,15 +7,20 @@
   - HP降至0.5时不进入眩晕，下一行动回合开始时(T0)自动恢复HP至1
 
 效果B 后期代价debuff：
-  - debuff开始轮次 = 15 + (开局玩家人数-2)*5 + 累计击杀数*10
+  - debuff开始轮次 = 15 + (开局玩家人数-2)*3
   - 前期延迟：前15轮累计行动 < 5+(人数-2)*2 次 → 延迟
-  - 后期延缓：每5轮窗口内行动<2次 → 该次debuff跳过
-  - 从debuff轮开始，每轮R0：
+  - 后期延缓：每3轮窗口内行动<1次 → 该次debuff跳过
+  - 每2轮结算1次debuff：
     1. 有外层护甲/护盾 → 摧毁一件
     2. 没有外层 → 扣1点内层护甲
     3. 没有任何护甲 → 跳过（不致死）
   - 炽愿（增强版）：每层可抵扣2次debuff（需有护甲可扣时生效）
     + 受攻击时充当额外生命值（每层0.5HP）
+
+效果C 超新星过载（V1.92新增）：
+  - 首次debuff生效时 / 击杀时授予1次超新星过载（不叠加）
+  - 移动时自动触发：对目的地所有单位造成1.0无视克制伤害
+  - 击杀可再次授予超新星；发动后debuff开始轮次后延3轮
 """
 
 from talents.base_talent import BaseTalent, PromptLevel
@@ -50,8 +55,11 @@ class G1MythFire(BaseTalent):
         self.ardent_wish_charges = 0  # 炽愿层数
         self.ardent_wish_debuff_uses = 0  # 当前活跃炽愿的剩余debuff抵扣次数
 
+        self.has_supernova = False  # 超新星过载是否就绪
         self.supernova_charges = 0  # 超新星过载次数（不可叠加，最多1）
         self.supernova_used_this_move = False # 本行动回合是否已使用过超新星过载（重置条件：每轮R0）
+
+        self.debuff_tick_count = 0  # 炽愿抵扣结算计数
 
     # ============================================
     #  注册
@@ -113,12 +121,9 @@ class G1MythFire(BaseTalent):
 
         self._debuff_last_settled_round = round_num
 
-        # 炽愿抵扣（原有逻辑不变）
+        # 炽愿抵扣（每2轮的频率门控已由上方 _debuff_last_settled_round 统一处理）
         if self.ardent_wish_charges > 0:
-            # V1.92: 每2轮结算1次
             self.debuff_tick_count += 1
-            if self.debuff_tick_count % 2 == 0:
-                return  # 本轮跳过结算
             has_armor = bool(
                 me.armor.get_active(ArmorLayer.OUTER) or
                 me.armor.get_active(ArmorLayer.INNER)
@@ -151,7 +156,7 @@ class G1MythFire(BaseTalent):
         if current_round <= 15 and self.action_turn_count < early_threshold:
             return max(base, current_round + 1)
 
-        # === 后续延迟：每5轮窗口内行动<2次则延缓 ===
+        # === 后续延迟：每3轮窗口内行动<1次则延缓 ===
         if current_round > 15 and current_round >= base:
             if self._is_window_delay_active(current_round):
                 return current_round + 1  # 延缓到下一轮
@@ -263,7 +268,7 @@ class G1MythFire(BaseTalent):
         return None  # 不消耗回合，正常继续
 
     # ============================================
-    #  5轮行动窗口追踪（后续延迟用）
+    #  3轮行动窗口追踪（后续延迟用）
     # ============================================
 
     def _update_window(self, round_num):
@@ -288,7 +293,7 @@ class G1MythFire(BaseTalent):
         if action_type == "forfeit":
             return
         self.action_turn_count += 1
-        # 5轮窗口内行动计数
+        # 3轮窗口内行动计数
         if self.debuff_started and self.window_start_round is not None:
             self.window_action_count += 1
 
@@ -371,7 +376,6 @@ class G1MythFire(BaseTalent):
         """DHGDR-超新星过载：对目的地所有单位造成1点无视属性克制伤害"""
         from combat.damage_resolver import resolve_location_damage
         from cli import display
-        from typing import Any, List, Dict
 
         self.has_supernova = False
         display.show_info(
@@ -385,28 +389,24 @@ class G1MythFire(BaseTalent):
             game_state=game_state, raw_damage=1.0,
             ignore_counter=True, exclude_self=True)
 
-        # Flatten the dict of lists into a single list
-        results: List[Dict[str, Any]] = []
-        for key, items in results_dict.items():
-            results.extend(items)
+        # 分别处理玩家和警察结果（数据结构不同，不能 flatten）
+        for r in results_dict.get("players", []):
+            t = r["target"]
+            res = r["result"]
+            display.show_info(f"  → {t.name} 受到 1.0 伤害（无视克制）")
+            if res.get("killed"):
+                player.kill_count += 1
+                game_state.markers.on_player_death(t.player_id)
+                display.show_info(f"  💀 {t.name} 被超新星击杀！")
+                # 击杀再给超新星
+                self._grant_supernova(player)
 
-        for r in results:
-            if r["type"] == "player":
-                t = r["target"]
-                res = r["result"]
-                display.show_info(f"  → {t.name} 受到 1.0 伤害（无视克制）")
-                if res.get("killed"):
-                    player.kill_count += 1
-                    game_state.markers.on_player_death(t.player_id)
-                    display.show_info(f"  💀 {t.name} 被超新星击杀！")
-                    # 击杀再给超新星
-                    self._grant_supernova(player)
-            elif r["type"] == "police":
-                u = r["target"]
-                if u.is_alive():
-                    display.show_info(f"  → 警察{u.unit_id} 受到 1.0 伤害")
-                else:
-                    display.show_info(f"  → 警察{u.unit_id} 被超新星击杀！")
+        for u in results_dict.get("police", []):
+            # police 列表中的元素是 unit 对象（非字典）
+            if u.is_alive():
+                display.show_info(f"  → 警察{u.unit_id} 受到 1.0 伤害")
+            else:
+                display.show_info(f"  → 警察{u.unit_id} 被超新星击杀！")
 
         # V1.92: 超新星发动后 debuff 开始轮次后延3轮
         if self.debuff_start_round is not None:
@@ -427,7 +427,7 @@ class G1MythFire(BaseTalent):
             parts.append(f"debuff起始轮：{self.debuff_start_round}")
         if self.debuff_started:
             parts.append("debuff已激活")
-            parts.append(f"结算计数：{self.debuff_tick_count}（偶数轮跳过）")
+            parts.append(f"结算计数：{self.debuff_tick_count}")
         if self.has_supernova:
             parts.append("🌟超新星过载就绪")
         if self.ardent_wish_charges > 0:
@@ -438,7 +438,8 @@ class G1MythFire(BaseTalent):
         return (
             f"【{self.name}】"
             f"\n  常驻：伤害+100% | 受伤-50% | 0.5血不眩晕(T0自愈)"
-            f"\n  debuff = 15+(人数-2)×5+击杀×10 轮后每轮R0扣护甲"
-            f"\n  前15轮行动不足则延迟 | 后续每5轮行动<2次则延缓"
+            f"\n  debuff = 15+(人数-2)×3 轮后每2轮R0扣护甲"
+            f"\n  前15轮行动不足则延迟 | 后续每3轮行动<1次则延缓"
+            f"\n  超新星过载：首次debuff/击杀时获得，移动时对目的地全体1.0伤害"
             f"\n  炽愿：每层抵扣2次debuff + 0.5额外生命值")
 
