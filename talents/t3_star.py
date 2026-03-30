@@ -19,7 +19,7 @@ class Star(BaseTalent):
 
     def __init__(self, player_id, game_state):
         super().__init__(player_id, game_state)
-        self.uses_remaining = 1
+        self.uses_remaining = 2
 
     def get_t0_option(self, player):
         if self.uses_remaining <= 0:
@@ -31,7 +31,7 @@ class Star(BaseTalent):
             return None
         return {
             "name": "天星",
-            "description": f"对同地点所有单位造成1点伤害+石化。剩余{self.uses_remaining}次",
+            "description": f"对同地点所有单位造成动态伤害+石化。剩余{self.uses_remaining}次",
         }
 
     def execute_t0(self, player):
@@ -41,6 +41,10 @@ class Star(BaseTalent):
                                            default="\u274c 天星已用完"), False
 
         self.uses_remaining -= 1
+        # V1.92: 动态伤害公式 = min(1 + 0.5 * 命中单位数, 3)
+        alive_police = [u for u in police_at_loc if u.is_alive()]
+        target_count = len(targets) + len(alive_police)
+        damage_per_target = min(1.0 + 0.5 * target_count, 3.0)
 
         targets = [p for p in self.state.players_at_location(player.location)
                    if p.player_id != player.player_id and p.is_alive()]
@@ -67,14 +71,14 @@ class Star(BaseTalent):
                 target=t,
                 weapon=None,  # 无武器
                 game_state=self.state,
-                raw_damage_override=1.0,
+                raw_damage_override=damage_per_target,
                 damage_attribute_override="无视属性克制",  # 对应伤害类型
                 ignore_counter=True,  # 无视属性克制
             )
 
             damage_msg = prompt_manager.get_prompt("talent", "t3star.damage",
-                                                  default="   \u2192 {target_name} 受到 1.0 点伤害（无视克制） HP: {old_hp} \u2192 {new_hp}",
-                                                  target_name=t.name, old_hp=old_hp, new_hp=t.hp)
+                                                   default="   → {target_name} 受到 {damage:.1f} 点伤害（无视克制） HP: {old_hp} → {new_hp}",
+                                                  target_name=t.name, damage=damage_per_target, old_hp=old_hp, new_hp=t.hp)
             lines.append(damage_msg)
 
             # 添加伤害结算详情
@@ -115,7 +119,7 @@ class Star(BaseTalent):
             if pe:
                 pe._resolve_attack_on_police(
                     weapon=None, unit=unit,
-                    raw_damage_override=1.0, ignore_counter=True,
+                    raw_damage_override=damage_per_target, ignore_counter=True,
                     attacker=player
                 )
                 unit.last_attacker_id = player.player_id
@@ -125,16 +129,17 @@ class Star(BaseTalent):
             if unit.hp <= 0:
                 police_death_msg = prompt_manager.get_prompt(
                     "talent", "t3star.police_death",
-                    default="   \u2192 警察{unit_id} 被天星击杀！HP: {old_hp} \u2192 0",
-                    unit_id=unit.unit_id, old_hp=old_hp)
+                    default="   → 警察{unit_id} 受到{damage:.1f}伤害+石化 HP: {old_hp} → {new_hp}",
+                    unit_id=unit.unit_id, damage=damage_per_target, old_hp=old_hp, new_hp=unit.hp)
+
                 lines.append(police_death_msg)
             else:
                 # 存活则施加石化
                 unit.is_petrified = True
                 police_damage_msg = prompt_manager.get_prompt(
                     "talent", "t3star.police_damage",
-                    default="   \u2192 警察{unit_id} 受到1.0伤害+石化 HP: {old_hp} \u2192 {new_hp}",
-                    unit_id=unit.unit_id, old_hp=old_hp, new_hp=unit.hp)
+                    default="   \u2192 警察{unit_id} 受到{damage:.1f}伤害+石化 HP: {old_hp} \u2192 {new_hp}",
+                    unit_id=unit.unit_id, damage=damage_per_target, old_hp=old_hp, new_hp=unit.hp)
                 lines.append(police_damage_msg)
 
         # 检查是否所有警察都死亡
