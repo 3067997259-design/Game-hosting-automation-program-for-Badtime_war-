@@ -285,7 +285,7 @@
         "双石头→获得任意武器",
         "双布→获得任意护甲",
         "剪刀vs石头→所有蓄力武器立刻蓄力，如果没有则获得一把需要蓄力的武器",
-        "剪刀vs布→获得额外行动回合",
+        "剪刀vs布→获得2个连续额外行动回合",
         "石头vs布→清除锁定/探测+隐身"
       ],
       "cancel_activation": "取消发动。",
@@ -357,7 +357,7 @@
       "charge_new_weapon": "🔮 剪刀vs石头→⚔️⚡ {player_name} 获得了「{weapon_name}」并立刻完成蓄力！",
       "charge_completed": "🔮 剪刀vs石头→⚡ 蓄力完成：{weapons_list}",
       "charge_no_weapons": "🔮 剪刀vs石头→蓄力完成！但你没有需要蓄力的武器。",
-      "extra_turn_gained": "🔮 剪刀vs布→🎯 {player_name} 获得1个额外行动回合！\n （额外回合内不可再次发动六爻）",
+      "extra_turn_gained": "🔮 剪刀vs布→🎯 {player_name} 获得2个连续额外行动回合！\n   （第1个补偿发动消耗，第2个是奖励。额外回合内不可再次发动六爻）",
       "barrier_blocked": "🌀 结界内六爻的解除锁定/发现不生效！",
       "invalid_in_barrier": "🔮 石头vs布→结界内解除锁定/发现被屏蔽，隐身被结界破除。\n 效果完全无效。",
       "lock_clear_invisible": "🔮 石头vs布→🫥 {player_name} 清除所有锁定与探测，进入隐身！"

@@ -224,8 +224,9 @@ class Hexagram(BaseTalent):
         from models.equipment import make_weapon
 
         # 游戏中存在的所有武器
-        ALL_WEAPONS = ["小刀", "磨刀石", "警棍", "高斯步枪", "电磁步枪",
-                    "魔法弹幕", "远程魔法弹幕"]
+        # 导弹（需军事基地）和拳击（默认持有）不在列表中
+        ALL_WEAPONS = ["小刀", "警棍", "高斯步枪", "电磁步枪",
+                    "魔法弹幕", "远程魔法弹幕", "地震", "地动山摇"]
         available = []
         for name in ALL_WEAPONS:
             w = make_weapon(name)
