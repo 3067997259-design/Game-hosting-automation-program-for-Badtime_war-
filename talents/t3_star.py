@@ -10,7 +10,7 @@ V1.92 动态伤害公式：min(1 + 0.5 * 命中单位数, 3)
 
 from talents.base_talent import BaseTalent, PromptLevel
 from engine.prompt_manager import prompt_manager
-from combat.damage_resolver import resolve_location_damage
+from combat.damage_resolver import resolve_location_damage, resolve_damage
 
 
 class Star(BaseTalent):
@@ -21,6 +21,7 @@ class Star(BaseTalent):
     def __init__(self, player_id, game_state):
         super().__init__(player_id, game_state)
         self.uses_remaining = 2
+        self.ripple_petrify_lock = False # 献诗增强：石化不因被攻击解除
 
     def get_t0_option(self, player):
         if self.uses_remaining <= 0:
@@ -34,6 +35,10 @@ class Star(BaseTalent):
             "name": "天星",
             "description": f"对同地点所有单位造成动态伤害+石化。剩余{self.uses_remaining}次",
         }
+    def enhance_by_ripple(self):
+        """献予群星之诗：额外2次0.5伤害 + 石化不因被攻击解除"""
+        self.ripple_enhanced = True
+        self.petrify_no_auto_break = True  # 石化不因被攻击解除
 
     def execute_t0(self, player):
         if self.uses_remaining <= 0:
@@ -134,9 +139,72 @@ class Star(BaseTalent):
                     unit_id=unit.unit_id, damage=damage_per_target, old_hp=old_hp, new_hp=unit.hp)
                 lines.append(police_damage_msg)
 
+        # ===== 涟漪增强：额外弹射伤害 =====
+        if self.ripple_enhanced:
+            lines.append("\n   ⭐🌊 涟漪增强：额外指定2次目标，各造成0.5无视属性伤害！")
+
+            # 收集所有存活的可选目标（包括发动者以外的所有玩家+警察）
+            bounce_player_targets = [p for p in self.state.alive_players()
+                                     if p.player_id != player.player_id]
+            bounce_police_targets = []
+            if hasattr(self.state, 'police') and self.state.police:
+                bounce_police_targets = [u for u in self.state.police.units_at(player.location)
+                                         if u.is_alive()]
+
+            all_target_names = [p.name for p in bounce_player_targets]
+            all_target_names += [f"警察{u.unit_id}" for u in bounce_police_targets]
+
+            if all_target_names:
+                from combat.damage_resolver import resolve_damage
+                for i in range(2):
+                    chosen_name = player.controller.choose(
+                        f"涟漪弹射第{i+1}次目标：",
+                        all_target_names,
+                        context={"phase": "T0", "situation": "star_ripple_bounce", "bounce_index": i}
+                    )
+
+                    # 找到目标并造成0.5伤害
+                    target_obj = None
+                    is_police_target = False
+                    for p in bounce_player_targets:
+                        if p.name == chosen_name:
+                            target_obj = p
+                            break
+                    if not target_obj:
+                        for u in bounce_police_targets:
+                            if f"警察{u.unit_id}" == chosen_name:
+                                target_obj = u
+                                is_police_target = True
+                                break
+
+                    if target_obj and not is_police_target:
+                        old_hp = target_obj.hp
+                        result = resolve_damage(
+                            attacker=player, target=target_obj, weapon=None,
+                            game_state=self.state,
+                            raw_damage_override=0.5,
+                            damage_attribute_override="无视属性克制",
+                            ignore_counter=True,
+                        )
+                        lines.append(f"   ⭐🌊 弹射→ {target_obj.name} 受到0.5伤害 HP: {old_hp} → {target_obj.hp}")
+                        if result.get("killed", False):
+                            player.kill_count += 1
+                            self.state.markers.on_player_death(target_obj.player_id)
+                            lines.append(f"   💀 {target_obj.name} 被弹射击杀！")
+                    elif target_obj and is_police_target:
+                        old_hp = target_obj.hp
+                        target_obj.take_damage(0.5, attacker_id=player.player_id)
+                        lines.append(f"   ⭐🌊 弹射→ 警察{target_obj.unit_id} 受到0.5伤害 HP: {old_hp} → {target_obj.hp}")
+                        if target_obj.hp <= 0:
+                            self.state.police.check_all_dead()
+                            lines.append(f"   💀 警察{target_obj.unit_id} 被弹射击杀！")
+
         msg = "\n".join(lines)
         self.state.log_event("star", player=player.player_id)
         return msg, True  # 消耗行动回合
 
     def describe_status(self):
-        return f"剩余次数：{self.uses_remaining}"
+            status = f"剩余次数：{self.uses_remaining}"
+            if self.ripple_enhanced:
+                status += " | 涟漪增强（弹射+石化锁定）"
+            return status

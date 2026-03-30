@@ -94,6 +94,28 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             hologram_bonus=hologram_bonus
         ))
 
+    # ---- 石化被攻击自动解除 ----
+    # README: 被攻击时石化自动解除（+0.5伤害）
+    if target.is_alive() and getattr(target, 'is_petrified', False):
+        # 检查涟漪增强豁免：天星持有者的 ripple_petrify_lock 为 True 时跳过
+        skip_auto_remove = False
+        # 查找是否有天星持有者设置了 ripple_petrify_lock
+        if game_state:
+            for pid in game_state.player_order:
+                p = game_state.get_player(pid)
+                if p and p.talent and getattr(p.talent, 'ripple_petrify_lock', False):
+                    skip_auto_remove = True
+                    break
+
+        if not skip_auto_remove:
+            target.is_petrified = False
+            if game_state:
+                game_state.markers.on_petrify_recover(target.player_id)
+            # 解除石化额外0.5伤害
+            target.hp = round(max(0, target.hp - 0.5), 2)
+            result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
+            result["target_hp"] = target.hp
+
     final_damage = quantize_damage(raw)
     result["final_damage"] = final_damage
     remaining = final_damage
@@ -403,6 +425,28 @@ def resolve_damage(attacker, target, weapon, game_state,
     pre_attack_stunned = getattr(target, 'is_stunned', False)
     pre_attack_shocked = getattr(target, 'is_shocked', False)
 
+    # ---- 石化被攻击自动解除 ----
+    # README: 被攻击时石化自动解除（+0.5伤害）
+    if target.is_alive() and getattr(target, 'is_petrified', False):
+        # 检查涟漪增强豁免：天星持有者的 ripple_petrify_lock 为 True 时跳过
+        skip_auto_remove = False
+        # 查找是否有天星持有者设置了 ripple_petrify_lock
+        if game_state:
+            for pid in game_state.player_order:
+                p = game_state.get_player(pid)
+                if p and p.talent and getattr(p.talent, 'ripple_petrify_lock', False):
+                    skip_auto_remove = True
+                    break
+
+        if not skip_auto_remove:
+            target.is_petrified = False
+            if game_state:
+                game_state.markers.on_petrify_recover(target.player_id)
+            # 解除石化额外0.5伤害
+            target.hp = round(max(0, target.hp - 0.5), 2)
+            result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
+            result["target_hp"] = target.hp
+
     # ---- 第6步：眩晕/死亡判定 ----
     if target.hp <= 0:
         prevented = _talent_death_check(target, attacker, game_state)
@@ -449,7 +493,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         else:
             stun_prevented_text = prompt_manager.get_prompt(
                 "combat", "stun_prevented",
-                default="🔥 {target_name} 从不因为孱弱的攻击而倒下！"
+                default="🔥 {target_name} 还没有倒下"
             )
             result["details"].append(stun_prevented_text.format(
                 target_name=target.name
