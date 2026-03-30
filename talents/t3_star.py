@@ -21,6 +21,7 @@ class Star(BaseTalent):
     def __init__(self, player_id, game_state):
         super().__init__(player_id, game_state)
         self.uses_remaining = 2
+        self.ripple_enhanced = False  # 涟漪增强标记
         self.ripple_petrify_lock = False # 献诗增强：石化不因被攻击解除
 
     def get_t0_option(self, player):
@@ -38,7 +39,7 @@ class Star(BaseTalent):
     def enhance_by_ripple(self):
         """献予群星之诗：额外2次0.5伤害 + 石化不因被攻击解除"""
         self.ripple_enhanced = True
-        self.petrify_no_auto_break = True  # 石化不因被攻击解除
+        self.ripple_petrify_lock = True  # 石化不因被攻击解除
 
     def execute_t0(self, player):
         if self.uses_remaining <= 0:
@@ -143,9 +144,9 @@ class Star(BaseTalent):
         if self.ripple_enhanced:
             lines.append("\n   ⭐🌊 涟漪增强：额外指定2次目标，各造成0.5无视属性伤害！")
 
-            # 收集所有存活的可选目标（包括发动者以外的所有玩家+警察）
-            bounce_player_targets = [p for p in self.state.alive_players()
-                                     if p.player_id != player.player_id]
+            # 收集同地点存活的可选目标（发动者以外的玩家+警察）
+            bounce_player_targets = [p for p in self.state.players_at_location(player.location)
+                                     if p.player_id != player.player_id and p.is_alive()]
             bounce_police_targets = []
             if hasattr(self.state, 'police') and self.state.police:
                 bounce_police_targets = [u for u in self.state.police.units_at(player.location)
@@ -204,7 +205,7 @@ class Star(BaseTalent):
         return msg, True  # 消耗行动回合
 
     def describe_status(self):
-            status = f"剩余次数：{self.uses_remaining}"
-            if self.ripple_enhanced:
-                status += " | 涟漪增强（弹射+石化锁定）"
-            return status
+        status = f"剩余次数：{self.uses_remaining}"
+        if self.ripple_enhanced:
+            status += " | 涟漪增强（弹射+石化锁定）"
+        return status

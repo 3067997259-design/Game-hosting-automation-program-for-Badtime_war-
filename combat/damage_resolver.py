@@ -94,28 +94,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             hologram_bonus=hologram_bonus
         ))
 
-    # ---- 石化被攻击自动解除 ----
-    # README: 被攻击时石化自动解除（+0.5伤害）
-    if target.is_alive() and getattr(target, 'is_petrified', False):
-        # 检查涟漪增强豁免：天星持有者的 ripple_petrify_lock 为 True 时跳过
-        skip_auto_remove = False
-        # 查找是否有天星持有者设置了 ripple_petrify_lock
-        if game_state:
-            for pid in game_state.player_order:
-                p = game_state.get_player(pid)
-                if p and p.talent and getattr(p.talent, 'ripple_petrify_lock', False):
-                    skip_auto_remove = True
-                    break
-
-        if not skip_auto_remove:
-            target.is_petrified = False
-            if game_state:
-                game_state.markers.on_petrify_recover(target.player_id)
-            # 解除石化额外0.5伤害
-            target.hp = round(max(0, target.hp - 0.5), 2)
-            result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
-            result["target_hp"] = target.hp
-
     final_damage = quantize_damage(raw)
     result["final_damage"] = final_damage
     remaining = final_damage
@@ -173,6 +151,28 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             ))
 
     result["target_hp"] = target.hp
+
+    # ---- 石化被攻击自动解除 ----
+    # README: 被攻击时石化自动解除（+0.5伤害）
+    if target.is_alive() and getattr(target, 'is_petrified', False):
+        # 检查涟漪增强豁免：天星持有者的 ripple_petrify_lock 为 True 时跳过
+        skip_auto_remove = False
+        # 查找是否有天星持有者设置了 ripple_petrify_lock
+        if game_state:
+            for pid in game_state.player_order:
+                p = game_state.get_player(pid)
+                if p and p.talent and getattr(p.talent, 'ripple_petrify_lock', False):
+                    skip_auto_remove = True
+                    break
+
+        if not skip_auto_remove:
+            target.is_petrified = False
+            if game_state:
+                game_state.markers.on_petrify_recover(target.player_id)
+            # 解除石化额外0.5伤害
+            target.hp = round(max(0, target.hp - 0.5), 2)
+            result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
+            result["target_hp"] = target.hp
 
     if target.hp <= 0:
         prevented = _talent_death_check(target, attacker, game_state)

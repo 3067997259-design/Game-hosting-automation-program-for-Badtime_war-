@@ -213,7 +213,6 @@ class PoemMixin:
         talent = target.talent
         talent.ripple_enhanced = True
         talent.ripple_petrify_lock = True  # 石化不因被攻击自动解除
-        # 增加使用次数+1作为额外奖励（可选，如果README没要求就删掉这行）
         return prompt_manager.get_prompt(
             "talent", "g5ripple.poem_stars",
             default="⭐ {target_name} 的「天星」被涟漪增强！\n   天星落下后额外2次×0.5无视属性弹射伤害\n   石化不再因被攻击自动解除"
