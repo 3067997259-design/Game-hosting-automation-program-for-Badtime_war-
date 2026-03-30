@@ -115,30 +115,15 @@ class Star(BaseTalent):
                                                     target_name=t.name)
                 lines.append(stun_msg)
 
-        # 对警察造成伤害+石化（ver1.9：直接遍历PoliceUnit扁平列表）
-        for unit in police_at_loc:
-            if not unit.is_alive():
-                continue
-
-            # [Issue 1] 走护甲结算（天星无视属性克制）
-            old_hp = unit.hp
-            pe = getattr(self.state, 'police_engine', None)
-            if pe:
-                pe._resolve_attack_on_police(
-                    weapon=None, unit=unit,
-                    raw_damage_override=damage_per_target, ignore_counter=True,
-                    attacker=player
-                )
-                unit.last_attacker_id = player.player_id
-            else:
-                unit.take_damage(1.0, attacker_id=player.player_id)
+        # 处理警察结果：伤害 + 石化（resolve_location_damage 已完成伤害结算 + check_all_dead）
+        for unit in results_dict.get("police", []):
+            old_hp = police_old_hp.get(unit.unit_id, 0)
 
             if unit.hp <= 0:
                 police_death_msg = prompt_manager.get_prompt(
                     "talent", "t3star.police_death",
-                    default="   → 警察{unit_id} 受到{damage:.1f}伤害+石化 HP: {old_hp} → {new_hp}",
-                    unit_id=unit.unit_id, damage=damage_per_target, old_hp=old_hp, new_hp=unit.hp)
-
+                    default="   \u2192 警察{unit_id} 被天星击杀！HP: {old_hp} \u2192 {new_hp}",
+                    unit_id=unit.unit_id, old_hp=old_hp, new_hp=unit.hp)
                 lines.append(police_death_msg)
             else:
                 # 存活则施加石化
