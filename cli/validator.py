@@ -202,8 +202,11 @@ def validate_move(player, destination, game_state):
     valid = get_all_valid_locations(game_state)
     if destination not in valid:
         return False, f"「{destination}」不是有效地点。可用：{', '.join(valid)}"
+    # 超新星过载：允许选择当前地点作为目的地
     if destination == player.location:
-        return False, "你已经在这里了！"
+        if player.talent and hasattr(player.talent, 'has_supernova') and player.talent.has_supernova:
+            return True, ""
+        return False, "你已经在这个地点了。"
     # 军事基地：无通行证时提示可强买或花回合办理
     if destination == "军事基地" and not player.has_military_pass:
         if player.vouchers >= 1:
@@ -380,10 +383,7 @@ def validate_attack(player, parsed, game_state):
             if player.talent.is_remote_disabled():
                 return False, "救世主状态下禁用远程攻击。"
 
-    # 警察保护检查
-    if weapon.weapon_range != WeaponRange.AREA:
-        if game_state.police_engine and game_state.police_engine.is_protected_by_police(target_id):
-            return False, f"{target.name} 受警察保护，免疫单体伤害！（范围攻击仍有效）"
+    # 警察保护不再阻止攻击，改为在 damage_resolver 中做阈值减免
 
     if weapon.weapon_range == WeaponRange.MELEE:
         return _validate_melee(player, target, target_id, game_state)

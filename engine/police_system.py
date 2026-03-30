@@ -462,6 +462,28 @@ class PoliceEngine:
         active_at_loc = self.police.active_units_at(player.location)
         return len(active_at_loc) > 0
 
+    def get_protection_threshold(self, player_id):
+        """返回警察保护的伤害无效化阈值。0 = 无保护。"""
+        if not self.is_protected_by_police(player_id):
+            return 0.0
+        player = self.state.get_player(player_id)
+        active_at_loc = self.police.active_units_at(player.location)
+        if not active_at_loc:
+            return 0.0
+        max_val = 0.0
+        for unit in active_at_loc:
+            hp = unit.hp
+            extra_hp = getattr(unit, 'extra_hp', 0)
+            armor_dur = 0.0
+            if unit.outer_armor and not unit.outer_armor.is_broken:
+                armor_dur += unit.outer_armor.current_hp
+            if unit.inner_armor and not unit.inner_armor.is_broken:
+                armor_dur += unit.inner_armor.current_hp
+            val = hp + extra_hp + armor_dur
+            if val > max_val:
+                max_val = val
+        return max_val
+
     # ============================================
     #  唤醒警察
     # ============================================

@@ -544,7 +544,32 @@ class ActionTurnManager:
             if res.get("killed"):
                 player.kill_count += 1
                 self.state.markers.on_player_death(t.player_id)
+                if self.state.police_engine:
+                    self.state.police_engine.on_player_death(t.player_id)
                 display.show_death(t.name, f"被 {player.name} 的 {weapon.name} 击杀")
+
+        # ---- 范围攻击同时波及同地点警察 ----
+        pe = self.state.police_engine
+        if pe and hasattr(self.state, 'police') and self.state.police:
+            police_at_loc = self.state.police.units_at(player.location)
+            killed_any_police = False
+            for unit in police_at_loc:
+                if not unit.is_alive():
+                    continue
+                old_hp = unit.hp
+                atk_result = pe._resolve_attack_on_police(weapon, unit, attacker=player)
+                lines.append(f"\n   → 对 警察{unit.unit_id}: {atk_result}")
+                unit.last_attacker_id = player.player_id
+                if old_hp > 0 and unit.hp <= 0:
+                    killed_any_police = True
+            if police_at_loc:
+                # 攻击警察视为犯法
+                pe.check_and_record_crime(player.player_id, "攻击警察")
+                if killed_any_police and not self.state.police.has_captain():
+                    self.state.police.clear_crimes(player.player_id)
+                    player.is_criminal = False
+                    lines.append(f"   💪 击杀警察！犯罪记录已清除")
+                self.state.police.check_all_dead()
 
         if weapon.requires_charge and weapon.is_charged:
             weapon.is_charged = False

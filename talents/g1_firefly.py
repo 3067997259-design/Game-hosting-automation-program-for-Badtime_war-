@@ -1,5 +1,5 @@
 """
-神代天赋1：火萤IV型-完全燃烧
+神代天赋1：火萤IV型-完全燃烧（V1.92）
 
 效果A 强化（常驻）：
   - 造成的所有伤害 +100%
@@ -7,15 +7,20 @@
   - HP降至0.5时不进入眩晕，下一行动回合开始时(T0)自动恢复HP至1
 
 效果B 后期代价debuff：
-  - debuff开始轮次 = 15 + (开局玩家人数-2)*5 + 累计击杀数*10
+  - debuff开始轮次 = 15 + (开局玩家人数-2)*3
   - 前期延迟：前15轮累计行动 < 5+(人数-2)*2 次 → 延迟
-  - 后期延缓：每5轮窗口内行动<2次 → 该次debuff跳过
-  - 从debuff轮开始，每轮R0：
+  - 后期延缓：每3轮窗口内行动<1次 → 该次debuff跳过
+  - 每2轮结算1次debuff：
     1. 有外层护甲/护盾 → 摧毁一件
     2. 没有外层 → 扣1点内层护甲
     3. 没有任何护甲 → 跳过（不致死）
   - 炽愿（增强版）：每层可抵扣2次debuff（需有护甲可扣时生效）
-    + 受攻击时充当额外生命值（每层0.5HP）  
+    + 受攻击时充当额外生命值（每层0.5HP）
+
+效果C 超新星过载（V1.92新增）：
+  - 首次debuff生效时 / 击杀时授予1次超新星过载（不叠加）
+  - 移动时自动触发：对目的地所有单位造成1.0无视克制伤害
+  - 击杀可再次授予超新星；发动后debuff开始轮次后延3轮
 """
 
 from talents.base_talent import BaseTalent, PromptLevel
@@ -40,14 +45,21 @@ class G1MythFire(BaseTalent):
         self.debuff_started = False
         self.debuff_start_round = None
         self.initial_player_count = 0
+        self.debuff_settle_toggle = False  # True = 本轮结算，False = 跳过
 
-        # 后续延迟：每5轮窗口追踪
-        self.window_action_count = 0  # 当前5轮窗口内的行动次数
+        # 后续延迟：每3轮窗口追踪
+        self.window_action_count = 0  # 当前3轮窗口内的行动次数
         self.window_start_round = None  # 当前窗口起始轮次（debuff开始后才启用）
 
         # 炽愿（涟漪献诗给的抵扣道具）— 增强版
         self.ardent_wish_charges = 0  # 炽愿层数
         self.ardent_wish_debuff_uses = 0  # 当前活跃炽愿的剩余debuff抵扣次数
+
+        self.has_supernova = False  # 超新星过载是否就绪
+        self.supernova_charges = 0  # 超新星过载次数（不可叠加，最多1）
+        self.supernova_used_this_move = False # 本行动回合是否已使用过超新星过载（重置条件：每轮R0）
+
+        self.debuff_tick_count = 0  # 炽愿抵扣结算计数
 
     # ============================================
     #  注册
@@ -73,54 +85,66 @@ class G1MythFire(BaseTalent):
         self._process_debuff(me, round_num)
 
     def _process_debuff(self, me, round_num):
-        """debuff判定与执行"""
-        # 更新5轮行动窗口（必须在debuff判定前调用）
         self._update_window(round_num)
 
-        # 首次计算debuff开始轮次
         if self.debuff_start_round is None:
             self.debuff_start_round = self._calc_debuff_start_round()
 
-        # 特殊延迟条款检查
         effective_start = self._get_effective_start_round(round_num)
         if round_num < effective_start:
             return
 
-        # debuff开始
+        # debuff 首次启动
         if not self.debuff_started:
             self.debuff_started = True
+            self._debuff_last_settled_round = round_num  # 记录上次结算轮次
             prompt_manager.show("talent", "g1mythfire.debuff_start",
-                               player_name=me.name, round_num=round_num,
-                               level=PromptLevel.IMPORTANT)
+                            player_name=me.name, round_num=round_num,
+                            level=PromptLevel.IMPORTANT)
+            # V1.92: 首次 debuff 生效时授予超新星
+            self._grant_supernova(me)
+            # 首次启动轮立刻结算
+            self._try_debuff_settle(me, round_num)
+            return
 
-        # 炽愿抵扣（增强版：每层抵扣2次，仅在有护甲时生效）
+        # V1.92: 每 2 轮结算 1 次
+        self._try_debuff_settle(me, round_num)
+
+    def _try_debuff_settle(self, me, round_num):
+        """每 2 轮结算一次 debuff"""
+        if not hasattr(self, '_debuff_last_settled_round'):
+            self._debuff_last_settled_round = round_num
+
+        rounds_since = round_num - self._debuff_last_settled_round
+        if rounds_since > 0 and rounds_since % 2 != 0:
+            return  # 非结算轮，跳过
+
+        self._debuff_last_settled_round = round_num
+
+        # 炽愿抵扣（每2轮的频率门控已由上方 _debuff_last_settled_round 统一处理）
         if self.ardent_wish_charges > 0:
+            self.debuff_tick_count += 1
             has_armor = bool(
                 me.armor.get_active(ArmorLayer.OUTER) or
                 me.armor.get_active(ArmorLayer.INNER)
             )
             if has_armor:
                 if self.ardent_wish_debuff_uses <= 0:
-                    # 开始消耗新的一层炽愿
                     self.ardent_wish_debuff_uses = 2
                 self.ardent_wish_debuff_uses -= 1
                 if self.ardent_wish_debuff_uses <= 0:
-                    self.ardent_wish_charges -= 1  # 这层炽愿的2次抵扣用完
+                    self.ardent_wish_charges -= 1
                 prompt_manager.show("talent", "g1mythfire.ardent_wish_consume",
                                 player_name=me.name,
                                 remaining=self.ardent_wish_debuff_uses,
                                 level=PromptLevel.NORMAL)
                 return
-        # 没有护甲时炽愿不能抵扣debuff（保留炽愿用于额外生命）
 
-        # 执行debuff：扣护甲
         self._execute_debuff(me, round_num)
 
     def _calc_debuff_start_round(self):
-        """计算debuff开始轮次（增强公式）"""
         n = self.initial_player_count
-        k = self.kill_count
-        return 15 + (n - 2) * 5 + k * 10
+        return 15 + (n - 2) * 3
 
     def _get_effective_start_round(self, current_round):
         """考虑特殊延迟条款后的实际开始轮次"""
@@ -132,7 +156,7 @@ class G1MythFire(BaseTalent):
         if current_round <= 15 and self.action_turn_count < early_threshold:
             return max(base, current_round + 1)
 
-        # === 后续延迟：每5轮窗口内行动<2次则延缓 ===
+        # === 后续延迟：每3轮窗口内行动<1次则延缓 ===
         if current_round > 15 and current_round >= base:
             if self._is_window_delay_active(current_round):
                 return current_round + 1  # 延缓到下一轮
@@ -140,11 +164,11 @@ class G1MythFire(BaseTalent):
         return base
 
     def _is_window_delay_active(self, current_round):
-        """检查当前5轮窗口内行动是否不足2次"""
+        """检查当前3轮窗口内行动是否不足1次"""
         if self.window_start_round is None:
             return False
-        # 窗口内行动不足2次 → 延缓
-        return self.window_action_count < 2
+        # 窗口内行动不足1次 → 延缓
+        return self.window_action_count < 1
 
     def _execute_debuff(self, me, round_num):
         """执行一次debuff扣除"""
@@ -180,6 +204,14 @@ class G1MythFire(BaseTalent):
         prompt_manager.show("talent", "g1mythfire.debuff_no_armor",
                            player_name=me.name,
                            level=PromptLevel.NORMAL)
+
+    def _grant_supernova(self, me):
+        """授予 1 次超新星过载（不叠加）"""
+        if not self.has_supernova:
+            self.has_supernova = True
+            prompt_manager.show("talent", "g1mythfire.supernova_granted",
+                            player_name=me.name,
+                            level=PromptLevel.IMPORTANT)
 
     def receive_damage_to_temp_hp(self, remaining_damage):
         """炽愿额外生命值：每层炽愿 = 0.5 HP，吸收穿透护甲后的伤害"""
@@ -236,18 +268,18 @@ class G1MythFire(BaseTalent):
         return None  # 不消耗回合，正常继续
 
     # ============================================
-    #  5轮行动窗口追踪（后续延迟用）
+    #  3轮行动窗口追踪（后续延迟用）
     # ============================================
 
     def _update_window(self, round_num):
-        """更新5轮行动窗口"""
+        """更新3轮行动窗口"""
         if not self.debuff_started:
             return
         if self.window_start_round is None:
             self.window_start_round = round_num
             self.window_action_count = 0
-        # 每5轮重置窗口
-        elif round_num - self.window_start_round >= 5:
+        # 每3轮重置窗口
+        elif round_num - self.window_start_round >= 3:
             self.window_start_round = round_num
             self.window_action_count = 0
 
@@ -261,7 +293,7 @@ class G1MythFire(BaseTalent):
         if action_type == "forfeit":
             return
         self.action_turn_count += 1
-        # 5轮窗口内行动计数
+        # 3轮窗口内行动计数
         if self.debuff_started and self.window_start_round is not None:
             self.window_action_count += 1
 
@@ -314,16 +346,15 @@ class G1MythFire(BaseTalent):
     # ============================================
 
     def on_kill(self, killer, victim):
-        """击杀时更新计数，重算debuff起始轮"""
         if killer.player_id != self.player_id:
             return
         self.kill_count += 1
-        # 击杀会推迟debuff
-        self.debuff_start_round = self._calc_debuff_start_round()
+        # V1.92: 击杀不再推迟debuff，改为授予超新星
+        self._grant_supernova(killer)
         prompt_manager.show("talent", "g1mythfire.kill_record",
-                           killer_name=killer.name, victim_name=victim.name,
-                           kill_count=self.kill_count, debuff_round=self.debuff_start_round,
-                           level=PromptLevel.IMPORTANT)
+                        killer_name=killer.name, victim_name=victim.name,
+                        kill_count=self.kill_count,
+                        level=PromptLevel.IMPORTANT)
 
     # ============================================
     #  炽愿（涟漪献诗给的）
@@ -340,6 +371,49 @@ class G1MythFire(BaseTalent):
                         debuff_uses=self.ardent_wish_debuff_uses,
                         level=PromptLevel.IMPORTANT)
 
+
+    def trigger_supernova(self, player, destination, game_state):
+        """DHGDR-超新星过载：对目的地所有单位造成1点无视属性克制伤害"""
+        from combat.damage_resolver import resolve_location_damage
+        from cli import display
+
+        self.has_supernova = False
+        display.show_info(
+            f"\n{'='*50}\n"
+            f"  🌟💥 DHGDR-超新星过载！\n"
+            f"  {player.name} 如火流星从天而降，席卷{destination}！\n"
+            f"{'='*50}")
+
+        results_dict = resolve_location_damage(
+            attacker=player, location=destination,
+            game_state=game_state, raw_damage=1.0,
+            ignore_counter=True, exclude_self=True,
+            damage_attribute_override="无视属性克制")
+
+        # 分别处理玩家和警察结果（数据结构不同，不能 flatten）
+        for r in results_dict.get("players", []):
+            t = r["target"]
+            res = r["result"]
+            display.show_info(f"  → {t.name} 受到 1.0 伤害（无视克制）")
+            if res.get("killed"):
+                player.kill_count += 1
+                game_state.markers.on_player_death(t.player_id)
+                display.show_info(f"  💀 {t.name} 被超新星击杀！")
+                # 击杀再给超新星
+                self._grant_supernova(player)
+
+        for u in results_dict.get("police", []):
+            # police 列表中的元素是 unit 对象（非字典）
+            if u.is_alive():
+                display.show_info(f"  → 警察{u.unit_id} 受到 1.0 伤害")
+            else:
+                display.show_info(f"  → 警察{u.unit_id} 被超新星击杀！")
+
+        # V1.92: 超新星发动后 debuff 开始轮次后延3轮
+        if self.debuff_start_round is not None:
+            self.debuff_start_round += 3
+            display.show_info(f"  🔥 debuff 开始轮次后延至第 {self.debuff_start_round} 轮")
+
     # ============================================
     #  描述
     # ============================================
@@ -349,24 +423,24 @@ class G1MythFire(BaseTalent):
         return None
 
     def describe_status(self):
-        parts = [
-            f"击杀：{self.kill_count}",
-            f"行动回合数：{self.action_turn_count}",
-        ]
+        parts = [f"击杀：{self.kill_count}", f"行动回合数：{self.action_turn_count}"]
         if self.debuff_start_round is not None:
             parts.append(f"debuff起始轮：{self.debuff_start_round}")
         if self.debuff_started:
             parts.append("debuff已激活")
-            if self.window_start_round is not None:
-                parts.append(f"窗口行动：{self.window_action_count}/2")
+            parts.append(f"结算计数：{self.debuff_tick_count}")
+        if self.has_supernova:
+            parts.append("🌟超新星过载就绪")
         if self.ardent_wish_charges > 0:
-            parts.append(f"炽愿×{self.ardent_wish_charges}（抵扣剩余{self.ardent_wish_debuff_uses}）")
+            parts.append(f"炽愿×{self.ardent_wish_charges}")
         return " | ".join(parts)
 
     def describe(self):
         return (
             f"【{self.name}】"
             f"\n  常驻：伤害+100% | 受伤-50% | 0.5血不眩晕(T0自愈)"
-            f"\n  debuff = 15+(人数-2)×5+击杀×10 轮后每轮R0扣护甲"
-            f"\n  前15轮行动不足则延迟 | 后续每5轮行动<2次则延缓"
+            f"\n  debuff = 15+(人数-2)×3 轮后每2轮R0扣护甲"
+            f"\n  前15轮行动不足则延迟 | 后续每3轮行动<1次则延缓"
+            f"\n  超新星过载：首次debuff/击杀时获得，移动时对目的地全体1.0伤害"
             f"\n  炽愿：每层抵扣2次debuff + 0.5额外生命值")
+

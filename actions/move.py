@@ -80,4 +80,7 @@ def execute(player, destination, game_state):
     new_name = get_location_display_name(destination, game_state)
     game_state.log_event("move", player=player.player_id,
                          from_loc=old_location, to_loc=destination)
+    if (player.talent and hasattr(player.talent, 'has_supernova')
+        and player.talent.has_supernova):
+        player.talent.trigger_supernova(player, destination, game_state)
     return f"🚶 {player.name} 从「{old_name}」移动到「{new_name}」。"
