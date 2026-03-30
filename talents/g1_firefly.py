@@ -387,7 +387,8 @@ class G1MythFire(BaseTalent):
         results_dict = resolve_location_damage(
             attacker=player, location=destination,
             game_state=game_state, raw_damage=1.0,
-            ignore_counter=True, exclude_self=True)
+            ignore_counter=True, exclude_self=True,
+            damage_attribute_override="无视属性克制")
 
         # 分别处理玩家和警察结果（数据结构不同，不能 flatten）
         for r in results_dict.get("players", []):

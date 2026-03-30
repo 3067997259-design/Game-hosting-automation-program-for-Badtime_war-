@@ -565,8 +565,20 @@ def _select_armor_target(target, target_layer, target_armor_attr):
 
 def resolve_location_damage(attacker, location, game_state,
                             raw_damage=1.0, ignore_counter=True,
-                            exclude_self=True):
-    """对指定地点的所有单位（玩家 + 警察 + 未来的其他单位）造成伤害"""
+                            exclude_self=True,
+                            damage_attribute_override=None):
+    """对指定地点的所有单位（玩家 + 警察 + 未来的其他单位）造成伤害。
+
+    参数：
+      attacker: 攻击者玩家对象（可为None）
+      location: 目标地点
+      game_state: 游戏状态
+      raw_damage: 原始伤害值
+      ignore_counter: 是否无视属性克制
+      exclude_self: 是否排除攻击者自身
+      damage_attribute_override: 伤害属性字符串（如"无视属性克制"），
+                                 传递给 resolve_damage 的 damage_attribute_override 参数
+    """
     results = {"players": [], "police": [], "other": []}
 
     # 1. 玩家
@@ -579,6 +591,7 @@ def resolve_location_damage(attacker, location, game_state,
             attacker, t, weapon=None, game_state=game_state,
             raw_damage_override=raw_damage,
             ignore_counter=ignore_counter,
+            damage_attribute_override=damage_attribute_override,
         )
         results["players"].append({"target": t, "result": r})
 
