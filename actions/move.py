@@ -37,8 +37,9 @@ def execute(player, destination, game_state):
     old_location = player.location
     player.location = destination
 
-    # 触发标记联动
-    game_state.markers.on_player_move(player.player_id)
+    # 触发标记联动（原地移动不清除锁定/面对面，如超新星过载原地触发）
+    if destination != old_location:
+        game_state.markers.on_player_move(player.player_id)
 
     # 军事基地：到达时提供强买通行证选项
     if destination == "军事基地" and not player.has_military_pass and player.vouchers >= 1:

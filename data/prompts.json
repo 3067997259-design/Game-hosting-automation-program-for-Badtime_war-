@@ -90,7 +90,7 @@
       "debuff_no_armor": "失熵症debuff：{player_name} 无护甲可扣，本次跳过。",
       "auto_heal": "{player_name} 没有退路，只能向前 HP: {old_hp} → {new_hp}",
       "damage_reduction": "：{attacker_name} 对 {target_name} 的伤害 {original_damage} → {reduced_damage}",
-      "kill_record": "🔥 {killer_name} 击杀了 {victim_name}！累计击杀：{kill_count}\n debuff起始轮次重算为：{debuff_round}",
+      "kill_record": "🔥 {killer_name} 击杀了 {victim_name}！累计击杀：{kill_count} | debuff起始轮：{debuff_round}",
       "debuff_delayed_low_activity": "🔥 {player_name} 近5轮行动不足2次，本次失熵症延缓执行。"
     },
     "g2eternity": {
