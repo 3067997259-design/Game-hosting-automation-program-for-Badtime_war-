@@ -295,6 +295,22 @@ def resolve_damage(attacker, target, weapon, game_state,
     )
     result["details"].append(raw_damage_text.format(damage=raw))
 
+    # ---- 警察保护阈值减免（非AOE） ----
+    if weapon and weapon.weapon_range != WeaponRange.AREA and game_state:
+        pe = getattr(game_state, 'police_engine', None)
+        if pe:
+            threshold = pe.get_protection_threshold(target.player_id)
+            if threshold > 0 and raw <= threshold:
+                result["details"].append(f"🚔 警察保护：伤害 {raw} ≤ 阈值 {threshold}，完全无效化")
+                result["final_damage"] = 0
+                result["success"] = False
+                result["reason"] = "警察保护无效化"
+                return result
+            elif threshold > 0 and raw > threshold:
+                absorbed = threshold
+                raw -= absorbed
+                result["details"].append(f"🚔 警察保护：吸收 {absorbed}，剩余 {raw}")
+
     # ---- 萤火受伤减免 ----
     if target.talent and hasattr(target.talent, 'modify_incoming_damage'):
         raw = target.talent.modify_incoming_damage(target, attacker, weapon, raw)
@@ -546,6 +562,46 @@ def _select_armor_target(target, target_layer, target_armor_attr):
     if inner:
         return inner[0]
     return None
+
+def resolve_location_damage(attacker, location, game_state,
+                            raw_damage=1.0, ignore_counter=True,
+                            exclude_self=True):
+    """对指定地点的所有单位（玩家 + 警察 + 未来的其他单位）造成伤害"""
+    results = {"players": [], "police": [], "other": []}
+
+    # 1. 玩家
+    for t in game_state.players_at_location(location):
+        if exclude_self and attacker and t.player_id == attacker.player_id:
+            continue
+        if not t.is_alive():
+            continue
+        r = resolve_damage(
+            attacker, t, weapon=None, game_state=game_state,
+            raw_damage_override=raw_damage,
+            ignore_counter=ignore_counter,
+        )
+        results["players"].append({"target": t, "result": r})
+
+    # 2. 警察
+    pe = getattr(game_state, 'police_engine', None)
+    if pe and hasattr(game_state, 'police') and game_state.police:
+        for unit in game_state.police.units_at(location):
+            if not unit.is_alive():
+                continue
+            pe._resolve_attack_on_police(
+                weapon=None, unit=unit,
+                raw_damage_override=raw_damage,
+                ignore_counter=ignore_counter,
+                attacker=attacker,
+            )
+            unit.last_attacker_id = attacker.player_id if attacker else None
+            results["police"].append(unit)
+        game_state.police.check_all_dead()
+
+    # 3. 未来扩展点：其他非玩家单位
+    # for npc in game_state.npcs_at_location(location): ...
+
+    return results
 
 def _redirect_overflow_damage(target, broken_armor, overflow,
                                  weapon_attribute, result,
