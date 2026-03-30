@@ -1,5 +1,4 @@
 """行动类型：移动"""
-from cli import display
 
 # Phase 1 可用地点列表（后续Phase会扩展）
 ALL_LOCATIONS = [
