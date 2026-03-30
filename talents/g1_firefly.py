@@ -147,14 +147,14 @@ class G1MythFire(BaseTalent):
         return 15 + (n - 2) * 3
 
     def _get_effective_start_round(self, current_round):
-        """考虑特殊延迟条款后的实际开始轮次"""
-        base = self._calc_debuff_start_round()
+        """考虑特殊延迟条款后的实际开始轮次（含超新星后延）"""
+        base = self.debuff_start_round  # 使用实例属性（可能被超新星 +3 修改过）
 
         # === 前15轮延迟保护 ===
         n = self.initial_player_count
         early_threshold = 5 + (n - 2) * 2  # 4人局=9次
         if current_round <= 15 and self.action_turn_count < early_threshold:
-            return max(base, current_round + 1)
+            return max(base if base is not None else current_round + 1, current_round + 1)
 
         # === 后续延迟：每3轮窗口内行动<1次则延缓 ===
         if current_round > 15 and current_round >= base:
@@ -354,6 +354,7 @@ class G1MythFire(BaseTalent):
         prompt_manager.show("talent", "g1mythfire.kill_record",
                         killer_name=killer.name, victim_name=victim.name,
                         kill_count=self.kill_count,
+                        debuff_round=self.debuff_start_round,
                         level=PromptLevel.IMPORTANT)
 
     # ============================================
@@ -398,6 +399,8 @@ class G1MythFire(BaseTalent):
             if res.get("killed"):
                 player.kill_count += 1
                 game_state.markers.on_player_death(t.player_id)
+                if game_state.police_engine:
+                    game_state.police_engine.on_player_death(t.player_id)
                 display.show_info(f"  💀 {t.name} 被超新星击杀！")
                 # 击杀再给超新星
                 self._grant_supernova(player)

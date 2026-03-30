@@ -1,6 +1,6 @@
 """
 天赋4：六爻（原初）+ Controller 接入
-充能制：每5个全局轮次获得1次使用机会，最多存2次。
+充能制：开局1次，每4个全局轮次获得1次使用机会，最多存2次。
 主动，T0启动，消耗行动回合。
 对另一名玩家发起猜拳，6种结果分别不同效果。
 """
@@ -14,21 +14,21 @@ from combat.damage_resolver import resolve_damage
 
 class Hexagram(BaseTalent):
     name = "六爻"
-    description = "每5轮充能1次(上限2)。消耗行动回合猜拳，6种不同效果。"
+    description = "每4轮充能1次(上限2)。消耗行动回合猜拳，6种不同效果。"
     tier = "原初"
 
     CHOICES = ["石头", "剪刀", "布"]
 
     def __init__(self, player_id, game_state):
         super().__init__(player_id, game_state)
-        self.charges = 0
+        self.charges = 1
         self.max_charges = 2
         self.round_counter = 0
 
     def on_round_start(self, round_num):
-        """每5轮充能+1"""
+        """每4轮充能+1"""
         self.round_counter += 1
-        if self.round_counter >= 5:
+        if self.round_counter >= 4:
             self.round_counter = 0
             if self.charges < self.max_charges:
                 self.charges += 1
@@ -220,13 +220,59 @@ class Hexagram(BaseTalent):
         return "\n".join(lines)
 
     def _both_rock(self, player):
-        """双方石头：获得任意一种当前游戏中存在的护甲"""
+        """双方石头：获得任意一种当前游戏中存在的武器"""
+        from models.equipment import make_weapon
+
+        # 游戏中存在的所有武器
+        # 导弹（需军事基地）和拳击（默认持有）不在列表中
+        ALL_WEAPONS = ["小刀", "警棍", "高斯步枪", "电磁步枪",
+                    "魔法弹幕", "远程魔法弹幕", "地震", "地动山摇"]
+        available = []
+        for name in ALL_WEAPONS:
+            w = make_weapon(name)
+            if w:
+                # 检查玩家是否已持有同名武器
+                already_has = any(
+                    getattr(pw, 'name', '') == name
+                    for pw in getattr(player, 'weapons', [])
+                )
+                if not already_has:
+                    available.append(name)
+
+        if not available:
+            return prompt_manager.get_prompt(
+                "talent", "t4hexagram.weapon_no_available",
+                default="🔮 双石头→获得武器！但你已持有所有武器。天赋发动失效。"
+            )
+
+        # CONTROLLER: 选武器
+        choice = player.controller.choose(
+            "选择获得的武器：", available,
+            context={"phase": "T0", "situation": "hexagram_pick_weapon"}
+        )
+
+        weapon = make_weapon(choice)
+        if weapon:
+            player.weapons.append(weapon)
+            # 如果是需要蓄力的武器，默认未蓄力
+            return prompt_manager.get_prompt(
+                "talent", "t4hexagram.weapon_gained",
+                default="🔮 双石头→⚔️ {player_name} 获得了「{weapon_name}」！"
+            ).format(player_name=player.name, weapon_name=choice)
+        else:
+            return prompt_manager.get_prompt(
+                "talent", "t4hexagram.weapon_failed",
+                default="🔮 双石头→获得武器失败。"
+            )
+
+    def _both_paper(self, player):
+        """双方布：获得任意一种当前游戏中存在的护甲"""
         from models.equipment import make_armor, ArmorLayer
         from utils.attribute import Attribute
 
         available = []
         for name in ["盾牌", "陶瓷护甲", "魔法护盾", "AT力场",
-                      "晶化皮肤", "额外心脏", "不老泉"]:
+                    "晶化皮肤", "额外心脏", "不老泉"]:
             armor = make_armor(name)
             if armor:
                 success, _ = player.armor.check_can_equip(armor)
@@ -236,40 +282,32 @@ class Hexagram(BaseTalent):
         if not available:
             return prompt_manager.get_prompt(
                 "talent", "t4hexagram.armor_no_available",
-                default="🔮 双石头→获得护甲！但你已经没有可装备的护甲槽了。天赋发动失效。"
+                default="🔮 双布→获得护甲！但你已经没有可装备的护甲槽了。天赋发动失效。"
             )
 
-        # ══ CONTROLLER 改动 6：选护甲 ══
+        # CONTROLLER: 选护甲
         choice = player.controller.choose(
             "选择获得的护甲：", available,
             context={"phase": "T0", "situation": "hexagram_pick_armor"}
         )
-        # ══ CONTROLLER 改动 6 结束 ══
 
         armor = make_armor(choice)
         success, reason = player.add_armor(armor)
         if success:
             return prompt_manager.get_prompt(
                 "talent", "t4hexagram.armor_gained",
-                default=f"🔮 双石头→🛡️ {{player_name}} 获得了「{{armor_name}}」！"
+                default="🔮 双布→🛡️ {player_name} 获得了「{armor_name}」！"
             ).format(player_name=player.name, armor_name=choice)
         else:
             return prompt_manager.get_prompt(
                 "talent", "t4hexagram.armor_failed",
-                default=f"🔮 双石头→获得护甲失败：{{reason}}"
+                default="🔮 双布→获得护甲失败：{reason}"
             ).format(reason=reason)
 
-    def _both_paper(self, player):
-        """双方布：进入隐身"""
-        player.is_invisible = True
-        self.state.markers.add(player.player_id, "INVISIBLE")
-        return prompt_manager.get_prompt(
-            "talent", "t4hexagram.invisible_gained",
-            default=f"🔮 双布→🫥 {{player_name}} 进入隐身状态！"
-        ).format(player_name=player.name)
-
     def _scissors_rock(self, player):
-        """一方剪刀一方石头：所有需蓄力武器立刻蓄力完成"""
+        """一方剪刀一方石头：所有需蓄力武器立刻蓄力完成；没有则获得一把"""
+        from models.equipment import make_weapon
+
         charged = []
         for w in player.weapons:
             if w.requires_charge and not w.is_charged:
@@ -278,19 +316,53 @@ class Hexagram(BaseTalent):
         if charged:
             return prompt_manager.get_prompt(
                 "talent", "t4hexagram.charge_completed",
-                default=f"🔮 剪刀vs石头→⚡ 蓄力完成：{{weapons_list}}"
+                default="🔮 剪刀vs石头→⚡ 蓄力完成：{weapons_list}"
             ).format(weapons_list=", ".join(charged))
+
+        # V1.92: 没有可蓄力武器 → 从游戏中需要蓄力的武器里选一把获得并立刻蓄力
+        CHARGEABLE_WEAPONS = ["高斯步枪", "电磁步枪"]
+        # 排除已持有且已蓄力的
+        available = []
+        for name in CHARGEABLE_WEAPONS:
+            already_has = any(
+                getattr(pw, 'name', '') == name
+                for pw in getattr(player, 'weapons', [])
+            )
+            if not already_has:
+                available.append(name)
+
+        if not available:
+            # 已有全部可蓄力武器且全部蓄力完成
+            return prompt_manager.get_prompt(
+                "talent", "t4hexagram.charge_all_done",
+                default="🔮 剪刀vs石头→你已持有所有可蓄力武器且全部蓄力完成，效果不生效。"
+            )
+
+        # CONTROLLER: 选武器
+        choice = player.controller.choose(
+            "选择获得并立刻蓄力的武器：", available,
+            context={"phase": "T0", "situation": "hexagram_pick_chargeable"}
+        )
+
+        weapon = make_weapon(choice)
+        if weapon:
+            weapon.is_charged = True
+            player.weapons.append(weapon)
+            return prompt_manager.get_prompt(
+                "talent", "t4hexagram.charge_new_weapon",
+                default="🔮 剪刀vs石头→⚔️⚡ {player_name} 获得了「{weapon_name}」并立刻完成蓄力！"
+            ).format(player_name=player.name, weapon_name=choice)
         return prompt_manager.get_prompt(
             "talent", "t4hexagram.charge_no_weapons",
             default="🔮 剪刀vs石头→蓄力完成！但你没有需要蓄力的武器。"
         )
 
     def _scissors_paper(self, player):
-        """一方剪刀一方布：获得1个额外行动回合（不可再发六爻）"""
-        player.hexagram_extra_turn = True
+        """一方剪刀一方布：获得2个连续的额外行动回合（不可再发六爻）"""
+        player.hexagram_extra_turn = 2  # V1.92: 从1改为2
         return prompt_manager.get_prompt(
             "talent", "t4hexagram.extra_turn_gained",
-            default=f"🔮 剪刀vs布→🎯 {{player_name}} 获得1个额外行动回合！\n   （额外回合内不可再次发动六爻）"
+            default="🔮 剪刀vs布→🎯 {player_name} 获得2个连续额外行动回合！\n   （第1个补偿发动消耗，第2个是奖励。额外回合内不可再次发动六爻）"
         ).format(player_name=player.name)
 
     def _rock_paper(self, player):
@@ -331,4 +403,4 @@ class Hexagram(BaseTalent):
         ).format(player_name=player.name)
 
     def describe_status(self):
-        return f"充能：{self.charges}/{self.max_charges}（每5轮+1）"
+        return f"充能：{self.charges}/{self.max_charges}（开局1次，每4轮+1）"

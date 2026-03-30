@@ -643,16 +643,16 @@ class PoemMixin:
         )
 
         effects = prompt_manager.get_prompt(
-            "talent", "g5ripple.hexagram_effects",
-            default=[
-                "双剪刀→天雷（对任意1人造成1点伤害）",
-                "双石头→获得任意护甲",
-                "双布→进入隐身",
-                "剪刀vs石头→所有蓄力武器立刻蓄力",
-                "剪刀vs布→获得额外行动回合",
-                "石头vs布→清除锁定/探测+隐身"
-            ]
-        )
+    "talent", "g5ripple.hexagram_effects",
+    default=[
+        "双剪刀→天雷（对任意1人造成1点伤害，无视单体保护）",
+        "双石头→获得任意武器",
+        "双布→获得任意护甲",
+        "剪刀vs石头→所有蓄力武器立刻蓄力（没有则获得一把）",
+        "剪刀vs布→获得2个连续额外行动回合",
+        "石头vs布→清除锁定/探测+隐身"
+    ]
+)
 
         # ══ CONTROLLER 改动 11：选六爻效果 ══
         choice = player.controller.choose(
@@ -665,9 +665,9 @@ class PoemMixin:
 
         if "天雷" in choice:
             return "both_scissors"
-        elif "护甲" in choice:
+        elif "武器" in choice:
             return "both_rock"
-        elif "双布" in choice:
+        elif "护甲" in choice:
             return "both_paper"
         elif "蓄力" in choice:
             return "scissors_rock"
