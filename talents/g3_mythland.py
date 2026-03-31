@@ -377,17 +377,11 @@ class Mythland(BaseTalent):
                     )
 
         atm = ActionTurnManager(self.state)
-        # 如果forfeit_only为True，需要特殊处理让玩家只能选择forfeit
+        # 如果forfeit_only为True，直接执行forfeit，跳过行动选择
         if forfeit_only:
-            # 暂时保存玩家可用的选项，强制只显示forfeit
-            original_available_actions = getattr(actor, 'available_actions', None)
-            actor.available_actions = ['forfeit']
-            atm.execute_single_action(actor)
-            # 恢复可用选项
-            if original_available_actions is not None:
-                actor.available_actions = original_available_actions
-            elif hasattr(actor, 'available_actions'):
-                delattr(actor, 'available_actions')
+            from actions import forfeit as forfeit_action
+            msg = forfeit_action.execute(actor, self.state)
+            display.show_info(msg)
             # 标记第一次行动已完成
             self._target_first_action_done = True
         else:

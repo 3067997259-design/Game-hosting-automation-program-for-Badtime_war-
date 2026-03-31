@@ -175,6 +175,9 @@ class Player:
         if self.talent:
             talent_bonus = self.talent.on_d4_bonus(self) if hasattr(self.talent, 'on_d4_bonus') else 0
             bonus += talent_bonus
+        # V1.92: 锚定D4加成（由涟漪天赋直接设置在玩家对象上）
+        if getattr(self, '_anchor_d4_bonus_rounds', 0) > 0:
+            bonus += getattr(self, '_anchor_d4_bonus_amount', 0)
         return bonus
 
     def has_weapon(self, weapon_name):

@@ -169,6 +169,13 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         # V1.92: 递减锚定D4加成轮次
         if self._anchor_d4_bonus_rounds > 0:
             self._anchor_d4_bonus_rounds -= 1
+            # 同步递减目标玩家上的D4加成轮次
+            if self._anchor_d4_target_id:
+                target = self.state.get_player(self._anchor_d4_target_id)
+                if target and getattr(target, '_anchor_d4_bonus_rounds', 0) > 0:
+                    target._anchor_d4_bonus_rounds -= 1
+                    if target._anchor_d4_bonus_rounds <= 0:
+                        target._anchor_d4_bonus_amount = 0
             if self._anchor_d4_bonus_rounds <= 0:
                 self._anchor_d4_target_id = None
 
@@ -294,6 +301,9 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         me = self._get_caster()
         target = self.state.get_player(self._anchor_d4_target_id)
         if me and target:
+            # 在目标玩家上设置D4加成属性，使 get_d4_bonus 能直接读取
+            target._anchor_d4_bonus_rounds = 5
+            target._anchor_d4_bonus_amount = 2
             display.show_info(
                 prompt_manager.get_prompt(
                     "talent", "g5ripple.anchor_d4_bonus_applied",

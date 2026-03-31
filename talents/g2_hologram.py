@@ -375,12 +375,12 @@ class Hologram(BaseTalent):
     def modify_incoming_damage(self, target, attacker, weapon, base_damage):
         """全息影像内发动者受伤减少50%"""
         if not self.active:
-            return None
+            return base_damage
         if target.player_id != self.player_id:
-            return None
+            return base_damage
         # 检查发动者是否在影像内（发动时location已设为影像位置）
         if target.location != self.location:
-            return None
+            return base_damage
         # 减伤50%
         return base_damage * 0.5
 
