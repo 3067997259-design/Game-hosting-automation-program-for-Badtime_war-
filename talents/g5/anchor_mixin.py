@@ -969,6 +969,8 @@ class AnchorMixin:
             )
             self._auto_resolve_event(me)
             self._restore_player_backup(me, self.anchor_caster_backup)
+            # V1.92: 应用「一页永恒的善见天」D4加成
+            self._apply_anchor_d4_bonus()
         else:
             display.show_info(
                 prompt_manager.get_prompt(
@@ -1057,6 +1059,8 @@ class AnchorMixin:
             )
             self._auto_resolve_event(me)
             self._restore_player_backup(me, self.anchor_caster_backup)
+            # V1.92: 应用「一页永恒的善见天」D4加成
+            self._apply_anchor_d4_bonus()
         else:
             display.show_info(
                 prompt_manager.get_prompt(

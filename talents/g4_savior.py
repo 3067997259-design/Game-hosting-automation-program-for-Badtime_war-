@@ -305,6 +305,20 @@ class Savior(BaseTalent):
         return mods if mods else None
 
     # ============================================
+    #  AOE伤害加成（V1.92新增）
+    # ============================================
+
+    def modify_aoe_damage(self, attacker, target, weapon, base_damage):
+        """救世主状态下AOE攻击获得额外伤害加成"""
+        if attacker.player_id != self.player_id:
+            return None
+        if not self.is_savior:
+            return None
+        if self.temp_attack_bonus <= 0:
+            return None
+        return {"bonus_damage": self.temp_attack_bonus}
+
+    # ============================================
     #  远程禁用
     # ============================================
 
