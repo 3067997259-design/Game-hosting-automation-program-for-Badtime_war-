@@ -15,7 +15,7 @@
 其他玩家（非发动者）在影像内：
   - 无法执行「锁定」和「找到」
   - 进入影像瞬间：自动与发动者建立面对面
-  - 连续停留2轮 → 震荡
+  - 停留1轮 → 下轮开始时震荡
 
 发动者在影像内：
   - 免疫上述限制（但隐身仍被破除）
@@ -125,6 +125,10 @@ class Hologram(BaseTalent):
         # 释放瞬间：处理同地点玩家
         setup_lines = self._setup_players_at_location(player)
         lines.extend(setup_lines)
+
+        # V1.92: 释放完成后立刻获得1个额外行动回合
+        player.hexagram_extra_turn = getattr(player, 'hexagram_extra_turn', 0) + 1
+        lines.append("  🎬 发动者获得1个额外行动回合！")
 
         display.show_info("\n".join(lines))
         return "\n".join(lines), "talent"
@@ -344,6 +348,17 @@ class Hologram(BaseTalent):
             return 0
         return self._get_bonus_damage()
 
+    def modify_incoming_damage(self, target, attacker, weapon, raw_damage):
+        """V1.92: 发动者在影像存在期间受到的伤害降低0.5"""
+        if not self.active:
+            return raw_damage
+        if target.player_id != self.player_id:
+            return raw_damage
+        # 发动者不需要在影像内也享受减伤（README说"你受到的伤害降低0.5"）
+        reduced = max(0, raw_damage - 0.5)
+        display.show_info(f"  👁️ 全息影像发动者减伤：{raw_damage} → {reduced}")
+        return reduced
+
     # ============================================
     #  R4：倒计时 + 震荡检查
     # ============================================
@@ -367,11 +382,11 @@ class Hologram(BaseTalent):
             else:
                 self.stay_count[pid] = 0
 
-        # 震荡检查：连续2轮
+        # 震荡检查：停留1轮
         for pid, count in self.stay_count.items():
             if pid == self.player_id:
                 continue  # 发动者免疫
-            if count >= 2:
+            if count >= 1:
                 p = self.state.get_player(pid)
                 if p and p.is_alive() and not p.is_shocked:
                     p.is_shocked = True
@@ -380,7 +395,7 @@ class Hologram(BaseTalent):
                     display.show_info(
                         prompt_manager.get_prompt(
                             "talent", "g2eternity.shock_from_stay",
-                            default="  \U0001f441\u26a1 {player_name} 在全息影像中停留2轮，进入震荡！"
+                            default="  \U0001f441\u26a1 {player_name} 在全息影像中停留1轮，进入震荡！"
                         ).format(player_name=p.name)
                     )
 
@@ -534,5 +549,5 @@ class Hologram(BaseTalent):
             f"\n  主动{self.max_uses}次：在所在地点展开全息影像，持续{self._get_initial_duration()}轮"
             f"\n  隐身无效 | 受伤+{self._get_bonus_damage()} | 非发动者禁锁定/找到"
             f"\n  进入影像自动与发动者建立面对面"
-            f"\n  连续停留2轮→震荡 | 非玩家单位沉沦"
+            f"\n  停留1轮→下轮开始时震荡 | 非玩家单位沉沦"
             f"\n  消失时清除影像产生的所有标记")
