@@ -169,6 +169,8 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         # V1.92: 递减锚定D4加成轮次
         if self._anchor_d4_bonus_rounds > 0:
             self._anchor_d4_bonus_rounds -= 1
+            if self._anchor_d4_bonus_rounds <= 0:
+                self._anchor_d4_target_id = None
 
     def on_turn_end(self, player, action_type):
         if player.player_id != self.player_id:

@@ -201,6 +201,13 @@ class RoundManager:
                 display.show_info(
                     f"📌 {actor.name} 的额外行动回合已插入！（主动发动）")
 
+            # === V1.92: 全息影像发动后的额外回合 ===
+            if getattr(actor, 'extra_action_after_hologram', False):
+                actor.extra_action_after_hologram = False
+                action_queue.insert(i + 1, actor.player_id)
+                display.show_info(
+                    f"📌 {actor.name} 的额外行动回合已插入！（全息影像）")
+
             # 检查胜利
             if self.state.check_victory():
                 return

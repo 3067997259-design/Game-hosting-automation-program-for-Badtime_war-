@@ -109,14 +109,21 @@ class Resurrection(BaseTalent):
 
         # V1.92: 恢复被击碎但留有残留的护盾（魔法护盾和AT力场）
         restored_shields = []
-        if hasattr(dying_player, 'armor') and hasattr(dying_player.armor, 'layers'):
-            for layer in dying_player.armor.layers:
-                if layer and hasattr(layer, 'is_broken') and layer.is_broken:
-                    # 检查是否有残留（max_hp > 0）
-                    if hasattr(layer, 'max_hp') and layer.max_hp > 0:
-                        layer.is_broken = False
-                        layer.current_hp = layer.max_hp
-                        restored_shields.append(layer.name if hasattr(layer, 'name') else "护盾")
+        if hasattr(dying_player, 'armor'):
+            armor = dying_player.armor
+            # ArmorSlots 使用 outer/inner 列表，遍历所有护甲件
+            all_pieces = []
+            if hasattr(armor, 'outer'):
+                all_pieces.extend(armor.outer)
+            if hasattr(armor, 'inner'):
+                all_pieces.extend(armor.inner)
+            for piece in all_pieces:
+                if piece and hasattr(piece, 'is_broken') and piece.is_broken:
+                    # 检查是否有残留（max_hp > 0，即可恢复的护盾类型）
+                    if hasattr(piece, 'max_hp') and piece.max_hp > 0:
+                        piece.is_broken = False
+                        piece.current_hp = piece.max_hp
+                        restored_shields.append(piece.name if hasattr(piece, 'name') else "护盾")
 
         resurrection_msg = prompt_manager.get_prompt(
             "talent", "t7resurrection.resurrection_trigger",
