@@ -365,7 +365,7 @@ class Mythland(BaseTalent):
             )
 
             # 涟漪增强效果：被拉入者第一次行动只能是forfeit
-            if hasattr(actor.talent, 'poem_eternity_forfeit_only') and actor.talent.poem_eternity_forfeit_only:
+            if getattr(self, 'poem_eternity_forfeit_only', False):
                 # 检查是否是第一次行动
                 if not self._target_first_action_done:
                     forfeit_only = True
@@ -476,6 +476,7 @@ class Mythland(BaseTalent):
         self.original_locations = {}
         self.barrier_round = 0
         self.barrier_location = None
+        self._target_first_action_done = False
         self.state.active_barrier = None
 
     def _notify_ripple_barrier_end(self):

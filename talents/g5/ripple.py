@@ -79,6 +79,7 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         # === V1.92: 锚定D4加成（来自「一页永恒的善见天」）===
         # 成功锚定后，双方在后续5个判定轮次中D4点数+2（不超过4）
         self._anchor_d4_bonus_rounds: int = 0  # 剩余加成轮次
+        self._anchor_d4_target_id: str | None = None  # 持久化目标ID（不被_anchor_cleanup清除）
 
     # ================================================================
     #  V1.92: 消耗使用次数（替代原来的 self.used = True）
@@ -275,7 +276,7 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         # 检查是否是发动者或被锚定者
         if player.player_id == self.player_id:
             return 2
-        if player.player_id == self.anchor_target_id:
+        if player.player_id == self._anchor_d4_target_id:
             return 2
         return 0
 
@@ -283,11 +284,13 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         """锚定成功后应用D4加成"""
         if not self.anchor_target_id:
             return
+        # 持久化目标ID（anchor_target_id 会被 _anchor_cleanup 清除）
+        self._anchor_d4_target_id = self.anchor_target_id
         # 设置5轮加成
         self._anchor_d4_bonus_rounds = 5
 
         me = self._get_caster()
-        target = self.state.get_player(self.anchor_target_id)
+        target = self.state.get_player(self._anchor_d4_target_id)
         if me and target:
             display.show_info(
                 prompt_manager.get_prompt(

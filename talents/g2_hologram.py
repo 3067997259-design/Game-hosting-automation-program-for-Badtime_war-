@@ -382,8 +382,7 @@ class Hologram(BaseTalent):
         if target.location != self.location:
             return None
         # 减伤50%
-        reduction = base_damage * 0.5
-        return {"damage_reduction": reduction}
+        return base_damage * 0.5
 
     # ============================================
     #  R4：倒计时 + 震荡检查
