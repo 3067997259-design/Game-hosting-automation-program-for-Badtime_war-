@@ -13,7 +13,8 @@
   - 免疫该次致命伤害
 
 「救世主」状态（每1点神性提供）：
-  - 1点临时额外生命值
+  - 0.5点临时额外生命值
+  - 消耗神性≤6时AOE+0.5，>6时AOE+1.0
   - 0.5点临时攻击力加成
   - 持续时间+1轮
   禁用远程攻击。
@@ -49,6 +50,7 @@ class Savior(BaseTalent):
         self.temp_hp = 0.0              # 临时额外生命
         self.temp_hp_max = 0.0          # 初始临时生命（用于计算剩余）
         self.temp_attack_bonus = 0.0    # 临时攻击力加成
+        self.aoe_bonus = 0.0            # 范围攻击加成
 
         # 是否已永久失效
         self.spent = False
@@ -172,10 +174,10 @@ class Savior(BaseTalent):
 
         self.is_savior = True
         self.savior_duration = consumed
-        # V1.92更新：临时HP减半（每1点神性提供0.5点临时额外生命值）
         self.temp_hp = float(consumed) * 0.5
         self.temp_hp_max = float(consumed) * 0.5
         self.temp_attack_bonus = consumed * 0.5
+        self.aoe_bonus = 0.5 if consumed <= 6 else 1.0
 
         trigger_type = "主动发动" if is_manual else "被动触发"
         display.show_info(
@@ -184,6 +186,7 @@ class Savior(BaseTalent):
             f"\n  消耗 {consumed} 点神性 → 进入「救世主」状态！"
             f"\n  临时额外生命：{self.temp_hp}"
             f"\n  临时攻击力加成：+{self.temp_attack_bonus}"
+            f"\n  范围攻击加成：+{self.aoe_bonus}"
             f"\n  持续轮次：{self.savior_duration}"
             f"\n  ⛔ 禁用远程攻击 | 🛡️ 免疫死亡"
             f"\n{'='*50}")
@@ -233,6 +236,7 @@ class Savior(BaseTalent):
 
         # 攻击力恢复原始值（移除加成）
         self.temp_attack_bonus = 0.0
+        self.aoe_bonus = 0.0
         self.temp_hp = 0.0
 
         # 标记状态结束
@@ -281,34 +285,24 @@ class Savior(BaseTalent):
     # ============================================
 
     def modify_outgoing_damage(self, attacker, target, weapon, base_damage):
-        """救世主状态下近战攻击+临时攻击力"""
+        """救世主状态下近战攻击+临时攻击力，AOE+范围加成"""
         if attacker.player_id != self.player_id:
             return None
         if not self.is_savior:
-            return None
-        if self.temp_attack_bonus <= 0:
             return None
 
         from models.equipment import WeaponRange
-        # 仅近战加成
-        if weapon.weapon_range != WeaponRange.MELEE:
-            return None
+        mods = {}
 
-        return {"bonus_damage": self.temp_attack_bonus}
+        # 近战加成
+        if weapon and weapon.weapon_range == WeaponRange.MELEE and self.temp_attack_bonus > 0:
+            mods["bonus_damage"] = self.temp_attack_bonus
 
-    # ============================================
-    #  AOE伤害加成（V1.92新增）
-    # ============================================
+        # AOE加成
+        if weapon and weapon.weapon_range == WeaponRange.AREA and self.aoe_bonus > 0:
+            mods["bonus_damage"] = mods.get("bonus_damage", 0) + self.aoe_bonus
 
-    def modify_aoe_damage(self, attacker, target, weapon, base_damage):
-        """救世主状态下AOE攻击获得额外伤害加成"""
-        if attacker.player_id != self.player_id:
-            return None
-        if not self.is_savior:
-            return None
-        if self.temp_attack_bonus <= 0:
-            return None
-        return {"bonus_damage": self.temp_attack_bonus}
+        return mods if mods else None
 
     # ============================================
     #  远程禁用
@@ -397,5 +391,6 @@ class Savior(BaseTalent):
                 f"\n  被攻击/被正面天赋作用 → +1神性（限定次数来源额外+1）"
                 f"\n  上限{self.MAX_DIVINITY}。致命时消耗全部神性进入救世主状态。"
                 f"\n  每点神性 = 0.5临时HP + 0.5攻击 + 1轮持续"
+                f"\n  AOE加成（固定值）：消耗≤6时+0.5，>6时+1.0"
                 f"\n  救世主期间禁远程+免死（再次致命则退出）"
                 f"\n  状态结束时剩余临时HP转永久（上限3）")

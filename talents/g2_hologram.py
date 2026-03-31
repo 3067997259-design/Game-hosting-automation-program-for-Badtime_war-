@@ -15,7 +15,7 @@
 其他玩家（非发动者）在影像内：
   - 无法执行「锁定」和「找到」
   - 进入影像瞬间：自动与发动者建立面对面
-  - 连续停留2轮 → 震荡
+  - 进入即震荡；连续停留2轮再次震荡
 
 发动者在影像内：
   - 免疫上述限制（但隐身仍被破除）
@@ -372,17 +372,15 @@ class Hologram(BaseTalent):
     #  发动者减伤（V1.92新增）
     # ============================================
 
-    def modify_incoming_damage(self, target, attacker, weapon, base_damage):
-        """全息影像内发动者受伤减少50%"""
+    def modify_incoming_damage(self, target, attacker, weapon, raw_damage):
+        """V1.92: 发动者在影像存在期间受到的伤害降低1"""
         if not self.active:
-            return base_damage
+            return raw_damage
         if target.player_id != self.player_id:
-            return base_damage
-        # 检查发动者是否在影像内（发动时location已设为影像位置）
-        if target.location != self.location:
-            return base_damage
-        # 减伤50%
-        return base_damage * 0.5
+            return raw_damage
+        reduced = max(0, raw_damage - 1)
+        display.show_info(f"  👁️ 全息影像发动者减伤：{raw_damage} → {reduced}")
+        return reduced
 
     # ============================================
     #  R4：倒计时 + 震荡检查
@@ -407,7 +405,7 @@ class Hologram(BaseTalent):
             else:
                 self.stay_count[pid] = 0
 
-        # 震荡检查：连续2轮
+        # 震荡检查：连续停留2轮再次震荡
         for pid, count in self.stay_count.items():
             if pid == self.player_id:
                 continue  # 发动者免疫
@@ -420,9 +418,11 @@ class Hologram(BaseTalent):
                     display.show_info(
                         prompt_manager.get_prompt(
                             "talent", "g2eternity.shock_from_stay",
-                            default="  \U0001f441\u26a1 {player_name} 在全息影像中停留2轮，进入震荡！"
+                            default="  \U0001f441\u26a1 {player_name} 在全息影像中连续停留2轮，再次进入震荡！"
                         ).format(player_name=p.name)
                     )
+                    # 重置计数，下次再停留2轮才会再次触发
+                    self.stay_count[pid] = 0
 
         # 倒计时
         self.remaining_rounds -= 1
@@ -574,5 +574,5 @@ class Hologram(BaseTalent):
             f"\n  主动{self.max_uses}次：在所在地点展开全息影像，持续{self._get_initial_duration()}轮"
             f"\n  隐身无效 | 受伤+{self._get_bonus_damage()} | 非发动者禁锁定/找到"
             f"\n  进入影像自动与发动者建立面对面"
-            f"\n  连续停留2轮→震荡 | 非玩家单位沉沦"
+            f"\n  进入即震荡；连续停留2轮再次震荡 | 非玩家单位沉沦"
             f"\n  消失时清除影像产生的所有标记")
