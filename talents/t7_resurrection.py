@@ -107,11 +107,29 @@ class Resurrection(BaseTalent):
         # 清除LOCKED_BY、ENGAGED_WITH等状态
         self.state.markers.on_player_death(dying_player.player_id)
 
+        # V1.92: 恢复被击碎但留有残留的护盾（魔法护盾和AT力场）
+        restored_shields = []
+        if hasattr(dying_player, 'armor') and hasattr(dying_player.armor, 'layers'):
+            for layer in dying_player.armor.layers:
+                if layer and hasattr(layer, 'is_broken') and layer.is_broken:
+                    # 检查是否有残留（max_hp > 0）
+                    if hasattr(layer, 'max_hp') and layer.max_hp > 0:
+                        layer.is_broken = False
+                        layer.current_hp = layer.max_hp
+                        restored_shields.append(layer.name if hasattr(layer, 'name') else "护盾")
+
         resurrection_msg = prompt_manager.get_prompt(
             "talent", "t7resurrection.resurrection_trigger",
             default="🌟 死者苏生触发！{player_name} 在家中重生！\n   保留所有物品，无需起床。"
         ).format(player_name=dying_player.name)
         display.show_info(resurrection_msg)
+
+        if restored_shields:
+            shield_msg = prompt_manager.get_prompt(
+                "talent", "t7resurrection.shields_restored",
+                default="   🛡️ 已恢复破碎护盾：{shields}"
+            ).format(shields="、".join(restored_shields))
+            display.show_info(shield_msg)
 
         return {"prevent_death": True, "new_hp": 1.0}
 

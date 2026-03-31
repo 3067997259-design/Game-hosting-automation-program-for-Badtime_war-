@@ -172,8 +172,9 @@ class Savior(BaseTalent):
 
         self.is_savior = True
         self.savior_duration = consumed
-        self.temp_hp = float(consumed)
-        self.temp_hp_max = float(consumed)
+        # V1.92更新：临时HP减半（每1点神性提供0.5点临时额外生命值）
+        self.temp_hp = float(consumed) * 0.5
+        self.temp_hp_max = float(consumed) * 0.5
         self.temp_attack_bonus = consumed * 0.5
 
         trigger_type = "主动发动" if is_manual else "被动触发"
@@ -293,6 +294,20 @@ class Savior(BaseTalent):
         if weapon.weapon_range != WeaponRange.MELEE:
             return None
 
+        return {"bonus_damage": self.temp_attack_bonus}
+
+    # ============================================
+    #  AOE伤害加成（V1.92新增）
+    # ============================================
+
+    def modify_aoe_damage(self, attacker, target, weapon, base_damage):
+        """救世主状态下AOE攻击获得额外伤害加成"""
+        if attacker.player_id != self.player_id:
+            return None
+        if not self.is_savior:
+            return None
+        if self.temp_attack_bonus <= 0:
+            return None
         return {"bonus_damage": self.temp_attack_bonus}
 
     # ============================================

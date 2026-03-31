@@ -76,6 +76,10 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         self._caster_round_start_shocked: bool = False
         self._caster_round_start_petrified: bool = False
 
+        # === V1.92: 锚定D4加成（来自「一页永恒的善见天」）===
+        # 成功锚定后，双方在后续5个判定轮次中D4点数+2（不超过4）
+        self._anchor_d4_bonus_rounds: int = 0  # 剩余加成轮次
+
     # ================================================================
     #  V1.92: 消耗使用次数（替代原来的 self.used = True）
     # ================================================================
@@ -161,6 +165,9 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
     def on_round_end(self, round_num):
         """轮末处理：委托给 AnchorMixin 的锚定监控"""
         self._anchor_on_round_end(round_num)
+        # V1.92: 递减锚定D4加成轮次
+        if self._anchor_d4_bonus_rounds > 0:
+            self._anchor_d4_bonus_rounds -= 1
 
     def on_turn_end(self, player, action_type):
         if player.player_id != self.player_id:
@@ -256,3 +263,35 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
             f"\n  最多发动{self.max_uses}次（已用{self.total_uses}次）"
             f"\n    方式一：锚定命运（不消耗行动回合）"
             f"\n    方式二：献诗增强（消耗行动回合，每种诗最多1次）")
+
+    # ================================================================
+    #  V1.92: 锚定D4加成（「一页永恒的善见天」）
+    # ================================================================
+
+    def on_d4_bonus(self, player):
+        """锚定成功后，双方在后续5个判定轮次中D4点数+2（不超过4）"""
+        if self._anchor_d4_bonus_rounds <= 0:
+            return 0
+        # 检查是否是发动者或被锚定者
+        if player.player_id == self.player_id:
+            return 2
+        if player.player_id == self.anchor_target_id:
+            return 2
+        return 0
+
+    def _apply_anchor_d4_bonus(self):
+        """锚定成功后应用D4加成"""
+        if not self.anchor_target_id:
+            return
+        # 设置5轮加成
+        self._anchor_d4_bonus_rounds = 5
+
+        me = self._get_caster()
+        target = self.state.get_player(self.anchor_target_id)
+        if me and target:
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "talent", "g5ripple.anchor_d4_bonus_applied",
+                    default="  🎲 「一页永恒的善见天」生效！{caster_name} 和 {target_name} 的D4点数+2（不超过4），持续5轮！"
+                ).format(caster_name=me.name, target_name=target.name)
+            )
