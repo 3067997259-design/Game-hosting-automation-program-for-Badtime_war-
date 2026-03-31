@@ -52,6 +52,7 @@ class Mythland(BaseTalent):
         self.max_barrier_rounds = 5
         self.barrier_location = None
         self.poem_eternity_enhanced = False  # 涟漪献诗增强：被拉入者禁用主动天赋
+        self._target_first_action_done = False  # 追踪被拉入者是否已完成第一次行动
 
     # ============================================
     #  T0选项
@@ -348,22 +349,46 @@ class Mythland(BaseTalent):
                 display.show_info(skip_petrified)
                 return
 
-        # 永恒之诗增强：被拉入者禁用主动天赋
+        # 永恒之诗增强：被拉入者禁用主动天赋（V1.92: 改为基础效果，无需涟漪强化）
         talent_blocked = False
-        if (actor.player_id != self.player_id
-                and self.poem_eternity_enhanced
-                and actor.talent):
+        forfeit_only = False  # 涟漪增强：第一次行动只能是forfeit
+
+        if actor.player_id != self.player_id and actor.talent:
+            # 基础效果：被拉入者无法发动主动天赋
             actor._eternity_blocked = True
             talent_blocked = True
             display.show_info(
                 prompt_manager.get_prompt(
-                    "talent", "g3mythland.eternity_talent_blocked",
-                    default="  🌀✨ 永恒之诗生效：{actor_name} 无法发动主动天赋！"
+                    "talent", "g3mythland.talent_blocked",
+                    default="  🌀 {actor_name} 被拉入幻想乡，无法发动主动天赋！"
                 ).format(actor_name=actor.name)
             )
 
+            # 涟漪增强效果：被拉入者第一次行动只能是forfeit
+            if getattr(self, 'poem_eternity_forfeit_only', False):
+                # 检查是否是第一次行动
+                if not self._target_first_action_done:
+                    forfeit_only = True
+                    display.show_info(
+                        prompt_manager.get_prompt(
+                            "talent", "g3mythland.forfeit_only",
+                            default="  🌀✨ 永恒之诗生效：{actor_name} 第一次行动只能是放弃！"
+                        ).format(actor_name=actor.name)
+                    )
+
         atm = ActionTurnManager(self.state)
-        atm.execute_single_action(actor)
+        # 如果forfeit_only为True，直接执行forfeit，跳过行动选择
+        if forfeit_only:
+            from actions import forfeit as forfeit_action
+            msg = forfeit_action.execute(actor, self.state)
+            display.show_info(msg)
+            # 标记第一次行动已完成
+            self._target_first_action_done = True
+        else:
+            atm.execute_single_action(actor)
+            # 如果是target的第一次行动，标记完成
+            if actor.player_id != self.player_id and not self._target_first_action_done:
+                self._target_first_action_done = True
 
         if talent_blocked:
             actor._eternity_blocked = False
@@ -445,6 +470,7 @@ class Mythland(BaseTalent):
         self.original_locations = {}
         self.barrier_round = 0
         self.barrier_location = None
+        self._target_first_action_done = False
         self.state.active_barrier = None
 
     def _notify_ripple_barrier_end(self):

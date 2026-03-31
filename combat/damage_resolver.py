@@ -562,6 +562,15 @@ def resolve_area_damage(attacker, weapon, location, game_state,
                         ignore_element=False, damage_multiplier=1.0,
                         bonus_damage=0.0, exclude_self=True):
     """范围伤害结算"""
+    # V1.92: AOE天赋加成（如救世主状态下的额外伤害）
+    aoe_bonus = 0.0
+    if attacker and attacker.talent and hasattr(attacker.talent, 'modify_aoe_damage'):
+        mod = attacker.talent.modify_aoe_damage(
+            attacker, None, weapon,
+            weapon.get_effective_damage() if weapon else 0)
+        if mod and "bonus_damage" in mod:
+            aoe_bonus = mod["bonus_damage"]
+
     results = []
     targets = game_state.players_at_location(location)
     for t in targets:
@@ -573,7 +582,7 @@ def resolve_area_damage(attacker, weapon, location, game_state,
             attacker, t, weapon, game_state,
             ignore_element=ignore_element,
             damage_multiplier=damage_multiplier,
-            bonus_damage=bonus_damage,
+            bonus_damage=bonus_damage + aoe_bonus,
         )
         results.append({"target": t, "result": r})
     return results

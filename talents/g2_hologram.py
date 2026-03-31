@@ -127,6 +127,16 @@ class Hologram(BaseTalent):
         lines.extend(setup_lines)
 
         display.show_info("\n".join(lines))
+
+        # V1.92更新：发动后立刻获得1个额外行动回合
+        player.extra_action_after_hologram = True
+        display.show_info(
+            prompt_manager.get_prompt(
+                "talent", "g2eternity.extra_action_after",
+                default="  ⚡ 发动后立刻获得1个额外行动回合！"
+            )
+        )
+
         return "\n".join(lines), "talent"
 
     # ============================================
@@ -264,6 +274,20 @@ class Hologram(BaseTalent):
         if player.player_id not in self.stay_count:
             self.stay_count[player.player_id] = 0
 
+        # V1.92更新：进入影像区域立刻触发震荡（无需等待连续2轮）
+        # 非发动者进入时触发震荡
+        if player.player_id != self.player_id:
+            if not player.is_shocked:
+                player.is_shocked = True
+                player.is_stunned = True
+                self.state.markers.on_shock(player.player_id)
+                lines.append(
+                    prompt_manager.get_prompt(
+                        "talent", "g2eternity.enter_shock",
+                        default="  \U0001f441\u26a1 {player_name} 进入全息影像区域，立刻触发震荡！"
+                    ).format(player_name=player.name)
+                )
+
         return lines
 
     # ============================================
@@ -343,6 +367,22 @@ class Hologram(BaseTalent):
         if not self.is_in_hologram(target_id):
             return 0
         return self._get_bonus_damage()
+
+    # ============================================
+    #  发动者减伤（V1.92新增）
+    # ============================================
+
+    def modify_incoming_damage(self, target, attacker, weapon, base_damage):
+        """全息影像内发动者受伤减少50%"""
+        if not self.active:
+            return base_damage
+        if target.player_id != self.player_id:
+            return base_damage
+        # 检查发动者是否在影像内（发动时location已设为影像位置）
+        if target.location != self.location:
+            return base_damage
+        # 减伤50%
+        return base_damage * 0.5
 
     # ============================================
     #  R4：倒计时 + 震荡检查

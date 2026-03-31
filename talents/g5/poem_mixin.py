@@ -197,15 +197,18 @@ class PoemMixin:
         ).format(target_name=target.name)
 
     def _poem_eternity(self, target):
-        """献予「永恒」之诗：神话之外增强——被拉入者不能发动主动天赋"""
+        """献予「永恒」之诗：神话之外增强——发动次数+1，被拉入者第一次行动只能是forfeit"""
         talent = target.talent
-        if hasattr(talent, 'poem_eternity_enhanced'):
-            talent.poem_eternity_enhanced = True
-        else:
-            talent.poem_eternity_enhanced = True
+        # 发动次数+1
+        if hasattr(talent, 'used'):
+            talent.used = False
+        if hasattr(talent, 'max_uses'):
+            talent.max_uses += 1
+        # 标记涟漪增强效果：被拉入者第一次行动只能是forfeit
+        talent.poem_eternity_forfeit_only = True
         return prompt_manager.get_prompt(
             "talent", "g5ripple.poem_eternity",
-            default="🌀 {target_name} 的「神话之外」被涟漪增强！\n  幻想乡展开后，被拉入的玩家不允许发动所有可主动发动的天赋。"
+            default="🌀 {target_name} 的「神话之外」被涟漪增强！\n  发动次数+1 | 被拉入幻想乡的玩家第一次行动只能是放弃"
         ).format(target_name=target.name)
 
     def _poem_stars(self, target):
