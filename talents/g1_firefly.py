@@ -508,11 +508,9 @@ class G1MythFire(BaseTalent):
                 del self.burn_targets[tid]
 
     def on_round_end(self, round_num):
-        """R4：处理灼烧伤害"""
-        me = self.state.get_player(self.player_id)
-        if not me or not me.is_alive():
-            return
-        self.process_burn_damage(round_num)
+        """R4：轮次结束结算（灼烧已在 R4-1.5 由 round_manager 直接调用）"""
+        pass
+
 
     # ============================================
     #  描述
