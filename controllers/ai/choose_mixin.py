@@ -226,6 +226,11 @@ class ChooseMixin(_Base):
                                     return opt
                 # uses == 1 时保留原有的发动条件（被攻击或同地点有多个敌人）
                 if self._player and self._game_state:
+                    attackers = len(self._been_attacked_by)
+                    if attackers >= 1:
+                        for opt in options:
+                            if "发动" in opt:
+                                return opt
                     nearby = self._get_same_location_targets(self._player, self._game_state)
                     if len(nearby) >= 2:
                         for opt in options:
@@ -478,15 +483,13 @@ class ChooseMixin(_Base):
 
         return scores
 
-        # 每种出拳的3种可能结果（按对手出石头/剪刀/布的顺序）
-
     def _hexagram_pick_caster(self, player, state, options) -> str:
         """发动者出拳：maximin（最差情况收益最高）"""
         scores = self._score_hexagram_effects(player, state)
         best_choice = None
         best_worst = -999
         for choice in options:
-            outcomes = self.HEXAGRAM_OUTCOME_MAP.get(choice, [])
+            outcomes = HEXAGRAM_OUTCOME_MAP.get(choice, [])
             if not outcomes:
                 continue
             worst = min(scores.get(e, 0) for e in outcomes)
@@ -503,7 +506,7 @@ class ChooseMixin(_Base):
         for opp_choice in options:
             # 对手出 opp_choice 时，发动者出每种拳的结果
             caster_best = -999
-            for caster_choice, outcomes in self.HEXAGRAM_OUTCOME_MAP.items():
+            for caster_choice, outcomes in HEXAGRAM_OUTCOME_MAP.items():
                 # outcomes[i] 对应对手出石头/剪刀/布
                 opp_idx = ["石头", "剪刀", "布"].index(opp_choice)
                 effect = outcomes[opp_idx]

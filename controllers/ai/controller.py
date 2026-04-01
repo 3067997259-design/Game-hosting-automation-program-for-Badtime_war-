@@ -15,6 +15,7 @@ from controllers.ai.constants import (
 from controllers.ai.helpers_mixin import HelpersMixin
 from controllers.ai.evaluation_mixin import EvaluationMixin
 from controllers.ai.choose_mixin import ChooseMixin
+from controllers.ai.combat_mixin import CombatMixin
 from controllers.ai.develop_mixin import DevelopMixin
 from controllers.ai.police_mixin import PoliceMixin
 from controllers.ai.events_mixin import EventsMixin
@@ -25,6 +26,7 @@ class BasicAIController(
     HelpersMixin,
     EvaluationMixin,
     ChooseMixin,
+    CombatMixin,
     DevelopMixin,
     PoliceMixin,
     EventsMixin,
@@ -89,26 +91,6 @@ class BasicAIController(
         self._virus_prevention_done: bool = False
         # 行动标记（轮次内）
         self._action_used: bool = False
-
-    # ════════════════════════════════════════════════════════
-    #  抽象方法实现
-    # ════════════════════════════════════════════════════════
-
-    def choose(self, player: Any, game_state: Any, options: List[Any]) -> Any:
-        """必需的抽象方法实现：从选项中选择一个"""
-        if not options:
-            return None
-        return options[0]
-
-    def choose_multi(self, player: Any, game_state: Any, options: List[Any], count: int) -> List[Any]:
-        """必需的抽象方法实现：从选项中选择多个"""
-        if not options:
-            return []
-        return options[:min(count, len(options))]
-
-    def confirm(self, player: Any, game_state: Any, message: str = "") -> bool:
-        """必需的抽象方法实现：确认操作"""
-        return True
 
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command (原 lines 282-308)
@@ -439,6 +421,28 @@ class BasicAIController(
             scored.append((dest, enemies))
         scored.sort(key=lambda x: x[1])
         return scored[0][0]
+
+    def _has_supernova(self, player) -> bool:
+        """检查火萤IV型是否有超新星可用"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        return getattr(talent, 'has_supernova', False)
+
+    def _pick_supernova_target(self, player, state) -> Optional[str]:
+        """选择敌人最多的地点作为超新星目标"""
+        my_loc = self._get_location_str(player)
+        best_loc = None
+        best_count = 0
+        all_locations = ["home", "商店", "医院", "魔法所", "军事基地", "警察局"]
+        for loc in all_locations:
+            count = self._count_enemies_at(loc, player, state)
+            if count > best_count:
+                best_count = count
+                best_loc = loc
+        if best_loc and best_loc != my_loc:
+            return best_loc
+        return None
 
 
 # ════════════════════════════════════════════════════════════════
