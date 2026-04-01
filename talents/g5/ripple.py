@@ -232,8 +232,8 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
             return msg, False
 
         elif "献诗" in choice:
-            msg = self._execute_poem(player)
-            return msg, True
+            msg, consumed = self._execute_poem(player)
+            return msg, consumed
 
         else:
             return prompt_manager.get_prompt(

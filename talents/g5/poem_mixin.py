@@ -51,7 +51,7 @@ class PoemMixin:
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.no_poem_targets",
                 default="❌ 没有可献诗的目标。"
-            )
+            ), False  # 无目标不消耗行动
 
         display.show_info(
             prompt_manager.get_prompt(
@@ -90,7 +90,7 @@ class PoemMixin:
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.cancel_poem",
                 default="取消献诗。"
-            )
+            ), False  # 取消不消耗行动
 
         target = next(p for p in all_targets if p.name == target_name)
         talent_name = target.talent.name if target.talent else ""
@@ -100,12 +100,12 @@ class PoemMixin:
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.talent_not_in_poem_list",
                 default="❌ {target_name} 的天赋不在献诗列表中。"
-            ).format(target_name=target.name)
+            ).format(target_name=target.name), False  # 失败不消耗行动
 
         if poem_type == "爱与记忆":
             cost = self.get_destiny_cost()
             if self.reminiscence < cost:
-                return f"❌ 爱与记忆之诗需要 {cost} 层追忆（当前 {self.reminiscence} 层）"
+                return f"❌ 爱与记忆之诗需要 {cost} 层追忆（当前 {self.reminiscence} 层）", False
             self._consume_use(cost)
             self.destiny_use_count += 1
         else:
@@ -117,7 +117,7 @@ class PoemMixin:
         caster = self.state.get_player(self.player_id)
         notify_positive_talent_effect(caster, target)
 
-        return self._dispatch_poem(player, target, poem_type)
+        return self._dispatch_poem(player, target, poem_type), True  # 成功消耗行动
 
     # ================================================================
     #  分发
@@ -232,8 +232,8 @@ class PoemMixin:
         bounce_count = talent.ripple_bounce_count  
         return prompt_manager.get_prompt(  
             "talent", "g5ripple.poem_stars",  
-            default="⭐ {target_name} 的「天星」被涟漪增强（{count}层）！\n   天星落下后额外{bounces}次×0.5无视属性弹射伤害\n   石化不再因被攻击自动解除"  
-        ).format(target_name=target.name, count=talent.ripple_enhance_count, bounces=bounce_count)
+            default="⭐ {target_name} 的「天星」被涟漪增强（{count}层）！\n   天星落下后额外{bounce}次×0.5无视属性弹射伤害\n   石化不再因被攻击自动解除"  
+        ).format(target_name=target.name, count=talent.ripple_enhance_count, bounce=bounce_count)
 
     def _poem_law(self, target):
         """
@@ -490,7 +490,11 @@ class PoemMixin:
         ).format(target_name=target.name, charges=charges)
 
     def _poem_light(self, target):
-        """献予「追光」之诗：全息影像增强（可叠加）"""
+        """献予「追光」之诗：全息影像增强（可叠加）
+        
+        enhance_by_ripple() 已处理：max_uses+1, ripple_extra_vulnerability+0.5, enhanced=True
+        此处只负责调用并返回提示信息，不再重复修改属性。
+        """
         talent = target.talent
         if hasattr(talent, 'enhance_by_ripple'):
             talent.enhance_by_ripple()
@@ -498,9 +502,7 @@ class PoemMixin:
             talent.ripple_enhanced = True
             
         if hasattr(talent, 'max_uses'):
-            talent.max_uses += 1
-            talent.ripple_extra_vulnerability = getattr(talent, 'ripple_extra_vulnerability', 0) + 0.5
-            vuln = 0.5 + talent.ripple_extra_vulnerability
+            vuln = 0.5 + getattr(talent, 'ripple_extra_vulnerability', 0.0)
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_light_enhanced",
                 default="✨{target_name} 的「请一直，注视着我」增强！\n   易伤+{vuln} | 可用次数+1（当前{uses}次）"
@@ -632,22 +634,17 @@ class PoemMixin:
 
             old_hp = target.hp  
             
-            if dtype == "真伤":  
-                # True damage: directly subtract HP, bypass all armor/protection  
-                target.hp = round(max(0, target.hp - 1.0), 2)  
-                result = {  
-                    "killed": target.hp <= 0,  
-                    "stunned": target.hp <= 0.5 and target.hp > 0,  
-                    "details": ["真伤：无视一切防御直接扣除1.0HP"],  
-                }  
-            else:  
-                result = resolve_damage(  
-                    attacker=caster, target=target, weapon=None,  
-                    game_state=self.state,  
-                    raw_damage_override=1.0,  
-                    damage_attribute_override=dtype,  
-                    is_talent_attack=True,  
-                )  
+            # 真伤与普通伤害统一走 resolve_damage，与天星/超新星一致  
+            # "真伤"使用"无视属性克制"属性 + ignore_counter，正常经过护甲/天赋钩子  
+            damage_attr = "无视属性克制" if dtype == "真伤" else dtype  
+            result = resolve_damage(  
+                attacker=caster, target=target, weapon=None,  
+                game_state=self.state,  
+                raw_damage_override=1.0,  
+                damage_attribute_override=damage_attr,  
+                ignore_counter=True,  
+                is_talent_attack=True,  
+            )  
 
             lines.append(prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_destiny_damage_result",

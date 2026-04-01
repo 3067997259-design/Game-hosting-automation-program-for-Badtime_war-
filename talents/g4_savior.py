@@ -112,9 +112,6 @@ class Savior(BaseTalent):
         注意：g5 基础的 2 点火种由 _poem_bear 在调用本方法之前单独给予，
         本方法只处理「额外」的 2 点和后续效果。
         """
-        if self.spent:
-            return
-
         # 效果1：立刻额外获得 2 点火种
         self.gain_divinity(2, "献予负世之诗-额外奖励")
 
@@ -122,8 +119,8 @@ class Savior(BaseTalent):
         self.can_active_start = True
         self.ripple_enhanced = True
 
-        # 效果3：被动触发时再额外获得 2 点火种
-        self.passive_bonus_divinity = 2
+        # 效果3：被动触发时额外火种（叠加式）
+        self.passive_bonus_divinity = getattr(self, 'passive_bonus_divinity', 0) + 1
 
         me = self.state.get_player(self.player_id)
         name = me.name if me else self.player_id
