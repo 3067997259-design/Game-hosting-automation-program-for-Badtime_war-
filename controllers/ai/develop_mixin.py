@@ -33,16 +33,16 @@ class DevelopMixin(_Base):
         # 火萤IV型：天赋感知的发育标准
         if self._has_firefly_talent(player):
             real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
-                # Phase 1（debuff 前）：有 1 把武器就算完成
+            # Phase 1（debuff 前）：有 1 把武器就算完成
             if not self._firefly_debuff_active(player):
                 return len(real_weapons) >= 1
-            if self._firefly_debuff_active(player):
-                has_sharpened_knife = any(
-                    w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
-                    for w in real_weapons
-                )
-                has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
-                return has_sharpened_knife and has_gauss
+            # Phase 2（debuff 后）：需要磨过的小刀 + 高斯步枪
+            has_sharpened_knife = any(
+                w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
+                for w in real_weapons
+            )
+            has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
+            return has_sharpened_knife and has_gauss
 
         if self.personality == "aggressive":
             has_armor = self._count_outer_armor(player) >= 2
