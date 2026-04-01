@@ -448,15 +448,7 @@ class CombatMixin(_Base):
             if self._estimate_power(t) >= max_power:
                 s += 40
             # 火萤 debuff 生效后的目标偏好
-            if self._has_firefly_talent(player) and self._firefly_debuff_active(player):
-                # 优先攻击没有伤害>=2武器的玩家
-                enemy_best_dmg = self._best_weapon_damage(t)
-                if enemy_best_dmg < 2.0:
-                    s += 60  # 大幅加分：优先打弱者
-                else:
-                    # 所有人都有高伤害武器时，优先打 hp+护盾总值低的
-                    total_effective_hp = self._get_effective_hp(t) + self._count_outer_armor(t) + self._count_inner_armor(t)
-                    s += max(0, 10 - total_effective_hp) * 15  # 总值越低分越高
+            # 火萤 debuff 生效后的目标偏好（已在上方火萤专用评分块中处理）
             return s
         candidates.sort(key=score, reverse=True)
         return candidates[0]
