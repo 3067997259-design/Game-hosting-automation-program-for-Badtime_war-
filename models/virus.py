@@ -53,5 +53,5 @@ class VirusSystem:
             return "未激活"
         remaining = 5 - self.countdown
         if remaining <= 0:
-            return "☠️ 已致死判定"
+            return "🦠 病毒已结算"
         return f"🦠 病毒倒计时：{self.countdown}/5（还剩{remaining}轮）"

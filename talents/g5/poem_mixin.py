@@ -110,6 +110,9 @@ class PoemMixin:
         # V1.92: 确认选择后才消耗使用次数
         self._consume_use()
         self.used_poems.add(poem_type)
+        from combat.damage_resolver import notify_positive_talent_effect
+        caster = self.state.get_player(self.player_id)
+        notify_positive_talent_effect(caster, target)
 
         return self._dispatch_poem(player, target, poem_type)
 
@@ -482,13 +485,13 @@ class PoemMixin:
     def _poem_bear(self, target):
         talent = target.talent
 
-        # g5 基础：给予 2 点神性
+        # g5 基础：给予 2 点火种
         if hasattr(talent, 'gain_divinity'):
             talent.gain_divinity(2, "涟漪方式2-基础奖励")
         elif hasattr(talent, 'divinity'):
             talent.divinity += 2
 
-        # 调用 g4 的增强方法（额外 2 点神性 + 解锁主动 + 被动奖励）
+        # 调用 g4 的增强方法（额外 2 点火种 + 解锁主动 + 被动奖励）
         if hasattr(talent, 'enhance_by_ripple'):
             talent.enhance_by_ripple()
         else:
@@ -501,9 +504,9 @@ class PoemMixin:
             "talent", "g5ripple.poem_bear",
             default=(
                 "🌅 {target_name} 的「愿负世」增强！\n"
-                "   额外+2神性（当前：{divinity}）\n"
+                "   额外+2火种（当前：{divinity}）\n"
                 "   新增：可花1回合主动启动（启动后获1额外行动）\n"
-                "   被动触发时再+2神性"
+                "   被动触发时再+2火种"
             )
         ).format(target_name=target.name, divinity=current_div)
 
@@ -588,6 +591,7 @@ class PoemMixin:
                 game_state=self.state,
                 raw_damage_override=1.0,
                 damage_attribute_override=dtype,
+                is_talent_attack=True,
             )
 
             lines.append(prompt_manager.get_prompt(

@@ -45,7 +45,8 @@ def _check_electric_immunity(target):
 
 
 def _resolve_weaponless_damage(attacker, target, game_state, result,
-                                raw_damage, damage_attribute_str):
+                                raw_damage, damage_attribute_str,
+                                is_talent_attack=False):
     """
     无武器伤害结算（爱与记忆之诗等外部伤害源）。
     走护甲结算但不涉及武器天赋修正。
@@ -225,11 +226,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 target_name=target.name
             ))
 
-    # ---- 愿负世：被攻击时积累神性 ----
+    # ---- 愿负世：被攻击时积累火种 ----
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
-        is_limited = False
-        if attacker and attacker.talent and hasattr(attacker.talent, 'uses_remaining'):
-            is_limited = True
+        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, None, is_limited)
 
     return result
@@ -242,7 +241,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                    ignore_counter=False,
                    ignore_last_inner_absorb=False,
                    raw_damage_override=None,
-                   damage_attribute_override=None):
+                   damage_attribute_override=None,
+                   is_talent_attack=False):
     """
     完整伤害结算。
     新增参数（Phase 4）：
@@ -272,7 +272,8 @@ def resolve_damage(attacker, target, weapon, game_state,
         return _resolve_weaponless_damage(
             attacker, target, game_state, result,
             raw_damage_override or 1.0,
-            damage_attribute_override or "普通"
+            damage_attribute_override or "普通",
+            is_talent_attack=is_talent_attack,
         )
 
     # ======== 陶瓷护甲免疫电流武器检查 ========
@@ -548,11 +549,9 @@ def resolve_damage(attacker, target, weapon, game_state,
             attacker.player_id, target.player_id)
         result["stealth_suppressed"] = True
 
-    # ---- 愿负世：被攻击时积累神性 ----
+    # ---- 愿负世：被攻击时积累火种 ----
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
-        is_limited = False
-        if attacker.talent and hasattr(attacker.talent, 'uses_remaining'):
-            is_limited = True
+        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, weapon, is_limited)
 
     return result
@@ -619,7 +618,8 @@ def _select_armor_target(target, target_layer, target_armor_attr):
 def resolve_location_damage(attacker, location, game_state,
                             raw_damage=1.0, ignore_counter=True,
                             exclude_self=True,
-                            damage_attribute_override=None):
+                            damage_attribute_override=None,
+                            is_talent_attack=False):
     """对指定地点的所有单位（玩家 + 警察 + 未来的其他单位）造成伤害。
 
     参数：
@@ -645,6 +645,7 @@ def resolve_location_damage(attacker, location, game_state,
             raw_damage_override=raw_damage,
             ignore_counter=ignore_counter,
             damage_attribute_override=damage_attribute_override,
+            is_talent_attack=is_talent_attack,
         )
         results["players"].append({"target": t, "result": r})
 
@@ -807,3 +808,31 @@ def _talent_death_check(target, attacker, game_state):
                 return True
 
     return False
+
+def _is_limited_use_talent(talent):
+    """判断天赋是否属于「限定使用次数」（README 12 定义）
+    
+    仅覆盖会发起攻击型天赋动作的类型：
+      - uses_remaining: 一刀缭断、天星等
+      - charges + max_charges: 六爻（充能制）
+    """
+    if talent is None:
+        return False
+    # 一刀缭断、天星、你给路打油、神话之外等
+    if hasattr(talent, 'uses_remaining'):
+        return True
+    # 六爻（充能制）
+    if hasattr(talent, 'charges') and hasattr(talent, 'max_charges'):
+        return True
+    return False
+
+def notify_positive_talent_effect(source_player, target_player):
+    """当正面天赋效果作用于目标时，通知目标天赋（愿负世火种积累）"""
+    if source_player is None or target_player is None:
+        return
+    if source_player.player_id == target_player.player_id:
+        return  # 自己对自己不算
+    if not target_player.talent or not hasattr(target_player.talent, 'on_positive_talent_used'):
+        return
+    is_limited = _is_limited_use_talent(source_player.talent)
+    target_player.talent.on_positive_talent_used(source_player, is_limited)
