@@ -15,17 +15,16 @@ from controllers.ai.constants import (
 from controllers.ai.helpers_mixin import HelpersMixin
 from controllers.ai.evaluation_mixin import EvaluationMixin
 from controllers.ai.choose_mixin import ChooseMixin
-from controllers.ai.combat_mixin import CombatMixin
 from controllers.ai.develop_mixin import DevelopMixin
 from controllers.ai.police_mixin import PoliceMixin
 from controllers.ai.events_mixin import EventsMixin
+
 
 
 class BasicAIController(
     HelpersMixin,
     EvaluationMixin,
     ChooseMixin,
-    CombatMixin,
     DevelopMixin,
     PoliceMixin,
     EventsMixin,
@@ -41,6 +40,7 @@ class BasicAIController(
     # ════════════════════════════════════════════════════════
 
     def __init__(self, personality: str = "balanced"):
+        super().__init__()
         self.personality = personality
         self.event_log: List[Dict] = []
         self._round_number = 0
@@ -89,6 +89,26 @@ class BasicAIController(
         self._virus_prevention_done: bool = False
         # 行动标记（轮次内）
         self._action_used: bool = False
+
+    # ════════════════════════════════════════════════════════
+    #  抽象方法实现
+    # ════════════════════════════════════════════════════════
+
+    def choose(self, player: Any, game_state: Any, options: List[Any]) -> Any:
+        """必需的抽象方法实现：从选项中选择一个"""
+        if not options:
+            return None
+        return options[0]
+
+    def choose_multi(self, player: Any, game_state: Any, options: List[Any], count: int) -> List[Any]:
+        """必需的抽象方法实现：从选项中选择多个"""
+        if not options:
+            return []
+        return options[:min(count, len(options))]
+
+    def confirm(self, player: Any, game_state: Any, message: str = "") -> bool:
+        """必需的抽象方法实现：确认操作"""
+        return True
 
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command (原 lines 282-308)
@@ -289,6 +309,15 @@ class BasicAIController(
                     debug_ai_basic(player.name, "火萤：军事基地战斗结束，顺手拿电磁步枪")
                     candidates.append("interact 电磁步枪")
                     self._combat_just_ended_at = None
+        if (self._has_firefly_talent(player)
+            and self._has_supernova(player)
+            and "move" in available_actions):
+            # 超新星：移动到敌人最多的地点
+            best_loc = self._pick_supernova_target(player, state)
+            if best_loc:
+                candidates.insert(0, f"move {best_loc}")
+                candidates.append("forfeit")
+                return candidates
 
         # ===== 火萤击杀机会 =====
         if (self._has_firefly_talent(player)

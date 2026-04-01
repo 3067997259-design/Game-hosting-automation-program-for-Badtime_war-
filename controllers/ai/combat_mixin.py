@@ -32,7 +32,12 @@ class CombatMixin(_Base):
         # Fix: 目标受警察保护时，强制切换到AOE武器绕过单体免疫
         pe = getattr(state, 'police_engine', None)
         if pe and pe.is_protected_by_police(target.player_id):
-            if self._get_weapon_range(weapon) != "area":
+            threshold = pe.get_protection_threshold(target.player_id)
+            best_dmg = self._get_weapon_damage(weapon)
+            if best_dmg > threshold:
+                pass  # 伤害超过阈值，可以用非AOE武器打
+            elif self._get_weapon_range(weapon) != "area":
+        # 伤害不够，才需要切AOE
                 aoe_names = self._get_all_aoe_weapon_names(player)
                 if aoe_names:
                     # 遍历所有AOE武器，按属性克制+可用性评分选最佳
@@ -473,10 +478,12 @@ class CombatMixin(_Base):
             s = 0
             dmg = self._get_weapon_damage(w)
             # 救世主状态：近战武器加上临时攻击力加成
-            if self._is_in_savior_state(player) and self._get_weapon_range(w) == "melee":
+            if self._is_in_savior_state(player):
                 talent = getattr(player, 'talent', None)
-                if talent and hasattr(talent, 'temp_attack_bonus'):
-                    dmg += talent.temp_attack_bonus
+                if self._get_weapon_range(w) == "melee":
+                    dmg += getattr(talent, 'temp_attack_bonus', 0)
+                elif self._get_weapon_range(w) == "area":
+                    dmg += getattr(talent, 'aoe_bonus', 0)
             s += dmg * 10
             # 蓄力必须但未蓄力 → 打不出去，大幅扣分
             if (getattr(w, 'requires_charge', False)
@@ -611,4 +618,3 @@ class CombatMixin(_Base):
             Attribute.TECH: Attribute.MAGIC,        # 魔法克科技
         }
         return counter_map.get(target_armor_attr, Attribute.ORDINARY)
-    

@@ -6,10 +6,8 @@ from controllers.ai.constants import (
     debug_ai_basic, debug_ai_detailed,
     make_weapon
 )
-
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController
-
 _Base = BasicAIController if TYPE_CHECKING else object
 
 
