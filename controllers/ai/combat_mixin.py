@@ -421,8 +421,8 @@ class CombatMixin(_Base):
                 if is_passive:
                     target_power = self._estimate_power(t)
                     s += 30 + target_power * 0.3  # 越肉的发育者越危险
-            # 武器有效性
-            if self._all_weapons_countered(player, t):
+            # 武器有效性（火萤已在专用评分块中处理，跳过）
+            if not self._has_firefly_talent(player) and self._all_weapons_countered(player, t):
                 s -= 200
             # 隐身且无探测 → 大幅降分（打不到）
             if getattr(t, 'is_invisible', False) and not getattr(player, 'has_detection', False):

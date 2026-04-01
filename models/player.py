@@ -194,7 +194,10 @@ class Player:
         self.weapons.append(weapon)
 
     def add_armor(self, piece):
-        return self.armor.equip(piece)
+        success, msg = self.armor.equip(piece)
+        if success:
+            self._armor_gained_this_round = True
+        return success, msg
 
     def add_item(self, item):
         self.items.append(item)
