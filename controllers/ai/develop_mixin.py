@@ -43,14 +43,7 @@ class DevelopMixin(_Base):
                 )
                 has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
                 return has_sharpened_knife and has_gauss
-            else:
-                # debuff 未生效：2武器(不同属性) + 1外甲
-                has_two_weapons = len(real_weapons) >= 2
-                has_outer = self._count_outer_armor(player) >= 1
-                # 确保武器属性多样化（不会被单一属性甲完全克制）
-                weapon_attrs = set(self._get_weapon_attr(w) for w in real_weapons)
-                has_diverse_attrs = len(weapon_attrs) >= 2
-                return has_two_weapons and has_outer and has_diverse_attrs
+
         if self.personality == "aggressive":
             has_armor = self._count_outer_armor(player) >= 2
             has_two_weapons = len(real_weapons) >= 2
