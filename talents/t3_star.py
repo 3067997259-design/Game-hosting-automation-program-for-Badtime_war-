@@ -143,7 +143,8 @@ class Star(BaseTalent):
 
         # ===== 涟漪增强：额外弹射伤害 =====
         if self.ripple_enhanced:
-            lines.append("\n   ⭐🌊 涟漪增强：额外指定2次目标，各造成0.5无视属性伤害！")
+            bounce_count = getattr(self, 'ripple_bounce_count', 2)
+            lines.append(f"\n   ⭐🌊 涟漪增强：额外指定{bounce_count}次目标，各造成0.5无视属性伤害！")
 
             # 收集同地点存活的可选目标（发动者以外的玩家+警察）
             bounce_player_targets = [p for p in self.state.players_at_location(player.location)
@@ -158,7 +159,7 @@ class Star(BaseTalent):
 
             if all_target_names:
                 from combat.damage_resolver import resolve_damage
-                for i in range(2):
+                for i in range(bounce_count):
                     chosen_name = player.controller.choose(
                         f"涟漪弹射第{i+1}次目标：",
                         all_target_names,

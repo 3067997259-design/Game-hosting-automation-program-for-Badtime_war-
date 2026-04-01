@@ -14,7 +14,7 @@
     1. 有外层护甲/护盾 → 摧毁一件
     2. 没有外层 → 扣1点内层护甲
     3. 没有任何护甲 → 跳过（不致死）
-  - 炽愿（增强版）：每层可抵扣2次debuff（需有护甲可扣时生效）
+  - 炽愿（增强版）：每层可抵扣1次debuff（需有护甲可扣时生效）
     + 受攻击时充当额外生命值（每层0.5HP）
 
 效果C 超新星过载（V1.92新增）：
@@ -55,11 +55,11 @@ class G1MythFire(BaseTalent):
 
         # 炽愿（涟漪献诗给的抵扣道具）— 增强版
         self.ardent_wish_charges = 0  # 炽愿层数
-        self.ardent_wish_debuff_uses = 0  # 当前活跃炽愿的剩余debuff抵扣次数
 
         self.has_supernova = False  # 超新星过载是否就绪
         self.supernova_charges = 0  # 超新星过载次数（不可叠加，最多1）
         self.supernova_used_this_move = False # 本行动回合是否已使用过超新星过载（重置条件：每轮R0）
+        self.supernova_free_use = False # 献予飞萤之诗：本次超新星不消耗次数
 
         # 灼烧系统
         self.burn_targets: Dict[str, int] = {}  # {player_id: 剩余灼烧层数}
@@ -135,14 +135,10 @@ class G1MythFire(BaseTalent):
                 me.armor.get_active(ArmorLayer.INNER)
             )
             if has_armor:
-                if self.ardent_wish_debuff_uses <= 0:
-                    self.ardent_wish_debuff_uses = 2
-                self.ardent_wish_debuff_uses -= 1
-                if self.ardent_wish_debuff_uses <= 0:
-                    self.ardent_wish_charges -= 1
+                self.ardent_wish_charges -= 1
                 prompt_manager.show("talent", "g1mythfire.ardent_wish_consume",
                                 player_name=me.name,
-                                remaining=self.ardent_wish_debuff_uses,
+                                remaining=self.ardent_wish_charges,
                                 level=PromptLevel.NORMAL)
                 return
 
@@ -233,10 +229,6 @@ class G1MythFire(BaseTalent):
         charges_consumed = math.ceil(absorbed / 0.5)
         charges_consumed = min(charges_consumed, self.ardent_wish_charges)
         self.ardent_wish_charges -= charges_consumed
-
-        # 如果炽愿耗尽，重置debuff抵扣计数
-        if self.ardent_wish_charges <= 0:
-            self.ardent_wish_debuff_uses = 0
 
         me = self.state.get_player(self.player_id)
         name = me.name if me else self.player_id
@@ -368,14 +360,13 @@ class G1MythFire(BaseTalent):
     # ============================================
 
     def grant_ardent_wish(self):
-        """获得1层炽愿（增强版：抵扣2次debuff + 0.5额外生命值）"""
+        """获得1层炽愿（每层抵扣1次debuff + 0.5额外生命值）"""
         self.ardent_wish_charges += 1
         me = self.state.get_player(self.player_id)
         name = me.name if me else self.player_id
         prompt_manager.show("talent", "g1mythfire.ardent_wish_gain",
                         player_name=name,
                         charges=self.ardent_wish_charges,
-                        debuff_uses=self.ardent_wish_debuff_uses,
                         level=PromptLevel.IMPORTANT)
 
 
@@ -384,7 +375,9 @@ class G1MythFire(BaseTalent):
         from combat.damage_resolver import resolve_location_damage
         from cli import display
 
-        self.has_supernova = False
+        if not self.supernova_free_use:
+            self.has_supernova = False
+            
         display.show_info(
             f"\n{'='*50}\n"
             f"  🌟💥 DHGDR-超新星过载！\n"
@@ -444,9 +437,6 @@ class G1MythFire(BaseTalent):
     def _grant_ardent_wish_from_supernova(self, count: int):
         """从超新星获得炽愿"""
         self.ardent_wish_charges += count
-        # 如果当前没有活跃的抵扣计数，初始化
-        if self.ardent_wish_debuff_uses <= 0 and self.ardent_wish_charges > 0:
-            self.ardent_wish_debuff_uses = 2
 
     def apply_burn(self, target_id: str):
         """对目标施加灼烧（最多叠加2层）"""
@@ -542,5 +532,5 @@ class G1MythFire(BaseTalent):
             f"\n  debuff = 15+(人数-2)×3 轮后每2轮R0扣护甲"
             f"\n  前15轮行动不足则延迟 | 后续每3轮行动<1次则延缓"
             f"\n  超新星过载：首次debuff/击杀时获得，移动时对目的地全体1.0伤害"
-            f"\n  炽愿：每层抵扣2次debuff + 0.5额外生命值")
+            f"\n  炽愿：每层抵扣1次debuff + 0.5额外生命值")
 
