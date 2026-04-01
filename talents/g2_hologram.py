@@ -129,7 +129,7 @@ class Hologram(BaseTalent):
 
         # V1.92更新：发动后立刻获得1个额外行动回合
         player.extra_action_after_hologram = True
-        display.show_info(
+        lines.append(
             prompt_manager.get_prompt(
                 "talent", "g2eternity.extra_action_after",
                 default="  ⚡ 发动后立刻获得1个额外行动回合！"
