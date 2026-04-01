@@ -37,7 +37,7 @@ class CombatMixin(_Base):
             if best_dmg > threshold:
                 pass  # 伤害超过阈值，可以用非AOE武器打
             elif self._get_weapon_range(weapon) != "area":
-        # 伤害不够，才需要切AOE
+                # 伤害不够，才需要切AOE
                 aoe_names = self._get_all_aoe_weapon_names(player)
                 if aoe_names:
                     # 遍历所有AOE武器，按属性克制+可用性评分选最佳

@@ -240,7 +240,7 @@ class ChooseMixin(_Base):
                     if "不发动" in opt or "正常" in opt:
                         return opt
                 return options[-1]
-        # 六爻/往世的涟漪：默认发动（get_t0_option已做前置检查）
+            # 六爻/往世的涟漪：默认发动（get_t0_option已做前置检查）
             for opt in options:
                 if "发动" in opt:
                     return opt
@@ -461,7 +461,20 @@ class ChooseMixin(_Base):
 
         # === extra_turn (剪刀vs布：2个额外行动回合) ===
         # 几乎总是高价值，战斗中或发育未完成时更高
-        if self._in_combat:
+        # 注意：从 state.markers 判断 player 的战斗状态，而非 self._in_combat
+        # （对手调用时 self 是对手AI，self._in_combat 不代表 caster 的状态）
+        caster_in_combat = False
+        markers_obj = getattr(state, 'markers', None)
+        if markers_obj and hasattr(markers_obj, 'has_relation'):
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive() and markers_obj.has_relation(
+                        player.player_id, 'ENGAGED_WITH', pid):
+                    caster_in_combat = True
+                    break
+        if caster_in_combat:
             scores["extra_turn"] = 9
         elif not self._is_development_complete(player, state):
             scores["extra_turn"] = 8
