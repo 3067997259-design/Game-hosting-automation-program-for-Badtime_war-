@@ -350,10 +350,11 @@ class Hologram(BaseTalent):
         return self.is_in_hologram(player_id)
 
     def _get_bonus_damage(self):
-        """影像内额外伤害"""
+        """影像内额外伤害（含涟漪叠加易伤）"""
+        base = 0.5
         if self.enhanced:
-            return 1.0
-        return 0.5
+            base = 1.0
+        return base + getattr(self, 'ripple_extra_vulnerability', 0.0)
 
     def get_bonus_damage(self, target_id):
         """
@@ -519,9 +520,10 @@ class Hologram(BaseTalent):
     # ============================================
 
     def enhance_by_ripple(self):
-        """涟漪献诗：易伤+1，最大使用次数+1（ver1.9移除了持续时间-1的效果）"""
+        """涟漪献诗：易伤+1，最大使用次数+1，叠加额外易伤（ver1.9移除了持续时间-1的效果）"""
         self.enhanced = True
         self.max_uses += 1
+        self.ripple_extra_vulnerability = getattr(self, 'ripple_extra_vulnerability', 0) + 0.5
         if self.used and self.max_uses > 0:
             self.used = False
         me = self.state.get_player(self.player_id)
