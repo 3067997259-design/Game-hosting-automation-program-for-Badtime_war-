@@ -83,5 +83,16 @@ def execute(player, destination, game_state):
                          from_loc=old_location, to_loc=destination)
     if (player.talent and hasattr(player.talent, 'has_supernova')
         and player.talent.has_supernova):
-        player.talent.trigger_supernova(player, destination, game_state)
+        # Check if there are any targets at destination before triggering
+        targets_at_dest = [p for p in game_state.players_at_location(destination)
+                        if p.player_id != player.player_id and p.is_alive()]
+        has_police = False
+        if game_state.police_engine and hasattr(game_state.police_engine, 'police'):
+            for unit in game_state.police_engine.police.units:
+                if unit.is_alive() and unit.location == destination:
+                    has_police = True
+                    break
+        if targets_at_dest or has_police:
+            player.talent.trigger_supernova(player, destination, game_state)
+        # If no targets, preserve supernova for later (don't trigger)
     return f"🚶 {player.name} 从「{old_name}」移动到「{new_name}」。"
