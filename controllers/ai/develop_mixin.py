@@ -33,6 +33,9 @@ class DevelopMixin(_Base):
         # 火萤IV型：天赋感知的发育标准
         if self._has_firefly_talent(player):
             real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
+                # Phase 1（debuff 前）：有 1 把武器就算完成
+            if not self._firefly_debuff_active(player):
+                return len(real_weapons) >= 1
             if self._firefly_debuff_active(player):
                 has_sharpened_knife = any(
                     w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
@@ -220,6 +223,23 @@ class DevelopMixin(_Base):
                 if next_loc and next_loc != loc:
                     if not (next_loc == "home" and self._is_at_home(player)):
                         commands.append(f"move {next_loc}")
+        return commands
+
+    def _cmd_develop_firefly_minimal(self, player, state, available: List[str]) -> List[str]:
+        """火萤Phase1最小发育：只拿护甲，不拿更多武器"""
+        commands = []
+        loc = self._get_location_str(player)
+        outer = self._count_outer_armor(player)
+
+        if "interact" in available:
+            if (loc == "home" or self._is_at_home(player)) and outer < 1:
+                if not self._has_armor_by_name(player, "盾牌"):
+                    commands.append("interact 盾牌")
+            elif loc == "商店" and outer < 1:
+                vouchers = getattr(player, 'vouchers', 0)
+                if vouchers >= 1 and not self._has_armor_by_name(player, "陶瓷护甲"):
+                    commands.append("interact 陶瓷护甲")
+
         return commands
     # ════════════════════════════════════════════════════════
     #  通用发育命令

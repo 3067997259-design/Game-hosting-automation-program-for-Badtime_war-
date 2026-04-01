@@ -381,6 +381,32 @@ class CombatMixin(_Base):
             s += max(0, 5 - self._get_effective_hp(t)) * 10
             s -= self._count_outer_armor(t) * 15
             s -= self._count_inner_armor(t) * 10
+            # ===== 火萤专用评分（全程生效，不只是 debuff 后）=====
+            if self._has_firefly_talent(player):
+                # 1. 优先打发育型玩家（defensive/political/builder）
+                target_name = getattr(t, 'name', '')
+                target_pid = getattr(t, 'player_id', '')
+                is_passive = (target_name not in self._players_who_attacked
+                            and target_pid not in self._players_who_attacked)
+                if is_passive:
+                    target_power = self._estimate_power(t)
+                    s += 70 + target_power * 0.5  # 越肉的发育者越危险
+
+                # 2. 优先打能一击杀自己的（先下手为强）
+                enemy_best_dmg = self._best_weapon_damage(t)
+                if enemy_best_dmg >= 2.0:  # 火萤减伤后 2.0 → 1.0，仍然致命
+                    s += 80
+
+                # 3. 武器被克制时大幅降分（换目标而非换武器）
+                if self._all_weapons_countered(player, t):
+                    s -= 300
+
+                # 4. debuff 后额外偏好弱者
+                if self._firefly_debuff_active(player):
+                    if enemy_best_dmg < 2.0:
+                        s += 60
+                    total_effective_hp = self._get_effective_hp(t) + self._count_outer_armor(t) + self._count_inner_armor(t)
+                    s += max(0, 10 - total_effective_hp) * 15
             if self.personality == "assassin":
                 s += max(0, 3 - self._get_effective_hp(t)) * 20
                 if self._count_outer_armor(t) == 0:

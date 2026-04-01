@@ -232,6 +232,13 @@ class EvaluationMixin(_Base):
     def _should_continue_combat(self, player, target) -> bool:
         if not target or not target.is_alive():
             return False
+
+        # 火萤特判：只有武器被克制才退出
+        if self._has_firefly_talent(player):
+            if self._all_weapons_countered(player, target):
+                return False
+            # 火萤不因 HP 低而退出（有减伤 + 0.5 自愈）
+            return True
         # aggressive：只有被打到无甲才撤退
         if self.personality == "aggressive":
             total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)

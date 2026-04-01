@@ -23,6 +23,8 @@
   - 击杀可再次授予超新星；发动后debuff开始轮次后延3轮
 """
 
+from typing import Dict
+
 from talents.base_talent import BaseTalent, PromptLevel
 from models.equipment import ArmorLayer
 from engine.prompt_manager import prompt_manager
@@ -58,6 +60,10 @@ class G1MythFire(BaseTalent):
         self.has_supernova = False  # 超新星过载是否就绪
         self.supernova_charges = 0  # 超新星过载次数（不可叠加，最多1）
         self.supernova_used_this_move = False # 本行动回合是否已使用过超新星过载（重置条件：每轮R0）
+
+        # 灼烧系统
+        self.burn_targets: Dict[str, int] = {}  # {player_id: 剩余灼烧层数}
+        self.burn_max_stacks = 2  # 最大叠加层数
 
         self.debuff_tick_count = 0  # 炽愿抵扣结算计数
 
@@ -374,7 +380,7 @@ class G1MythFire(BaseTalent):
 
 
     def trigger_supernova(self, player, destination, game_state):
-        """DHGDR-超新星过载：对目的地所有单位造成1点无视属性克制伤害"""
+        """DHGDR-超新星过载：对目的地所有单位造成1点无视属性克制伤害 + 施加灼烧 + 获得炽愿"""
         from combat.damage_resolver import resolve_location_damage
         from cli import display
 
@@ -391,33 +397,122 @@ class G1MythFire(BaseTalent):
             ignore_counter=True, exclude_self=True,
             damage_attribute_override="无视属性克制")
 
-        # 分别处理玩家和警察结果（数据结构不同，不能 flatten）
+        hit_count = 0
+        kill_count = 0
+
+        # 处理玩家
         for r in results_dict.get("players", []):
             t = r["target"]
             res = r["result"]
+            hit_count += 1
             display.show_info(f"  → {t.name} 受到 1.0 伤害（无视克制）")
+
+            # 施加灼烧
+            self.apply_burn(t.player_id)
+            display.show_info(f"  🔥 {t.name} 被灼烧！（{self.burn_targets.get(t.player_id, 0)}/2层）")
+
             if res.get("killed"):
+                kill_count += 1
                 player.kill_count += 1
                 game_state.markers.on_player_death(t.player_id)
                 if game_state.police_engine:
                     game_state.police_engine.on_player_death(t.player_id)
                 display.show_info(f"  💀 {t.name} 被超新星击杀！")
-                # 击杀再给超新星
                 self._grant_supernova(player)
 
+        # 处理警察
         for u in results_dict.get("police", []):
-            # police 列表中的元素是 unit 对象（非字典）
+            hit_count += 1
             if u.is_alive():
                 display.show_info(f"  → 警察{u.unit_id} 受到 1.0 伤害")
             else:
+                kill_count += 1
                 display.show_info(f"  → 警察{u.unit_id} 被超新星击杀！")
-        if not results_dict.get("players") and not results_dict.get("police"):
-            display.show_info("  （目的地无单位，超新星未命中任何目标）")
 
-        # V1.92: 超新星发动后 debuff 开始轮次后延3轮
+        # 炽愿获取：每命中1目标+1，每击杀+1
+        ardent_gain = hit_count + kill_count
+        if ardent_gain > 0:
+            self._grant_ardent_wish_from_supernova(ardent_gain)
+            display.show_info(f"  ✨ 获得 {ardent_gain} 层炽愿（命中{hit_count} + 击杀{kill_count}）")
+
+        # debuff 后延3轮
         if self.debuff_start_round is not None:
             self.debuff_start_round += 3
             display.show_info(f"  🔥 debuff 开始轮次后延至第 {self.debuff_start_round} 轮")
+
+    def _grant_ardent_wish_from_supernova(self, count: int):
+        """从超新星获得炽愿"""
+        self.ardent_wish_charges += count
+        # 如果当前没有活跃的抵扣计数，初始化
+        if self.ardent_wish_debuff_uses <= 0 and self.ardent_wish_charges > 0:
+            self.ardent_wish_debuff_uses = 2
+
+    def apply_burn(self, target_id: str):
+        """对目标施加灼烧（最多叠加2层）"""
+        current = self.burn_targets.get(target_id, 0)
+        self.burn_targets[target_id] = min(current + 1, self.burn_max_stacks)
+
+    def process_burn_damage(self, round_num):
+        """
+        R4 轮次末结算灼烧伤害（与警察自动攻击同时机）
+        - 每层灼烧造成 0.5 无视属性克制伤害
+        - 本轮获得护甲或展开护甲的目标跳过
+        - 灼烧致死也给炽愿
+        """
+        from combat.damage_resolver import resolve_damage
+        from cli import display
+
+        to_remove = []
+        for target_id, stacks in list(self.burn_targets.items()):
+            if stacks <= 0:
+                to_remove.append(target_id)
+                continue
+
+            target = self.state.get_player(target_id)
+            if not target or not target.is_alive():
+                to_remove.append(target_id)
+                continue
+
+            # 检查本轮是否获得/展开护甲
+            if getattr(target, '_armor_gained_this_round', False):
+                display.show_info(f"  🔥 {target.name} 本轮获得护甲，灼烧跳过")
+                continue
+
+            # 造成伤害
+            me = self.state.get_player(self.player_id)
+            result = resolve_damage(
+                attacker=me, target=target, weapon=None,
+                game_state=self.state,
+                raw_damage_override=0.5,
+                damage_attribute_override="无视属性克制",
+                ignore_counter=True
+            )
+
+            display.show_info(f"  🔥 灼烧！{target.name} 受到 0.5 伤害 HP: {result['old_hp']} → {result['new_hp']}")
+
+            # 消耗1层灼烧
+            self.burn_targets[target_id] = stacks - 1
+
+            # 灼烧致死
+            if result.get("killed"):
+                self.state.markers.on_player_death(target_id)
+                if self.state.police_engine:
+                    self.state.police_engine.on_player_death(target_id)
+                display.show_info(f"  💀 {target.name} 被灼烧击杀！")
+                # 灼烧击杀也给炽愿
+                self._grant_ardent_wish_from_supernova(1)
+                self._grant_supernova(me)  # 击杀再给超新星
+
+        for tid in to_remove:
+            if tid in self.burn_targets:
+                del self.burn_targets[tid]
+
+    def on_round_end(self, round_num):
+        """R4：处理灼烧伤害"""
+        me = self.state.get_player(self.player_id)
+        if not me or not me.is_alive():
+            return
+        self.process_burn_damage(round_num)
 
     # ============================================
     #  描述

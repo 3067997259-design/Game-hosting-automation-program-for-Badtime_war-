@@ -116,6 +116,7 @@ class Player:
         self.weapons: list[Weapon | None] = [make_weapon("拳击")]
         self.armor = ArmorSlots()
         self.items = []
+        self._armor_gained_this_round = False
 
         # 经济
         self.vouchers = 0
