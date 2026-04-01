@@ -488,7 +488,7 @@ class G1MythFire(BaseTalent):
                 ignore_counter=True
             )
 
-            display.show_info(f"  🔥 灼烧！{target.name} 受到 0.5 伤害 HP: {result['old_hp']} → {result['new_hp']}")
+            display.show_info(f"  🔥 灼烧！{target.name} 受到 {result['hp_damage']} 伤害 HP: {result['target_hp']}")
 
             # 消耗1层灼烧
             self.burn_targets[target_id] = stacks - 1
