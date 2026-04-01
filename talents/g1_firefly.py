@@ -486,7 +486,8 @@ class G1MythFire(BaseTalent):
                 game_state=self.state,
                 raw_damage_override=0.5,
                 damage_attribute_override="无视属性克制",
-                ignore_counter=True
+                ignore_counter=True,
+                is_talent_attack=True,
             )
 
             display.show_info(f"  🔥 灼烧！{target.name} 受到 {result['final_damage']} 伤害（HP伤害: {result['hp_damage']}） HP: {result['target_hp']}")
