@@ -82,6 +82,7 @@ class Star(BaseTalent):
             game_state=self.state, raw_damage=damage_per_target,
             ignore_counter=True, exclude_self=True,
             damage_attribute_override="无视属性克制",
+            is_talent_attack=True,
         )
 
         # 处理玩家结果：伤害 + 石化

@@ -106,6 +106,7 @@ class OneSlash(BaseTalent):
             damage_multiplier=2.0,
             ignore_counter=True,
             ignore_last_inner_absorb=True,
+            is_talent_attack=True,
         )
 
         # 构建攻击结果消息

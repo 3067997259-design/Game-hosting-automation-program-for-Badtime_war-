@@ -190,6 +190,7 @@ class Hexagram(BaseTalent):
             raw_damage_override=1.0,
             damage_attribute_override="无视属性克制",
             ignore_counter=True,
+            is_talent_attack=True,
         )
 
         thunder_msg = prompt_manager.get_prompt(

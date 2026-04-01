@@ -591,6 +591,7 @@ class PoemMixin:
                 game_state=self.state,
                 raw_damage_override=1.0,
                 damage_attribute_override=dtype,
+                is_talent_attack=True,
             )
 
             lines.append(prompt_manager.get_prompt(

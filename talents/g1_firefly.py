@@ -395,7 +395,8 @@ class G1MythFire(BaseTalent):
             attacker=player, location=destination,
             game_state=game_state, raw_damage=1.0,
             ignore_counter=True, exclude_self=True,
-            damage_attribute_override="无视属性克制")
+            damage_attribute_override="无视属性克制",
+            is_talent_attack=True)
 
         hit_count = 0
         kill_count = 0
