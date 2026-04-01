@@ -411,6 +411,8 @@ class G1MythFire(BaseTalent):
                 display.show_info(f"  → 警察{u.unit_id} 受到 1.0 伤害")
             else:
                 display.show_info(f"  → 警察{u.unit_id} 被超新星击杀！")
+            if not results_dict.get("players") and not results_dict.get("police"):
+                display.show_info("  （目的地无单位，超新星未命中任何目标）")
 
         # V1.92: 超新星发动后 debuff 开始轮次后延3轮
         if self.debuff_start_round is not None:

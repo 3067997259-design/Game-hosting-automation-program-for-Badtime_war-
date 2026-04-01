@@ -119,11 +119,10 @@ class Resurrection(BaseTalent):
                 all_pieces.extend(armor.inner)
             for piece in all_pieces:
                 if piece and hasattr(piece, 'is_broken') and piece.is_broken:
-                    # 检查是否有残留（max_hp > 0，即可恢复的护盾类型）
-                    if hasattr(piece, 'max_hp') and piece.max_hp > 0:
+                    if hasattr(piece, 'can_regen') and piece.can_regen:
                         piece.is_broken = False
                         piece.current_hp = piece.max_hp
-                        restored_shields.append(piece.name if hasattr(piece, 'name') else "护盾")
+                        restored_shields.append(piece.name)
 
         resurrection_msg = prompt_manager.get_prompt(
             "talent", "t7resurrection.resurrection_trigger",
