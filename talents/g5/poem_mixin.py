@@ -25,10 +25,12 @@ class PoemMixin:
     reminiscence: float
     max_reminiscence: float
     total_uses: int
-    used_poems: set
+    poem_use_counts: dict
+    destiny_use_count: int
 
     # 辅助方法（由主类 Ripple 提供）
-    def _consume_use(self) -> None: ...
+    def _consume_use(self, cost: int = 12) -> None: ...
+    def get_destiny_cost(self) -> int: ...
 
     # ================================================================
     #  献诗入口
@@ -39,7 +41,7 @@ class PoemMixin:
         V1.92 改动：
         - 不再在方法开头直接 self.used=True / self.reminiscence=0
         - 改为在确认选择后调用 self._consume_use()
-        - 新增诗篇重复检查：每种诗篇最多使用一次
+        - 同一首诗可重复使用
         """
         others = [p for p in self.state.alive_players()
                   if p.player_id != player.player_id and p.talent]
@@ -61,8 +63,8 @@ class PoemMixin:
         for i, p in enumerate(all_targets, 1):
             talent_name = p.talent.name if p.talent else "无天赋"
             poem_name = self.POEM_MAP.get(talent_name, "未知")
-            # V1.92: 标注已使用过的诗篇
-            used_mark = "（已使用）" if poem_name in self.used_poems else ""
+            use_count = self.poem_use_counts.get(poem_name, 0)
+            used_mark = f"（已使用{use_count}次）" if use_count > 0 else ""
             display.show_info(
                 prompt_manager.get_prompt(
                     "talent", "g5ripple.poem_target_format",
@@ -100,16 +102,17 @@ class PoemMixin:
                 default="❌ {target_name} 的天赋不在献诗列表中。"
             ).format(target_name=target.name)
 
-        # V1.92: 诗篇重复检查
-        if poem_type in self.used_poems:
-            return prompt_manager.get_prompt(
-                "talent", "g5ripple.poem_already_used",
-                default="❌ 献予「{poem_type}」之诗已使用过，每种诗篇最多一次。"
-            ).format(poem_type=poem_type)
+        if poem_type == "爱与记忆":
+            cost = self.get_destiny_cost()
+            if self.reminiscence < cost:
+                return f"❌ 爱与记忆之诗需要 {cost} 层追忆（当前 {self.reminiscence} 层）"
+            self._consume_use(cost)
+            self.destiny_use_count += 1
+        else:
+            self._consume_use(12)
 
-        # V1.92: 确认选择后才消耗使用次数
-        self._consume_use()
-        self.used_poems.add(poem_type)
+        self.poem_use_counts[poem_type] = self.poem_use_counts.get(poem_type, 0) + 1
+        
         from combat.damage_resolver import notify_positive_talent_effect
         caster = self.state.get_player(self.player_id)
         notify_positive_talent_effect(caster, target)
@@ -215,14 +218,22 @@ class PoemMixin:
         ).format(target_name=target.name)
 
     def _poem_stars(self, target):
-        """献予「群星」之诗：天星增强"""
+        """献予「群星」之诗：天星增强（可叠加）"""
         talent = target.talent
-        talent.ripple_enhanced = True
-        talent.ripple_petrify_lock = True  # 石化不因被攻击自动解除
-        return prompt_manager.get_prompt(
-            "talent", "g5ripple.poem_stars",
-            default="⭐ {target_name} 的「天星」被涟漪增强！\n   天星落下后额外2次×0.5无视属性弹射伤害\n   石化不再因被攻击自动解除"
-        ).format(target_name=target.name)
+        if hasattr(talent, 'ripple_enhance_count'):
+            talent.ripple_enhance_count = getattr(talent, 'ripple_enhance_count', 0) + 1
+        else:
+            talent.ripple_enhanced = True
+            talent.ripple_enhance_count = 1
+            talent.ripple_petrify_lock = True
+            
+        talent.ripple_bounce_count = getattr(talent, 'ripple_bounce_count', 0) + 2
+
+        bounce_count = talent.ripple_bounce_count  
+        return prompt_manager.get_prompt(  
+            "talent", "g5ripple.poem_stars",  
+            default="⭐ {target_name} 的「天星」被涟漪增强（{count}层）！\n   天星落下后额外{bounces}次×0.5无视属性弹射伤害\n   石化不再因被攻击自动解除"  
+        ).format(target_name=target.name, count=talent.ripple_enhance_count, bounces=bounce_count)
 
     def _poem_law(self, target):
         """
@@ -428,114 +439,151 @@ class PoemMixin:
         )
 
     def _poem_shore(self, target):
+        """献予「彼岸」之诗：死者苏生增强（可叠加）"""
         talent = target.talent
+        talent.ripple_enhance_count = getattr(talent, 'ripple_enhance_count', 0) + 1
         talent.ripple_enhanced = True
+        talent.ripple_item_count = getattr(talent, 'ripple_item_count', 0) + 1
+        count = talent.ripple_item_count
         return prompt_manager.get_prompt(
             "talent", "g5ripple.poem_shore",
-            default="💀✨ {target_name} 的「死者苏生」增强！\n   复活后可获得全游戏任意一件物品或法术\n   （不含扩展/天赋物品，不含抽象权能）"
-        ).format(target_name=target.name)
+            default="💀✨ {target_name} 的「死者苏生」增强（{count}层）！\n   复活后可获得{count}件全游戏任意物品或法术\n   （不含扩展/天赋物品，不含抽象权能）"
+        ).format(target_name=target.name, count=count)
 
     def _poem_strife(self, caster, target):
-        """飞萤之诗：为火萤IV型-完全燃烧的持有者增强"""
-        display.show_info(prompt_manager.get_prompt(
-            "talent", "g5ripple.poem_strife_immediate_action",
-            default="🔥 {target_name} 获得一次立刻行动！"
-        ).format(target_name=target.name))
-
-        from engine.action_turn import ActionTurnManager
-        atm = ActionTurnManager(self.state)
-        atm.execute_single_action(target)
-
-        if hasattr(target.talent, 'grant_ardent_wish'):
-            target.talent.grant_ardent_wish()
-            return prompt_manager.get_prompt(
-                "talent", "g5ripple.poem_strife_completion",
-                default="🔥 {target_name} 完成立刻行动！\n"
-                        "   获得特殊物品「炽愿」\n"
-                        "   （可抵扣2次debuff + 0.5额外生命值）"
-            ).format(target_name=target.name)
+        """飞萤之诗：立刻行动（免费超新星）+ 2层炽愿"""
+        # Set free supernova flag BEFORE the action
+        if hasattr(target.talent, 'supernova_free_use'):
+            target.talent.supernova_free_use = True
         else:
-            if hasattr(target.talent, 'ardent_wish_charges'):
-                target.talent.ardent_wish_charges += 1
-                target.talent.ardent_wish_debuff_uses += 2
-            else:
-                target.talent.has_ardent_wish = True
-            return prompt_manager.get_prompt(
-                "talent", "g5ripple.poem_strife_completion",
-                default="🔥 {target_name} 完成立刻行动！\n"
-                        "   获得特殊物品「炽愿」\n"
-                        "   （可抵扣2次debuff + 0.5额外生命值）"
-            ).format(target_name=target.name)
+            target.talent.supernova_free_use = True  # dynamically add attribute
+
+        display.show_info(prompt_manager.get_prompt(  
+            "talent", "g5ripple.poem_strife_immediate_action",  
+            default="🔥 {target_name} 获得一次立刻行动！（超新星过载本次不消耗次数）"  
+        ).format(target_name=target.name))  
+
+        from engine.action_turn import ActionTurnManager  
+        atm = ActionTurnManager(self.state)  
+        atm.execute_single_action(target)  
+
+        # Reset free supernova flag after action  
+        target.talent.supernova_free_use = False  
+
+        # Grant 2 ardent wishes  
+        if hasattr(target.talent, 'grant_ardent_wish'):  
+            target.talent.grant_ardent_wish()  # +1  
+            target.talent.grant_ardent_wish()  # +1 = total 2  
+        else:  
+            # Fallback  
+            if hasattr(target.talent, 'ardent_wish_charges'):  
+                target.talent.ardent_wish_charges += 2  
+            else:  
+                target.talent.ardent_wish_charges = 2  
+
+        charges = getattr(target.talent, 'ardent_wish_charges', 0)  
+        return prompt_manager.get_prompt(  
+            "talent", "g5ripple.poem_strife_completion",  
+            default="🔥 {target_name} 完成立刻行动！\n"  
+                    "   获得2个「炽愿」（当前{charges}层）\n"  
+                    "   （每层抵扣1次debuff + 0.5额外生命值）"  
+        ).format(target_name=target.name, charges=charges)
 
     def _poem_light(self, target):
+        """献予「追光」之诗：全息影像增强（可叠加）"""
         talent = target.talent
         if hasattr(talent, 'enhance_by_ripple'):
             talent.enhance_by_ripple()
-            return prompt_manager.get_prompt(
-                "talent", "g5ripple.poem_light_enhanced",
-                default="✨{target_name} 的「请一直，注视着我」增强！\n   易伤+1.0 | 可用次数+1"
-            ).format(target_name=target.name)
         else:
             talent.ripple_enhanced = True
+            
+        if hasattr(talent, 'max_uses'):
+            talent.max_uses += 1
+            talent.ripple_extra_vulnerability = getattr(talent, 'ripple_extra_vulnerability', 0) + 0.5
+            vuln = 0.5 + talent.ripple_extra_vulnerability
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_light_enhanced",
+                default="✨{target_name} 的「请一直，注视着我」增强！\n   易伤+{vuln} | 可用次数+1（当前{uses}次）"
+            ).format(target_name=target.name, vuln=vuln, uses=talent.max_uses)
+        else:
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_light_fallback",
                 default="✨{target_name} 的全息影像已增强！\n"
             ).format(target_name=target.name)
 
     def _poem_bear(self, target):
+        """献予「负世」之诗：愿负世增强（可重复）"""
         talent = target.talent
 
-        # g5 基础：给予 2 点火种
-        if hasattr(talent, 'gain_divinity'):
-            talent.gain_divinity(2, "涟漪方式2-基础奖励")
-        elif hasattr(talent, 'divinity'):
-            talent.divinity += 2
+        # 基础：给予 2 点火种（每次都给）  
+        if hasattr(talent, 'gain_divinity'):  
+            talent.gain_divinity(2, "涟漪方式2-基础奖励")  
+        elif hasattr(talent, 'divinity'):  
+            talent.divinity += 2  
 
-        # 调用 g4 的增强方法（额外 2 点火种 + 解锁主动 + 被动奖励）
-        if hasattr(talent, 'enhance_by_ripple'):
-            talent.enhance_by_ripple()
-        else:
-            talent.ripple_enhanced = True
-            talent.can_active_start = True
-            talent.passive_bonus_divinity = 2
+        # 增强效果  
+        if hasattr(talent, 'enhance_by_ripple'):  
+            # First time: full enhance (unlock active, set passive bonus)  
+            # Subsequent: only give divinity + increment passive bonus  
+            if not talent.ripple_enhanced:  
+                talent.enhance_by_ripple()  
+            else:  
+                # Already enhanced: just give extra divinity + increment passive bonus  
+                talent.gain_divinity(2, "献予负世之诗-额外奖励(重复)")  
+                talent.passive_bonus_divinity = getattr(talent, 'passive_bonus_divinity', 0) + 1  
+        else:  
+            # Fallback for non-savior talents  
+            talent.ripple_enhanced = True  
+            talent.can_active_start = True  
+            talent.passive_bonus_divinity = getattr(talent, 'passive_bonus_divinity', 0) + 1  
 
-        current_div = getattr(talent, 'divinity', '?')
-        return prompt_manager.get_prompt(
-            "talent", "g5ripple.poem_bear",
-            default=(
-                "🌅 {target_name} 的「愿负世」增强！\n"
-                "   额外+2火种（当前：{divinity}）\n"
-                "   新增：可花1回合主动启动（启动后获1额外行动）\n"
-                "   被动触发时再+2火种"
-            )
-        ).format(target_name=target.name, divinity=current_div)
+        current_div = getattr(talent, 'divinity', '?')  
+        passive = getattr(talent, 'passive_bonus_divinity', 0)  
+        return prompt_manager.get_prompt(  
+            "talent", "g5ripple.poem_bear",  
+            default=(  
+                "🌅 {target_name} 的「愿负世」增强！\n"  
+                "   额外+2火种（当前：{divinity}）\n"  
+                "   被动触发时额外+{passive}火种"  
+            )  
+        ).format(target_name=target.name, divinity=current_div, passive=passive)
 
     def _poem_destiny(self, caster):
         """
         「爱与记忆」之诗（自身）
-
-        V1.92 改动：段数不再固定为4，随开局人数变化：
-          2人局 → 2段（科技/普通）
-          4人局 → 3段（科技/普通/魔法）
-          6人局及以上 → 4段（科技/普通/魔法/无视属性克制）
-        按原文顺序依次解锁。
+        V1.92+: 段数随使用次数成长。
+        基础段数由开局人数决定（2人=2段, 4人=3段, 6人+=4段）。
+        每多发动一次，段数+1。达到4段后，额外段数为真伤。
+        消耗递增：min(24, 12 + 3 × 已用次数)（已在 _execute_poem 中处理）
         """
         ALL_DAMAGE_TYPES = ["科技", "普通", "魔法", "无视属性克制"]
 
-        # V1.92: 根据开局人数计算段数
-        initial_count = len(self.state.player_order)
-        n = min(4, max(2, initial_count // 2 + 1))
-        DAMAGE_TYPES = ALL_DAMAGE_TYPES[:n]
+        # Base stages from player count  
+        initial_count = len(self.state.player_order)  
+        base_n = min(4, max(2, initial_count // 2 + 1))  
+        
+        # Stage growth: each additional use adds 1 stage  
+        # destiny_use_count was already incremented in _execute_poem BEFORE dispatch  
+        # So destiny_use_count is now the current use number (1-indexed)  
+        extra_stages = max(0, self.destiny_use_count - 1)  # first use = 0 extra  
+        total_stages = base_n + extra_stages  
+        
+        # Split into normal stages (up to 4) and true damage stages (beyond 4)  
+        normal_n = min(4, total_stages)  
+        true_damage_n = max(0, total_stages - 4)  
+        
+        DAMAGE_TYPES = ALL_DAMAGE_TYPES[:normal_n]  
+        # Add true damage stages  
+        for i in range(true_damage_n):  
+            DAMAGE_TYPES.append("真伤")  
 
         damage_assignments = []
 
+        cost = self.get_destiny_cost()
         display.show_info(
-            prompt_manager.get_prompt(
-                "talent", "g5ripple.poem_destiny_header",
-                default="\n🌊 献予「爱与记忆」之诗！\n"
-                        "   选择{n}个单体单位（可重复），分别承受：\n"
-                        "   {types} 各1点伤害"
-            ).format(n=n, types="/".join(DAMAGE_TYPES))
+            f"\n🌊 献予「爱与记忆」之诗！（第{self.destiny_use_count}次，消耗{cost}层追忆）\n"
+            f"   选择{total_stages}个单体单位（可重复），分别承受：\n"
+            f"   {'/'.join(DAMAGE_TYPES)} 各1点伤害"
         )
 
         all_alive = [p for p in self.state.alive_players()]
@@ -582,17 +630,24 @@ class PoemMixin:
                 ).format(target_name=target.name, damage_type=dtype))
                 continue
 
-            old_hp = target.hp
-
-            result = resolve_damage(
-                attacker=caster,
-                target=target,
-                weapon=None,
-                game_state=self.state,
-                raw_damage_override=1.0,
-                damage_attribute_override=dtype,
-                is_talent_attack=True,
-            )
+            old_hp = target.hp  
+            
+            if dtype == "真伤":  
+                # True damage: directly subtract HP, bypass all armor/protection  
+                target.hp = round(max(0, target.hp - 1.0), 2)  
+                result = {  
+                    "killed": target.hp <= 0,  
+                    "stunned": target.hp <= 0.5 and target.hp > 0,  
+                    "details": ["真伤：无视一切防御直接扣除1.0HP"],  
+                }  
+            else:  
+                result = resolve_damage(  
+                    attacker=caster, target=target, weapon=None,  
+                    game_state=self.state,  
+                    raw_damage_override=1.0,  
+                    damage_attribute_override=dtype,  
+                    is_talent_attack=True,  
+                )  
 
             lines.append(prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_destiny_damage_result",
