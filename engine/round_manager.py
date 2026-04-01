@@ -52,6 +52,10 @@ class RoundManager:
     # ============================================
     def _phase_r0(self):
         self.state.current_phase = "r0_start"
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p:
+                p._armor_gained_this_round = False
         # 天赋轮次开始钩子
         for pid in self.state.player_order:
             p = self.state.get_player(pid)
@@ -267,6 +271,15 @@ class RoundManager:
         police_msgs = self.police_engine.process_end_of_round()
         if police_msgs:
             display.show_police_enforcement(police_msgs)
+        if self.state.check_victory():
+            return
+
+        # R4-1.5: 火萤灼烧结算（与警察同时机）
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and p.is_alive() and p.talent:
+                if hasattr(p.talent, 'process_burn_damage'):
+                    p.talent.process_burn_damage(self.state.current_round)
         if self.state.check_victory():
             return
 

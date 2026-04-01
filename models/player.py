@@ -116,6 +116,7 @@ class Player:
         self.weapons: list[Weapon | None] = [make_weapon("拳击")]
         self.armor = ArmorSlots()
         self.items = []
+        self._armor_gained_this_round = False
 
         # 经济
         self.vouchers = 0
@@ -193,7 +194,10 @@ class Player:
         self.weapons.append(weapon)
 
     def add_armor(self, piece):
-        return self.armor.equip(piece)
+        success, msg = self.armor.equip(piece)
+        if success:
+            self._armor_gained_this_round = True
+        return success, msg
 
     def add_item(self, item):
         self.items.append(item)

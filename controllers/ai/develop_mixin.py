@@ -33,21 +33,17 @@ class DevelopMixin(_Base):
         # 火萤IV型：天赋感知的发育标准
         if self._has_firefly_talent(player):
             real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
-            if self._firefly_debuff_active(player):
-                has_sharpened_knife = any(
-                    w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
-                    for w in real_weapons
-                )
-                has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
-                return has_sharpened_knife and has_gauss
-            else:
-                # debuff 未生效：2武器(不同属性) + 1外甲
-                has_two_weapons = len(real_weapons) >= 2
-                has_outer = self._count_outer_armor(player) >= 1
-                # 确保武器属性多样化（不会被单一属性甲完全克制）
-                weapon_attrs = set(self._get_weapon_attr(w) for w in real_weapons)
-                has_diverse_attrs = len(weapon_attrs) >= 2
-                return has_two_weapons and has_outer and has_diverse_attrs
+            # Phase 1（debuff 前）：有 1 把武器就算完成
+            if not self._firefly_debuff_active(player):
+                return len(real_weapons) >= 1
+            # Phase 2（debuff 后）：需要磨过的小刀 + 高斯步枪
+            has_sharpened_knife = any(
+                w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
+                for w in real_weapons
+            )
+            has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
+            return has_sharpened_knife and has_gauss
+
         if self.personality == "aggressive":
             has_armor = self._count_outer_armor(player) >= 2
             has_two_weapons = len(real_weapons) >= 2
@@ -220,6 +216,23 @@ class DevelopMixin(_Base):
                 if next_loc and next_loc != loc:
                     if not (next_loc == "home" and self._is_at_home(player)):
                         commands.append(f"move {next_loc}")
+        return commands
+
+    def _cmd_develop_firefly_minimal(self, player, state, available: List[str]) -> List[str]:
+        """火萤Phase1最小发育：只拿护甲，不拿更多武器"""
+        commands = []
+        loc = self._get_location_str(player)
+        outer = self._count_outer_armor(player)
+
+        if "interact" in available:
+            if (loc == "home" or self._is_at_home(player)) and outer < 1:
+                if not self._has_armor_by_name(player, "盾牌"):
+                    commands.append("interact 盾牌")
+            elif loc == "商店" and outer < 1:
+                vouchers = getattr(player, 'vouchers', 0)
+                if vouchers >= 1 and not self._has_armor_by_name(player, "陶瓷护甲"):
+                    commands.append("interact 陶瓷护甲")
+
         return commands
     # ════════════════════════════════════════════════════════
     #  通用发育命令

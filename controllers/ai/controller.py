@@ -279,25 +279,43 @@ class BasicAIController(
                         candidates.append("forfeit")
                         return candidates
 
-        # ===== 火萤：军事基地战斗结束后顺手拿电磁步枪 =====
-        if (self._has_firefly_talent(player)
-            and self._combat_just_ended_at == "军事基地"
-            and "interact" in available_actions):
-            has_emr = any(w.name == "电磁步枪" for w in getattr(player, 'weapons', []) if w)
-            has_pass = getattr(player, 'has_military_pass', False)
-            if not has_emr and has_pass:
-                loc = self._get_location_str(player)
-                if loc == "军事基地":
-                    debug_ai_basic(player.name, "火萤：军事基地战斗结束，顺手拿电磁步枪")
-                    candidates.append("interact 电磁步枪")
-                    self._combat_just_ended_at = None
-        if (self._has_firefly_talent(player)
-            and self._has_supernova(player)
-            and "move" in available_actions):
-            # 超新星：移动到敌人最多的地点
-            best_loc = self._pick_supernova_target(player, state)
-            if best_loc:
-                candidates.insert(0, f"move {best_loc}")
+        # ===== 火萤专用逻辑 =====
+        if self._has_firefly_talent(player):
+            # 超新星优先：有超新星就用
+            if self._has_supernova(player) and "move" in available_actions:
+                best_loc = self._pick_supernova_target(player, state)
+                if best_loc:
+                    debug_ai_basic(player.name, f"火萤：超新星过载，目标地点={best_loc}")
+                    candidates.insert(0, f"move {best_loc}")
+                    candidates.append("forfeit")
+                    return candidates
+
+            # Phase 1（debuff 前）：拿到刀就冲
+            if not self._firefly_debuff_active(player):
+                has_knife = any(w.name == "小刀" for w in player.weapons if w)
+                if has_knife:
+                    # 有刀就攻击，不等发育完成
+                    debug_ai_basic(player.name, "火萤Phase1：有刀就冲")
+                    attack_cmds = self._cmd_attack(player, state, available_actions)
+                    if attack_cmds:
+                        candidates.extend(attack_cmds)
+                        # 备用发育（只拿护甲，不拿更多武器）
+                        dev = self._cmd_develop_firefly_minimal(player, state, available_actions)
+                        candidates.extend(dev)
+                        candidates.append("forfeit")
+                        return candidates
+
+            # Phase 2/3（debuff 后）：攻击优先于发育
+            if self._firefly_debuff_active(player):
+                debug_ai_basic(player.name, "火萤Phase2/3：debuff已生效，攻击优先")
+                attack_cmds = self._cmd_attack(player, state, available_actions)
+                if attack_cmds:
+                    candidates.extend(attack_cmds)
+                # 发育作为备选
+                dev = self._cmd_develop(player, state, available_actions)
+                for cmd in dev:
+                    if cmd not in candidates:
+                        candidates.append(cmd)
                 candidates.append("forfeit")
                 return candidates
 
@@ -430,19 +448,26 @@ class BasicAIController(
         return getattr(talent, 'has_supernova', False)
 
     def _pick_supernova_target(self, player, state) -> Optional[str]:
-        """选择敌人最多的地点作为超新星目标"""
+        """选择敌人最多的地点作为超新星目标（包含当前位置）"""
         my_loc = self._get_location_str(player)
         best_loc = None
         best_count = 0
+
+        # 包含当前位置（超新星允许同地点移动）
         all_locations = ["home", "商店", "医院", "魔法所", "军事基地", "警察局"]
+        if my_loc not in all_locations:
+            all_locations.append(my_loc)
+
         for loc in all_locations:
             count = self._count_enemies_at(loc, player, state)
             if count > best_count:
                 best_count = count
                 best_loc = loc
-        if best_loc and best_loc != my_loc:
+
+        # 必须有敌人才使用超新星
+        if best_loc and best_count > 0:
             return best_loc
-        return None
+        return None  # 没有敌人，不浪费超新星
 
 
 # ════════════════════════════════════════════════════════════════
