@@ -228,8 +228,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
 
     # ---- 愿负世：被攻击时积累火种 ----
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
-        is_limited = False
-        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent if attacker else None)
+        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, None, is_limited)
 
     return result
@@ -552,7 +551,7 @@ def resolve_damage(attacker, target, weapon, game_state,
 
     # ---- 愿负世：被攻击时积累火种 ----
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
-        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent if attacker else None)
+        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, weapon, is_limited)
 
     return result
@@ -811,7 +810,12 @@ def _talent_death_check(target, attacker, game_state):
     return False
 
 def _is_limited_use_talent(talent):
-    """判断天赋是否属于「限定使用次数」（README 12 定义）"""
+    """判断天赋是否属于「限定使用次数」（README 12 定义）
+    
+    仅覆盖会发起攻击型天赋动作的类型：
+      - uses_remaining: 一刀缭断、天星等
+      - charges + max_charges: 六爻（充能制）
+    """
     if talent is None:
         return False
     # 一刀缭断、天星、你给路打油、神话之外等
@@ -820,11 +824,6 @@ def _is_limited_use_talent(talent):
     # 六爻（充能制）
     if hasattr(talent, 'charges') and hasattr(talent, 'max_charges'):
         return True
-    # 死者苏生、全息影像（used bool + 单次）
-    if hasattr(talent, 'used') and isinstance(talent.used, bool) and hasattr(talent, 'learned'):
-        return True  # 死者苏生
-    if hasattr(talent, 'max_uses'):
-        return True  # 全息影像
     return False
 
 def notify_positive_talent_effect(source_player, target_player):
@@ -835,5 +834,5 @@ def notify_positive_talent_effect(source_player, target_player):
         return  # 自己对自己不算
     if not target_player.talent or not hasattr(target_player.talent, 'on_positive_talent_used'):
         return
-    is_limited = _is_limited_use_talent(source_player.talent if source_player else None)
+    is_limited = _is_limited_use_talent(source_player.talent)
     target_player.talent.on_positive_talent_used(source_player, is_limited)

@@ -187,6 +187,7 @@ class Star(BaseTalent):
                             raw_damage_override=0.5,
                             damage_attribute_override="无视属性克制",
                             ignore_counter=True,
+                            is_talent_attack=True,
                         )
                         lines.append(f"   ⭐🌊 弹射→ {target_obj.name} 受到0.5伤害 HP: {old_hp} → {target_obj.hp}")
                         if result.get("killed", False):

@@ -497,7 +497,7 @@ class PoemMixin:
         else:
             talent.ripple_enhanced = True
             talent.can_active_start = True
-            talent.passive_bonus_divinity = 1
+            talent.passive_bonus_divinity = 2
 
         current_div = getattr(talent, 'divinity', '?')
         return prompt_manager.get_prompt(
