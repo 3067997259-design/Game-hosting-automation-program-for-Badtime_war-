@@ -267,7 +267,7 @@
       "poem_strife_completion": "🔥 {target_name} 完成立刻行动！\n 获得特殊物品「炽愿」（可抵扣2次debuff + 0.5额外生命值）",
       "poem_light_enhanced": "✨{target_name} 的「请一直，注视着我」增强！\n 易伤+1.0 | 可用次数+1",
       "poem_light_fallback": "✨{target_name} 的全息影像已增强！\n ",
-      "poem_bear": "🌅 {target_name} 的「愿负世，照拂黎明」增强！\n 额外+2神性（当前：{divinity}）\n 新增：可花1回合主动启动（启动后获1额外行动）\n 被动触发时再+2神性",
+      "poem_bear": "🌅 {target_name} 的「愿负世，照拂黎明」增强！\n 额外+2火种（当前：{divinity}）\n 新增：可花1回合主动启动（启动后获1额外行动）\n 被动触发时再+2火种",
       "poem_eternity": "🌀 {target_name} 的「神话之外」被涟漪增强！\n  幻想乡展开后，被拉入的玩家不允许发动所有可主动发动的天赋。",
       "poem_destiny_header": "\n🌊 献予「爱与记忆」之诗！\n 选择4个单体单位（可重复），分别承受：\n 科技/普通/魔法/无视属性克制 各1点伤害\n 四种类型必须各使用一次。",
       "poem_destiny_no_targets": "❌ 没有存活的目标。",

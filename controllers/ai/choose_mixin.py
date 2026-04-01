@@ -81,7 +81,7 @@ class ChooseMixin(_Base):
         # ---- 天赋T0 ----
         if situation == "talent_t0":
             talent_name = (context or {}).get("talent_name", "")
-            # 愿负世（主动发动）：只在神性足够高时发动
+            # 愿负世（主动发动）：只在火种足够高时发动
             if "愿负世" in talent_name:
                 talent = getattr(self._player, 'talent', None) if self._player else None
                 divinity = getattr(talent, 'divinity', 0) if talent else 0

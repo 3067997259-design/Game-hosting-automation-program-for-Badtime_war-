@@ -225,11 +225,10 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 target_name=target.name
             ))
 
-    # ---- 愿负世：被攻击时积累神性 ----
+    # ---- 愿负世：被攻击时积累火种 ----
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
         is_limited = False
-        if attacker and attacker.talent and hasattr(attacker.talent, 'uses_remaining'):
-            is_limited = True
+        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent if attacker else None)
         target.talent.on_being_attacked(attacker, None, is_limited)
 
     return result
@@ -548,7 +547,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             attacker.player_id, target.player_id)
         result["stealth_suppressed"] = True
 
-    # ---- 愿负世：被攻击时积累神性 ----
+    # ---- 愿负世：被攻击时积累火种 ----
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
         is_limited = False
         if attacker.talent and hasattr(attacker.talent, 'uses_remaining'):
@@ -807,3 +806,31 @@ def _talent_death_check(target, attacker, game_state):
                 return True
 
     return False
+
+def _is_limited_use_talent(talent):
+    """判断天赋是否属于「限定使用次数」（README 12 定义）"""
+    if talent is None:
+        return False
+    # 一刀缭断、天星、你给路打油、神话之外等
+    if hasattr(talent, 'uses_remaining'):
+        return True
+    # 六爻（充能制）
+    if hasattr(talent, 'charges') and hasattr(talent, 'max_charges'):
+        return True
+    # 死者苏生、全息影像（used bool + 单次）
+    if hasattr(talent, 'used') and isinstance(talent.used, bool) and hasattr(talent, 'learned'):
+        return True  # 死者苏生
+    if hasattr(talent, 'max_uses'):
+        return True  # 全息影像
+    return False
+
+def notify_positive_talent_effect(source_player, target_player):
+    """当正面天赋效果作用于目标时，通知目标天赋（愿负世火种积累）"""
+    if source_player is None or target_player is None:
+        return
+    if source_player.player_id == target_player.player_id:
+        return  # 自己对自己不算
+    if not target_player.talent or not hasattr(target_player.talent, 'on_positive_talent_used'):
+        return
+    is_limited = _is_limited_use_talent(source_player.talent if source_player else None)
+    target_player.talent.on_positive_talent_used(source_player, is_limited)

@@ -102,6 +102,9 @@ class Resurrection(BaseTalent):
 
         dying_player.location = home_id
         dying_player.is_awake = True
+        from combat.damage_resolver import notify_positive_talent_effect
+        caster = self.state.get_player(self.player_id)
+        notify_positive_talent_effect(caster, dying_player)
 
         # 清除所有markers关系（类似死亡清理，但玩家实际未死亡）
         # 清除LOCKED_BY、ENGAGED_WITH等状态
