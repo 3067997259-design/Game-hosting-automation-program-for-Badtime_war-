@@ -284,7 +284,9 @@ class EvaluationMixin(_Base):
         # 救世主状态：近战+temp_attack_bonus
         if hasattr(talent, 'is_savior') and talent.is_savior:
             bonus = getattr(talent, 'temp_attack_bonus', 0.0)
-            # 只有近战武器才有加成，但估算时按最大值算
+            aoe_bonus = getattr(talent, 'aoe_bonus', 0.0)
+            if weapon and self._get_weapon_range(weapon) == "area":
+                return base_dmg + aoe_bonus
             return base_dmg + bonus
         # 一刀缭断：有使用次数时近战×2（共2次）
         # 不在这里加成，因为是有限次数的爆发
@@ -503,4 +505,3 @@ class EvaluationMixin(_Base):
             scored.append((dest, enemies))
         scored.sort(key=lambda x: x[1])
         return scored[0][0]
-    

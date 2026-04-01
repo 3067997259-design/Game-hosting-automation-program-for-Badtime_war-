@@ -9,6 +9,12 @@ if TYPE_CHECKING:
 
 _Base = BasicAIController if TYPE_CHECKING else object
 
+HEXAGRAM_OUTCOME_MAP = {
+    "石头": ["weapon", "charge", "stealth"],
+    "剪刀": ["charge", "thunder", "extra_turn"],
+    "布":   ["stealth", "extra_turn", "armor"],
+}
+
 
 class ChooseMixin(_Base):
 
@@ -22,8 +28,20 @@ class ChooseMixin(_Base):
     ) -> str:
         situation = (context or {}).get("situation", "")
         # ---- 猜拳 ----
-        if situation in ("hexagram_my_choice", "hexagram_opp_choice", "mythland_rps"):
+        if situation == "hexagram_my_choice":
+            if self._player and self._game_state:
+                return self._hexagram_pick_caster(self._player, self._game_state, options)
             return random.choice(options)
+        if situation == "hexagram_opp_choice":
+            # 对手视角：需要找到发动者（六爻的 caster）
+            # context 里没有 caster 信息，但可以从 game_state 找持有六爻天赋的玩家
+            caster = self._find_hexagram_caster(self._game_state) if self._game_state else None
+            if caster and self._game_state:
+                return self._hexagram_pick_opponent(caster, self._game_state, options)
+            return random.choice(options)
+        if situation == "mythland_rps":
+            return random.choice(options)  # 幻想乡猜拳仍然随机
+
         # ---- 结界选目标 ----
         if situation == "mythland_pick_target":
             player_opts = [o for o in options if o != "不拉人"]
@@ -196,12 +214,23 @@ class ChooseMixin(_Base):
                 return options[-1]
             # 天星：被攻击或同地点有多个敌人时发动（与全息影像一致）
             if talent_name == "天星":
-                attackers = len(self._been_attacked_by)
-                if attackers >= 1:
-                    for opt in options:
-                        if "发动" in opt:
-                            return opt
+                talent = getattr(self._player, 'talent', None) if self._player else None
+                uses = getattr(talent, 'uses_remaining', 0) if talent else 0
+                if uses >= 2:
+                    # 有2次，更积极发动
+                    if self._player and self._game_state:
+                        nearby = self._get_same_location_targets(self._player, self._game_state)
+                        if len(nearby) >= 1:  # 原来是 >= 2
+                            for opt in options:
+                                if "发动" in opt:
+                                    return opt
+                # uses == 1 时保留原有的发动条件（被攻击或同地点有多个敌人）
                 if self._player and self._game_state:
+                    attackers = len(self._been_attacked_by)
+                    if attackers >= 1:
+                        for opt in options:
+                            if "发动" in opt:
+                                return opt
                     nearby = self._get_same_location_targets(self._player, self._game_state)
                     if len(nearby) >= 2:
                         for opt in options:
@@ -372,3 +401,145 @@ class ChooseMixin(_Base):
                     return False
                 return True
         return False
+
+    def _score_hexagram_effects(self, player, state) -> dict:
+        """为六爻6种效果评分（发动者视角），返回 {effect_key: score}"""
+        scores = {}
+
+        # === thunder (双剪刀：天雷1点无视克制+无视保护) ===
+        # 有可击杀目标时价值极高，否则中等
+        best_kill = False
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            t = state.get_player(pid)
+            if t and t.is_alive():
+                outer = self._count_outer_armor(t)
+                inner = self._count_inner_armor(t)
+                if outer == 0 and inner == 0 and t.hp <= 1.0:
+                    best_kill = True
+                    break
+        scores["thunder"] = 10 if best_kill else 5
+
+        # === weapon (双石头：获得任意武器) ===
+        real_weapons = [w for w in getattr(player, 'weapons', [])
+                        if w and getattr(w, 'name', '') != "拳击"]
+        weapon_attrs = set(self._get_weapon_attr(w) for w in real_weapons)
+        if len(real_weapons) == 0:
+            scores["weapon"] = 9
+        elif len(weapon_attrs) < 2:
+            scores["weapon"] = 7  # 缺属性多样性
+        elif len(real_weapons) < 2:
+            scores["weapon"] = 6
+        else:
+            scores["weapon"] = 2  # 已有足够武器
+
+        # === armor (双布：获得任意护甲) ===
+        outer = self._count_outer_armor(player)
+        inner = self._count_inner_armor(player)
+        if outer == 0:
+            scores["armor"] = 8
+        elif outer < 2:
+            scores["armor"] = 6
+        elif inner == 0:
+            scores["armor"] = 5
+        else:
+            scores["armor"] = 1  # 护甲已满
+
+        # === charge (剪刀vs石头：蓄力所有武器/获得蓄力武器) ===
+        uncharged = [w for w in getattr(player, 'weapons', [])
+                    if w and getattr(w, 'requires_charge', False)
+                    and not getattr(w, 'is_charged', False)]
+        has_chargeable = any(w for w in getattr(player, 'weapons', [])
+                            if w and getattr(w, 'requires_charge', False))
+        if uncharged:
+            scores["charge"] = 7  # 有未蓄力武器
+        elif not has_chargeable:
+            scores["charge"] = 5  # 没有可蓄力武器，会获得一把
+        else:
+            scores["charge"] = 1  # 全部已蓄力
+
+        # === extra_turn (剪刀vs布：2个额外行动回合) ===
+        # 几乎总是高价值，战斗中或发育未完成时更高
+        # 注意：从 state.markers 判断 player 的战斗状态，而非 self._in_combat
+        # （对手调用时 self 是对手AI，self._in_combat 不代表 caster 的状态）
+        caster_in_combat = False
+        markers_obj = getattr(state, 'markers', None)
+        if markers_obj and hasattr(markers_obj, 'has_relation'):
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive() and markers_obj.has_relation(
+                        player.player_id, 'ENGAGED_WITH', pid):
+                    caster_in_combat = True
+                    break
+        if caster_in_combat:
+            scores["extra_turn"] = 9
+        elif not self._is_development_complete(player, state):
+            scores["extra_turn"] = 8
+        else:
+            scores["extra_turn"] = 6
+
+        # === stealth (石头vs布：清锁定+隐身) ===
+        markers = getattr(state, 'markers', None)
+        is_locked = False
+        if markers:
+            locked_by = markers.get_related(player.player_id, "LOCKED_BY")
+            is_locked = len(locked_by) > 0
+        if is_locked:
+            scores["stealth"] = 9
+        elif not self._has_stealth(player):
+            scores["stealth"] = 4
+        else:
+            scores["stealth"] = 1  # 已有隐身
+
+        return scores
+
+    def _hexagram_pick_caster(self, player, state, options) -> str:
+        """发动者出拳：maximin（最差情况收益最高）"""
+        scores = self._score_hexagram_effects(player, state)
+        best_choice = None
+        best_worst = -999
+        for choice in options:
+            outcomes = HEXAGRAM_OUTCOME_MAP.get(choice, [])
+            if not outcomes:
+                continue
+            worst = min(scores.get(e, 0) for e in outcomes)
+            if worst > best_worst:
+                best_worst = worst
+                best_choice = choice
+        return best_choice or random.choice(options)
+
+    def _hexagram_pick_opponent(self, caster, state, options) -> str:
+        """对手出拳：minimax（让发动者最好情况收益最低）"""
+        scores = self._score_hexagram_effects(caster, state)
+        best_choice = None
+        best_min_max = 999
+        for opp_choice in options:
+            # 对手出 opp_choice 时，发动者出每种拳的结果
+            caster_best = -999
+            for caster_choice, outcomes in HEXAGRAM_OUTCOME_MAP.items():
+                # outcomes[i] 对应对手出石头/剪刀/布
+                opp_idx = ["石头", "剪刀", "布"].index(opp_choice)
+                effect = outcomes[opp_idx]
+                val = scores.get(effect, 0)
+                if val > caster_best:
+                    caster_best = val
+            if caster_best < best_min_max:
+                best_min_max = caster_best
+                best_choice = opp_choice
+        return best_choice or random.choice(options)
+
+    def _find_hexagram_caster(self, state) -> Optional[Any]:
+        """找到当前持有六爻天赋的玩家（用于对手出拳时评估）"""
+        if not state:
+            return None
+        for pid in state.player_order:
+            if pid == self._my_id:
+                continue  # 自己是对手，跳过
+            p = state.get_player(pid)
+            if p and p.is_alive() and p.talent:
+                if hasattr(p.talent, 'name') and p.talent.name == "六爻":
+                    return p
+        return None

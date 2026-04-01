@@ -21,6 +21,7 @@ from controllers.ai.police_mixin import PoliceMixin
 from controllers.ai.events_mixin import EventsMixin
 
 
+
 class BasicAIController(
     HelpersMixin,
     EvaluationMixin,
@@ -41,6 +42,7 @@ class BasicAIController(
     # ════════════════════════════════════════════════════════
 
     def __init__(self, personality: str = "balanced"):
+        super().__init__()
         self.personality = personality
         self.event_log: List[Dict] = []
         self._round_number = 0
@@ -289,6 +291,15 @@ class BasicAIController(
                     debug_ai_basic(player.name, "火萤：军事基地战斗结束，顺手拿电磁步枪")
                     candidates.append("interact 电磁步枪")
                     self._combat_just_ended_at = None
+        if (self._has_firefly_talent(player)
+            and self._has_supernova(player)
+            and "move" in available_actions):
+            # 超新星：移动到敌人最多的地点
+            best_loc = self._pick_supernova_target(player, state)
+            if best_loc:
+                candidates.insert(0, f"move {best_loc}")
+                candidates.append("forfeit")
+                return candidates
 
         # ===== 火萤击杀机会 =====
         if (self._has_firefly_talent(player)
@@ -410,6 +421,28 @@ class BasicAIController(
             scored.append((dest, enemies))
         scored.sort(key=lambda x: x[1])
         return scored[0][0]
+
+    def _has_supernova(self, player) -> bool:
+        """检查火萤IV型是否有超新星可用"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        return getattr(talent, 'has_supernova', False)
+
+    def _pick_supernova_target(self, player, state) -> Optional[str]:
+        """选择敌人最多的地点作为超新星目标"""
+        my_loc = self._get_location_str(player)
+        best_loc = None
+        best_count = 0
+        all_locations = ["home", "商店", "医院", "魔法所", "军事基地", "警察局"]
+        for loc in all_locations:
+            count = self._count_enemies_at(loc, player, state)
+            if count > best_count:
+                best_count = count
+                best_loc = loc
+        if best_loc and best_loc != my_loc:
+            return best_loc
+        return None
 
 
 # ════════════════════════════════════════════════════════════════
