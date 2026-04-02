@@ -535,13 +535,13 @@ class Hexagram(BaseTalent):
         return "\n".join(lines)
 
     def describe_status(self):
-            parts = [f"充能：{self.charges}/{self.max_charges}（开局1次，每4轮+1）"]
-            if self.immunity_active:
-                parts.append("☯️ 金身（元亨利贞）生效中")
-            if self.disabled_weapons:
-                for pid, wname, expire in self.disabled_weapons:
-                    p = self.state.get_player(pid)
-                    pname = p.name if p else pid
-                    parts.append(f"🔒 {pname}的{wname}被封印（第{expire}轮解除）")
-            return " | ".join(parts)
+        parts = [f"充能：{self.charges}/{self.max_charges}（开局1次，每4轮+1）"]
+        if self.immunity_active:
+            parts.append("☯️ 金身（元亨利贞）生效中")
+        if self.disabled_weapons:
+            for pid, wname, expire in self.disabled_weapons:
+                p = self.state.get_player(pid)
+                pname = p.name if p else pid
+                parts.append(f"🔒 {pname}的{wname}被封印（第{expire}轮解除）")
+        return " | ".join(parts)
 

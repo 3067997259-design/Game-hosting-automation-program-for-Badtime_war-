@@ -32,6 +32,9 @@ def get_available_specials(player, game_state):
     # 蓄力武器
     for w in player.weapons:
         if w.requires_charge and not w.is_charged:
+            # 六爻封印的武器不可蓄力
+            if getattr(w, '_hexagram_disabled', False):
+                continue
             specials.append({
                 "name": f"蓄力{w.name}",
                 "description": f"为「{w.name}」蓄力"

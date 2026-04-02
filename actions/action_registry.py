@@ -206,13 +206,17 @@ def _get_findable_targets(player, game_state):
 def _get_attackable_info(player, game_state):
     parts = []
     engaged = game_state.markers.get_related(player.player_id, "ENGAGED_WITH")
-    melee_weapons = [w for w in player.weapons if w.weapon_range == WeaponRange.MELEE]
+    melee_weapons = [w for w in player.weapons
+                     if w.weapon_range == WeaponRange.MELEE
+                     and not getattr(w, '_hexagram_disabled', False)]
     if engaged and melee_weapons:
         for eid in engaged:
             ep = game_state.get_player(eid)
             if ep and ep.is_alive() and ep.location == player.location:
                 parts.append(f"近战->{ep.name}")
-    ranged_weapons = [w for w in player.weapons if w.weapon_range == WeaponRange.RANGED]
+    ranged_weapons = [w for w in player.weapons
+                      if w.weapon_range == WeaponRange.RANGED
+                      and not getattr(w, '_hexagram_disabled', False)]
     if ranged_weapons:
         for p in game_state.alive_players():
             if p.player_id == player.player_id:
@@ -225,7 +229,9 @@ def _get_attackable_info(player, game_state):
                 p.player_id, player.player_id, player.has_detection)
             if visible:
                 parts.append(f"远程->{p.name}")
-    area_weapons = [w for w in player.weapons if w.weapon_range == WeaponRange.AREA]
+    area_weapons = [w for w in player.weapons
+                    if w.weapon_range == WeaponRange.AREA
+                    and not getattr(w, '_hexagram_disabled', False)]
     if area_weapons:
         others = [p for p in game_state.players_at_location(player.location)
                   if p.player_id != player.player_id]
