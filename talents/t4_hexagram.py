@@ -1,8 +1,15 @@
 """
-天赋4：六爻（原初）+ Controller 接入
+天赋4：六爻（原初）— 乾卦六爻重做版
 充能制：开局1次，每4个全局轮次获得1次使用机会，最多存2次。
 主动，T0启动，消耗行动回合。
-对另一名玩家发起猜拳，6种结果分别不同效果。
+对另一名玩家发起猜拳，6种结果对应乾卦六爻：
+
+  双剪刀 → 潜龙勿用：天雷（1点无视克制伤害 + 击碎1层外甲）
+  双石头 → 飞龙在天：偷甲（复制目标1层外甲给自己，击碎目标该甲）
+  双布   → 元亨利贞：金身（免疫所有伤害和debuff直到下轮R1，无视属性克制伤害除外）
+  剪刀vs石头 → 亢龙有悔：禁武（禁用目标1件武器2轮，仅有拳击则眩晕）
+  剪刀vs布   → 或跃在渊：额外行动（2个连续额外行动回合）
+  石头vs布   → 群龙无首：遁走（清锁定+隐身 + 强制目标移动到随机地点）
 """
 
 from talents.base_talent import BaseTalent
@@ -14,10 +21,20 @@ from combat.damage_resolver import resolve_damage
 
 class Hexagram(BaseTalent):
     name = "六爻"
-    description = "每4轮充能1次(上限2)。消耗行动回合猜拳，6种不同效果。"
+    description = "每4轮充能1次(上限2)。消耗行动回合猜拳，乾卦六爻，6种不同效果。"
     tier = "原初"
 
     CHOICES = ["石头", "剪刀", "布"]
+
+    # 卦象名映射
+    HEXAGRAM_NAMES = {
+        "both_scissors": "潜龙勿用",
+        "both_rock": "飞龙在天",
+        "both_paper": "元亨利贞",
+        "scissors_rock": "亢龙有悔",
+        "scissors_paper": "或跃在渊",
+        "rock_paper": "群龙无首",
+    }
 
     def __init__(self, player_id, game_state):
         super().__init__(player_id, game_state)
@@ -25,8 +42,24 @@ class Hexagram(BaseTalent):
         self.max_charges = 2
         self.round_counter = 0
 
+        # 元亨利贞：金身免疫状态
+        self.immunity_active = False      # 是否处于金身状态
+        self.immunity_expire_round = -1   # 金身在哪个轮次的R0失效
+
+        # 亢龙有悔：武器禁用追踪
+        # 格式: [(player_id, weapon_name, expire_round), ...]
+        self.disabled_weapons = []
+
+        # 涟漪增强
+        self.ripple_free_choices = 0
+
+    # ============================================
+    #  轮次钩子
+    # ============================================
+
     def on_round_start(self, round_num):
-        """每4轮充能+1"""
+        """每4轮充能+1；清理过期的金身和武器禁用"""
+        # 充能
         self.round_counter += 1
         if self.round_counter >= 4:
             self.round_counter = 0
@@ -34,11 +67,63 @@ class Hexagram(BaseTalent):
                 self.charges += 1
                 me = self.state.get_player(self.player_id)
                 if me:
-                    charge_msg = prompt_manager.get_prompt(
-                        "talent", "t4hexagram.charge_gain",
-                        default=f"🔮 {me.name} 的六爻充能+1！当前：{self.charges}/{self.max_charges}"
-                    ).format(player_name=me.name, current=self.charges, max=self.max_charges)
-                    display.show_info(charge_msg)
+                    display.show_info(
+                        f"🔮 {me.name} 的六爻充能+1！当前：{self.charges}/{self.max_charges}")
+
+        # 元亨利贞：到期失效
+        if self.immunity_active and round_num >= self.immunity_expire_round:
+            self.immunity_active = False
+            me = self.state.get_player(self.player_id)
+            if me:
+                display.show_info(f"☯️ {me.name} 的「元亨利贞」金身效果消散。")
+
+        # 亢龙有悔：清理过期的武器禁用
+        still_active = []
+        for pid, wname, expire_round in self.disabled_weapons:
+            if round_num >= expire_round:
+                # 解禁
+                p = self.state.get_player(pid)
+                if p:
+                    for w in getattr(p, 'weapons', []):
+                        if w and w.name == wname and getattr(w, '_hexagram_disabled', False):
+                            w._hexagram_disabled = False
+                    display.show_info(f"☯️ {p.name} 的「{wname}」解除封印。")
+            else:
+                still_active.append((pid, wname, expire_round))
+        self.disabled_weapons = still_active
+
+    # ============================================
+    #  金身免疫接口（供 damage_resolver / round_manager 调用）
+    # ============================================
+
+    def is_immune_to_damage(self, damage_attribute_str=None):
+        """
+        检查是否免疫该伤害。
+        元亨利贞：免疫所有伤害，无视属性克制的伤害除外。
+        """
+        if not self.immunity_active:
+            return False
+        # 无视属性克制的伤害可以穿透金身
+        if damage_attribute_str == "无视属性克制":
+            return False
+        return True
+
+    def is_immune_to_debuff(self, debuff_type=None):
+        """
+        检查是否免疫该debuff。
+        元亨利贞：免疫石化、震荡、眩晕、G2拉人判定。
+        不免疫：G3幻想乡拉人。
+        """
+        if not self.immunity_active:
+            return False
+        # G3幻想乡不免疫
+        if debuff_type == "mythland_pull":
+            return False
+        return True
+
+    # ============================================
+    #  T0选项与执行
+    # ============================================
 
     def get_t0_option(self, player):
         if self.charges <= 0:
@@ -50,12 +135,7 @@ class Hexagram(BaseTalent):
 
     def execute_t0(self, player):
         if self.charges <= 0:
-            error_msg = prompt_manager.get_prompt(
-                "error", "action_failed",
-                default="❌ 六爻没有充能",
-                reason="六爻没有充能"
-            )
-            return error_msg, False
+            return "❌ 六爻没有充能", False
 
         # 涟漪增强：自由选择效果
         free = getattr(self, 'ripple_free_choices', 0)
@@ -76,7 +156,24 @@ class Hexagram(BaseTalent):
                         }
                         method = METHOD_MAP.get(effect_key)
                         if method:
-                            msg = method(player)
+                            # 需要目标的效果
+                            if effect_key in ("both_scissors", "both_rock",
+                                              "scissors_rock", "rock_paper"):
+                                others = [p2 for p2 in self.state.alive_players()
+                                          if p2.player_id != player.player_id]
+                                if others:
+                                    names = [p2.name for p2 in others]
+                                    target_name = player.controller.choose(
+                                        "选择目标：", names,
+                                        context={"phase": "T0",
+                                                 "situation": "hexagram_free_target"})
+                                    target = next(
+                                        p2 for p2 in others if p2.name == target_name)
+                                    msg = method(player, target)
+                                else:
+                                    msg = method(player, None)
+                            else:
+                                msg = method(player, None)
                             return msg, True
                     break
 
@@ -84,56 +181,37 @@ class Hexagram(BaseTalent):
         others = [p for p in self.state.alive_players()
                   if p.player_id != player.player_id]
         if not others:
-            error_msg = prompt_manager.get_prompt(
-                "error", "action_failed",
-                default="❌ 没有可选择的目标",
-                reason="没有可选择的目标"
-            )
-            return error_msg, False
+            return "❌ 没有可选择的目标", False
 
-        # ══ CONTROLLER 改动 1：选择猜拳对手 ══
+        # 选择猜拳对手
         names = [p.name for p in others]
         target_name = player.controller.choose(
             "选择猜拳对手：", names,
-            context={"phase": "T0", "situation": "hexagram_pick_opponent"}
-        )
+            context={"phase": "T0", "situation": "hexagram_pick_opponent"})
         target = next(p for p in others if p.name == target_name)
-        # ══ CONTROLLER 改动 1 结束 ══
 
         self.charges -= 1
 
-        activation_msg = prompt_manager.get_prompt(
-            "talent", "t4hexagram.activation",
-            default=f"🔮 六爻发动！{player.name} 向 {target.name} 发起猜拳！"
-        ).format(player_name=player.name, target_name=target.name)
-        display.show_info(activation_msg)
+        display.show_info(
+            f"🔮 六爻发动！{player.name} 向 {target.name} 发起猜拳！")
 
-        # ══ CONTROLLER 改动 2：发动者出拳 ══
+        # 发动者出拳
         my_choice = player.controller.choose(
             f"{player.name}，请出拳：", self.CHOICES,
-            context={"phase": "T0", "situation": "hexagram_my_choice"}
-        )
-        # ══ CONTROLLER 改动 2 结束 ══
+            context={"phase": "T0", "situation": "hexagram_my_choice"})
 
-        # ══ CONTROLLER 改动 3：交屏幕（仅人类）══
+        # 交屏幕（仅人类）
         if isinstance(target.controller, HumanController):
             display.show_info(f"请将屏幕交给 {target.name}")
             input("  按回车继续...")
-        # ══ CONTROLLER 改动 3 结束 ══
 
-        # ══ CONTROLLER 改动 4：对手出拳（走对手的 controller）══
+        # 对手出拳
         opp_choice = target.controller.choose(
             f"{target.name}，请出拳：", self.CHOICES,
-            context={"phase": "T0", "situation": "hexagram_opp_choice"}
-        )
-        # ══ CONTROLLER 改动 4 结束 ══
+            context={"phase": "T0", "situation": "hexagram_opp_choice"})
 
-        choice_msg = prompt_manager.get_prompt(
-            "talent", "t4hexagram.choices_display",
-            default=f"🔮 {player.name} 出「{my_choice}」 vs {target.name} 出「{opp_choice}」"
-        ).format(player_name=player.name, my_choice=my_choice,
-                target_name=target.name, opp_choice=opp_choice)
-        display.show_info(choice_msg)
+        display.show_info(
+            f"🔮 {player.name} 出「{my_choice}」 vs {target.name} 出「{opp_choice}」")
 
         # 判定结果
         msg = self._resolve(player, target, my_choice, opp_choice)
@@ -141,50 +219,55 @@ class Hexagram(BaseTalent):
         self.state.log_event("hexagram", player=player.player_id,
                              target=target.player_id,
                              my_choice=my_choice, opp_choice=opp_choice)
-
         return msg, True
+
+    # ============================================
+    #  猜拳结果分发
+    # ============================================
 
     def _resolve(self, player, target, my, opp):
         """根据猜拳结果执行效果"""
         if my == opp:
             if my == "剪刀":
-                return self._both_scissors(player)
+                return self._both_scissors(player, target)
             elif my == "石头":
-                return self._both_rock(player)
+                return self._both_rock(player, target)
             else:
-                return self._both_paper(player)
+                return self._both_paper(player, target)
         else:
             pair = frozenset([my, opp])
             if pair == frozenset(["剪刀", "石头"]):
-                return self._scissors_rock(player)
+                return self._scissors_rock(player, target)
             elif pair == frozenset(["剪刀", "布"]):
-                return self._scissors_paper(player)
+                return self._scissors_paper(player, target)
             else:
-                return self._rock_paper(player)
+                return self._rock_paper(player, target)
 
-    def _both_scissors(self, player):
-        """双方剪刀：天雷，对任意1名玩家造成1点伤害（无视克制+无视单体保护）"""
+    # ============================================
+    #  潜龙勿用（双剪刀）：天雷增强
+    #  1点无视克制伤害 + 击碎目标1层外甲（无视属性）
+    # ============================================
+
+    def _both_scissors(self, player, target):
+        """潜龙勿用：天雷增强"""
         others = [p for p in self.state.alive_players()
                   if p.player_id != player.player_id]
         if not others:
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.thunder_no_target",
-                default="🔮 双剪刀→天雷！但没有可攻击的目标。"
-            )
+            return "🔮 潜龙勿用→⚡天雷！但没有可攻击的目标。"
 
-        # ══ CONTROLLER 改动 5：天雷选目标 ══
+        # 选择天雷目标（可以和猜拳对手不同）
         names = [p.name for p in others]
         choice = player.controller.choose(
-            "天雷！选择承受伤害的玩家：", names,
-            context={"phase": "T0", "situation": "hexagram_thunder_target"}
-        )
-        target = next(p for p in others if p.name == choice)
-        # ══ CONTROLLER 改动 5 结束 ══
+            "⚡ 潜龙勿用——天雷！选择承受伤害的玩家：", names,
+            context={"phase": "T0", "situation": "hexagram_thunder_target"})
+        thunder_target = next(p for p in others if p.name == choice)
 
-        # 使用resolve_damage处理伤害
+        lines = [f"☯️ 潜龙勿用——⚡天雷降临！目标：{thunder_target.name}"]
+
+        # 1. 造成1点无视克制伤害
         result = resolve_damage(
             attacker=player,
-            target=target,
+            target=thunder_target,
             weapon=None,
             game_state=self.state,
             raw_damage_override=1.0,
@@ -193,215 +276,272 @@ class Hexagram(BaseTalent):
             is_talent_attack=True,
         )
 
-        thunder_msg = prompt_manager.get_prompt(
-            "talent", "t4hexagram.thunder_damage",
-            default=f"🔮 双剪刀→⚡天雷！对 {{target_name}} 造成 1.0 伤害（无视克制+无视保护）"
-        ).format(target_name=target.name)
-
-        # 构建结果消息
-        lines = [thunder_msg]
+        lines.append(f"   ⚡ 对 {thunder_target.name} 造成 1.0 无视克制伤害")
         for detail in result.get("details", []):
             lines.append(f"   {detail}")
 
+        # 2. 额外击碎1层外甲（无视属性，独立于伤害）
+        if thunder_target.is_alive():
+            from models.equipment import ArmorLayer
+            outer_active = thunder_target.armor.get_active(ArmorLayer.OUTER)
+            if outer_active:
+                # 击碎优先级最高的外甲
+                outer_active.sort(key=lambda a: a.priority, reverse=True)
+                broken_piece = outer_active[0]
+                broken_piece.is_broken = True
+                broken_piece.current_hp = 0
+                lines.append(
+                    f"   💥 天雷击碎了 {thunder_target.name} 的外甲"
+                    f"「{broken_piece.name}」（{broken_piece.attribute.value}）！")
+            else:
+                lines.append(f"   （{thunder_target.name} 没有外层护甲可击碎）")
+
+        # 击杀判定
         if result.get("killed", False):
             player.kill_count += 1
-            self.state.markers.on_player_death(target.player_id)
-            kill_msg = prompt_manager.get_prompt(
-                "talent", "t4hexagram.thunder_kill",
-                default=f"   💀 {{target_name}} 被天雷击杀！"
-            ).format(target_name=target.name)
-            lines.append(kill_msg)
+            self.state.markers.on_player_death(thunder_target.player_id)
+            if self.state.police_engine:
+                self.state.police_engine.on_player_death(thunder_target.player_id)
+            lines.append(f"   💀 {thunder_target.name} 被天雷击杀！")
         elif result.get("stunned", False):
-            stun_msg = prompt_manager.get_prompt(
-                "talent", "t4hexagram.thunder_stun",
-                default=f"   💫 {{target_name}} 进入眩晕！"
-            ).format(target_name=target.name)
-            lines.append(stun_msg)
+            lines.append(f"   💫 {thunder_target.name} 进入眩晕！")
 
         return "\n".join(lines)
 
-    def _both_rock(self, player):
-        """双方石头：获得任意一种当前游戏中存在的武器"""
-        from models.equipment import make_weapon
+    # ============================================
+    #  飞龙在天（双石头）：偷甲
+    #  复制目标1层外甲给自己，同时击碎目标的那层甲
+    # ============================================
 
-        # 游戏中存在的所有武器
-        # 导弹（需军事基地）和拳击（默认持有）不在列表中
-        ALL_WEAPONS = ["小刀", "警棍", "高斯步枪", "电磁步枪",
-                    "魔法弹幕", "远程魔法弹幕", "地震", "地动山摇"]
-        available = []
-        for name in ALL_WEAPONS:
-            w = make_weapon(name)
-            if w:
-                # 检查玩家是否已持有同名武器
-                already_has = any(
-                    getattr(pw, 'name', '') == name
-                    for pw in getattr(player, 'weapons', [])
-                )
-                if not already_has:
-                    available.append(name)
+    def _both_rock(self, player, target):
+        """飞龙在天：偷甲"""
+        from models.equipment import ArmorLayer, ArmorPiece
 
-        if not available:
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.weapon_no_available",
-                default="🔮 双石头→获得武器！但你已持有所有武器。天赋发动失效。"
-            )
+        # 如果没有有效target（涟漪自由选择时可能为None），让玩家选
+        if target is None:
+            others = [p for p in self.state.alive_players()
+                      if p.player_id != player.player_id]
+            if not others:
+                return "🔮 飞龙在天→偷甲！但没有可选择的目标。"
+            names = [p.name for p in others]
+            choice = player.controller.choose(
+                "☯️ 飞龙在天——选择偷甲目标：", names,
+                context={"phase": "T0", "situation": "hexagram_steal_target"})
+            target = next(p for p in others if p.name == choice)
 
-        # CONTROLLER: 选武器
-        choice = player.controller.choose(
-            "选择获得的武器：", available,
-            context={"phase": "T0", "situation": "hexagram_pick_weapon"}
-        )
+        # 检查目标是否有外甲
+        outer_active = target.armor.get_active(ArmorLayer.OUTER)
+        if not outer_active:
+            return (f"☯️ 飞龙在天——夺！\n"
+                    f"   {target.name} 没有外层护甲，效果不生效。")
 
-        weapon = make_weapon(choice)
-        if weapon:
-            player.weapons.append(weapon)
-            # 如果是需要蓄力的武器，默认未蓄力
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.weapon_gained",
-                default="🔮 双石头→⚔️ {player_name} 获得了「{weapon_name}」！"
-            ).format(player_name=player.name, weapon_name=choice)
+        # 选择要偷的外甲（如果有多件，让玩家选）
+        if len(outer_active) == 1:
+            stolen_piece = outer_active[0]
         else:
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.weapon_failed",
-                default="🔮 双石头→获得武器失败。"
-            )
+            armor_names = [f"{a.name}（{a.attribute.value}）" for a in outer_active]
+            choice = player.controller.choose(
+                "选择要夺取的护甲：", armor_names,
+                context={"phase": "T0", "situation": "hexagram_steal_pick"})
+            idx = armor_names.index(choice)
+            stolen_piece = outer_active[idx]
 
-    def _both_paper(self, player):
-        """双方布：获得任意一种当前游戏中存在的护甲"""
-        from models.equipment import make_armor, ArmorLayer
-        from utils.attribute import Attribute
+        lines = [f"☯️ 飞龙在天——夺！"]
 
-        available = []
-        for name in ["盾牌", "陶瓷护甲", "魔法护盾", "AT力场",
-                    "晶化皮肤", "额外心脏", "不老泉"]:
-            armor = make_armor(name)
-            if armor:
-                success, _ = player.armor.check_can_equip(armor)
-                if success:
-                    available.append(name)
+        # 击碎目标的甲
+        stolen_name = stolen_piece.name
+        stolen_attr = stolen_piece.attribute
+        stolen_piece.is_broken = True
+        stolen_piece.current_hp = 0
+        lines.append(
+            f"   💥 击碎了 {target.name} 的「{stolen_name}」"
+            f"（{stolen_attr.value}）！")
 
-        if not available:
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.armor_no_available",
-                default="🔮 双布→获得护甲！但你已经没有可装备的护甲槽了。天赋发动失效。"
-            )
-
-        # CONTROLLER: 选护甲
-        choice = player.controller.choose(
-            "选择获得的护甲：", available,
-            context={"phase": "T0", "situation": "hexagram_pick_armor"}
+        # 给自己复制一件同属性同名的甲
+        new_armor = ArmorPiece(
+            stolen_name, stolen_attr, ArmorLayer.OUTER, 1.0,
+            priority=stolen_piece.priority,
+            can_regen=stolen_piece.can_regen,
+            special_tags=list(stolen_piece.special_tags),
         )
-
-        armor = make_armor(choice)
-        success, reason = player.add_armor(armor)
+        success, reason = player.add_armor(new_armor)
         if success:
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.armor_gained",
-                default="🔮 双布→🛡️ {player_name} 获得了「{armor_name}」！"
-            ).format(player_name=player.name, armor_name=choice)
+            lines.append(
+                f"   🛡️ {player.name} 获得了「{stolen_name}」"
+                f"（{stolen_attr.value}）！")
         else:
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.armor_failed",
-                default="🔮 双布→获得护甲失败：{reason}"
-            ).format(reason=reason)
+            lines.append(
+                f"   ⚠️ {player.name} 无法装备偷来的护甲：{reason}")
 
-    def _scissors_rock(self, player):
-        """一方剪刀一方石头：所有需蓄力武器立刻蓄力完成；没有则获得一把"""
-        from models.equipment import make_weapon
+        return "\n".join(lines)
 
-        charged = []
-        for w in player.weapons:
-            if w.requires_charge and not w.is_charged:
-                w.is_charged = True
-                charged.append(w.name)
-        if charged:
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.charge_completed",
-                default="🔮 剪刀vs石头→⚡ 蓄力完成：{weapons_list}"
-            ).format(weapons_list=", ".join(charged))
+    # ============================================
+    #  元亨利贞（双布）：金身
+    #  免疫所有伤害和debuff直到下轮R1开始
+    #  无视属性克制的伤害除外（包括灼烧）
+    #  可免疫病毒致死判定
+    #  免疫石化/震荡/眩晕/G2拉人，不免疫G3幻想乡
+    # ============================================
 
-        # V1.92: 没有可蓄力武器 → 从游戏中需要蓄力的武器里选一把获得并立刻蓄力
-        CHARGEABLE_WEAPONS = ["高斯步枪", "电磁步枪"]
-        # 排除已持有且已蓄力的
-        available = []
-        for name in CHARGEABLE_WEAPONS:
-            already_has = any(
-                getattr(pw, 'name', '') == name
-                for pw in getattr(player, 'weapons', [])
-            )
-            if not already_has:
-                available.append(name)
+    def _both_paper(self, player, _target):
+        """元亨利贞：金身"""
+        self.immunity_active = True
+        # 在下一个轮次的R0（on_round_start）中失效
+        self.immunity_expire_round = self.state.current_round + 1
 
-        if not available:
-            # 已有全部可蓄力武器且全部蓄力完成
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.charge_all_done",
-                default="🔮 剪刀vs石头→你已持有所有可蓄力武器且全部蓄力完成，效果不生效。"
-            )
+        lines = [
+            f"☯️ 元亨利贞——大吉大利，利于坚守正道。",
+            f"   🛡️ {player.name} 进入金身状态！",
+            f"   免疫所有伤害和debuff，直到下个轮次开始。",
+            f"   （无视属性克制的伤害仍可穿透）",
+        ]
+        return "\n".join(lines)
 
-        # CONTROLLER: 选武器
-        choice = player.controller.choose(
-            "选择获得并立刻蓄力的武器：", available,
-            context={"phase": "T0", "situation": "hexagram_pick_chargeable"}
-        )
+    # ============================================
+    #  亢龙有悔（剪刀vs石头）：禁武
+    #  禁用目标1件武器（随机），持续2轮
+    #  如果目标只有拳击，则改为眩晕
+    # ============================================
 
-        weapon = make_weapon(choice)
-        if weapon:
-            weapon.is_charged = True
-            player.weapons.append(weapon)
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.charge_new_weapon",
-                default="🔮 剪刀vs石头→⚔️⚡ {player_name} 获得了「{weapon_name}」并立刻完成蓄力！"
-            ).format(player_name=player.name, weapon_name=choice)
-        return prompt_manager.get_prompt(
-            "talent", "t4hexagram.charge_no_weapons",
-            default="🔮 剪刀vs石头→蓄力完成！但你没有需要蓄力的武器。"
-        )
+    def _scissors_rock(self, player, target):
+        """亢龙有悔：禁武"""
+        if target is None:
+            others = [p for p in self.state.alive_players()
+                      if p.player_id != player.player_id]
+            if not others:
+                return "🔮 亢龙有悔→禁武！但没有可选择的目标。"
+            names = [p.name for p in others]
+            choice = player.controller.choose(
+                "☯️ 亢龙有悔——选择禁武目标：", names,
+                context={"phase": "T0", "situation": "hexagram_disarm_target"})
+            target = next(p for p in others if p.name == choice)
 
-    def _scissors_paper(self, player):
-        """一方剪刀一方布：获得2个连续的额外行动回合（不可再发六爻）"""
-        player.hexagram_extra_turn = 2  # V1.92: 从1改为2
-        return prompt_manager.get_prompt(
-            "talent", "t4hexagram.extra_turn_gained",
-            default="🔮 剪刀vs布→🎯 {player_name} 获得2个连续额外行动回合！\n   （第1个补偿发动消耗，第2个是奖励。额外回合内不可再次发动六爻）"
-        ).format(player_name=player.name)
+        import random
 
-    def _rock_paper(self, player):
-        """一方石头一方布：清除所有被发现+被锁定，进入隐身"""
+        # 获取目标的非拳击武器
+        real_weapons = [w for w in getattr(target, 'weapons', [])
+                        if w and getattr(w, 'name', '') != "拳击"
+                        and not getattr(w, '_hexagram_disabled', False)]
+
+        if not real_weapons:
+            # 只有拳击 → 眩晕
+            if not target.is_stunned:
+                target.is_stunned = True
+                self.state.markers.add(target.player_id, "STUNNED")
+            return (f"☯️ 亢龙有悔——过刚则折！\n"
+                    f"   {target.name} 没有可封印的武器，改为眩晕！\n"
+                    f"   💫 {target.name} 进入眩晕状态！")
+
+        # 随机选一件武器禁用
+        weapon_to_disable = random.choice(real_weapons)
+        weapon_to_disable._hexagram_disabled = True
+        expire_round = self.state.current_round + 2
+        self.disabled_weapons.append(
+            (target.player_id, weapon_to_disable.name, expire_round))
+
+        return (f"☯️ 亢龙有悔——过刚则折！\n"
+                f"   🔒 {target.name} 的「{weapon_to_disable.name}」被封印！\n"
+                f"   （持续2轮，第{expire_round}轮开始时解除）")
+
+    # ============================================
+    #  或跃在渊（剪刀vs布）：额外行动
+    #  2个连续额外行动回合（不可再发六爻）
+    # ============================================
+
+    def _scissors_paper(self, player, _target):
+        """或跃在渊：额外行动"""
+        player.hexagram_extra_turn = 2
+        return (f"☯️ 或跃在渊——蓄势待发！\n"
+                f"   🎯 {player.name} 获得2个连续额外行动回合！\n"
+                f"   （第1个补偿发动消耗，第2个是奖励。额外回合内不可再次发动六爻）")
+
+    # ============================================
+    #  群龙无首（石头vs布）：遁走
+    #  清锁定+隐身 + 强制目标移动到随机地点（D6）
+    # ============================================
+
+    def _rock_paper(self, player, target):
+        """群龙无首：遁走 + 强制目标位移"""
+        from utils.dice import roll_d6
+        from actions.move import ALL_LOCATIONS
+
+        lines = [f"☯️ 群龙无首——天下大乱！"]
+
+        # 1. 清锁定/探测（结界内不生效）
         in_barrier = False
         if self.state.active_barrier:
             if self.state.active_barrier.is_liuyao_blocked(player.player_id):
                 in_barrier = True
-                barrier_msg = prompt_manager.get_prompt(
-                    "talent", "t4hexagram.barrier_blocked",
-                    default="🌀 结界内六爻的解除锁定/发现不生效！"
-                )
-                display.show_info(barrier_msg)
+                lines.append("   🌀 结界内，解除锁定/发现不生效！")
 
         if not in_barrier:
-            lockers = self.state.markers.get_related(player.player_id, "LOCKED_BY")
+            lockers = self.state.markers.get_related(
+                player.player_id, "LOCKED_BY")
             for lid in list(lockers):
-                self.state.markers.remove_relation(player.player_id, "LOCKED_BY", lid)
-
-            detectors = self.state.markers.get_related(player.player_id, "DETECTED_BY")
+                self.state.markers.remove_relation(
+                    player.player_id, "LOCKED_BY", lid)
+            detectors = self.state.markers.get_related(
+                player.player_id, "DETECTED_BY")
             for did in list(detectors):
-                self.state.markers.remove_relation(player.player_id, "DETECTED_BY", did)
+                self.state.markers.remove_relation(
+                    player.player_id, "DETECTED_BY", did)
+            lines.append(f"   🔓 {player.name} 清除所有锁定与探测！")
 
+        # 2. 隐身
         player.is_invisible = True
         self.state.markers.add(player.player_id, "INVISIBLE")
 
         if in_barrier:
+            # 结界内隐身也被破除
             player.is_invisible = False
             self.state.markers.remove(player.player_id, "INVISIBLE")
-            return prompt_manager.get_prompt(
-                "talent", "t4hexagram.invalid_in_barrier",
-                default="🔮 石头vs布→结界内解除锁定/发现被屏蔽，隐身被结界破除。\n   效果完全无效。"
-            )
+            lines.append("   🌀 结界内隐身被破除。")
+        else:
+            lines.append(f"   🫥 {player.name} 进入隐身！")
 
-        return prompt_manager.get_prompt(
-            "talent", "t4hexagram.lock_clear_invisible",
-            default=f"🔮 石头vs布→🫥 {{player_name}} 清除所有锁定与探测，进入隐身！"
-        ).format(player_name=player.name)
+        # 3. 强制目标移动到随机地点（D6决定）
+        if target is not None and target.is_alive():
+            # 构建可用地点列表（排除目标当前位置）
+            available_locs = [loc for loc in ALL_LOCATIONS
+                              if loc != target.location]
+            # 加入所有玩家的家（排除目标当前位置）
+            for pid in self.state.player_order:
+                home_loc = f"home_{pid}"
+                if home_loc != target.location:
+                    available_locs.append(home_loc)
+
+            if available_locs:
+                roll = roll_d6()
+                dest_idx = (roll - 1) % len(available_locs)
+                destination = available_locs[dest_idx]
+
+                old_loc = target.location or "未知"
+                target.location = destination
+                # 清除目标的锁定/面对面关系
+                self.state.markers.on_player_move(target.player_id)
+
+                # 显示地点名
+                from actions.move import get_location_display_name
+                dest_display = get_location_display_name(
+                    destination, self.state)
+                lines.append(
+                    f"   🎲 D6 = {roll} → {target.name} 被传送到"
+                    f"「{dest_display}」！（从{old_loc}）")
+            else:
+                lines.append(f"   （{target.name} 无处可去）")
+        else:
+            lines.append("   （无有效目标可传送）")
+
+        return "\n".join(lines)
 
     def describe_status(self):
-        return f"充能：{self.charges}/{self.max_charges}（开局1次，每4轮+1）"
+        parts = [f"充能：{self.charges}/{self.max_charges}（开局1次，每4轮+1）"]
+        if self.immunity_active:
+            parts.append("☯️ 金身（元亨利贞）生效中")
+        if self.disabled_weapons:
+            for pid, wname, expire in self.disabled_weapons:
+                p = self.state.get_player(pid)
+                pname = p.name if p else pid
+                parts.append(f"🔒 {pname}的{wname}被封印（第{expire}轮解除）")
+        return " | ".join(parts)
+

@@ -465,6 +465,7 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
             from models.equipment import WeaponRange
             has_ranged_weapon = any(
                 getattr(w, 'weapon_range', None) == WeaponRange.RANGED
+                and not getattr(w, '_hexagram_disabled', False)
                 for w in (player.weapons or []) if w
             )
             if has_ranged_weapon:
@@ -513,6 +514,8 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
                 w_obj = next((w for w in (player.weapons or []) if w and w.name == wname), None)
                 if w_obj and w_obj.requires_charge and getattr(w_obj, 'charge_mandatory', True) and not w_obj.is_charged:
                     continue  # 需要蓄力但未蓄力，跳过
+                if w_obj and getattr(w_obj, '_hexagram_disabled', False):
+                    continue  # 六爻封印，跳过
                 if wr == WeaponRange.MELEE:
                     if same_loc and is_engaged:
                         mask[IDX_ATTACK_BASE + slot * 10 + wi] = True
@@ -556,12 +559,14 @@ def build_action_mask(player, game_state, rl_player_id: str) -> np.ndarray:
                     )
                     if not has_unsharpened:
                         continue
-                # 蓄力：额外检查武器是否已蓄力完成
+                # 蓄力：额外检查武器是否已蓄力完成或被封印
                 if op.startswith("蓄力"):
                     weapon_name = op[2:]  # "蓄力电磁步枪" → "电磁步枪"
                     w_obj = next((w for w in (player.weapons or []) if w and w.name == weapon_name), None)
                     if w_obj and w_obj.is_charged:
                         continue  # 已蓄力，不允许再次蓄力
+                    if w_obj and getattr(w_obj, '_hexagram_disabled', False):
+                        continue  # 六爻封印，不允许蓄力
                 mask[IDX_SPECIAL_BASE + si] = True
 
     # ── 警察行动 ──────────────────────────────────────────────────

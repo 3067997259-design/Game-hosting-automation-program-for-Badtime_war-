@@ -246,6 +246,11 @@ class Hologram(BaseTalent):
                 if pid in barrier_players:
                     continue
 
+            # 六爻·元亨利贞：免疫拉拽
+            if p.talent and hasattr(p.talent, 'is_immune_to_debuff') and p.talent.is_immune_to_debuff("pull"):
+                lines.append(f"  ☯️ {p.name} 的「元亨利贞」免疫了全息影像的拉拽！")
+                continue
+
             roll = roll_d6()
             old_loc = p.location or "未知"
 
