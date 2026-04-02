@@ -7,6 +7,7 @@
 释放瞬间：
   - 所有非玩家单位（警察等）强制移动到影像位置，眩晕解除
   - 进入「沉沦」（无法行动/移动/被唤醒）
+  - 【新增】最后一曲：每个存活玩家投D6，≥4被强制拉到影像位置
 
 影像内通用：
   - 隐身无效
@@ -14,7 +15,7 @@
 
 其他玩家（非发动者）在影像内：
   - 无法执行「锁定」和「找到」
-  - 进入影像瞬间：自动与发动者建立面对面
+  - 进入影像瞬间：自动与影像内所有其他玩家建立面对面
   - 进入即震荡；连续停留2轮再次震荡
 
 发动者在影像内：
@@ -34,7 +35,7 @@ from engine.prompt_manager import prompt_manager
 
 class Hologram(BaseTalent):
     name = "请一直，注视着我"
-    description = "主动1次：展开全息影像（3-6轮，按存活人数）。隐身无效/+0.5伤害/禁锁定找到/自动面对面。"
+    description = "主动1次：展开全息影像（3-6轮，按存活人数）。释放时D6判定拉人/隐身无效/+0.5伤害/禁锁定找到/自动面对面。"
     tier = "神代"
 
     def __init__(self, player_id, game_state):
@@ -122,10 +123,13 @@ class Hologram(BaseTalent):
         npc_lines = self._pull_npcs()
         lines.extend(npc_lines)
 
-        # 释放瞬间：处理同地点玩家
+        # 释放瞬间：最后一曲——D6判定拉玩家
+        player_pull_lines = self._pull_players_d6(player)
+        lines.extend(player_pull_lines)
+
+        # 释放瞬间：处理同地点玩家（含被拉来的）
         setup_lines = self._setup_players_at_location(player)
         lines.extend(setup_lines)
-
 
         # V1.92更新：发动后立刻获得1个额外行动回合
         player.extra_action_after_hologram = True
@@ -208,6 +212,81 @@ class Hologram(BaseTalent):
 
         return lines
 
+    def _pull_players_d6(self, caster):
+        """释放瞬间：最后一曲——D6判定拉玩家
+
+        每个存活的非发动者玩家投掷D6，≥4（50%概率）被强制拉到影像位置。
+        跳过：未起床、已死亡、已在影像地点、在幻想乡结界内的玩家。
+        """
+        from utils.dice import roll_d6
+
+        lines = []
+        lines.append(
+            prompt_manager.get_prompt(
+                "talent", "g2eternity.last_song_header",
+                default="  🎵 最后一曲响起，歌声回荡在每一个角落……"
+            )
+        )
+
+        pulled_count = 0
+        for pid in self.state.player_order:
+            if pid == self.player_id:
+                continue
+            p = self.state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            if not p.is_awake:
+                continue
+            # Skip players already at hologram location
+            if p.location == self.location:
+                continue
+            # Skip players in Mythland barrier (if active)
+            if getattr(self.state, 'barrier_active', False):
+                barrier_players = getattr(self.state, 'barrier_players', [])
+                if pid in barrier_players:
+                    continue
+
+            roll = roll_d6()
+            old_loc = p.location or "未知"
+
+            if roll >= 4:
+                # Pulled! Force move to hologram location
+                p.location = self.location
+                # Trigger marker cleanup for the forced move (clear locks/engaged from old location)
+                if old_loc != self.location:
+                    self.state.markers.on_player_move(pid)
+                pulled_count += 1
+                lines.append(
+                    prompt_manager.get_prompt(
+                        "talent", "g2eternity.player_pull_success",
+                        default="  🎲 {player_name}: D6 = {roll} ≥ 4 → ✨ 被歌声吸引，来到了舞台前！（从{old_loc}）"
+                    ).format(player_name=p.name, roll=roll, old_loc=old_loc)
+                )
+            else:
+                lines.append(
+                    prompt_manager.get_prompt(
+                        "talent", "g2eternity.player_pull_resist",
+                        default="  🎲 {player_name}: D6 = {roll} < 4 → 抵抗住了歌声的诱惑。"
+                    ).format(player_name=p.name, roll=roll)
+                )
+
+        if pulled_count == 0:
+            lines.append(
+                prompt_manager.get_prompt(
+                    "talent", "g2eternity.no_players_pulled",
+                    default="  （无人被歌声吸引）"
+                )
+            )
+        else:
+            lines.append(
+                prompt_manager.get_prompt(
+                    "talent", "g2eternity.players_pulled_summary",
+                    default="  🎵 {count}名玩家被最后一曲吸引到了舞台！"
+                ).format(count=pulled_count)
+            )
+
+        return lines
+
     # ============================================
     #  释放瞬间 / 进入时：处理玩家
     # ============================================
@@ -215,6 +294,7 @@ class Hologram(BaseTalent):
     def _setup_players_at_location(self, caster):
         """对当前在影像地点的其他玩家建立关系"""
         lines = []
+        entered_players = []
         for pid in self.state.player_order:
             if pid == self.player_id:
                 continue
@@ -223,9 +303,27 @@ class Hologram(BaseTalent):
                 continue
             if p.location != self.location:
                 continue
-
             lines.extend(self._on_player_enter_hologram(p, caster))
+            entered_players.append(p)
 
+        # 二次检查：确保所有影像内玩家互相面对面
+        # （因为 _on_player_enter_hologram 按顺序处理，
+        #   先进入的玩家可能还没和后进入的玩家建立关系）
+        all_in = self._get_players_in_hologram()
+        for i, p1 in enumerate(all_in):
+            for p2 in all_in[i+1:]:
+                marker_key = (p1.player_id, p2.player_id, "ENGAGED_WITH")
+                if marker_key not in self.hologram_markers:
+                    self.state.markers.set_engaged(p1.player_id, p2.player_id)
+                    self.hologram_markers.append(marker_key)
+                    self.hologram_markers.append(
+                        (p2.player_id, p1.player_id, "ENGAGED_WITH"))
+                    lines.append(
+                        prompt_manager.get_prompt(
+                            "talent", "g2eternity.auto_engaged",
+                            default="  👁 {player_name} 自动与 {caster_name} 建立面对面！"
+                        ).format(player_name=p1.name, caster_name=p2.name)
+                    )
         return lines
 
     def _on_player_enter_hologram(self, player, caster=None):
@@ -254,19 +352,20 @@ class Hologram(BaseTalent):
                 ).format(caster_name=caster.name)
             )
 
-        # 自动建立面对面
-        if caster and caster.is_alive() and caster.location == self.location:
-            marker_key = (player.player_id, caster.player_id, "ENGAGED_WITH")
+        # 自动建立面对面：与影像内所有其他玩家互相面对面
+        players_in_hologram = self._get_players_in_hologram(exclude_pid=player.player_id)
+        for other in players_in_hologram:
+            marker_key = (player.player_id, other.player_id, "ENGAGED_WITH")
             if marker_key not in self.hologram_markers:
-                self.state.markers.set_engaged(player.player_id, caster.player_id)
+                self.state.markers.set_engaged(player.player_id, other.player_id)
                 self.hologram_markers.append(marker_key)
                 self.hologram_markers.append(
-                    (caster.player_id, player.player_id, "ENGAGED_WITH"))
+                    (other.player_id, player.player_id, "ENGAGED_WITH"))
                 lines.append(
                     prompt_manager.get_prompt(
                         "talent", "g2eternity.auto_engaged",
-                        default="  \U0001f441 {player_name} 自动与 {caster_name} 建立面对面！"
-                    ).format(player_name=player.name, caster_name=caster.name)
+                        default="  👁 {player_name} 自动与 {caster_name} 建立面对面！"
+                    ).format(player_name=player.name, caster_name=other.name)
                 )
 
         # 初始化停留计数
@@ -288,6 +387,27 @@ class Hologram(BaseTalent):
                 )
 
         return lines
+
+    def _get_players_in_hologram(self, exclude_pid=None):
+        """获取当前在影像区域内的所有存活玩家（可排除指定玩家）"""
+        result = []
+        if not self.active:
+            return result
+        for pid in self.state.player_order:
+            if pid == exclude_pid:
+                continue
+            p = self.state.get_player(pid)
+            if p and p.is_alive() and p.location == self.location:
+                result.append(p)
+        return result
+
+    def on_d4_bonus(self, player):
+        """全息影像存在期间，释放者D4点数+1"""
+        if not self.active:
+            return 0
+        if player.player_id == self.player_id:
+            return 1
+        return 0
 
     # ============================================
     #  玩家移动进入影像区域（由move调用）
@@ -574,6 +694,7 @@ class Hologram(BaseTalent):
             f"【{self.name}】"
             f"\n  主动{self.max_uses}次：在所在地点展开全息影像，持续{self._get_initial_duration()}轮"
             f"\n  隐身无效 | 受伤+{self._get_bonus_damage()} | 非发动者禁锁定/找到"
-            f"\n  进入影像自动与发动者建立面对面"
+            f"\n  释放瞬间：D6≥4的玩家被拉到影像位置"
+            f"\n  影像内所有玩家互相建立面对面"
             f"\n  进入即震荡；连续停留2轮再次震荡 | 非玩家单位沉沦"
             f"\n  消失时清除影像产生的所有标记")

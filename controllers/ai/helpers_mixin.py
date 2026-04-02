@@ -65,6 +65,13 @@ class HelpersMixin(_Base):
     def _target_is_firefly(self, player) -> bool:
         """检查目标是否持有火萤IV型天赋"""
         return self._has_firefly_talent(player)
+
+    def _has_hologram_talent(self, player) -> bool:
+        """检查玩家是否持有全息影像天赋"""
+        talent = getattr(player, 'talent', None)
+        if talent and hasattr(talent, 'name') and talent.name == "请一直，注视着我":
+            return True
+        return False
     # ════════════════════════════════════════════════════════
     #  装备查询：护甲
     # ════════════════════════════════════════════════════════
@@ -154,6 +161,33 @@ class HelpersMixin(_Base):
             if self._get_weapon_range(w) != "melee":
                 return False
         return True
+    def _has_two_aoe_types(self, player) -> bool:
+        """检查玩家是否拥有两种不同属性的AOE武器（魔法+科技）"""
+        from utils.attribute import Attribute
+        aoe_attrs = set()
+        # Check weapon list
+        for w in getattr(player, 'weapons', []):
+            if w and w.name in ("地震", "地动山摇", "电磁步枪"):
+                aoe_attrs.add(self._get_weapon_attr(w))
+        # Check learned spells (地震/地动山摇 are learned spells, not always in weapons list)
+        learned = getattr(player, 'learned_spells', set())
+        if "地震" in learned or "地动山摇" in learned:
+            aoe_attrs.add(Attribute.MAGIC)
+        return Attribute.MAGIC in aoe_attrs and Attribute.TECH in aoe_attrs
+    def _count_distinct_aoe_attrs(self, player) -> int:
+        """Count distinct attribute types among player's AOE weapons"""
+        from utils.attribute import Attribute
+        attrs = set()
+        aoe_names = self._get_all_aoe_weapon_names(player)
+        for aoe_name in aoe_names:
+            aoe_weapon = next((w for w in getattr(player, 'weapons', [])
+                            if w and w.name == aoe_name), None)
+            if not aoe_weapon:
+                from models.equipment import make_weapon
+                aoe_weapon = make_weapon(aoe_name)
+            if aoe_weapon:
+                attrs.add(self._get_weapon_attr(aoe_weapon))
+        return len(attrs)
     # ════════════════════════════════════════════════════════
     #  状态检查：隐身 / 病毒免疫 / 法术
     # ════════════════════════════════════════════════════════
