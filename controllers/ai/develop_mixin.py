@@ -338,7 +338,9 @@ class DevelopMixin(_Base):
         # 全息影像：AOE优先发育路径
         if (player.talent and hasattr(player.talent, 'name')
                 and player.talent.name == "请一直，注视着我"):
-            return self._cmd_develop_hologram(player, state, available)
+            hologram_cmds = self._cmd_develop_hologram(player, state, available)
+            if hologram_cmds:
+                return hologram_cmds
         # Fall through to general develop if hologram path returns empty
         # Political 特殊处理：基本需求满足后，跳过通用发育，直奔警察局
         if (self.personality == "political"
