@@ -393,7 +393,7 @@ class BasicAIController(
 
         # ===== 所有目标受警察保护且无AOE ===== (原 lines 1093-1099)
         if self._is_stuck_by_police(player, state):
-            debug_ai_basic(player.name, "所有目标受警察保护且无AOE，去获取AOE武器")
+            debug_ai_basic(player.name, "所有目标受警察保护且无法穿透，去获取有效武器")
             aoe_cmds = self._cmd_fight_police(player, state, available_actions)
             for cmd in aoe_cmds:
                 if cmd not in candidates:
