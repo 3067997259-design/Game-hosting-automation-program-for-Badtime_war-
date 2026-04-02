@@ -64,8 +64,7 @@ class HelpersMixin(_Base):
 
     def _target_is_firefly(self, player) -> bool:
         """检查目标是否持有火萤IV型天赋"""
-        talent = getattr(player, 'talent', None)
-        return bool(talent and hasattr(talent, 'name') and talent.name == "火萤IV型-完全燃烧")
+        return self._has_firefly_talent(player)
     # ════════════════════════════════════════════════════════
     #  装备查询：护甲
     # ════════════════════════════════════════════════════════

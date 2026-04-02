@@ -459,7 +459,7 @@ class CombatMixin(_Base):
             # 全场最强玩家额外加分
             if self._estimate_power(t) >= max_power:
                 s += 40
-         # ===== 救世主集火逻辑 =====
+            # ===== 救世主集火逻辑 =====
             target_talent = getattr(t, 'talent', None)
             if target_talent and self._is_in_savior_state(t):
                 # 救世主状态：最高优先级集火目标
