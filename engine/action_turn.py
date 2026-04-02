@@ -536,10 +536,14 @@ class ActionTurnManager:
                 lines.append(f"      {detail}")
 
             if t.name in shock_targets:
-                t.is_shocked = True
-                t.is_stunned = True
-                self.state.markers.on_shock(t.player_id)
-                lines.append(f"      ⚡ {t.name} 进入震荡状态！")
+                # 六爻·元亨利贞：免疫震荡
+                if t.talent and hasattr(t.talent, 'is_immune_to_debuff') and t.talent.is_immune_to_debuff("shock"):
+                    lines.append(f"      ☯️ {t.name} 的「元亨利贞」免疫了震荡！")
+                else:
+                    t.is_shocked = True
+                    t.is_stunned = True
+                    self.state.markers.on_shock(t.player_id)
+                    lines.append(f"      ⚡ {t.name} 进入震荡状态！")
 
             if res.get("killed"):
                 player.kill_count += 1

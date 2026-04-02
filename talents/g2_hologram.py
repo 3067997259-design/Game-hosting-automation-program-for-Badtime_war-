@@ -380,7 +380,12 @@ class Hologram(BaseTalent):
         # V1.92更新：进入影像区域立刻触发震荡（无需等待连续2轮）
         # 非发动者进入时触发震荡
         if player.player_id != self.player_id:
-            if not player.is_shocked:
+            # 六爻·元亨利贞：免疫震荡
+            immune = (player.talent and hasattr(player.talent, 'is_immune_to_debuff')
+                      and player.talent.is_immune_to_debuff("shock"))
+            if immune:
+                lines.append(f"  ☯️ {player.name} 的「元亨利贞」免疫了全息影像的震荡！")
+            elif not player.is_shocked:
                 player.is_shocked = True
                 player.is_stunned = True
                 self.state.markers.on_shock(player.player_id)
@@ -537,15 +542,19 @@ class Hologram(BaseTalent):
             if count >= 2:
                 p = self.state.get_player(pid)
                 if p and p.is_alive() and not p.is_shocked:
-                    p.is_shocked = True
-                    p.is_stunned = True
-                    self.state.markers.on_shock(pid)
-                    display.show_info(
-                        prompt_manager.get_prompt(
-                            "talent", "g2eternity.shock_from_stay",
-                            default="  \U0001f441\u26a1 {player_name} 在全息影像中连续停留2轮，再次进入震荡！"
-                        ).format(player_name=p.name)
-                    )
+                    # 六爻·元亨利贞：免疫震荡
+                    if p.talent and hasattr(p.talent, 'is_immune_to_debuff') and p.talent.is_immune_to_debuff("shock"):
+                        display.show_info(f"  ☯️ {p.name} 的「元亨利贞」免疫了全息影像的震荡！")
+                    else:
+                        p.is_shocked = True
+                        p.is_stunned = True
+                        self.state.markers.on_shock(pid)
+                        display.show_info(
+                            prompt_manager.get_prompt(
+                                "talent", "g2eternity.shock_from_stay",
+                                default="  \U0001f441\u26a1 {player_name} 在全息影像中连续停留2轮，再次进入震荡！"
+                            ).format(player_name=p.name)
+                        )
                     # 重置计数，下次再停留2轮才会再次触发
                     self.stay_count[pid] = 0
 

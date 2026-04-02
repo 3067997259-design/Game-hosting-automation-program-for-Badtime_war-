@@ -157,7 +157,8 @@ class Hexagram(BaseTalent):
                         method = METHOD_MAP.get(effect_key)
                         if method:
                             # 需要目标的效果
-                            if effect_key in ("both_scissors", "both_rock",
+                            # both_scissors 不在此列：它内部自行选择天雷目标（可以和猜拳对手不同）
+                            if effect_key in ("both_rock",
                                               "scissors_rock", "rock_paper"):
                                 others = [p2 for p2 in self.state.alive_players()
                                           if p2.player_id != player.player_id]
@@ -425,6 +426,10 @@ class Hexagram(BaseTalent):
 
         if not real_weapons:
             # 只有拳击 → 眩晕
+            # 六爻·元亨利贞：免疫眩晕
+            if target.talent and hasattr(target.talent, 'is_immune_to_debuff') and target.talent.is_immune_to_debuff("stun"):
+                return (f"☯️ 亢龙有悔——过刚则折！\n"
+                        f"   {target.name} 没有可封印的武器，但「元亨利贞」免疫了眩晕！")
             if not target.is_stunned:
                 target.is_stunned = True
                 self.state.markers.add(target.player_id, "STUNNED")
