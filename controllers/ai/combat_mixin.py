@@ -454,6 +454,9 @@ class CombatMixin(_Base):
                         break
                 if can_punch_through:
                     s -= 30  # Small penalty (still need to deal with absorbed damage)
+                    # 能穿透保护的队长是高价值目标：击杀队长可瓦解警察体系
+                    if getattr(t, 'is_captain', False):
+                        s += 80
                 elif self._has_aoe_weapon(player) and self._has_effective_aoe_against(player, t):
                     s -= 50  # Has effective AOE bypass
                 elif self._has_aoe_weapon(player):

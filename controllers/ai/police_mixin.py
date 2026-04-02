@@ -275,18 +275,6 @@ class PoliceMixin(_Base):
         return False
     def _cmd_fight_police(self, player, state, available) -> List[str]:
         """反击警察：获取有效AOE武器，然后攻击同地点的警察"""
-        # NEW: Check if any existing weapon can punch through threshold
-        pe = getattr(state, 'police_engine', None)
-        if pe:
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                t = state.get_player(pid)
-                if t and t.is_alive() and pe.is_protected_by_police(t.player_id):
-                    threshold = pe.get_protection_threshold(t.player_id)
-                    for w in getattr(player, 'weapons', []):
-                        if w and self._estimate_talent_adjusted_damage(player, w) > threshold:
-                            return []  # Can already punch through, no need for AOE
         commands = []
         loc = self._get_location_str(player)
         # 找出受保护的目标，确定其护甲属性
