@@ -257,6 +257,25 @@ class BasicAIController(
             self._in_combat = False
             self._combat_target = None
 
+        # ===== 救世主紧急集火 =====
+        if not self._in_combat:
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive() and self._is_in_savior_state(t):
+                    # 有远程武器 → 立刻进入战斗
+                    # 自己也是救世主就算了
+                    has_ranged = not self._is_in_savior_state(player) and any(
+                        self._get_weapon_range(w) == "ranged"
+                        for w in getattr(player, 'weapons', []) if w
+                    )
+                    if has_ranged:
+                        debug_ai_basic(player.name, f"紧急：发现救世主 {t.name}，用远程武器集火")
+                        self._in_combat = True
+                        self._combat_target = t
+                        break
+
         # ===== 战斗状态 =====
         if self._in_combat and self._combat_target:
             if self._should_continue_combat(player, self._combat_target):

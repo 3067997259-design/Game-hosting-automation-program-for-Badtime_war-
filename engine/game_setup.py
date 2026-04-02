@@ -77,7 +77,7 @@ TALENT_TABLE = [
     (7, "死者苏生", Resurrection,
      "/gamerule KeepInventory True"),
     (8, "神代天赋-火萤IV型-完全燃烧", G1MythFire,
-     "常驻+特殊技能：我的世界总是会被烧成一片焦土啊，那就烧吧。不断燃烧，直至灰烬，浴火新生"),
+     "常驻+特殊技能：我的世界总是会被烧成一片焦土啊，那就烧吧。直至灰烬，浴火新生"),
     (9, "神代天赋-请一直注视着我", Hologram,
      "主动1次：崩坏世界的最后一位歌姬，最后一次登上舞台歌唱，最后一次被人注视"),
     (10, "神代天赋-神话之外", Mythland,
@@ -105,7 +105,7 @@ AI_TALENT_PREFERENCE = {
     "political":  [6, 7, 11, 2, 4, 3, 9],
     "assassin":   [5, 1, 10, 8, 9, 2, 4],
     "builder":    [12, 7, 11, 4, 3, 2, 9],
-    "balanced":   [4, 1, 5, 3, 2, 9, 11, 12],
+    "balanced":   [9, 1, 5, 3, 2, 11, 12],
 }
 
 AI_PERSONALITIES = ["balanced", "aggressive", "defensive",
