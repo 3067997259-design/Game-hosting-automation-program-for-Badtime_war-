@@ -545,39 +545,3 @@ class Hexagram(BaseTalent):
                     parts.append(f"🔒 {pname}的{wname}被封印（第{expire}轮解除）")
             return " | ".join(parts)
 
-    # ============================================
-    #  轮次钩子
-    # ============================================
-
-    def on_round_start(self, round_num):
-        """每4轮充能+1，处理元亨利贞免疫到期，处理武器封印到期"""
-        # 充能
-        self.round_counter += 1
-        if self.round_counter >= 4:
-            self.round_counter = 0
-            if self.charges < self.max_charges:
-                self.charges += 1
-
-        # 元亨利贞：R1开始时解除免疫
-        if self.immunity_active:
-            self.immunity_active = False
-            me = self.state.get_player(self.player_id)
-            if me:
-                display.show_info(f"☯️ {me.name} 的「元亨利贞」金身效果消散。")
-
-        # 亢龙有悔：武器封印到期检查
-        expired = []
-        for entry in self.disabled_weapons:
-            pid, wname, expire_round = entry
-            if round_num >= expire_round:
-                expired.append(entry)
-                # 解除封印
-                p = self.state.get_player(pid)
-                if p:
-                    for w in getattr(p, 'weapons', []):
-                        if w and getattr(w, 'name', '') == wname:
-                            w._hexagram_disabled = False
-                            display.show_info(f"🔓 {p.name} 的「{wname}」封印解除！")
-                            break
-        for e in expired:
-            self.disabled_weapons.remove(e)

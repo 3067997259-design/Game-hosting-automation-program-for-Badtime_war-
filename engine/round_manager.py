@@ -293,6 +293,10 @@ class RoundManager:
                 if dead:
                     display.show_virus_deaths(dead)
                     for p in dead:
+                        # 六爻·元亨利贞：免疫病毒致死（最先检查，避免浪费死亡预防能力）
+                        if p.talent and hasattr(p.talent, 'is_immune_to_damage') and p.talent.is_immune_to_damage("病毒"):
+                            display.show_info(f"☯️ {p.name} 的「元亨利贞」免疫了病毒致死判定！")
+                            continue
                         # 天赋死亡检查
                         prevented = False
                         if p.talent:
@@ -310,9 +314,6 @@ class RoundManager:
                                         p.hp = dr.get("new_hp", 0.5)
                                         prevented = True
                                         break
-                        if p.talent and hasattr(p.talent, 'is_immune_to_damage') and p.talent.is_immune_to_damage("病毒"):
-                            display.show_info(f"☯️ {p.name} 的「元亨利贞」免疫了病毒致死判定！")
-                            continue
                         if not prevented:
                             p.hp = 0
                             self.state.markers.on_player_death(p.player_id)

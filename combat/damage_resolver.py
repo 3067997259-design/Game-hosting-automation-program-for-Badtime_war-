@@ -269,12 +269,31 @@ def resolve_damage(attacker, target, weapon, game_state,
 
     # ======== 无武器模式（爱与记忆之诗等外部伤害源） ========
     if weapon is None:
+        # 六爻·元亨利贞：免疫伤害（无武器路径）
+        dmg_attr_str = damage_attribute_override or "普通"
+        if target.talent and hasattr(target.talent, 'is_immune_to_damage'):
+            if target.talent.is_immune_to_damage(dmg_attr_str):
+                result["final_damage"] = 0
+                result["success"] = False
+                result["reason"] = "元亨利贞免疫"
+                result["details"].append(f"☯️ 「元亨利贞」免疫了此次伤害！")
+                return result
         return _resolve_weaponless_damage(
             attacker, target, game_state, result,
             raw_damage_override or 1.0,
-            damage_attribute_override or "普通",
+            dmg_attr_str,
             is_talent_attack=is_talent_attack,
         )
+
+    # ======== 六爻·元亨利贞：免疫伤害（有武器路径） ========
+    if target.talent and hasattr(target.talent, 'is_immune_to_damage'):
+        dmg_attr = damage_attribute_override or (getattr(weapon, 'attribute', '普通') if weapon else '普通')
+        if target.talent.is_immune_to_damage(dmg_attr):
+            result["final_damage"] = 0
+            result["success"] = False
+            result["reason"] = "元亨利贞免疫"
+            result["details"].append(f"☯️ 「元亨利贞」免疫了此次伤害！")
+            return result
 
     # ======== 陶瓷护甲免疫电流武器检查 ========
     # 根据README：陶瓷护甲 免疫电流武器伤害与眩晕
@@ -553,16 +572,6 @@ def resolve_damage(attacker, target, weapon, game_state,
     if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, weapon, is_limited)
-
-    # ---- 六爻·元亨利贞：免疫伤害 ----
-    if target.talent and hasattr(target.talent, 'is_immune_to_damage'):
-        dmg_attr = damage_attribute_override or (getattr(weapon, 'attribute', '普通') if weapon else '普通')
-        if target.talent.is_immune_to_damage(dmg_attr):
-            result["final_damage"] = 0
-            result["success"] = False
-            result["reason"] = "元亨利贞免疫"
-            result["details"].append(f"☯️ 「元亨利贞」免疫了此次伤害！")
-            return result
 
     return result
 
