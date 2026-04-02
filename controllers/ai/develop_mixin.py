@@ -265,10 +265,7 @@ class DevelopMixin(_Base):
         # Phase 2: Get magic AOE (地震 → 地动山摇) at 魔法所
         if not has_magic_aoe:
             if loc == "魔法所" and "interact" in available:
-                if "地震" not in learned:
-                    commands.append("interact 地震")
-                elif "地动山摇" not in learned:
-                    commands.append("interact 地动山摇")
+                commands.append("interact 地震")
                 return commands
             elif "move" in available:
                 commands.append("move 魔法所")
@@ -287,7 +284,7 @@ class DevelopMixin(_Base):
         if not has_tech_aoe:
             if loc == "军事基地" and "interact" in available:
                 if not has_pass:
-                    commands.append("interact 办理通行证")
+                    commands.append("interact 通行证")
                 else:
                     commands.append("interact 电磁步枪")
                 return commands
@@ -298,7 +295,10 @@ class DevelopMixin(_Base):
                         if "interact" in available:
                             commands.append("interact 凭证")
                             return commands
-                    commands.append("move 商店" if loc != "商店" else "interact 打工")
+                    if loc == "商店" and "interact" in available:
+                        commands.append("interact 打工")
+                    else:
+                        commands.append("move 商店")
                     return commands
                 commands.append("move 军事基地")
                 return commands
@@ -354,7 +354,7 @@ class DevelopMixin(_Base):
             hologram_cmds = self._cmd_develop_hologram(player, state, available)
             if hologram_cmds:
                 return hologram_cmds
-    # Fall through to general develop if hologram path returns empty
+        # Fall through to general develop if hologram path returns empty
         # Political 特殊处理：基本需求满足后，跳过通用发育，直奔警察局
         if (self.personality == "political"
             and self._political_fallback_level == "none"

@@ -169,16 +169,10 @@ class HelpersMixin(_Base):
         for w in getattr(player, 'weapons', []):
             if w and w.name in ("地震", "地动山摇", "电磁步枪"):
                 aoe_attrs.add(self._get_weapon_attr(w))
-        # Check learned spells (地震/地动山摇 are learned spells, not in weapons list)
+        # Check learned spells (地震/地动山摇 are learned spells, not always in weapons list)
         learned = getattr(player, 'learned_spells', set())
         if "地震" in learned or "地动山摇" in learned:
             aoe_attrs.add(Attribute.MAGIC)
-        if "电磁步枪" in learned:
-            aoe_attrs.add(Attribute.TECH)
-        # Also check weapons list for 电磁步枪
-        for w in getattr(player, 'weapons', []):
-            if w and w.name == "电磁步枪":
-                aoe_attrs.add(Attribute.TECH)
         return Attribute.MAGIC in aoe_attrs and Attribute.TECH in aoe_attrs
     # ════════════════════════════════════════════════════════
     #  状态检查：隐身 / 病毒免疫 / 法术
