@@ -33,7 +33,7 @@ class CombatMixin(_Base):
         pe = getattr(state, 'police_engine', None)
         if pe and pe.is_protected_by_police(target.player_id):
             threshold = pe.get_protection_threshold(target.player_id)
-            best_dmg = self._get_weapon_damage(weapon)
+            best_dmg = self._estimate_talent_adjusted_damage(player, weapon)
             if best_dmg > threshold:
                 pass  # 伤害超过阈值，可以用非AOE武器打
             elif self._get_weapon_range(weapon) != "area":
@@ -442,20 +442,27 @@ class CombatMixin(_Base):
                 if markers_obj and hasattr(markers_obj, 'is_visible_to'):
                     if not markers_obj.is_visible_to(t.player_id, player.player_id, player.has_detection):
                         s -= 300  # 看不到的目标大幅降分
-            # 警察保护（属性感知）
+            # 警察保护（阈值感知）
             pe = getattr(state, 'police_engine', None)
             if pe and pe.is_protected_by_police(t.player_id):
-                if not self._has_aoe_weapon(player):
-                    s -= 500  # 完全没有AOE
-                elif not self._has_effective_aoe_against(player, t):
-                    s -= 300  # 有AOE但打不穿护甲，降分但不完全放弃
+                threshold = pe.get_protection_threshold(t.player_id)
+                # Check if any weapon can punch through the threshold
+                can_punch_through = False
+                for w in getattr(player, 'weapons', []):
+                    if w and self._estimate_talent_adjusted_damage(player, w) > threshold:
+                        can_punch_through = True
+                        break
+                if can_punch_through:
+                    s -= 30  # Small penalty (still need to deal with absorbed damage)
+                    # 能穿透保护的队长是高价值目标：击杀队长可瓦解警察体系
+                    if getattr(t, 'is_captain', False):
+                        s += 80
+                elif self._has_aoe_weapon(player) and self._has_effective_aoe_against(player, t):
+                    s -= 50  # Has effective AOE bypass
+                elif self._has_aoe_weapon(player):
+                    s -= 300  # Has AOE but can't counter armor
                 else:
-                    s -= 50   # 有有效AOE，小幅降分（AOE伤害通常低于近战）
-            elif getattr(t, 'is_captain', False):
-                if not self._has_aoe_weapon(player) and self._captain_has_police_escort(t, state):
-                    s -= 500
-                elif self._has_aoe_weapon(player) and not self._has_effective_aoe_against(player, t):
-                    s -= 200  # 队长暂时不受保护但AOE打不穿，中等降分
+                    s -= 500  # No way to deal damage
             # 全场最强玩家额外加分
             if self._estimate_power(t) >= max_power:
                 s += 40

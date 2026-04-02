@@ -437,6 +437,12 @@ class PoliceMixin(_Base):
         for t in protected_targets:
             if self._has_effective_aoe_against(player, t):
                 return False  # 至少有一个目标能打穿
+        # AOE all ineffective, but check threshold punch-through
+        for t in protected_targets:
+            threshold = pe.get_protection_threshold(t.player_id)
+            for w in getattr(player, 'weapons', []):
+                if w and self._estimate_talent_adjusted_damage(player, w) > threshold:
+                    return False
         return True  # 有AOE但全部无效
     def _get_aoe_weapon_name(self, player) -> Optional[str]:
         for w in getattr(player, 'weapons', []):
