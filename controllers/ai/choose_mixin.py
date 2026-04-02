@@ -286,6 +286,26 @@ class ChooseMixin(_Base):
             return options[0]
         if situation == "hexagram_pick_opponent":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+        if situation == "hexagram_steal_target":
+        # 飞龙在天: pick target with best outer armor
+            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+
+        if situation == "hexagram_disarm_target":
+            # 亢龙有悔: pick target with fewest weapons (most impactful to disable)
+            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+
+        if situation == "hexagram_free_target":
+            # 涟漪自由选择: pick highest threat target
+            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+
+        if situation == "hexagram_steal_pick":
+            # 飞龙在天: pick which armor to steal - prefer AT力场 > 陶瓷 > 魔法护盾 > 盾牌
+            armor_priority = ["AT力场", "陶瓷护甲", "魔法护盾", "盾牌", "晶化皮肤"]
+            for preferred in armor_priority:
+                for opt in options:
+                    if preferred in opt:
+                        return opt
+            return options[0]
         # ---- 涟漪 ----
         if situation == "ripple_choose_method":
             # 单人模式下方式二（献诗）收益更高
@@ -341,8 +361,25 @@ class ChooseMixin(_Base):
         if situation == "ripple_destiny_damage":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
         if situation == "ripple_hexagram_free_choice":
+            if self._player and self._game_state:
+                scores = self._score_hexagram_effects(self._player, self._game_state)
+                # Map display names to effect keys
+                best_key = max(scores, key=scores.get)
+                name_map = {
+                    "both_scissors": "潜龙勿用",
+                    "both_rock": "飞龙在天",
+                    "both_paper": "元亨利贞",
+                    "scissors_rock": "亢龙有悔",
+                    "scissors_paper": "或跃在渊",
+                    "rock_paper": "群龙无首",
+                }
+                best_name = name_map.get(best_key, "")
+                for opt in options:
+                    if best_name in opt:
+                        return opt
+            # Fallback to thunder
             for opt in options:
-                if "天雷" in opt:
+                if "天雷" in opt or "潜龙" in opt:
                     return opt
             return options[0]
         # ---- 献予律法之诗：额外行动 ----
@@ -402,96 +439,94 @@ class ChooseMixin(_Base):
         return False
 
     def _score_hexagram_effects(self, player, state) -> dict:
-        """为六爻6种效果评分（发动者视角），返回 {effect_key: score}"""
         scores = {}
 
-        # === thunder (双剪刀：天雷1点无视克制+无视保护) ===
-        # 有可击杀目标时价值极高，否则中等
+        # both_scissors (潜龙勿用: 天雷 1点无视克制 + 破1甲)
+        # High value when target has low HP or important outer armor
         best_kill = False
+        best_armor_break = False
         for pid in state.player_order:
             if pid == player.player_id:
                 continue
             t = state.get_player(pid)
             if t and t.is_alive():
                 outer = self._count_outer_armor(t)
-                inner = self._count_inner_armor(t)
-                if outer == 0 and inner == 0 and t.hp <= 1.0:
+                if t.hp <= 1.0 and outer == 0:
                     best_kill = True
-                    break
-        scores["thunder"] = 10 if best_kill else 5
+                if outer > 0:
+                    best_armor_break = True
+        scores["both_scissors"] = 10 if best_kill else (7 if best_armor_break else 5)
 
-        # === weapon (双石头：获得任意武器) ===
-        real_weapons = [w for w in getattr(player, 'weapons', [])
-                        if w and getattr(w, 'name', '') != "拳击"]
-        weapon_attrs = set(self._get_weapon_attr(w) for w in real_weapons)
-        if len(real_weapons) == 0:
-            scores["weapon"] = 9
-        elif len(weapon_attrs) < 2:
-            scores["weapon"] = 7  # 缺属性多样性
-        elif len(real_weapons) < 2:
-            scores["weapon"] = 6
+        # both_rock (飞龙在天: 偷甲)
+        # High value when self has few armor and enemies have good armor
+        my_outer = self._count_outer_armor(player)
+        enemy_has_armor = any(
+            self._count_outer_armor(state.get_player(pid)) > 0
+            for pid in state.player_order
+            if pid != player.player_id and state.get_player(pid) and state.get_player(pid).is_alive()
+        )
+        if my_outer == 0 and enemy_has_armor:
+            scores["both_rock"] = 9
+        elif my_outer < 2 and enemy_has_armor:
+            scores["both_rock"] = 7
+        elif enemy_has_armor:
+            scores["both_rock"] = 5
         else:
-            scores["weapon"] = 2  # 已有足够武器
+            scores["both_rock"] = 2
 
-        # === armor (双布：获得任意护甲) ===
-        outer = self._count_outer_armor(player)
-        inner = self._count_inner_armor(player)
-        if outer == 0:
-            scores["armor"] = 8
-        elif outer < 2:
-            scores["armor"] = 6
-        elif inner == 0:
-            scores["armor"] = 5
+        # both_paper (元亨利贞: 金身)
+        # High value when HP is low or being attacked
+        hp = player.hp
+        is_locked = len(self._been_attacked_by) > 0 if hasattr(self, '_been_attacked_by') else False
+        if hp <= 1.0:
+            scores["both_paper"] = 10
+        elif hp <= 1.5 and is_locked:
+            scores["both_paper"] = 8
+        elif is_locked:
+            scores["both_paper"] = 6
         else:
-            scores["armor"] = 1  # 护甲已满
+            scores["both_paper"] = 3
 
-        # === charge (剪刀vs石头：蓄力所有武器/获得蓄力武器) ===
-        uncharged = [w for w in getattr(player, 'weapons', [])
-                    if w and getattr(w, 'requires_charge', False)
-                    and not getattr(w, 'is_charged', False)]
-        has_chargeable = any(w for w in getattr(player, 'weapons', [])
-                            if w and getattr(w, 'requires_charge', False))
-        if uncharged:
-            scores["charge"] = 7  # 有未蓄力武器
-        elif not has_chargeable:
-            scores["charge"] = 5  # 没有可蓄力武器，会获得一把
-        else:
-            scores["charge"] = 1  # 全部已蓄力
+        # scissors_rock (亢龙有悔: 禁武)
+        # High value against enemies with strong weapons (especially firefly, aggressive)
+        best_disarm = 0
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            t = state.get_player(pid)
+            if t and t.is_alive():
+                real_weapons = [w for w in getattr(t, 'weapons', [])
+                            if w and getattr(w, 'name', '') != "拳击"
+                            and not getattr(w, '_hexagram_disabled', False)]
+                if len(real_weapons) == 1:
+                    best_disarm = max(best_disarm, 9)  # Only 1 weapon = devastating
+                elif len(real_weapons) > 1:
+                    best_disarm = max(best_disarm, 6)
+        scores["scissors_rock"] = best_disarm if best_disarm > 0 else 3
 
-        # === extra_turn (剪刀vs布：2个额外行动回合) ===
-        # 几乎总是高价值，战斗中或发育未完成时更高
-        # 注意：从 state.markers 判断 player 的战斗状态，而非 self._in_combat
-        # （对手调用时 self 是对手AI，self._in_combat 不代表 caster 的状态）
-        caster_in_combat = False
-        markers_obj = getattr(state, 'markers', None)
-        if markers_obj and hasattr(markers_obj, 'has_relation'):
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                t = state.get_player(pid)
-                if t and t.is_alive() and markers_obj.has_relation(
-                        player.player_id, 'ENGAGED_WITH', pid):
-                    caster_in_combat = True
-                    break
-        if caster_in_combat:
-            scores["extra_turn"] = 9
+        # scissors_paper (或跃在渊: 2 extra actions)
+        # Always good, especially in combat
+        in_combat = len(self._been_attacked_by) > 0 if hasattr(self, '_been_attacked_by') else False
+        if in_combat:
+            scores["scissors_paper"] = 9
         elif not self._is_development_complete(player, state):
-            scores["extra_turn"] = 8
+            scores["scissors_paper"] = 8
         else:
-            scores["extra_turn"] = 6
+            scores["scissors_paper"] = 6
 
-        # === stealth (石头vs布：清锁定+隐身) ===
+        # rock_paper (群龙无首: stealth + teleport target)
+        # High value when locked/detected, or to displace a threatening enemy
         markers = getattr(state, 'markers', None)
         is_locked = False
         if markers:
             locked_by = markers.get_related(player.player_id, "LOCKED_BY")
             is_locked = len(locked_by) > 0
         if is_locked:
-            scores["stealth"] = 9
-        elif not self._has_stealth(player):
-            scores["stealth"] = 4
+            scores["rock_paper"] = 9
+        elif not getattr(player, 'is_invisible', False):
+            scores["rock_paper"] = 5
         else:
-            scores["stealth"] = 1  # 已有隐身
+            scores["rock_paper"] = 2
 
         return scores
 
