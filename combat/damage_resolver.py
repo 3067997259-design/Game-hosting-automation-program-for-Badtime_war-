@@ -554,6 +554,16 @@ def resolve_damage(attacker, target, weapon, game_state,
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, weapon, is_limited)
 
+    # ---- 六爻·元亨利贞：免疫伤害 ----
+    if target.talent and hasattr(target.talent, 'is_immune_to_damage'):
+        dmg_attr = damage_attribute_override or (getattr(weapon, 'attribute', '普通') if weapon else '普通')
+        if target.talent.is_immune_to_damage(dmg_attr):
+            result["final_damage"] = 0
+            result["success"] = False
+            result["reason"] = "元亨利贞免疫"
+            result["details"].append(f"☯️ 「元亨利贞」免疫了此次伤害！")
+            return result
+
     return result
 
 
@@ -811,7 +821,7 @@ def _talent_death_check(target, attacker, game_state):
 
 def _is_limited_use_talent(talent):
     """判断天赋是否属于「限定使用次数」（README 12 定义）
-    
+
     仅覆盖会发起攻击型天赋动作的类型：
       - uses_remaining: 一刀缭断、天星等
       - charges + max_charges: 六爻（充能制）

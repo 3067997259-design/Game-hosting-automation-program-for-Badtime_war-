@@ -357,8 +357,9 @@ def validate_attack(player, parsed, game_state):
         # L346-347（警察目标分支）
         if weapon.requires_charge and getattr(weapon, 'charge_mandatory', True) and not weapon.is_charged:
             return False, f"「{weapon_name}」需要先蓄力！"
-        # 警察只能被AOE攻击，但这里不验证具体武器，由警察引擎处理
-        # 允许通过验证，具体AOE检查在警察引擎中进行
+        # 六爻封印检查
+        if getattr(weapon, '_hexagram_disabled', False):
+            return False, f"「{weapon_name}」被六爻封印，暂时无法使用！"
         return True, ""
 
     # 原有玩家目标验证
@@ -376,6 +377,9 @@ def validate_attack(player, parsed, game_state):
         return False, f"你没有武器「{weapon_name}」。你持有：{available}"
     if weapon.requires_charge and getattr(weapon, 'charge_mandatory', True) and not weapon.is_charged:
         return False, f"「{weapon_name}」需要先蓄力！"
+    # 六爻封印检查
+    if getattr(weapon, '_hexagram_disabled', False):
+        return False, f"「{weapon_name}」被六爻封印，暂时无法使用！"
 
     # 愿负世：救世主状态禁用远程
     if weapon.weapon_range == WeaponRange.RANGED:

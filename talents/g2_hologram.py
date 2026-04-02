@@ -284,6 +284,9 @@ class Hologram(BaseTalent):
                     default="  🎵 {count}名玩家被最后一曲吸引到了舞台！"
                 ).format(count=pulled_count)
             )
+        if target.talent and hasattr(target.talent, 'is_immune_to_debuff') and target.talent.is_immune_to_debuff("pull"):
+            display.show_info(f"☯️ {target.name} 的「元亨利贞」免疫了全息影像的拉拽！")
+            continue
 
         return lines
 

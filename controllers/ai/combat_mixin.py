@@ -595,6 +595,8 @@ class CombatMixin(_Base):
             return None
         # 过滤掉 None，让所有武器（含拳击）参与评分，由 weapon_score 决定优劣
         pool = [w for w in weapons if w]
+        pool = [w for w in pool if not getattr(w, '_hexagram_disabled', False)]  # 新增
+
         # 救世主状态：过滤掉远程武器（validator 会拒绝，避免浪费重试）
         if self._is_in_savior_state(player):
             melee_and_area = [w for w in pool if self._get_weapon_range(w) != "ranged"]
