@@ -139,12 +139,16 @@ class ChooseMixin(_Base):
                     if "不发动" in opt or "正常" in opt:
                         return opt
                 return options[-1]
-            # 请一直，注视着我（全息影像）：优化后的三条件发动逻辑
+            # 请一直，注视着我（全息影像）：保守发动逻辑
             if "注视" in talent_name:
                 should_activate = False
                 if self._player and self._game_state:
                     my_loc = self._get_location_str(self._player)
                     pc = self._police_cache or {}
+                    outer = self._count_outer_armor(self._player)
+                    inner = self._count_inner_armor(self._player)
+                    total_armor = outer + inner
+
                     # --- 辅助：计算同地点的敌人+警察总数 ---
                     nearby_players = self._get_same_location_targets(
                         self._player, self._game_state)
@@ -155,18 +159,20 @@ class ChooseMixin(_Base):
                                 and unit["location"] == my_loc):
                             nearby_police_count += 1
                     nearby_total = len(nearby_players) + nearby_police_count
-                    # --- 条件1：发育完成 且 同地点敌人+警察 >= 1 ---
-                    # (D6拉人机制会拉更多人过来，1个就够了)
+
+                    has_two_aoe = self._count_distinct_aoe_attrs(self._player) >= 2
+
+                    # --- 条件1（主动进攻）：发育完成 + 至少2件护甲 + 同地点敌人>=1 ---
                     if (not should_activate
-                            and self._is_development_complete(
-                                self._player, self._game_state)
+                            and self._is_development_complete(self._player, self._game_state)
+                            and total_armor >= 2
                             and nearby_total >= 1):
                         should_activate = True
-                    # --- 条件2：正在交战 且 本轮被攻击过
-                    #且 攻击者与自己在同一地点 ---
-                    if not should_activate and self._in_combat and self._been_attacked_by:
+
+                    # --- 条件2（保命逃跑）：HP <= 1.0 且被攻击过 且攻击者在同地点 ---
+                    # 保命用：交技能震荡攻击者，额外行动回合用来逃跑
+                    if not should_activate and self._player.hp <= 1.0 and self._been_attacked_by:
                         for attacker_name in self._been_attacked_by:
-                            # 通过名字找到攻击者玩家对象
                             for pid in self._game_state.player_order:
                                 atk = self._game_state.get_player(pid)
                                 if (atk and atk.is_alive()
@@ -176,33 +182,17 @@ class ChooseMixin(_Base):
                                     break
                             if should_activate:
                                 break
-                    # --- 条件3：有AOE武器 且 自己是执法对象
-                    #            且 存在不在自己位置的存活警察 ---
-                    if not should_activate and self._has_aoe_weapon(self._player):
-                        is_enforcement_target = (
-                            pc.get("report_target") == self._my_id
-                            and pc.get("report_phase", "idle")
-                                in ("reported", "assembled", "dispatched")
-                        )
-                        if is_enforcement_target:
-                            for unit in pc.get("units", []):
-                                if (unit.get("is_alive")
-                                        and unit.get("location")
-                                        and unit["location"] != my_loc):
-                                    should_activate = True
-                                    break
 
-                    # --- 条件4（防御型）：队长在任 + 自己有两种AOE武器 ---
-                    # 警察体系一成型就容易被追杀，提前发动
-                    if not should_activate:
-                        has_captain = bool(pc.get("captain_id"))
-                        if has_captain and self._has_two_aoe_types(self._player):
+                    # --- 条件3（反警察）：有2种AOE + 队长在任（3个警察已召唤） ---
+                    if not should_activate and has_two_aoe:
+                        has_captain = pc.get("captain_id") is not None
+                        if has_captain:
                             should_activate = True
+
                 if should_activate:
                     for opt in options:
                         if "发动" in opt:
                             return opt
-
                 # 不满足任何条件 → 不发动
                 for opt in options:
                     if "不发动" in opt or "正常" in opt:

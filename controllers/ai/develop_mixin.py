@@ -43,11 +43,13 @@ class DevelopMixin(_Base):
             )
             has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
             return has_sharpened_knife and has_gauss
-        # 全息影像：天赋感知的发育标准 — 需要两种属性的AOE武器
-        if self._has_hologram_talent(player):
-            has_two_aoe = self._has_two_aoe_types(player)
-            has_outer = self._count_outer_armor(player) >= 1
-            return has_two_aoe and has_outer
+
+        # 全息影像（请一直注视着我）：需要2种AOE + 至少2件护甲
+        if (player.talent and hasattr(player.talent, 'name')
+                and player.talent.name == "请一直，注视着我"):
+            has_two_aoe_types = self._count_distinct_aoe_attrs(player) >= 2
+            has_armor = self._count_outer_armor(player) >= 2
+            return has_two_aoe_types and has_armor
 
         if self.personality == "aggressive":
             has_armor = self._count_outer_armor(player) >= 2
@@ -241,86 +243,70 @@ class DevelopMixin(_Base):
         return commands
 
     def _cmd_develop_hologram(self, player, state, available: List[str]) -> List[str]:
-        """全息影像专用发育路径：优先获取两种属性的AOE武器"""
+        """全息影像专用发育路径：优先拿2种AOE武器 + 护甲"""
         commands = []
         loc = self._get_location_str(player)
-        learned = self._get_learned_spells(player)
-        has_pass = getattr(player, 'has_military_pass', False)
         outer = self._count_outer_armor(player)
         vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+        learned = self._get_learned_spells(player)
 
+        # Check what AOE types we have
         has_magic_aoe = "地震" in learned or "地动山摇" in learned
         has_tech_aoe = any(w.name == "电磁步枪" for w in player.weapons if w)
 
-        # Phase 1: Get at least one outer armor + knife from home
-        if outer == 0 and (loc == "home" or self._is_at_home(player)):
-            if "interact" in available:
-                if not self._has_armor_by_name(player, "盾牌"):
-                    commands.append("interact 盾牌")
-                    return commands
+        if "interact" in available:
+            if loc == "home" or self._is_at_home(player):
                 if vouchers < 1:
                     commands.append("interact 凭证")
-                    return commands
-
-        # Phase 2: Get magic AOE (地震 → 地动山摇) at 魔法所
-        if not has_magic_aoe:
-            if loc == "魔法所" and "interact" in available:
-                commands.append("interact 地震")
-                return commands
-            elif "move" in available:
-                commands.append("move 魔法所")
-                return commands
-
-        # Phase 2.5: If we have 地震 but not 地动山摇, upgrade
-        if "地震" in learned and "地动山摇" not in learned:
-            if loc == "魔法所" and "interact" in available:
-                commands.append("interact 地动山摇")
-                return commands
-            elif "move" in available:
-                commands.append("move 魔法所")
-                return commands
-
-        # Phase 3: Get tech AOE (电磁步枪) at 军事基地
-        if not has_tech_aoe:
-            if loc == "军事基地" and "interact" in available:
+                if outer < 1 and not self._has_armor_by_name(player, "盾牌"):
+                    commands.append("interact 盾牌")
+            elif loc == "魔法所":
+                # Priority: 地震 → 地动山摇 → 魔法护盾
+                if "地震" not in learned:
+                    commands.append("interact 地震")
+                elif "地动山摇" not in learned:
+                    commands.append("interact 地动山摇")
+                if "魔法护盾" not in learned and outer < 2:
+                    commands.append("interact 魔法护盾")
+            elif loc == "军事基地":
                 if not has_pass:
                     commands.append("interact 通行证")
-                else:
+                elif not has_tech_aoe:
                     commands.append("interact 电磁步枪")
-                return commands
-            elif "move" in available:
-                # Need voucher for military pass
-                if vouchers < 1 and not has_pass:
-                    if loc == "home" or self._is_at_home(player):
-                        if "interact" in available:
-                            commands.append("interact 凭证")
-                            return commands
-                    if loc == "商店" and "interact" in available:
-                        commands.append("interact 打工")
-                    else:
-                        commands.append("move 商店")
-                    return commands
-                commands.append("move 军事基地")
-                return commands
+                if outer < 2 and not self._has_armor_by_name(player, "AT力场"):
+                    commands.append("interact AT力场")
+            elif loc == "商店":
+                if vouchers >= 1 and outer < 2 and not self._has_armor_by_name(player, "陶瓷护甲"):
+                    commands.append("interact 陶瓷护甲")
+                if vouchers < 1:
+                    commands.append("interact 打工")
 
-        # Phase 4: Get outer armor if missing
-        if outer == 0:
-            if loc == "home" or self._is_at_home(player):
-                if "interact" in available:
-                    commands.append("interact 盾牌")
-                    return commands
-            elif "move" in available:
-                commands.append(f"move home_{player.player_id}")
-                return commands
-
-        # Phase 5: Charge 电磁步枪 if not charged
-        if has_tech_aoe and "special" in available:
+        # Charge EMR if needed
+        if "special" in available and not commands:
             emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
-            if emr and getattr(emr, 'requires_charge', False) and not getattr(emr, 'is_charged', False):
+            if emr and not getattr(emr, 'is_charged', False):
                 commands.append("special 蓄力电磁步枪")
-                return commands
 
-        # Development complete, fall through to general logic
+        # Movement priority: 魔法所 first (free AOE), then 军事基地 (tech AOE)
+        if "move" in available and not commands:
+            if not has_magic_aoe:
+                if loc != "魔法所":
+                    commands.append("move 魔法所")
+            elif not has_tech_aoe:
+                if loc != "军事基地":
+                    commands.append("move 军事基地")
+            elif outer < 2:
+                # Have both AOE types, need more armor
+                next_loc = self._pick_ideal_destination(player, state)
+                if next_loc and next_loc != loc:
+                    commands.append(f"move {next_loc}")
+            else:
+                # Development complete, go find enemies
+                enemy_loc = self._find_nearest_enemy_location(player, state)
+                if enemy_loc and enemy_loc != loc:
+                    commands.append(f"move {enemy_loc}")
+
         return commands
     # ════════════════════════════════════════════════════════
     #  通用发育命令
@@ -349,11 +335,10 @@ class DevelopMixin(_Base):
         # 火萤IV型：专用发育路径
         if self._has_firefly_talent(player):
             return self._cmd_develop_firefly(player, state, available)
-        # 全息影像：专用发育路径（AOE优先）
-        if self._has_hologram_talent(player):
-            hologram_cmds = self._cmd_develop_hologram(player, state, available)
-            if hologram_cmds:
-                return hologram_cmds
+        # 全息影像：AOE优先发育路径
+        if (player.talent and hasattr(player.talent, 'name')
+                and player.talent.name == "请一直，注视着我"):
+            return self._cmd_develop_hologram(player, state, available)
         # Fall through to general develop if hologram path returns empty
         # Political 特殊处理：基本需求满足后，跳过通用发育，直奔警察局
         if (self.personality == "political"

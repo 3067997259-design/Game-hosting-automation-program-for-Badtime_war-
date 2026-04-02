@@ -174,6 +174,20 @@ class HelpersMixin(_Base):
         if "地震" in learned or "地动山摇" in learned:
             aoe_attrs.add(Attribute.MAGIC)
         return Attribute.MAGIC in aoe_attrs and Attribute.TECH in aoe_attrs
+    def _count_distinct_aoe_attrs(self, player) -> int:
+        """Count distinct attribute types among player's AOE weapons"""
+        from utils.attribute import Attribute
+        attrs = set()
+        aoe_names = self._get_all_aoe_weapon_names(player)
+        for aoe_name in aoe_names:
+            aoe_weapon = next((w for w in getattr(player, 'weapons', [])
+                            if w and w.name == aoe_name), None)
+            if not aoe_weapon:
+                from models.equipment import make_weapon
+                aoe_weapon = make_weapon(aoe_name)
+            if aoe_weapon:
+                attrs.add(self._get_weapon_attr(aoe_weapon))
+        return len(attrs)
     # ════════════════════════════════════════════════════════
     #  状态检查：隐身 / 病毒免疫 / 法术
     # ════════════════════════════════════════════════════════

@@ -111,6 +111,27 @@ class CombatMixin(_Base):
             debug_ai_attack_generation(player.name,
                 weapon.name, f"所有武器被目标 {target.name} 护甲克制，跳过攻击")
             return commands
+        # Check if the SELECTED weapon specifically is countered
+        if weapon:
+            target_armor_attrs = self._get_outer_armor_attr(target)
+            if not target_armor_attrs:
+                target_armor_attrs = self._get_inner_armor_attr(target)
+            if target_armor_attrs:
+                w_attr = self._get_weapon_attr(weapon)
+                effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
+                if not any(a in effective_set for a in target_armor_attrs):
+                    # Selected weapon is countered - try to pick a different one
+                    # Re-run weapon selection excluding this weapon
+                    alt_weapons = [w for w in getattr(player, 'weapons', [])
+                                if w and w.name != weapon.name]
+                    if alt_weapons:
+                        # Check if any alternative can hit
+                        for alt_w in alt_weapons:
+                            alt_attr = self._get_weapon_attr(alt_w)
+                            alt_effective = EFFECTIVE_AGAINST.get(alt_attr, set())
+                            if any(a in alt_effective for a in target_armor_attrs):
+                                weapon = alt_w
+                                break
         cmds = self._build_attack_cmd(player, target, weapon, state, available)
         commands.extend(cmds)
         debug_ai_attack_generation(player.name,
@@ -205,13 +226,48 @@ class CombatMixin(_Base):
             if "attack" in available:
                 same_loc_targets = self._get_same_location_targets(player, state)
                 if same_loc_targets:
+                    # Check if this AOE weapon is countered by target's armor
+                    target_armor_attrs = self._get_outer_armor_attr(target)
+                    if not target_armor_attrs:
+                        target_armor_attrs = self._get_inner_armor_attr(target)
+                    if target_armor_attrs:
+                        w_attr = self._get_weapon_attr(weapon)
+                        effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
+                        if not any(a in effective_set for a in target_armor_attrs):
+                            # This AOE weapon is countered - try to find a better one
+                            aoe_names = self._get_all_aoe_weapon_names(player)
+                            better_aoe = None
+                            for aoe_name in aoe_names:
+                                if aoe_name == weapon.name:
+                                    continue
+                                aoe_w = next((w for w in getattr(player, 'weapons', [])
+                                            if w and w.name == aoe_name), None)
+                                if not aoe_w:
+                                    from models.equipment import make_weapon
+                                    aoe_w = make_weapon(aoe_name)
+                                if not aoe_w:
+                                    continue
+                                if (getattr(aoe_w, 'requires_charge', False)
+                                        and getattr(aoe_w, 'charge_mandatory', True)
+                                        and not getattr(aoe_w, 'is_charged', False)):
+                                    continue
+                                aoe_attr = self._get_weapon_attr(aoe_w)
+                                aoe_effective = EFFECTIVE_AGAINST.get(aoe_attr, set())
+                                if any(a in aoe_effective for a in target_armor_attrs):
+                                    better_aoe = aoe_w
+                                    break
+                            if better_aoe:
+                                weapon = better_aoe
+                            else:
+                                # No effective AOE - skip AOE attack, let upper logic handle
+                                # (don't waste the turn on a countered AOE)
+                                return commands
                     layer, attr = self._pick_attack_layer(player, target, weapon)
                     if layer and attr:
                         commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
                     else:
                         commands.append(f"attack {target.name} {weapon.name}")
                 else:
-                    # area 武器 move 兜底：先移动到目标位置
                     target_loc = self._get_location_str(target)
                     if target_loc and "move" in available:
                         commands.append(f"move {target_loc}")

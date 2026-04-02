@@ -401,6 +401,14 @@ class Hologram(BaseTalent):
                 result.append(p)
         return result
 
+    def on_d4_bonus(self, player):
+        """全息影像存在期间，释放者D4点数+1"""
+        if not self.active:
+            return 0
+        if player.player_id == self.player_id:
+            return 1
+        return 0
+
     # ============================================
     #  玩家移动进入影像区域（由move调用）
     # ============================================
