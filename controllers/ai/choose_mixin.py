@@ -10,9 +10,9 @@ if TYPE_CHECKING:
 _Base = BasicAIController if TYPE_CHECKING else object
 
 HEXAGRAM_OUTCOME_MAP = {
-    "石头": ["weapon", "charge", "stealth"],
-    "剪刀": ["charge", "thunder", "extra_turn"],
-    "布":   ["stealth", "extra_turn", "armor"],
+    "石头": ["both_rock", "scissors_rock", "rock_paper"],
+    "剪刀": ["scissors_rock", "both_scissors", "scissors_paper"],
+    "布":   ["rock_paper", "scissors_paper", "both_paper"],
 }
 
 
@@ -287,7 +287,7 @@ class ChooseMixin(_Base):
         if situation == "hexagram_pick_opponent":
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
         if situation == "hexagram_steal_target":
-        # 飞龙在天: pick target with best outer armor
+            # 飞龙在天: pick target with best outer armor
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
 
         if situation == "hexagram_disarm_target":

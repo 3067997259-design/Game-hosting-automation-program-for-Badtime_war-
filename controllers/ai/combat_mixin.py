@@ -258,8 +258,6 @@ class CombatMixin(_Base):
                                     break
                             if better_aoe:
                                 weapon = better_aoe
-                            if better_aoe:
-                                weapon = better_aoe
                             # If no effective AOE found, proceed with original weapon
                             # (still deals base damage, just not type-effective)
                     layer, attr = self._pick_attack_layer(player, target, weapon)
