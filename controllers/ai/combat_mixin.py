@@ -310,9 +310,10 @@ class CombatMixin(_Base):
         return commands
     def _all_weapons_countered(self, player, target) -> bool:
         """检查玩家所有武器是否都被目标护甲克制（检查所有层）"""
-        weapons = getattr(player, 'weapons', [])
+        weapons = [w for w in getattr(player, 'weapons', [])
+                   if w and not getattr(w, '_hexagram_disabled', False)]
         if not weapons:
-            return True  # 没武器视为被克制
+            return True  # 没武器（或全被封印）视为被克制
         target_outer_attrs = self._get_outer_armor_attr(target)
         target_inner_attrs = self._get_inner_armor_attr(target)
         if not target_outer_attrs and not target_inner_attrs:

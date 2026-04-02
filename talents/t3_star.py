@@ -101,12 +101,16 @@ class Star(BaseTalent):
 
             # 石化（存活单位）
             if not result.get("killed", False):
-                self.state.markers.add(t.player_id, "PETRIFIED")
-                t.is_petrified = True
-                petrify_msg = prompt_manager.get_prompt("talent", "t3star.petrify",
+                # 六爻·元亨利贞：免疫石化
+                if t.talent and hasattr(t.talent, 'is_immune_to_debuff') and t.talent.is_immune_to_debuff("petrify"):
+                    lines.append(f"   ☯️ {t.name} 的「元亨利贞」免疫了石化！")
+                else:
+                    self.state.markers.add(t.player_id, "PETRIFIED")
+                    t.is_petrified = True
+                    petrify_msg = prompt_manager.get_prompt("talent", "t3star.petrify",
                                                        default="   \u2192 {target_name} 进入石化状态 \U0001f5ff",
                                                        target_name=t.name)
-                lines.append(petrify_msg)
+                    lines.append(petrify_msg)
 
             # 击杀 / 眩晕
             if result.get("killed", False):
