@@ -65,6 +65,13 @@ class HelpersMixin(_Base):
     def _target_is_firefly(self, player) -> bool:
         """检查目标是否持有火萤IV型天赋"""
         return self._has_firefly_talent(player)
+
+    def _has_hologram_talent(self, player) -> bool:
+        """检查玩家是否持有全息影像天赋"""
+        talent = getattr(player, 'talent', None)
+        if talent and hasattr(talent, 'name') and talent.name == "请一直，注视着我":
+            return True
+        return False
     # ════════════════════════════════════════════════════════
     #  装备查询：护甲
     # ════════════════════════════════════════════════════════
@@ -154,6 +161,25 @@ class HelpersMixin(_Base):
             if self._get_weapon_range(w) != "melee":
                 return False
         return True
+    def _has_two_aoe_types(self, player) -> bool:
+        """检查玩家是否拥有两种不同属性的AOE武器（魔法+科技）"""
+        from utils.attribute import Attribute
+        aoe_attrs = set()
+        # Check weapon list
+        for w in getattr(player, 'weapons', []):
+            if w and w.name in ("地震", "地动山摇", "电磁步枪"):
+                aoe_attrs.add(self._get_weapon_attr(w))
+        # Check learned spells (地震/地动山摇 are learned spells, not in weapons list)
+        learned = getattr(player, 'learned_spells', set())
+        if "地震" in learned or "地动山摇" in learned:
+            aoe_attrs.add(Attribute.MAGIC)
+        if "电磁步枪" in learned:
+            aoe_attrs.add(Attribute.TECH)
+        # Also check weapons list for 电磁步枪
+        for w in getattr(player, 'weapons', []):
+            if w and w.name == "电磁步枪":
+                aoe_attrs.add(Attribute.TECH)
+        return Attribute.MAGIC in aoe_attrs and Attribute.TECH in aoe_attrs
     # ════════════════════════════════════════════════════════
     #  状态检查：隐身 / 病毒免疫 / 法术
     # ════════════════════════════════════════════════════════

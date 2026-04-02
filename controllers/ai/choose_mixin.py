@@ -155,14 +155,15 @@ class ChooseMixin(_Base):
                                 and unit["location"] == my_loc):
                             nearby_police_count += 1
                     nearby_total = len(nearby_players) + nearby_police_count
-                    # --- 条件1：发育完成 且 同地点敌人+警察 >= 2 ---
+                    # --- 条件1：发育完成 且 同地点敌人+警察 >= 1 ---
+                    # (D6拉人机制会拉更多人过来，1个就够了)
                     if (not should_activate
                             and self._is_development_complete(
                                 self._player, self._game_state)
-                            and nearby_total >= 2):
+                            and nearby_total >= 1):
                         should_activate = True
                     # --- 条件2：正在交战 且 本轮被攻击过
-                    #            且 攻击者与自己在同一地点 ---
+                    #且 攻击者与自己在同一地点 ---
                     if not should_activate and self._in_combat and self._been_attacked_by:
                         for attacker_name in self._been_attacked_by:
                             # 通过名字找到攻击者玩家对象
@@ -190,10 +191,18 @@ class ChooseMixin(_Base):
                                         and unit["location"] != my_loc):
                                     should_activate = True
                                     break
+
+                    # --- 条件4（防御型）：队长在任 + 自己有两种AOE武器 ---
+                    # 警察体系一成型就容易被追杀，提前发动
+                    if not should_activate:
+                        has_captain = bool(pc.get("captain_id"))
+                        if has_captain and self._has_two_aoe_types(self._player):
+                            should_activate = True
                 if should_activate:
                     for opt in options:
                         if "发动" in opt:
                             return opt
+
                 # 不满足任何条件 → 不发动
                 for opt in options:
                     if "不发动" in opt or "正常" in opt:

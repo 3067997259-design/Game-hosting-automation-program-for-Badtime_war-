@@ -114,11 +114,16 @@
       "auto_engaged": " ✨{player_name} 自动与 {caster_name} 建立面对面！",
       "shock_from_stay": " ✨⚡ {player_name} 在全息影像中停留2轮，进入震荡！",
       "round_countdown": "✨{name} 的全息影像剩余 {remaining_rounds} 轮（位置：{location}）",
-      "expire_header": " ✨{name} 的演出结束了！",
+      "expire_header": " ✨{name} 迎来了曲终之时……",
       "expire_police_recover": " 👮 警察小队解除「沉沦」，恢复行动！",
       "expire_disengage": " 📎 {player1_name} 与 {player2_name} 的面对面关系解除。",
       "expire_lock_clear": " 📎 锁定关系解除。",
-      "ripple_enhance": "✨{name} 的全息影像被涟漪增强！易伤+1（替代+0.5）| 可用次数+1 "
+      "ripple_enhance": "✨{name} 的全息影像被涟漪增强！易伤+1（替代+0.5）| 可用次数+1 ",
+      "last_song_header": "  🎵 世末歌者和着雨音，唱着没有听众的歌曲……",
+      "player_pull_success": "  🎲 {player_name}: D6 = {roll} ≥ 4 → ✨ 留意到歌声并靠近了舞台（从{old_loc}）",
+      "player_pull_resist": "  🎲 {player_name}: D6 = {roll} < 4 → 仅仅驻足了片刻便选择离去。",
+      "no_players_pulled": "  （人潮仍是漫无目的地向目的地散去）",
+      "players_pulled_summary": "  🎵 {count}名玩家被最后一曲吸引到了聚光灯下！"
     },
     "g3mythland": {
       "lore": [
