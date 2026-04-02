@@ -391,6 +391,18 @@ class CombatMixin(_Base):
                 if is_passive:
                     target_power = self._estimate_power(t)
                     s += 70 + target_power * 0.5  # 越肉的发育者越危险
+                # 火萤 vs 愿负世：低火种时优先击杀（避免救世主触发）
+                if self._has_savior_talent(t):
+                    target_divinity = self._get_divinity(t)
+                    if not self._is_in_savior_state(t):
+                        # 人形态：火种越低越安全，越要趁机打
+                        if target_divinity <= 6:
+                            s += 120  # 低火种，安全击杀窗口
+                        else:
+                            s += 60   # 高火种但火萤2倍伤害仍可快速击杀
+                    else:
+                        # 救世主状态：火萤2倍伤害能有效消耗临时HP
+                        s += 40
 
                 # 2. 优先打能一击杀自己的（先下手为强）
                 enemy_best_dmg = self._best_weapon_damage(t)
@@ -447,8 +459,46 @@ class CombatMixin(_Base):
             # 全场最强玩家额外加分
             if self._estimate_power(t) >= max_power:
                 s += 40
-            # 火萤 debuff 生效后的目标偏好
-            # 火萤 debuff 生效后的目标偏好（已在上方火萤专用评分块中处理）
+         # ===== 救世主集火逻辑 =====
+            target_talent = getattr(t, 'talent', None)
+            if target_talent and self._is_in_savior_state(t):
+                # 救世主状态：最高优先级集火目标
+                s += 200  # 基础集火分
+                temp_hp = getattr(target_talent, 'temp_hp', 0)
+                s += temp_hp * 20  # 临时HP越多越要打（不打就转永久了）
+                duration = getattr(target_talent, 'savior_duration', 0)
+                if duration <= 3:
+                    s += 100  # 快到期了，紧急！
+                # 有远程武器时额外加分（救世主打不到你）
+                has_ranged = any(
+                    self._get_weapon_range(w) == "ranged"
+                    for w in getattr(player, 'weapons', []) if w
+                )
+                if has_ranged:
+                    s += 100
+                # 抵消 effective_hp 的负面影响（救世主的高HP不应该是回避理由）
+                s += max(0, self._get_effective_hp(t) - 1) * 10  # 补回被扣的分
+            elif target_talent and self._has_savior_talent(t):
+                # 人形态：根据火种数决定策略
+                divinity = self._get_divinity(t)
+                if divinity >= 8:
+                    # 高火种：打了会触发救世主，除非是火萤（能快速击杀）
+                    if self._has_firefly_talent(player):
+                        s += 120  # 火萤趁人形态快速做掉
+                    else:
+                        s -= 40  # 其他人回避高火种目标
+                elif divinity <= 4:
+                    # 低火种：安全目标，打了也不会马上触发
+                    s += 30
+                # ===== 火萤集火逻辑（当自己不是火萤时）=====
+            if not self._has_firefly_talent(player) and self._target_is_firefly(t):
+                s += 80  # 火萤2倍伤害对所有人都是威胁
+                firefly_talent = getattr(t, 'talent', None)
+                if firefly_talent and not getattr(firefly_talent, 'debuff_started', False):
+                    s += 50  # debuff前的火萤更危险（全力输出期）
+                # 火萤HP低时更要集火（容易击杀）
+                if self._get_effective_hp(t) <= 1.5:
+                    s += 60
             return s
         candidates.sort(key=score, reverse=True)
         return candidates[0]
@@ -536,6 +586,16 @@ class CombatMixin(_Base):
             has_control = any(t in tags for t in ("shock_2_targets", "stun_on_hit"))
             if has_control and self._same_location(player, target):
                 s += 15
+            # ===== 对救世主目标的武器偏好 =====
+            if self._is_in_savior_state(target):
+                wr_check = self._get_weapon_range(w)
+                if wr_check == "ranged":
+                    s += 80  # 远程安全输出，救世主无法反击
+                elif wr_check == "melee":
+                    # 近战有风险（救世主有近战加成），但不是不能打
+                    savior_bonus = getattr(getattr(target, 'talent', None), 'temp_attack_bonus', 0)
+                    if savior_bonus >= 2.0:
+                        s -= 30  # 高攻击加成时近战风险大
             return s
         sorted_weapons = sorted(pool, key=weapon_score, reverse=True)
         return sorted_weapons[0]

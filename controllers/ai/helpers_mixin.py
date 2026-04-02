@@ -52,6 +52,20 @@ class HelpersMixin(_Base):
         if talent and hasattr(talent, 'is_savior'):
             return talent.is_savior
         return False
+    def _has_savior_talent(self, player) -> bool:
+        """检查玩家是否持有愿负世天赋（不论是否在救世主状态）"""
+        talent = getattr(player, 'talent', None)
+        return bool(talent and hasattr(talent, 'name') and talent.name == "愿负世，照拂黎明")
+
+    def _get_divinity(self, player) -> int:
+        """获取愿负世持有者的当前火种数"""
+        talent = getattr(player, 'talent', None)
+        return getattr(talent, 'divinity', 0) if talent else 0
+
+    def _target_is_firefly(self, player) -> bool:
+        """检查目标是否持有火萤IV型天赋"""
+        talent = getattr(player, 'talent', None)
+        return bool(talent and hasattr(talent, 'name') and talent.name == "火萤IV型-完全燃烧")
     # ════════════════════════════════════════════════════════
     #  装备查询：护甲
     # ════════════════════════════════════════════════════════

@@ -257,6 +257,25 @@ class BasicAIController(
             self._in_combat = False
             self._combat_target = None
 
+        # ===== 救世主紧急集火 =====
+        if not self._in_combat:
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive() and self._is_in_savior_state(t):
+                    # 有远程武器 → 立刻进入战斗
+                    has_ranged = any(
+                        self._get_weapon_range(w) == "ranged"
+                        for w in getattr(player, 'weapons', []) if w
+                        and not (self._is_in_savior_state(player))  # 自己也是救世主就算了
+                    )
+                    if has_ranged:
+                        debug_ai_basic(player.name, f"紧急：发现救世主 {t.name}，用远程武器集火")
+                        self._in_combat = True
+                        self._combat_target = t
+                        break
+
         # ===== 战斗状态 =====
         if self._in_combat and self._combat_target:
             if self._should_continue_combat(player, self._combat_target):
@@ -468,6 +487,32 @@ class BasicAIController(
         if best_loc and best_count > 0:
             return best_loc
         return None  # 没有敌人，不浪费超新星
+
+    # ════════════════════════════════════════════════════════
+    #  抽象方法实现
+    # ════════════════════════════════════════════════════════
+
+    def choose(self, player: Any, game_state: Any, options: List[str], context: Optional[Dict] = None) -> str:
+        """实现 PlayerController.choose 抽象方法"""
+        return self.get_command(player, game_state, options, context)
+
+    def choose_multi(self, player: Any, game_state: Any, options: List[str], count: int, context: Optional[Dict] = None) -> List[str]:
+        """实现 PlayerController.choose_multi 抽象方法"""
+        result = []
+        for _ in range(count):
+            cmd = self.get_command(player, game_state, options, context)
+            if cmd:
+                result.append(cmd)
+        return result
+
+    def on_event(self, event: Dict, game_state: Any) -> None:
+        """实现 PlayerController.on_event 抽象方法"""
+        if event:
+            self.event_log.append(event)
+
+    def confirm(self, player: Any, game_state: Any, context: Optional[Dict] = None) -> bool:
+        """实现 PlayerController.confirm 抽象方法"""
+        return True
 
 
 # ════════════════════════════════════════════════════════════════
