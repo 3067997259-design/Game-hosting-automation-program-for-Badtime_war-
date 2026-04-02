@@ -157,7 +157,8 @@ class Hexagram(BaseTalent):
                         method = METHOD_MAP.get(effect_key)
                         if method:
                             # 需要目标的效果
-                            if effect_key in ("both_scissors", "both_rock",
+                            # both_scissors 不在此列：它内部自行选择天雷目标（可以和猜拳对手不同）
+                            if effect_key in ("both_rock",
                                               "scissors_rock", "rock_paper"):
                                 others = [p2 for p2 in self.state.alive_players()
                                           if p2.player_id != player.player_id]

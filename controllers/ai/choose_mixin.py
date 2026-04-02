@@ -476,13 +476,25 @@ class ChooseMixin(_Base):
 
         # both_paper (元亨利贞: 金身)
         # High value when HP is low or being attacked
+        # 注意：从 state.markers 判断 player 的战斗状态，而非 self._been_attacked_by
+        # （对手调用时 self 是对手AI，self._been_attacked_by 不代表 caster 的状态）
         hp = player.hp
-        is_locked = len(self._been_attacked_by) > 0 if hasattr(self, '_been_attacked_by') else False
+        caster_in_combat = False
+        markers_obj = getattr(state, 'markers', None)
+        if markers_obj and hasattr(markers_obj, 'has_relation'):
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive() and markers_obj.has_relation(
+                        player.player_id, 'ENGAGED_WITH', pid):
+                    caster_in_combat = True
+                    break
         if hp <= 1.0:
             scores["both_paper"] = 10
-        elif hp <= 1.5 and is_locked:
+        elif hp <= 1.5 and caster_in_combat:
             scores["both_paper"] = 8
-        elif is_locked:
+        elif caster_in_combat:
             scores["both_paper"] = 6
         else:
             scores["both_paper"] = 3
@@ -506,8 +518,8 @@ class ChooseMixin(_Base):
 
         # scissors_paper (或跃在渊: 2 extra actions)
         # Always good, especially in combat
-        in_combat = len(self._been_attacked_by) > 0 if hasattr(self, '_been_attacked_by') else False
-        if in_combat:
+        # 复用 both_paper 中已计算的 caster_in_combat（基于 state.markers）
+        if caster_in_combat:
             scores["scissors_paper"] = 9
         elif not self._is_development_complete(player, state):
             scores["scissors_paper"] = 8
