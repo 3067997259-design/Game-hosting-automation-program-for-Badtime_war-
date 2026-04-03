@@ -43,6 +43,14 @@ def _check_electric_immunity(target):
             return True, armor
     return False, None
 
+def _check_love_wish_immunity(attacker, target, game_state):
+    """检查目标是否是G5持有者且攻击者持有爱愿，使伤害无效"""
+    if not attacker or not target or not game_state:
+        return False
+    if not target.talent or not hasattr(target.talent, 'has_love_wish'):
+        return False
+    return target.talent.has_love_wish(attacker.player_id)
+
 
 def _resolve_weaponless_damage(attacker, target, game_state, result,
                                 raw_damage, damage_attribute_str,
@@ -59,6 +67,12 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         "魔法": Attribute.MAGIC,
         "无视属性克制": None,
     }
+    if _check_love_wish_immunity(attacker, target, game_state):
+        result["final_damage"] = 0
+        result["success"] = False
+        result["reason"] = "爱愿免疫"
+        result["details"].append(f"💝 「爱愿」生效：{attacker.name} 无法对 {target.name} 造成伤害")
+        return result
     damage_attr = ATTR_MAP.get(damage_attribute_str)
 
     raw = raw_damage
@@ -231,6 +245,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, None, is_limited)
 
+    if attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish'):
+        attacker.talent.break_love_wish(target.player_id)
+
     return result
 
 
@@ -266,6 +283,13 @@ def resolve_damage(attacker, target, weapon, game_state,
         "killed": False,
         "details": [],
     }
+    # 爱愿免疫：持有爱愿的攻击者无法对G5持有者造成伤害
+    if _check_love_wish_immunity(attacker, target, game_state):
+        result["final_damage"] = 0
+        result["success"] = False
+        result["reason"] = "爱愿免疫"
+        result["details"].append(f"💝 「爱愿」生效：{attacker.name} 无法对 {target.name} 造成伤害")
+        return result
 
     # ======== 无武器模式（爱与记忆之诗等外部伤害源） ========
     if weapon is None:
@@ -573,6 +597,9 @@ def resolve_damage(attacker, target, weapon, game_state,
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, weapon, is_limited)
 
+    if attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish'):
+        attacker.talent.break_love_wish(target.player_id)
+
     return result
 
 
@@ -686,6 +713,7 @@ def resolve_location_damage(attacker, location, game_state,
 
     # 3. 未来扩展点：其他非玩家单位
     # for npc in game_state.npcs_at_location(location): ...
+
 
     return results
 

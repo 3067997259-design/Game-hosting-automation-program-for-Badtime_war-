@@ -105,7 +105,7 @@ AI_TALENT_PREFERENCE = {
     "political":  [6, 7, 11, 2, 4, 3, 9],
     "assassin":   [5, 1, 10, 8, 9, 2, 4],
     "builder":    [12, 7, 11, 4, 3, 2, 9],
-    "balanced":   [9, 1, 5, 3, 2, 11, 12],
+    "balanced":   [4, 9, 1, 5, 3, 2, 11, 12],
 }
 
 AI_PERSONALITIES = ["balanced", "aggressive", "defensive",

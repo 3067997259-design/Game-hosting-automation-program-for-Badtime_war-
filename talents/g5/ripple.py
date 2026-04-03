@@ -81,6 +81,9 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         self._anchor_d4_bonus_rounds: int = 0  # 剩余加成轮次
         self._anchor_d4_target_id: str | None = None  # 持久化目标ID（不被_anchor_cleanup清除）
 
+        # === 爱愿系统 ===
+        self.love_wish = {}  # {target_player_id: remaining_rounds}
+
     # ================================================================
     #  V1.92+: 消耗使用次数
     # ================================================================
@@ -113,6 +116,35 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
             if p and isinstance(p.controller, HumanController):
                 return True
         return False
+
+    def grant_love_wish(self, target_pid, rounds=12):
+        """给目标施加爱愿效果"""
+        if target_pid == self.player_id:
+            return  # 不给自己加爱愿
+        self.love_wish[target_pid] = rounds
+        target = self.state.get_player(target_pid)
+        me = self._get_caster()
+        target_name = target.name if target else target_pid
+        my_name = me.name if me else self.player_id
+        display.show_info(
+            f"💝 {target_name} 获得了「爱愿」！（12轮内无法对 {my_name} 造成伤害或施加debuff）"
+        )
+
+    def has_love_wish(self, player_pid):
+        """检查某玩家是否对本G5持有者持有爱愿"""
+        return self.love_wish.get(player_pid, 0) > 0
+
+    def break_love_wish(self, target_pid):
+        """G5持有者攻击了某玩家，破除该玩家的爱愿"""
+        if target_pid in self.love_wish:
+            del self.love_wish[target_pid]
+            target = self.state.get_player(target_pid)
+            me = self._get_caster()
+            target_name = target.name if target else target_pid
+            my_name = me.name if me else self.player_id
+            display.show_info(
+                f"💔 {my_name} 攻击了 {target_name}，「爱愿」破碎！"
+            )
 
     def _get_caster(self):
         """获取发动者 Player 对象"""
@@ -179,6 +211,17 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
                         target._anchor_d4_bonus_amount = 0
             if self._anchor_d4_bonus_rounds <= 0:
                 self._anchor_d4_target_id = None
+        # 爱愿倒计时
+        expired = []
+        for pid, remaining in self.love_wish.items():
+            self.love_wish[pid] = remaining - 1
+            if self.love_wish[pid] <= 0:
+                expired.append(pid)
+        for pid in expired:
+            del self.love_wish[pid]
+            p = self.state.get_player(pid)
+            if p:
+                display.show_info(f"💝 {p.name} 的「爱愿」已到期消散。")
 
     def on_turn_end(self, player, action_type):
         if player.player_id != self.player_id:
@@ -257,6 +300,8 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
             parts.append(f"已发动{self.total_uses}次")
             if self.reminiscence >= self.max_reminiscence:
                 parts.append("✨可发动")
+        if self.love_wish:
+            parts.append(f"💝爱愿：{len(self.love_wish)}人")
         return " | ".join(parts)
 
     def describe(self):

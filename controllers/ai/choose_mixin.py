@@ -10,9 +10,9 @@ if TYPE_CHECKING:
 _Base = BasicAIController if TYPE_CHECKING else object
 
 HEXAGRAM_OUTCOME_MAP = {
-    "石头": ["both_rock", "scissors_rock", "rock_paper"],
-    "剪刀": ["scissors_rock", "both_scissors", "scissors_paper"],
-    "布":   ["rock_paper", "scissors_paper", "both_paper"],
+    "石头": ["steal_armor", "disarm", "escape"],      # 飞龙在天 / 亢龙有悔 / 群龙无首
+    "剪刀": ["disarm", "thunder", "extra_turn"],       # 亢龙有悔 / 潜龙勿用 / 或跃在渊
+    "布":   ["escape", "extra_turn", "immunity"],      # 群龙无首 / 或跃在渊 / 元亨利贞
 }
 
 

@@ -158,6 +158,14 @@ class Mythland(BaseTalent):
         target = next((o for o in others if o.name == choice), None)
         if target:
             display.show_info(f"  选择拉入 {target.name}！")
+        # 爱愿过滤：如果G3 caster对某个G5持有者有爱愿，不能选该G5持有者
+        filtered_others = []
+        for o in others:
+            if o.talent and hasattr(o.talent, 'has_love_wish') and o.talent.has_love_wish(player.player_id):
+                display.show_info(f"  💝 {o.name} 受「爱愿」保护，无法被拉入幻想乡。")
+                continue
+            filtered_others.append(o)
+        others = filtered_others
         return target
         # ══ CONTROLLER 改动 1 结束 ══
 
