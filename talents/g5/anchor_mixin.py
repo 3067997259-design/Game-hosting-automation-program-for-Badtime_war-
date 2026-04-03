@@ -573,7 +573,6 @@ class AnchorMixin:
         if self.anchor_type == "acquire":
             item_name = self.anchor_detail.replace("获取 ", "")
             self._grant_item_to_player(player, item_name)
-            display.show_info(f"  ✅ {player.name} 立即获得了「{item_name}」！")
         elif self.anchor_type == "arrive":
             loc_name = self.anchor_detail.replace("到达 ", "")
             old_loc = getattr(player, 'location', None)
@@ -582,6 +581,34 @@ class AnchorMixin:
         # 不进入锚定监控期，不设置 anchor_active = True
         # 备份状态以防需要回溯（保留向后兼容）
         self.anchor_caster_backup = self._create_player_backup(player)
+
+    def _grant_item_to_player(self, player, item_name):
+        """根据物品名称，使用工厂函数创建并添加到玩家身上"""
+        from models.equipment import make_weapon, make_armor, make_item
+
+        weapon = make_weapon(item_name)
+        if weapon:
+            player.add_weapon(weapon)
+            display.show_info(f"  ✅ {player.name} 立即获得了武器「{item_name}」！")
+            return
+
+        armor = make_armor(item_name)
+        if armor:
+            success, msg = player.add_armor(armor)
+            if success:
+                display.show_info(f"  ✅ {player.name} 立即获得了护甲「{item_name}」！")
+            else:
+                display.show_info(f"  ⚠️ {player.name} 获取护甲「{item_name}」失败：{msg}")
+            return
+
+        item = make_item(item_name)
+        if item:
+            player.add_item(item)
+            display.show_info(f"  ✅ {player.name} 立即获得了物品「{item_name}」！")
+            return
+
+        # 工厂无法识别的物品，提示DM手动处理
+        display.show_info(f"  ⚠️ 无法自动创建「{item_name}」，请DM手动为 {player.name} 添加。")
 
     # ================================================================
     #  击杀/护甲类启动

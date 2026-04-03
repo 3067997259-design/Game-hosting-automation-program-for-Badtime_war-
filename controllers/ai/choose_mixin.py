@@ -448,7 +448,7 @@ class ChooseMixin(_Base):
             return "anchor"
 
         # 优先级 8: 有合适的献诗目标（弱者）→ 献诗
-        if self._ripple_has_good_poem_target(player, state, talent):
+        if self._ripple_find_weakest_without_love_wish(player, state) is not None:
             return "poem"
 
         # 优先级 9: 默认爱与记忆
@@ -514,9 +514,9 @@ class ChooseMixin(_Base):
                     return weaker_name
 
         # 优先级 8: 扶弱 → 献诗给全场最弱的（无爱愿的）玩家
-        best_target = self._ripple_find_weakest_target(player, state, talent, player_opts)
-        if best_target:
-            return best_target
+        weak = self._ripple_find_weakest_without_love_wish(player, state)
+        if weak and weak.name in player_opts:
+            return weak.name
 
         # 优先级 9: 所有人都有爱愿或无合适目标 → 爱与记忆
         if player.name in options:
@@ -572,14 +572,16 @@ class ChooseMixin(_Base):
         if not state or not player:
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
 
-        # 检查是否有队长可以斩首
+        # 检查是否有队长可以斩首（仅在能击杀时优先）
         pe = getattr(state, 'police_engine', None)
         if pe:
             captain_id = getattr(pe, 'captain_id', None) or getattr(getattr(pe, 'police', None), 'captain_id', None)
             if captain_id:
                 captain = state.get_player(captain_id)
                 if captain and captain.is_alive() and captain.name in options:
-                    return captain.name
+                    talent = getattr(player, 'talent', None)
+                    if talent and self._ripple_can_destiny_kill_target(player, self._game_state, talent, captain):
+                        return captain.name
 
         # 否则集中打最容易击杀的目标（HP+甲最低的）
         best_target = None
@@ -604,10 +606,9 @@ class ChooseMixin(_Base):
 
         return best_target or max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
 
-
-# ════════════════════════════════════════════════════════
-#  G5 涟漪 AI 辅助判定方法
-# ════════════════════════════════════════════════════════
+    # ════════════════════════════════════════════════════════
+    #  G5 涟漪 AI 辅助判定方法
+    # ════════════════════════════════════════════════════════
 
     def _ripple_get_destiny_stages(self, talent) -> int:
         """计算下一次爱与记忆之诗的伤害段数"""
@@ -806,75 +807,6 @@ class ChooseMixin(_Base):
                     return True
         return False
 
-    def _ripple_find_tiger_wolf_fight(self, player, state):
-        """
-        寻找驱虎吞狼机会：找到两个正在交战的玩家，返回 (weaker, stronger)。
-        条件：
-        1. 两人互相 ENGAGED_WITH（面对面）
-        2. 涟漪持有者不在这场战斗中
-        3. 弱者尚未持有爱愿
-        返回 (weaker_player, stronger_player) 或 None
-        """
-        markers = getattr(state, 'markers', None)
-        if not markers:
-            return None
-
-        my_pid = player.player_id
-        best_pair = None
-        best_strength_diff = 0
-
-        alive_players = [state.get_player(pid) for pid in state.player_order
-                        if pid != my_pid and state.get_player(pid) and state.get_player(pid).is_alive()]
-
-        for i, p1 in enumerate(alive_players):
-            for p2 in alive_players[i+1:]:
-                # 检查是否互相面对面
-                engaged = markers.get_related(p1.player_id, "ENGAGED_WITH")
-                if p2.player_id not in engaged:
-                    continue
-                # 涟漪持有者不能卷入这场战斗
-                my_engaged = markers.get_related(my_pid, "ENGAGED_WITH")
-                if p1.player_id in my_engaged or p2.player_id in my_engaged:
-                    continue
-                # 计算强弱
-                s1 = self._ripple_combat_strength(p1)
-                s2 = self._ripple_combat_strength(p2)
-                if s1 == s2:
-                    continue
-                stronger = p1 if s1 > s2 else p2
-                weaker = p2 if s1 > s2 else p1
-                # 弱者不能已有爱愿
-                if self._ripple_has_love_wish(weaker, state):
-                    continue
-                diff = abs(s1 - s2)
-                if diff > best_strength_diff:
-                    best_strength_diff = diff
-                    best_pair = (weaker, stronger)
-
-        return best_pair
-
-    def _ripple_combat_strength(self, p) -> float:
-        """评估玩家的战斗力（用于驱虎吞狼判断）"""
-        score = 0
-        # HP
-        score += self._get_effective_hp(p) * 3
-        # 护甲
-        score += self._count_outer_armor(p) * 2
-        score += self._count_inner_armor(p) * 3
-        # 武器
-        weapons = [w for w in getattr(p, 'weapons', []) if w and getattr(w, 'name', '') != '拳击'
-                and not getattr(w, '_hexagram_disabled', False)]
-        score += len(weapons) * 2
-        # 特殊天赋加成
-        if p.talent:
-            if hasattr(p.talent, 'divinity') and getattr(p.talent, 'divinity', 0) >= 6:
-                score += 5
-            if hasattr(p.talent, 'is_savior') and p.talent.is_savior:
-                score += 8
-            if hasattr(p.talent, 'charges') and hasattr(p.talent, 'name') and '六爻' in p.talent.name:
-                score += p.talent.charges * 2
-        return score
-
     def _ripple_has_love_wish(self, target, state) -> bool:
         """检查目标是否已对涟漪持有者持有爱愿"""
         markers = getattr(state, 'markers', None)
@@ -887,93 +819,6 @@ class ChooseMixin(_Base):
         # 检查 target 是否有 LOVE_WISH 标记指向 my_pid
         love_wishes = markers.get_related(target.player_id, "LOVE_WISH")
         return my_pid in love_wishes
-
-    def _ripple_find_chaser(self, player, state):
-        """找到正在追杀涟漪持有者的玩家"""
-        markers = getattr(state, 'markers', None)
-        if not markers:
-            return None
-        my_pid = player.player_id
-        # 被面对面锁定的人
-        engaged = markers.get_related(my_pid, "ENGAGED_WITH")
-        # 被锁定的人
-        locked_by = markers.get_related(my_pid, "LOCKED_BY")
-        # 合并
-        chasers = set(engaged) | set(locked_by)
-        if not chasers:
-            # 检查警察追杀
-            pc = self._police_cache or {}
-            if pc.get("report_target") == my_pid and pc.get("report_phase") == "dispatched":
-                return "police"  # 特殊标记：被警察追杀
-            return None
-        # 返回威胁最大的追杀者
-        best = None
-        best_threat = -1
-        for pid in chasers:
-            t = state.get_player(pid)
-            if t and t.is_alive():
-                threat = self._ripple_combat_strength(t)
-                if threat > best_threat:
-                    best_threat = threat
-                    best = t
-        return best
-
-    def _ripple_can_kill_with_destiny(self, player, target, state) -> bool:
-        """判断爱与记忆之诗能否确定击杀目标"""
-        talent = player.talent
-        if not talent:
-            return False
-
-        # 计算下一次爱与记忆的段数
-        initial_count = len(state.player_order)
-        base_n = min(4, max(2, initial_count // 2 + 1))
-        destiny_count = getattr(talent, 'destiny_use_count', 0)
-        extra_stages = destiny_count  # 下一次是 destiny_count+1，extra = destiny_count
-        total_stages = base_n + extra_stages
-
-        # 计算有效段数（能穿透目标护甲的段数）
-        ALL_TYPES = ["科技", "普通", "魔法", "无视属性克制"]
-        effective_stages = 0
-
-        # 获取目标的外甲属性列表
-        target_armor_attrs = []
-        for layer_name in ['outer', 'inner']:
-            armor = None
-            if hasattr(target, 'armor'):
-                if layer_name == 'outer':
-                    from models.armor import ArmorLayer
-                    armor = target.armor.get_active(ArmorLayer.OUTER)
-                else:
-                    armor = target.armor.get_active(ArmorLayer.INNER)
-            if armor:
-                target_armor_attrs.append(getattr(armor, 'attribute', None))
-
-        target_total_armor_hp = len(target_armor_attrs)  # 每层甲 = 1 HP
-
-        for i in range(total_stages):
-            if i < len(ALL_TYPES):
-                dtype = ALL_TYPES[i % len(ALL_TYPES)]
-            else:
-                dtype = "无视属性克制"  # 超过4段的额外段为真伤
-
-            if dtype == "无视属性克制":
-                effective_stages += 1  # 真伤必定有效
-            else:
-                # 检查是否被护甲克制
-                # 简化：如果目标有甲，非真伤段可能被挡
-                effective_stages += 1  # 保守估计：即使被挡也会破甲
-
-        # 确定击杀条件：有效段数 ≥ 目标HP + 目标护甲层数
-        target_hp = self._get_effective_hp(target)
-        return effective_stages >= (target_hp + target_total_armor_hp)
-
-    def _ripple_needs_equipment(self, player) -> bool:
-        """涟漪持有者是否缺装备（需要锚定获取）"""
-        weapons = [w for w in getattr(player, 'weapons', [])
-                if w and getattr(w, 'name', '') != '拳击']
-        outer = self._count_outer_armor(player)
-        # 至少需要1把武器 + 1件外甲
-        return len(weapons) == 0 or outer == 0
 
     def _ripple_find_weakest_without_love_wish(self, player, state):
         """找到没有爱愿的最弱玩家（用于献诗-扶弱）"""
@@ -993,178 +838,6 @@ class ChooseMixin(_Base):
                 best_strength = strength
                 best = t
         return best
-
-    def _ripple_choose_method(self, player, state, options) -> str:
-        """
-        涟漪发动时选择方式：
-        优先级：
-        1. 爱与记忆-斩首队长
-        2. 爱与记忆-确定击杀
-        3. 被追杀-能杀则杀（爱与记忆）
-        4. 被追杀-危急保命（献诗给追杀者）
-        5. 锚定获取（缺装备时）
-        6. 献诗-驱虎吞狼
-        7. 锚定击杀（难以常规击杀的目标）
-        8. 献诗-扶弱
-        9. 爱与记忆-通用输出
-        """
-        # 解析选项
-        poem_opt = None
-        anchor_opt = None
-        for opt in options:
-            if "献诗" in opt or "方式二" in opt:
-                poem_opt = opt
-            if "锚定" in opt or "方式一" in opt:
-                anchor_opt = opt
-
-        # --- 优先级 1: 爱与记忆-斩首队长 ---
-        pc = self._police_cache or {}
-        captain_id = pc.get("captain_id")
-        if captain_id:
-            captain = state.get_player(captain_id)
-            if captain and captain.is_alive():
-                if self._ripple_can_kill_with_destiny(player, captain, state):
-                    # 用爱与记忆打队长 → 需要选"献诗"然后选自己（爱与记忆是自我献诗）
-                    # 但实际上爱与记忆是选自己作为目标，不是选队长
-                    # 所以这里需要用献诗方式，然后在目标选择时选自己
-                    # 但爱与记忆的目标选择是在 _poem_destiny 里选攻击目标
-                    # 所以这里选献诗方式即可
-                    if poem_opt:
-                        self._ripple_priority_reason = "斩首队长"
-                        self._ripple_destiny_target_hint = captain_id
-                        return poem_opt
-
-        # --- 优先级 2: 爱与记忆-确定击杀 ---
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            t = state.get_player(pid)
-            if not t or not t.is_alive():
-                continue
-            # 排除有复活/救世主的目标
-            if t.talent:
-                if hasattr(t.talent, 'used') and not t.talent.used and hasattr(t.talent, 'name') and '苏生' in t.talent.name:
-                    continue  # 死者苏生未触发，打死会复活
-                if hasattr(t.talent, 'divinity') and getattr(t.talent, 'divinity', 0) >= 8:
-                    continue  # 愿负世高火种，打死触发救世主
-            if self._ripple_can_kill_with_destiny(player, t, state):
-                if poem_opt:
-                    self._ripple_priority_reason = "确定击杀"
-                    self._ripple_destiny_target_hint = pid
-                    return poem_opt
-
-        # --- 优先级 3/4: 被追杀处理 ---
-        chaser = self._ripple_find_chaser(player, state)
-        if chaser and chaser != "police":
-            # 能杀则杀
-            if self._ripple_can_kill_with_destiny(player, chaser, state):
-                if poem_opt:
-                    self._ripple_priority_reason = "反杀追杀者"
-                    self._ripple_destiny_target_hint = chaser.player_id
-                    return poem_opt
-            # 危急保命：HP ≤ 0.5 或无甲
-            if player.hp <= 0.5 or self._count_outer_armor(player) == 0:
-                if poem_opt:
-                    self._ripple_priority_reason = "危急保命"
-                    self._ripple_poem_target_hint = chaser.player_id
-                    return poem_opt
-        elif chaser == "police":
-            # 被警察追杀 → 斩首队长（如果能杀）或保命
-            if captain_id:
-                captain = state.get_player(captain_id)
-                if captain and captain.is_alive() and self._ripple_can_kill_with_destiny(player, captain, state):
-                    if poem_opt:
-                        self._ripple_priority_reason = "斩首队长（被警察追杀）"
-                        self._ripple_destiny_target_hint = captain_id
-                        return poem_opt
-            # 保命：献诗给附近的人换爱愿
-            if poem_opt:
-                self._ripple_priority_reason = "被警察追杀保命"
-                return poem_opt
-
-        # --- 优先级 5: 锚定获取（缺装备时） ---
-        if self._ripple_needs_equipment(player) and anchor_opt:
-            self._ripple_priority_reason = "锚定获取装备"
-            return anchor_opt
-
-        # --- 优先级 6: 献诗-驱虎吞狼 ---
-        tiger_wolf = self._ripple_find_tiger_wolf_fight(player, state)
-        if tiger_wolf:
-            weaker, stronger = tiger_wolf
-            if poem_opt:
-                self._ripple_priority_reason = "驱虎吞狼"
-                self._ripple_poem_target_hint = weaker.player_id
-                return poem_opt
-
-        # --- 优先级 7: 锚定击杀 ---
-        if self._ripple_should_anchor_kill(player, state) and anchor_opt:
-            self._ripple_priority_reason = "锚定击杀"
-            return anchor_opt
-
-        # --- 优先级 8: 献诗-扶弱 ---
-        weakest = self._ripple_find_weakest_without_love_wish(player, state)
-        if weakest and poem_opt:
-            self._ripple_priority_reason = "扶弱"
-            self._ripple_poem_target_hint = weakest.player_id
-            return poem_opt
-
-        # --- 优先级 9: 爱与记忆-通用输出 ---
-        if poem_opt:
-            self._ripple_priority_reason = "通用输出"
-            return poem_opt
-
-        return options[0]
-
-    def _ripple_choose_poem_target(self, player, state, options) -> str:
-        """
-        献诗目标选择：
-        - 如果 priority_reason 是爱与记忆相关 → 选自己
-        - 如果 priority_reason 是驱虎吞狼/扶弱/保命 → 选 hint 目标
-        - 否则 → 选没有爱愿的最弱玩家
-        """
-        reason = getattr(self, '_ripple_priority_reason', '')
-        hint = getattr(self, '_ripple_poem_target_hint', None)
-
-        # 爱与记忆相关 → 选自己
-        if reason in ("斩首队长", "确定击杀", "反杀追杀者", "通用输出"):
-            if player.name in options:
-                return player.name
-
-        # 有 hint 目标 → 选 hint
-        if hint:
-            hint_player = state.get_player(hint)
-            if hint_player and hint_player.name in options:
-                return hint_player.name
-
-        # 危急保命 → 选追杀者（给追杀者献诗换爱愿）
-        if reason == "危急保命":
-            chaser = self._ripple_find_chaser(player, state)
-            if chaser and chaser != "police":
-                if chaser.name in options:
-                    return chaser.name
-
-        # 被警察追杀保命 → 选附近没有爱愿的人
-        if reason == "被警察追杀保命":
-            for name in options:
-                if name == player.name:
-                    continue
-                for pid in state.player_order:
-                    t = state.get_player(pid)
-                    if t and t.name == name and not self._ripple_has_love_wish(t, state):
-                        return name
-
-        # 默认：选没有爱愿的最弱玩家
-        weakest = self._ripple_find_weakest_without_love_wish(player, state)
-        if weakest and weakest.name in options:
-            return weakest.name
-
-        # 实在没有 → 选自己（爱与记忆）
-        if player.name in options:
-            return player.name
-        return options[0] if options else "取消"
-
-
-
 
 
     # ════════════════════════════════════════════════════════
