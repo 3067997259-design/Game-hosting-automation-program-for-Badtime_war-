@@ -577,6 +577,9 @@ class AnchorMixin:
             loc_name = self.anchor_detail.replace("到达 ", "")
             old_loc = getattr(player, 'location', None)
             player.location = loc_name
+            # 传送后清除面对面/锁定等战斗标记（与正常移动行为一致）
+            if loc_name != old_loc:
+                self.state.markers.on_player_move(player.player_id)
             display.show_info(f"  ✅ {player.name} 立即到达了「{loc_name}」！（从{old_loc}）")
         # 不进入锚定监控期，不设置 anchor_active = True
         # 备份状态以防需要回溯（保留向后兼容）

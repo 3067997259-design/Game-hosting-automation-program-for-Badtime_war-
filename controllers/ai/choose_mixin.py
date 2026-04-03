@@ -741,16 +741,13 @@ class ChooseMixin(_Base):
 
     def _ripple_has_love_wish(self, target, state) -> bool:
         """检查目标是否已对涟漪持有者持有爱愿"""
-        markers = getattr(state, 'markers', None)
-        if not markers:
+        player = self._player
+        if not player:
             return False
-        my_pid = self._player.player_id if self._player else None
-        if not my_pid:
+        talent = getattr(player, 'talent', None)
+        if not talent or not hasattr(talent, 'has_love_wish'):
             return False
-        # 爱愿存储在 markers 中，格式取决于实现
-        # 检查 target 是否有 LOVE_WISH 标记指向 my_pid
-        love_wishes = markers.get_related(target.player_id, "LOVE_WISH")
-        return my_pid in love_wishes
+        return talent.has_love_wish(target.player_id)
 
     def _ripple_find_weakest_without_love_wish(self, player, state):
         """找到没有爱愿的最弱玩家（用于献诗-扶弱）"""
@@ -1068,7 +1065,7 @@ class ChooseMixin(_Base):
                     if pid in locked_list:
                         locked_by_enemies.append(t)
 
-        in_combat = len(engaged_enemies) > 0 or self._in_combat
+        in_combat = len(engaged_enemies) > 0
         losing = in_combat and (hp <= 1.0 or is_critical)
 
         # Classify situation
