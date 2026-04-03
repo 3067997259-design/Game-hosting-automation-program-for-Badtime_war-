@@ -304,7 +304,8 @@ class BasicAIController(
                 and getattr(player.talent, 'active', False)):
             hologram = player.talent
             my_loc = self._get_location_str(player)
-            hologram_loc = getattr(hologram, 'location', None)
+            raw_hologram_loc = getattr(hologram, 'location', None)
+            hologram_loc = str(raw_hologram_loc) if raw_hologram_loc is not None else None
 
             if my_loc == hologram_loc:
                 # 在影像区域内：优先用AOE攻击被拉入的目标

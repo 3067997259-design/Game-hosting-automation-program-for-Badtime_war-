@@ -359,7 +359,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             return result
 
     # ---- 天赋：修改输出伤害 ----
-    if attacker and attacker.talent:
+    if attacker and attacker.talent and not getattr(attacker, '_mythland_talent_suppressed', False):
         mod = attacker.talent.modify_outgoing_damage(attacker, target, weapon, weapon.get_effective_damage())
         if mod:
             if "damage_multiplier_override" in mod:

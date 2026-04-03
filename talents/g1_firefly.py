@@ -419,7 +419,7 @@ class G1MythFire(BaseTalent):
         for u in results_dict.get("police", []):
             hit_count += 1
             if u.is_alive():
-                display.show_info(f"  → 警察{u.unit_id} 受到 2.0 伤害")
+                display.show_info(f"  → 警察{u.unit_id} 受到伤害")
             else:
                 kill_count += 1
                 display.show_info(f"  → 警察{u.unit_id} 被超新星击杀！")

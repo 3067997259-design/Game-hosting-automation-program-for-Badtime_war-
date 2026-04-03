@@ -276,8 +276,8 @@ class DevelopMixin(_Base):
                 if outer < 1 and not self._has_armor_by_name(player, "盾牌"):
                     commands.append("interact 盾牌")
                 # 顺手拿小刀（免费，用于单挑）
-            if not any(w.name == "小刀" for w in player.weapons if w):
-                commands.append("interact 小刀")
+                if not any(w.name == "小刀" for w in player.weapons if w):
+                    commands.append("interact 小刀")
             elif loc == "魔法所":
                 # Priority: 地震 → 地动山摇 → 魔法护盾
                 if "地震" not in learned:
