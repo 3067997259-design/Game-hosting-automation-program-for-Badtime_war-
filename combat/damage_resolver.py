@@ -302,7 +302,8 @@ def resolve_damage(attacker, target, weapon, game_state,
     if weapon is None:
         # 六爻·元亨利贞：免疫伤害（无武器路径）
         dmg_attr_str = damage_attribute_override or "普通"
-        if target.talent and hasattr(target.talent, 'is_immune_to_damage'):
+        if (target.talent and hasattr(target.talent, 'is_immune_to_damage')
+                and not getattr(target, '_mythland_talent_suppressed', False)):
             if target.talent.is_immune_to_damage(dmg_attr_str):
                 result["final_damage"] = 0
                 result["success"] = False
@@ -533,7 +534,8 @@ def resolve_damage(attacker, target, weapon, game_state,
 
     elif target.hp <= 0.5 and not target.is_stunned:
         prevent = False
-        if target.talent and hasattr(target.talent, 'prevent_stun'):
+        if (target.talent and hasattr(target.talent, 'prevent_stun')
+                and not getattr(target, '_mythland_talent_suppressed', False)):
             prevent = target.talent.prevent_stun(target)
         if not prevent:
             result["stunned"] = True
@@ -566,7 +568,8 @@ def resolve_damage(attacker, target, weapon, game_state,
         already_cc = pre_attack_stunned or pre_attack_shocked
         if not already_cc:
             prevent_shock = False
-            if target.talent and hasattr(target.talent, 'prevent_stun'):
+            if (target.talent and hasattr(target.talent, 'prevent_stun')
+                    and not getattr(target, '_mythland_talent_suppressed', False)):
                 prevent_shock = target.talent.prevent_stun(target)
 
             if not prevent_shock:
@@ -606,7 +609,8 @@ def resolve_damage(attacker, target, weapon, game_state,
         result["stealth_suppressed"] = True
 
     # ---- 愿负世：被攻击时积累火种 ----
-    if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
+    if (target.talent and hasattr(target.talent, 'on_being_attacked') and attacker
+            and not getattr(target, '_mythland_talent_suppressed', False)):
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, weapon, is_limited)
 
