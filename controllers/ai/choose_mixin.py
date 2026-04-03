@@ -632,7 +632,6 @@ class ChooseMixin(_Base):
                 return True
         return False
 
-
     def _ripple_needs_equipment(self, player) -> bool:
         """涟漪是否缺装备"""
         weapons = getattr(player, 'weapons', [])
@@ -641,50 +640,6 @@ class ChooseMixin(_Base):
         outer = self._count_outer_armor(player)
         # 缺武器或缺外甲
         return len(real_weapons) == 0 or outer < 1
-
-
-    def _ripple_detect_fight(self, player, state):
-        """检测是否有两个其他玩家在打架（自己没卷入）。
-        返回 {"stronger": Player, "weaker": Player} 或 None。"""
-        markers = getattr(state, 'markers', None)
-        if not markers:
-            return None
-
-        my_engaged = markers.get_related(player.player_id, "ENGAGED_WITH")
-        if my_engaged:
-            return None  # 自己卷入了战斗，不适合驱虎吞狼
-
-        # 找所有 ENGAGED_WITH 对
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            p1 = state.get_player(pid)
-            if not p1 or not p1.is_alive():
-                continue
-            engaged_with = markers.get_related(pid, "ENGAGED_WITH")
-            for eid in engaged_with:
-                if eid == player.player_id:
-                    continue
-                p2 = state.get_player(eid)
-                if not p2 or not p2.is_alive():
-                    continue
-                # 找到一对在打架的玩家，判断谁强谁弱
-                talent = getattr(player, 'talent', None)
-                # 不给已有爱愿的人献诗
-                if talent and (talent.has_love_wish(p1.player_id) and talent.has_love_wish(p2.player_id)):
-                    continue
-                score1 = self._ripple_combat_strength(p1)
-                score2 = self._ripple_combat_strength(p2)
-                if score1 >= score2:
-                    stronger, weaker = p1, p2
-                else:
-                    stronger, weaker = p2, p1
-                # 不给已有爱愿的弱者献诗
-                if talent and talent.has_love_wish(weaker.player_id):
-                    continue
-                return {"stronger": stronger, "weaker": weaker}
-        return None
-
 
     def _ripple_combat_strength(self, p) -> float:
         """评估玩家的战斗力"""
@@ -848,6 +803,9 @@ class ChooseMixin(_Base):
 
     def _ripple_choose_method(self, player, state, options) -> str:
         """涟漪发动时选择方式（9级优先级，带 hint 系统）"""
+        self._ripple_priority_reason = ''
+        self._ripple_destiny_target_hint = None
+        self._ripple_poem_target_hint = None
         poem_opt = None
         anchor_opt = None
         for opt in options:

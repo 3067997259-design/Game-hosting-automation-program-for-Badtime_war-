@@ -4,8 +4,8 @@
 主动，T0启动，消耗行动回合。
 对另一名玩家发起猜拳，6种结果对应乾卦六爻：
 
-  双剪刀 → 潜龙勿用：天雷（1点无视克制伤害 + 击碎1层外甲）
-  双石头 → 飞龙在天：偷甲（复制目标1层外甲给自己，击碎目标该甲）
+  双剪刀 → 潜龙勿用：天雷（1点无视克制伤害）
+  双石头 → 飞龙在天：偷甲（复制目标1层外甲给自己）
   双布   → 元亨利贞：金身（免疫所有伤害和debuff直到下轮R1，无视属性克制伤害除外）
   剪刀vs石头 → 亢龙有悔：禁武（禁用目标1件武器2轮，仅有拳击则眩晕）
   剪刀vs布   → 或跃在渊：额外行动（2个连续额外行动回合）
@@ -21,7 +21,7 @@ from combat.damage_resolver import resolve_damage
 
 class Hexagram(BaseTalent):
     name = "六爻"
-    description = "每4轮充能1次(上限2)。消耗行动回合猜拳，乾卦六爻，6种不同效果。"
+    description = "每5轮充能1次(上限2)。消耗行动回合猜拳，乾卦六爻，6种不同效果。"
     tier = "原初"
 
     CHOICES = ["石头", "剪刀", "布"]
@@ -38,7 +38,7 @@ class Hexagram(BaseTalent):
 
     def __init__(self, player_id, game_state):
         super().__init__(player_id, game_state)
-        self.charges = 1
+        self.charges = 0
         self.max_charges = 2
         self.round_counter = 0
 
@@ -58,10 +58,10 @@ class Hexagram(BaseTalent):
     # ============================================
 
     def on_round_start(self, round_num):
-        """每4轮充能+1；清理过期的金身和武器禁用"""
+        """每5轮充能+1；清理过期的金身和武器禁用"""
         # 充能
         self.round_counter += 1
-        if self.round_counter >= 4:
+        if self.round_counter >= 5:
             self.round_counter = 0
             if self.charges < self.max_charges:
                 self.charges += 1
@@ -246,7 +246,7 @@ class Hexagram(BaseTalent):
 
     # ============================================
     #  潜龙勿用（双剪刀）：天雷增强
-    #  1点无视克制伤害 + 击碎目标1层外甲（无视属性）
+    #  1点无视克制伤害
     # ============================================
 
     def _both_scissors(self, player, target):
@@ -281,22 +281,6 @@ class Hexagram(BaseTalent):
         for detail in result.get("details", []):
             lines.append(f"   {detail}")
 
-        # 2. 额外击碎1层外甲（无视属性，独立于伤害）
-        if thunder_target.is_alive():
-            from models.equipment import ArmorLayer
-            outer_active = thunder_target.armor.get_active(ArmorLayer.OUTER)
-            if outer_active:
-                # 击碎优先级最高的外甲
-                outer_active.sort(key=lambda a: a.priority, reverse=True)
-                broken_piece = outer_active[0]
-                broken_piece.is_broken = True
-                broken_piece.current_hp = 0
-                lines.append(
-                    f"   💥 天雷击碎了 {thunder_target.name} 的外甲"
-                    f"「{broken_piece.name}」（{broken_piece.attribute.value}）！")
-            else:
-                lines.append(f"   （{thunder_target.name} 没有外层护甲可击碎）")
-
         # 击杀判定
         if result.get("killed", False):
             player.kill_count += 1
@@ -315,66 +299,48 @@ class Hexagram(BaseTalent):
     # ============================================
 
     def _both_rock(self, player, target):
-        """飞龙在天：偷甲"""
-        from models.equipment import ArmorLayer, ArmorPiece
+            """飞龙在天：破甲"""
+            from models.equipment import ArmorLayer
 
-        # 如果没有有效target（涟漪自由选择时可能为None），让玩家选
-        if target is None:
-            others = [p for p in self.state.alive_players()
-                      if p.player_id != player.player_id]
-            if not others:
-                return "🔮 飞龙在天→偷甲！但没有可选择的目标。"
-            names = [p.name for p in others]
-            choice = player.controller.choose(
-                "☯️ 飞龙在天——选择偷甲目标：", names,
-                context={"phase": "T0", "situation": "hexagram_steal_target"})
-            target = next(p for p in others if p.name == choice)
+            # 如果没有有效target（涟漪自由选择时可能为None），让玩家选
+            if target is None:
+                others = [p for p in self.state.alive_players()
+                        if p.player_id != player.player_id]
+                if not others:
+                    return "🔮 飞龙在天→破甲！但没有可选择的目标。"
+                names = [p.name for p in others]
+                choice = player.controller.choose(
+                    "☯️ 飞龙在天——选择破甲目标：", names,
+                    context={"phase": "T0", "situation": "hexagram_steal_target"})
+                target = next(p for p in others if p.name == choice)
 
-        # 检查目标是否有外甲
-        outer_active = target.armor.get_active(ArmorLayer.OUTER)
-        if not outer_active:
-            return (f"☯️ 飞龙在天——夺！\n"
-                    f"   {target.name} 没有外层护甲，效果不生效。")
+            # 检查目标是否有外甲
+            outer_active = target.armor.get_active(ArmorLayer.OUTER)
+            if not outer_active:
+                return (f"☯️ 飞龙在天——破！\n"
+                        f"   {target.name} 没有外层护甲，效果不生效。")
 
-        # 选择要偷的外甲（如果有多件，让玩家选）
-        if len(outer_active) == 1:
-            stolen_piece = outer_active[0]
-        else:
-            armor_names = [f"{a.name}（{a.attribute.value}）" for a in outer_active]
-            choice = player.controller.choose(
-                "选择要夺取的护甲：", armor_names,
-                context={"phase": "T0", "situation": "hexagram_steal_pick"})
-            idx = armor_names.index(choice)
-            stolen_piece = outer_active[idx]
+            # 选择要破的外甲（如果有多件，让玩家选）
+            if len(outer_active) == 1:
+                broken_piece = outer_active[0]
+            else:
+                armor_names = [f"{a.name}（{a.attribute.value}）" for a in outer_active]
+                choice = player.controller.choose(
+                    "选择要击碎的护甲：", armor_names,
+                    context={"phase": "T0", "situation": "hexagram_steal_pick"})
+                idx = armor_names.index(choice)
+                broken_piece = outer_active[idx]
 
-        lines = [f"☯️ 飞龙在天——夺！"]
+            lines = [f"☯️ 飞龙在天——破！"]
 
-        # 击碎目标的甲
-        stolen_name = stolen_piece.name
-        stolen_attr = stolen_piece.attribute
-        stolen_piece.is_broken = True
-        stolen_piece.current_hp = 0
-        lines.append(
-            f"   💥 击碎了 {target.name} 的「{stolen_name}」"
-            f"（{stolen_attr.value}）！")
-
-        # 给自己复制一件同属性同名的甲
-        new_armor = ArmorPiece(
-            stolen_name, stolen_attr, ArmorLayer.OUTER, 1.0,
-            priority=stolen_piece.priority,
-            can_regen=stolen_piece.can_regen,
-            special_tags=list(stolen_piece.special_tags),
-        )
-        success, reason = player.add_armor(new_armor)
-        if success:
+            # 击碎目标的甲（不再复制给自己）
+            broken_piece.is_broken = True
+            broken_piece.current_hp = 0
             lines.append(
-                f"   🛡️ {player.name} 获得了「{stolen_name}」"
-                f"（{stolen_attr.value}）！")
-        else:
-            lines.append(
-                f"   ⚠️ {player.name} 无法装备偷来的护甲：{reason}")
+                f"   💥 击碎了 {target.name} 的「{broken_piece.name}」"
+                f"（{broken_piece.attribute.value}）！")
 
-        return "\n".join(lines)
+            return "\n".join(lines)
 
     # ============================================
     #  元亨利贞（双布）：金身

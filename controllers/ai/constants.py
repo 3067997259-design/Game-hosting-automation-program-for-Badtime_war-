@@ -111,7 +111,8 @@ PERSONALITY_NEEDS = {
         "weapon",            # 拿武器
         "outer_armor",       # 拿1件外甲
         "second_weapon",     # 拿第2件不同属性武器（新增）
-        "second_outer_armor", # 拿第2件外甲（新增）
+        "second_outer_armor",# 拿第2件外甲（新增）
+        "inner_armor",       # aggressive 也需要内甲来提升续航，虽然优先级较低
     ],
     "defensive": [
         "voucher",

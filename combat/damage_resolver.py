@@ -87,7 +87,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
     ))
 
     # ---- 天赋受伤减免（如火萤IV型 -50%）----
-    if target.talent and hasattr(target.talent, 'modify_incoming_damage'):
+    if (target.talent and hasattr(target.talent, 'modify_incoming_damage')
+        and not getattr(target, '_mythland_talent_suppressed', False)):
         original_raw = raw
         raw = target.talent.modify_incoming_damage(target, attacker, None, raw)
         if raw != original_raw:
@@ -149,7 +150,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         )
 
     if remaining > 0:
-        if target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp'):
+        if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
+        and not getattr(target, '_mythland_talent_suppressed', False)):
             remaining = target.talent.receive_damage_to_temp_hp(remaining)
         if remaining > 0:
             result["hp_damage"] = remaining
@@ -190,7 +192,10 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             result["target_hp"] = target.hp
 
     if target.hp <= 0:
-        prevented = _talent_death_check(target, attacker, game_state)
+        if getattr(target, '_mythland_talent_suppressed', False):
+            prevented = False
+        else:
+            prevented = _talent_death_check(target, attacker, game_state)
         if prevented:
             result["killed"] = False
             result["target_hp"] = target.hp
@@ -217,7 +222,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
 
     elif target.hp <= 0.5 and not target.is_stunned:
         prevent = False
-        if target.talent and hasattr(target.talent, 'prevent_stun'):
+        if (target.talent and hasattr(target.talent, 'prevent_stun')
+                and not getattr(target, '_mythland_talent_suppressed', False)):
             prevent = target.talent.prevent_stun(target)
         if not prevent:
             result["stunned"] = True
@@ -241,7 +247,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             ))
 
     # ---- 愿负世：被攻击时积累火种 ----
-    if target.talent and hasattr(target.talent, 'on_being_attacked') and attacker:
+    if (target.talent and hasattr(target.talent, 'on_being_attacked') and attacker
+            and not getattr(target, '_mythland_talent_suppressed', False)):
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, None, is_limited)
 
@@ -310,7 +317,8 @@ def resolve_damage(attacker, target, weapon, game_state,
         )
 
     # ======== 六爻·元亨利贞：免疫伤害（有武器路径） ========
-    if target.talent and hasattr(target.talent, 'is_immune_to_damage'):
+    if (target.talent and hasattr(target.talent, 'is_immune_to_damage')
+        and not getattr(target, '_mythland_talent_suppressed', False)):
         dmg_attr = damage_attribute_override or (getattr(weapon, 'attribute', '普通') if weapon else '普通')
         if target.talent.is_immune_to_damage(dmg_attr):
             result["final_damage"] = 0
@@ -378,7 +386,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                 result["details"].append(f"🚔 警察保护：吸收 {absorbed}，剩余 {raw}")
 
     # ---- 萤火受伤减免 ----
-    if target.talent and hasattr(target.talent, 'modify_incoming_damage'):
+    if (target.talent and hasattr(target.talent, 'modify_incoming_damage')
+        and not getattr(target, '_mythland_talent_suppressed', False)):
         raw = target.talent.modify_incoming_damage(target, attacker, weapon, raw)
         if raw != result["raw_damage"]:
             damage_reduced_text = prompt_manager.get_prompt(
@@ -448,7 +457,8 @@ def resolve_damage(attacker, target, weapon, game_state,
         )
 
     if remaining > 0:
-        if target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp'):
+        if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
+        and not getattr(target, '_mythland_talent_suppressed', False)):
             remaining = target.talent.receive_damage_to_temp_hp(remaining)
         if remaining > 0:
             result["hp_damage"] = remaining
@@ -493,7 +503,10 @@ def resolve_damage(attacker, target, weapon, game_state,
 
     # ---- 第6步：眩晕/死亡判定 ----
     if target.hp <= 0:
-        prevented = _talent_death_check(target, attacker, game_state)
+        if getattr(target, '_mythland_talent_suppressed', False):
+            prevented = False
+        else:
+            prevented = _talent_death_check(target, attacker, game_state)
         if prevented:
             result["killed"] = False
             result["target_hp"] = target.hp

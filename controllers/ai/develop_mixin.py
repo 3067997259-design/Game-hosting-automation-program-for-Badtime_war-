@@ -53,8 +53,9 @@ class DevelopMixin(_Base):
 
         if self.personality == "aggressive":
             has_armor = self._count_outer_armor(player) >= 2
+            has_inner = self._count_inner_armor(player) >= 1
             has_two_weapons = len(real_weapons) >= 2
-            return has_two_weapons and has_armor
+            return has_two_weapons and has_armor and has_inner
         elif self.personality == "defensive":
             has_armor = self._count_outer_armor(player) >= 2
             has_inner = self._count_inner_armor(player) >= 1
