@@ -308,10 +308,15 @@ class ChooseMixin(_Base):
             return options[0]
         # ---- 涟漪 ----
         if situation == "ripple_choose_method":
-            # 单人模式下方式二（献诗）收益更高
-            for opt in options:
-                if "献诗" in opt:
-                    return opt
+            decision = self._ripple_decide_method()
+            if decision == "anchor":
+                for opt in options:
+                    if "锚定" in opt:
+                        return opt
+            else:
+                for opt in options:
+                    if "献诗" in opt:
+                        return opt
             return options[0]
         if situation == "resurrection_pick_target":
             # 单人模式下挂自己收益最大
@@ -319,16 +324,14 @@ class ChooseMixin(_Base):
                 return self._player.name
             return options[0]
         if situation == "ripple_anchor_type":
+            anchor_decision = self._ripple_decide_anchor_type()
             for opt in options:
-                if "击杀" in opt:
+                if anchor_decision in opt:
                     return opt
             return options[0]
         if situation == "ripple_poem_target":
-            # 献诗选自己（触发爱与记忆之诗，4发伤害）
-            if self._player and self._player.name in options:
-                return self._player.name
-            player_opts = [o for o in options if o != "取消"]
-            return player_opts[0] if player_opts else options[0]
+            target_name = self._ripple_decide_poem_target(options)
+            return target_name
         if situation in ("ripple_anchor_kill_target", "ripple_anchor_armor_target"):
             player_opts = [o for o in options if o != "取消"]
             if player_opts:
@@ -338,12 +341,7 @@ class ChooseMixin(_Base):
             non_cancel = [o for o in options if o != "取消"]
             return non_cancel[0] if non_cancel else options[0]
         if situation == "ripple_anchor_acquire_item":
-            priority = ["高斯步枪", "AT力场", "导弹控制权", "远程魔法弹幕", "陶瓷护甲", "魔法护盾", "电磁步枪"]
-            for item in priority:
-                if item in options:
-                    return item
-            non_cancel = [o for o in options if o != "取消"]
-            return non_cancel[0] if non_cancel else options[0]
+            return self._ripple_decide_acquire_item(options)
         if situation == "ripple_anchor_arrive_loc":
             non_cancel = [o for o in options if o != "取消"]
             if non_cancel:
@@ -359,7 +357,7 @@ class ChooseMixin(_Base):
                     return opt
             return options[0]
         if situation == "ripple_destiny_damage":
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            return self._ripple_decide_destiny_target(options, context)
         if situation == "ripple_hexagram_free_choice":
             if self._player and self._game_state:
                 scores = self._score_hexagram_effects(self._player, self._game_state)
@@ -407,6 +405,576 @@ class ChooseMixin(_Base):
         return sorted_opts[:count]
 
     # ════════════════════════════════════════════════════════
+    #  G5 涟漪 AI 决策系统
+    # ════════════════════════════════════════════════════════
+
+    def _ripple_decide_method(self) -> str:
+        """决定用锚定还是献诗。返回 "anchor" 或 "poem"。
+        委托给 _ripple_choose_method 做完整的 9 级优先级判断。"""
+        player = self._player
+        state = self._game_state
+        if not player or not state:
+            return "poem"
+
+        # 构造选项列表供 _ripple_choose_method 解析
+        options = ["方式一：锚定命运", "方式二：献诗"]
+        result = self._ripple_choose_method(player, state, options)
+        if "锚定" in result or "方式一" in result:
+            return "anchor"
+        return "poem"
+
+
+    def _ripple_decide_anchor_type(self) -> str:
+        """决定锚定类型。返回 "获取" 或 "击杀"。"""
+        player = self._player
+        if not player:
+            return "获取"
+
+        if self._ripple_needs_equipment(player):
+            return "获取"
+
+        return "击杀"
+
+
+    def _ripple_decide_poem_target(self, options) -> str:
+        """决定献诗目标。委托给 _ripple_choose_poem_target。"""
+        player = self._player
+        state = self._game_state
+
+        if not player or not state:
+            if player and player.name in options:
+                return player.name
+            return options[0]
+
+        return self._ripple_choose_poem_target(player, state, options)
+
+
+    def _ripple_decide_acquire_item(self, options) -> str:
+        """决定锚定获取什么物品。根据当前缺什么来选。"""
+        player = self._player
+        if not player:
+            non_cancel = [o for o in options if o != "取消"]
+            return non_cancel[0] if non_cancel else options[0]
+
+        weapons = getattr(player, 'weapons', [])
+        real_weapons = [w for w in weapons if w and getattr(w, 'name', '') != "拳击"
+                        and not getattr(w, '_hexagram_disabled', False)]
+        outer = self._count_outer_armor(player)
+        inner = self._count_inner_armor(player)
+
+        # 优先级：缺武器 > 缺外甲 > 缺内甲 > 其他
+        if len(real_weapons) == 0:
+            weapon_priority = ["高斯步枪", "电磁步枪", "小刀", "远程魔法弹幕"]
+            for item in weapon_priority:
+                if item in options:
+                    return item
+        if outer < 2:
+            armor_priority = ["AT力场", "陶瓷护甲", "魔法护盾", "盾牌"]
+            for item in armor_priority:
+                if item in options:
+                    return item
+        if inner == 0:
+            inner_priority = ["额外心脏", "不老泉", "晶化皮肤"]
+            for item in inner_priority:
+                if item in options:
+                    return item
+
+        # 有装备了，拿高价值物品
+        luxury_priority = ["AT力场", "高斯步枪", "导弹控制权", "隐身衣", "热成像仪"]
+        for item in luxury_priority:
+            if item in options:
+                return item
+
+        non_cancel = [o for o in options if o != "取消"]
+        return non_cancel[0] if non_cancel else options[0]
+
+
+    def _ripple_decide_destiny_target(self, options, context=None) -> str:
+        """爱与记忆之诗伤害目标选择：集中火力打同一个目标。"""
+        state = self._game_state
+        player = self._player
+        if not state or not player:
+            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+
+        # 优先读取 hint（由 _ripple_choose_method 设置的目标）
+        hint = getattr(self, '_ripple_destiny_target_hint', None)
+        if hint:
+            hint_player = state.get_player(hint)
+            if hint_player and hint_player.is_alive() and hint_player.name in options:
+                return hint_player.name
+
+        # 否则集中打最容易击杀的目标（HP+甲最低的）
+        best_target = None
+        best_score = 999
+        for name in options:
+            p = next((pl for pl in state.alive_players() if pl.name == name), None)
+            if not p or p.player_id == player.player_id:
+                continue
+            # 有效HP = HP + 外甲数 + 内甲数×0.5
+            eff = p.hp + self._count_outer_armor(p) + self._count_inner_armor(p) * 0.5
+            # 有死者苏生未触发 → 不优先打（打死会复活）
+            if hasattr(p, 'talent') and p.talent and p.talent.name == "死者苏生":
+                if hasattr(p.talent, 'used') and not p.talent.used:
+                    eff += 10  # 大幅降低优先级
+            # 有愿负世且火种高 → 不优先打（打到濒死触发救世主）
+            if hasattr(p, 'talent') and p.talent and hasattr(p.talent, 'divinity'):
+                if getattr(p.talent, 'divinity', 0) >= 8:
+                    eff += 5
+            if eff < best_score:
+                best_score = eff
+                best_target = name
+
+        return best_target or max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+
+    # ════════════════════════════════════════════════════════
+    #  G5 涟漪 AI 辅助判定方法
+    # ════════════════════════════════════════════════════════
+
+    def _ripple_get_destiny_stages(self, talent) -> int:
+        """计算下一次爱与记忆之诗的伤害段数"""
+        initial_count = len(self._game_state.player_order) if self._game_state else 6
+        base_n = min(4, max(2, initial_count // 2 + 1))
+        extra = max(0, getattr(talent, 'destiny_use_count', 0))  # 已用次数=额外段数
+        return base_n + extra
+
+
+    def _ripple_estimate_effective_stages(self, talent, target) -> int:
+        """估算对目标的有效伤害段数（扣除被护甲克制的段数）"""
+        total = self._ripple_get_destiny_stages(talent)
+        # 简化估算：无视克制段一定命中，其他段有概率被甲挡
+        outer = self._count_outer_armor(target)
+        # 至少有1段无视克制（第4段起），每段打掉1层甲或1HP
+        # 保守估计：有效段数 = 总段数 - 外甲数（每层甲挡1段）
+        effective = max(1, total - outer)
+        return effective
+
+
+    def _ripple_can_destiny_kill_captain(self, player, state, talent) -> bool:
+        """爱与记忆能否斩首队长"""
+        pe = getattr(state, 'police_engine', None)
+        if not pe:
+            return False
+        captain_id = getattr(pe, 'captain_id', None) or getattr(getattr(pe, 'police', None), 'captain_id', None)
+        if not captain_id:
+            return False
+        captain = state.get_player(captain_id)
+        if not captain or not captain.is_alive():
+            return False
+        # 检查追忆是否够
+        cost = talent.get_destiny_cost()
+        if talent.reminiscence < cost:
+            return False
+        effective = self._ripple_estimate_effective_stages(talent, captain)
+        return effective >= captain.hp + self._count_outer_armor(captain)
+
+
+    def _ripple_can_destiny_confirm_kill(self, player, state, talent) -> bool:
+        """爱与记忆能否确定击杀某个目标（非队长）"""
+        cost = talent.get_destiny_cost()
+        if talent.reminiscence < cost:
+            return False
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            t = state.get_player(pid)
+            if not t or not t.is_alive():
+                continue
+            # 跳过有死者苏生未触发的
+            if t.talent and t.talent.name == "死者苏生" and hasattr(t.talent, 'used') and not t.talent.used:
+                continue
+            # 跳过愿负世火种高的（会触发救世主）
+            if t.talent and hasattr(t.talent, 'divinity') and getattr(t.talent, 'divinity', 0) >= 8:
+                continue
+            effective = self._ripple_estimate_effective_stages(talent, t)
+            total_hp = t.hp + self._count_outer_armor(t) + self._count_inner_armor(t) * 0.5
+            if effective >= total_hp:
+                return True
+        return False
+
+
+    def _ripple_can_destiny_kill_target(self, player, state, talent, target) -> bool:
+        """爱与记忆能否击杀指定目标"""
+        cost = talent.get_destiny_cost()
+        if talent.reminiscence < cost:
+            return False
+        effective = self._ripple_estimate_effective_stages(talent, target)
+        total_hp = target.hp + self._count_outer_armor(target) + self._count_inner_armor(target) * 0.5
+        return effective >= total_hp
+
+
+    def _ripple_get_chaser(self, player, state):
+        """获取正在追杀涟漪的玩家（面对面/锁定/同地点攻击者）"""
+        markers = getattr(state, 'markers', None)
+        if not markers:
+            return None
+        # 检查 ENGAGED_WITH（面对面）
+        engaged = markers.get_related(player.player_id, "ENGAGED_WITH")
+        for eid in engaged:
+            enemy = state.get_player(eid)
+            if enemy and enemy.is_alive():
+                return enemy
+        # 检查 LOCKED_BY
+        locked = markers.get_related(player.player_id, "LOCKED_BY")
+        for lid in locked:
+            enemy = state.get_player(lid)
+            if enemy and enemy.is_alive():
+                return enemy
+        return None
+
+
+    def _ripple_is_critical(self, player, state) -> bool:
+        """涟漪是否处于危急状态"""
+        if player.hp <= 0.5:
+            return True
+        if player.hp <= 1.0 and self._count_outer_armor(player) == 0:
+            chaser = self._ripple_get_chaser(player, state)
+            if chaser:
+                return True
+        return False
+
+
+    def _ripple_needs_equipment(self, player) -> bool:
+        """涟漪是否缺装备"""
+        weapons = getattr(player, 'weapons', [])
+        real_weapons = [w for w in weapons if w and getattr(w, 'name', '') != "拳击"
+                        and not getattr(w, '_hexagram_disabled', False)]
+        outer = self._count_outer_armor(player)
+        # 缺武器或缺外甲
+        return len(real_weapons) == 0 or outer < 1
+
+
+    def _ripple_detect_fight(self, player, state):
+        """检测是否有两个其他玩家在打架（自己没卷入）。
+        返回 {"stronger": Player, "weaker": Player} 或 None。"""
+        markers = getattr(state, 'markers', None)
+        if not markers:
+            return None
+
+        my_engaged = markers.get_related(player.player_id, "ENGAGED_WITH")
+        if my_engaged:
+            return None  # 自己卷入了战斗，不适合驱虎吞狼
+
+        # 找所有 ENGAGED_WITH 对
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            p1 = state.get_player(pid)
+            if not p1 or not p1.is_alive():
+                continue
+            engaged_with = markers.get_related(pid, "ENGAGED_WITH")
+            for eid in engaged_with:
+                if eid == player.player_id:
+                    continue
+                p2 = state.get_player(eid)
+                if not p2 or not p2.is_alive():
+                    continue
+                # 找到一对在打架的玩家，判断谁强谁弱
+                talent = getattr(player, 'talent', None)
+                # 不给已有爱愿的人献诗
+                if talent and (talent.has_love_wish(p1.player_id) and talent.has_love_wish(p2.player_id)):
+                    continue
+                score1 = self._ripple_combat_strength(p1)
+                score2 = self._ripple_combat_strength(p2)
+                if score1 >= score2:
+                    stronger, weaker = p1, p2
+                else:
+                    stronger, weaker = p2, p1
+                # 不给已有爱愿的弱者献诗
+                if talent and talent.has_love_wish(weaker.player_id):
+                    continue
+                return {"stronger": stronger, "weaker": weaker}
+        return None
+
+
+    def _ripple_combat_strength(self, p) -> float:
+        """评估玩家的战斗力"""
+        score = 0
+        # HP
+        score += self._get_effective_hp(p) * 3
+        # 护甲
+        score += self._count_outer_armor(p) * 2
+        score += self._count_inner_armor(p) * 3
+        # 武器
+        weapons = [w for w in getattr(p, 'weapons', []) if w and getattr(w, 'name', '') != '拳击'
+                and not getattr(w, '_hexagram_disabled', False)]
+        score += len(weapons) * 2
+        # 特殊天赋加成
+        if p.talent:
+            if hasattr(p.talent, 'divinity') and getattr(p.talent, 'divinity', 0) >= 6:
+                score += 5
+            if hasattr(p.talent, 'is_savior') and p.talent.is_savior:
+                score += 8
+            if hasattr(p.talent, 'charges') and hasattr(p.talent, 'name') and '六爻' in p.talent.name:
+                score += p.talent.charges * 2
+        return score
+
+
+    def _ripple_should_anchor_kill(self, player, state) -> bool:
+        """是否应该用锚定击杀（针对常规手段无法击杀的目标）"""
+        # 需要有装备来维护命运（至少有武器+甲）
+        if self._ripple_needs_equipment(player):
+            return False
+        # 检查是否有"难以常规击杀"的目标
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            t = state.get_player(pid)
+            if not t or not t.is_alive():
+                continue
+            # 愿负世（高火种）或死者苏生（未触发）= 难以常规击杀
+            if t.talent:
+                # 愿负世：火种≥8，常规击杀会触发救世主
+                divinity = getattr(t.talent, 'divinity', 0)
+                if divinity >= 8:
+                    return True
+                # 死者苏生：未使用过，常规击杀会复活
+                if hasattr(t.talent, 'used') and not t.talent.used and hasattr(t.talent, 'name') and '苏生' in t.talent.name:
+                    return True
+                # 六爻金身生效中
+                if getattr(t.talent, 'immunity_active', False):
+                    return True
+        return False
+
+    def _ripple_has_love_wish(self, target, state) -> bool:
+        """检查目标是否已对涟漪持有者持有爱愿"""
+        player = self._player
+        if not player:
+            return False
+        talent = getattr(player, 'talent', None)
+        if not talent or not hasattr(talent, 'has_love_wish'):
+            return False
+        return talent.has_love_wish(target.player_id)
+
+    def _ripple_find_weakest_without_love_wish(self, player, state):
+        """找到没有爱愿的最弱玩家（用于献诗-扶弱）"""
+        my_pid = player.player_id
+        best = None
+        best_strength = 999
+        for pid in state.player_order:
+            if pid == my_pid:
+                continue
+            t = state.get_player(pid)
+            if not t or not t.is_alive():
+                continue
+            if self._ripple_has_love_wish(t, state):
+                continue
+            strength = self._ripple_combat_strength(t)
+            if strength < best_strength:
+                best_strength = strength
+                best = t
+        return best
+
+    def _ripple_find_tiger_wolf_fight(self, player, state):
+        """
+        寻找驱虎吞狼机会：找到两个正在交战的玩家，返回 (weaker, stronger)。
+        条件：
+        1. 两人互相 ENGAGED_WITH（面对面）
+        2. 涟漪持有者不在这场战斗中
+        3. 弱者尚未持有爱愿
+        返回 (weaker_player, stronger_player) 或 None
+        """
+        markers = getattr(state, 'markers', None)
+        if not markers:
+            return None
+
+        my_pid = player.player_id
+        best_pair = None
+        best_strength_diff = 0
+
+        alive_players = [state.get_player(pid) for pid in state.player_order
+                        if pid != my_pid and state.get_player(pid) and state.get_player(pid).is_alive()]
+
+        for i, p1 in enumerate(alive_players):
+            for p2 in alive_players[i+1:]:
+                # 检查是否互相面对面
+                engaged = markers.get_related(p1.player_id, "ENGAGED_WITH")
+                if p2.player_id not in engaged:
+                    continue
+                # 涟漪持有者不能卷入这场战斗
+                my_engaged = markers.get_related(my_pid, "ENGAGED_WITH")
+                if p1.player_id in my_engaged or p2.player_id in my_engaged:
+                    continue
+                # 计算强弱
+                s1 = self._ripple_combat_strength(p1)
+                s2 = self._ripple_combat_strength(p2)
+                if s1 == s2:
+                    continue
+                stronger = p1 if s1 > s2 else p2
+                weaker = p2 if s1 > s2 else p1
+                # 弱者不能已有爱愿
+                if self._ripple_has_love_wish(weaker, state):
+                    continue
+                diff = abs(s1 - s2)
+                if diff > best_strength_diff:
+                    best_strength_diff = diff
+                    best_pair = (weaker, stronger)
+
+        return best_pair
+
+    def _ripple_find_chaser(self, player, state):
+        """找到正在追杀涟漪持有者的玩家"""
+        markers = getattr(state, 'markers', None)
+        if not markers:
+            return None
+        my_pid = player.player_id
+        engaged = markers.get_related(my_pid, "ENGAGED_WITH")
+        locked_by = markers.get_related(my_pid, "LOCKED_BY")
+        chasers = set(engaged) | set(locked_by)
+        if not chasers:
+            pc = self._police_cache or {}
+            if pc.get("report_target") == my_pid and pc.get("report_phase") == "dispatched":
+                return "police"
+            return None
+        best = None
+        best_threat = -1
+        for pid in chasers:
+            t = state.get_player(pid)
+            if t and t.is_alive():
+                threat = self._ripple_combat_strength(t)
+                if threat > best_threat:
+                    best_threat = threat
+                    best = t
+        return best
+
+    def _ripple_can_kill_with_destiny(self, player, target, state) -> bool:
+        """判断爱与记忆之诗能否确定击杀目标。
+        复用 _ripple_estimate_effective_stages 保持与伤害分配阶段一致的保守估算。"""
+        talent = player.talent
+        if not talent:
+            return False
+        effective = self._ripple_estimate_effective_stages(talent, target)
+        total_hp = target.hp + self._count_outer_armor(target) + self._count_inner_armor(target) * 0.5
+        return effective >= total_hp
+
+    def _ripple_choose_method(self, player, state, options) -> str:
+        """涟漪发动时选择方式（9级优先级，带 hint 系统）"""
+        poem_opt = None
+        anchor_opt = None
+        for opt in options:
+            if "献诗" in opt or "方式二" in opt:
+                poem_opt = opt
+            if "锚定" in opt or "方式一" in opt:
+                anchor_opt = opt
+
+        pc = self._police_cache or {}
+        captain_id = pc.get("captain_id")
+        if captain_id:
+            captain = state.get_player(captain_id)
+            if captain and captain.is_alive():
+                if self._ripple_can_kill_with_destiny(player, captain, state):
+                    if poem_opt:
+                        self._ripple_priority_reason = "斩首队长"
+                        self._ripple_destiny_target_hint = captain_id
+                        return poem_opt
+
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            t = state.get_player(pid)
+            if not t or not t.is_alive():
+                continue
+            if t.talent:
+                if hasattr(t.talent, 'used') and not t.talent.used and hasattr(t.talent, 'name') and '苏生' in t.talent.name:
+                    continue
+                if hasattr(t.talent, 'divinity') and getattr(t.talent, 'divinity', 0) >= 8:
+                    continue
+            if self._ripple_can_kill_with_destiny(player, t, state):
+                if poem_opt:
+                    self._ripple_priority_reason = "确定击杀"
+                    self._ripple_destiny_target_hint = pid
+                    return poem_opt
+
+        chaser = self._ripple_find_chaser(player, state)
+        if chaser and chaser != "police":
+            if self._ripple_can_kill_with_destiny(player, chaser, state):
+                if poem_opt:
+                    self._ripple_priority_reason = "反杀追杀者"
+                    self._ripple_destiny_target_hint = chaser.player_id
+                    return poem_opt
+            if player.hp <= 0.5 or self._count_outer_armor(player) == 0:
+                if poem_opt:
+                    self._ripple_priority_reason = "危急保命"
+                    self._ripple_poem_target_hint = chaser.player_id
+                    return poem_opt
+        elif chaser == "police":
+            if captain_id:
+                captain = state.get_player(captain_id)
+                if captain and captain.is_alive() and self._ripple_can_kill_with_destiny(player, captain, state):
+                    if poem_opt:
+                        self._ripple_priority_reason = "斩首队长（被警察追杀）"
+                        self._ripple_destiny_target_hint = captain_id
+                        return poem_opt
+            if poem_opt:
+                self._ripple_priority_reason = "被警察追杀保命"
+                return poem_opt
+
+        if self._ripple_needs_equipment(player) and anchor_opt:
+            self._ripple_priority_reason = "锚定获取装备"
+            return anchor_opt
+
+        tiger_wolf = self._ripple_find_tiger_wolf_fight(player, state)
+        if tiger_wolf:
+            weaker, stronger = tiger_wolf
+            if poem_opt:
+                self._ripple_priority_reason = "驱虎吞狼"
+                self._ripple_poem_target_hint = weaker.player_id
+                return poem_opt
+
+        if self._ripple_should_anchor_kill(player, state) and anchor_opt:
+            self._ripple_priority_reason = "锚定击杀"
+            return anchor_opt
+
+        weakest = self._ripple_find_weakest_without_love_wish(player, state)
+        if weakest and poem_opt:
+            self._ripple_priority_reason = "扶弱"
+            self._ripple_poem_target_hint = weakest.player_id
+            return poem_opt
+
+        if poem_opt:
+            self._ripple_priority_reason = "通用输出"
+            return poem_opt
+
+        return options[0]
+
+    def _ripple_choose_poem_target(self, player, state, options) -> str:
+        """献诗目标选择（基于 hint 系统）"""
+        reason = getattr(self, '_ripple_priority_reason', '')
+        hint = getattr(self, '_ripple_poem_target_hint', None)
+
+        # 爱与记忆相关的 reason → 选自己（触发爱与记忆之诗）
+        if reason in ("斩首队长", "确定击杀", "反杀追杀者", "通用输出", "斩首队长（被警察追杀）"):
+            if player.name in options:
+                return player.name
+
+        if hint:
+            hint_player = state.get_player(hint)
+            if hint_player and hint_player.name in options:
+                return hint_player.name
+
+        if reason == "危急保命":
+            chaser = self._ripple_find_chaser(player, state)
+            if chaser and chaser != "police":
+                if chaser.name in options:
+                    return chaser.name
+
+        if reason == "被警察追杀保命":
+            for name in options:
+                if name == player.name:
+                    continue
+                for pid in state.player_order:
+                    t = state.get_player(pid)
+                    if t and t.name == name and not self._ripple_has_love_wish(t, state):
+                        return name
+
+        weakest = self._ripple_find_weakest_without_love_wish(player, state)
+        if weakest and weakest.name in options:
+            return weakest.name
+
+        if player.name in options:
+            return player.name
+        return options[0] if options else "取消"
+
+    # ════════════════════════════════════════════════════════
     #  confirm：确认决策
     # ════════════════════════════════════════════════════════
 
@@ -439,108 +1007,171 @@ class ChooseMixin(_Base):
         return False
 
     def _score_hexagram_effects(self, player, state) -> dict:
+        """为六爻6种效果评分 — 基于当前战术处境动态调整"""
         scores = {}
 
-        # thunder (潜龙勿用: 天雷 1点无视克制 + 破1甲)
-        # High value when target has low HP or important outer armor
-        best_kill = False
-        best_armor_break = False
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            t = state.get_player(pid)
-            if t and t.is_alive():
-                outer = self._count_outer_armor(t)
-                if t.hp <= 1.0 and outer == 0:
-                    best_kill = True
-                if outer > 0:
-                    best_armor_break = True
-        scores["thunder"] = 10 if best_kill else (7 if best_armor_break else 5)
-
-        # steal_armor (飞龙在天: 偷甲)
-        # High value when self has few armor and enemies have good armor
+        # ---- Step 1: Determine current situation ----
+        hp = player.hp
         my_outer = self._count_outer_armor(player)
+        is_critical = self._is_critical(player, state)
+        dev_complete = self._is_development_complete(player, state)
+        has_kill = self._has_kill_opportunity(player, state)
+
+        # Check combat state from markers (not self._in_combat which belongs to this AI instance)
+        markers_obj = getattr(state, 'markers', None)
+        engaged_enemies = []
+        locked_by_enemies = []
+        if markers_obj:
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive():
+                    if hasattr(markers_obj, 'has_relation') and markers_obj.has_relation(
+                            player.player_id, 'ENGAGED_WITH', pid):
+                        engaged_enemies.append(t)
+                    locked_list = markers_obj.get_related(player.player_id, "LOCKED_BY") if hasattr(markers_obj, 'get_related') else set()
+                    if pid in locked_list:
+                        locked_by_enemies.append(t)
+
+        in_combat = len(engaged_enemies) > 0
+        losing = in_combat and (hp <= 1.0 or is_critical)
+
+        # Classify situation
+        if losing:
+            situation = "D"  # Critical/losing
+        elif in_combat:
+            situation = "C"  # Active combat
+        elif dev_complete or has_kill:
+            situation = "B"  # Ready to attack
+        else:
+            situation = "A"  # Safe development
+
+        # ---- Step 2: Score each effect based on situation ----
+
+        # === thunder (潜龙勿用: 1 damage + break 1 armor) ===
+        # Offensive effect — high when attacking, low when defending/developing
+        if situation == "B":
+            # Check for kill opportunities or armor to break
+            best_kill = False
+            best_armor_break = False
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive():
+                    if t.hp <= 1.0 and self._count_outer_armor(t) == 0:
+                        best_kill = True
+                    if self._count_outer_armor(t) > 0:
+                        best_armor_break = True
+            scores["thunder"] = 10 if best_kill else (9 if best_armor_break else 7)
+        elif situation == "C":
+            # In combat: thunder is decent (damage the person you're fighting)
+            combat_target_killable = False
+            for e in engaged_enemies:
+                if e.hp <= 1.0 and self._count_outer_armor(e) == 0:
+                    combat_target_killable = True
+            scores["thunder"] = 8 if combat_target_killable else 6
+        else:
+            # Safe or losing: thunder is low priority
+            scores["thunder"] = 3
+
+        # === steal_armor (飞龙在天: steal 1 outer armor from target) ===
+        # Development effect — high when safe and need armor, low in combat
         enemy_has_armor = any(
             self._count_outer_armor(state.get_player(pid)) > 0
             for pid in state.player_order
             if pid != player.player_id and state.get_player(pid) and state.get_player(pid).is_alive()
         )
-        if my_outer == 0 and enemy_has_armor:
-            scores["steal_armor"] = 9
-        elif my_outer < 2 and enemy_has_armor:
-            scores["steal_armor"] = 7
-        elif enemy_has_armor:
-            scores["steal_armor"] = 5
-        else:
+        if situation == "A":
+            # Safe development: stealing armor is great
+            if my_outer == 0 and enemy_has_armor:
+                scores["steal_armor"] = 9
+            elif my_outer < 2 and enemy_has_armor:
+                scores["steal_armor"] = 7
+            else:
+                scores["steal_armor"] = 4
+        elif situation == "B":
+            scores["steal_armor"] = 5 if enemy_has_armor else 2
+        elif situation == "C":
+            scores["steal_armor"] = 4 if (my_outer == 0 and enemy_has_armor) else 3
+        else:  # D: losing
             scores["steal_armor"] = 2
 
-        # immunity (元亨利贞: 金身)
-        # High value when HP is low or being attacked
-        # 注意：从 state.markers 判断 player 的战斗状态，而非 self._been_attacked_by
-        # （对手调用时 self 是对手AI，self._been_attacked_by 不代表 caster 的状态）
-        hp = player.hp
-        caster_in_combat = False
-        markers_obj = getattr(state, 'markers', None)
-        if markers_obj and hasattr(markers_obj, 'has_relation'):
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                t = state.get_player(pid)
-                if t and t.is_alive() and markers_obj.has_relation(
-                        player.player_id, 'ENGAGED_WITH', pid):
-                    caster_in_combat = True
-                    break
-        if hp <= 1.0:
-            scores["immunity"] = 10
-        elif hp <= 1.5 and caster_in_combat:
-            scores["immunity"] = 8
-        elif caster_in_combat:
-            scores["immunity"] = 6
+        # === immunity (元亨利贞: immune to all damage/debuff for 1 round) ===
+        # Defensive effect — high when in danger, low when safe
+        if situation == "D":
+            scores["immunity"] = 10  # Top priority when losing
+        elif situation == "C":
+            if hp <= 1.0:
+                scores["immunity"] = 9
+            elif hp <= 1.5:
+                scores["immunity"] = 7
+            else:
+                scores["immunity"] = 6
         else:
-            scores["immunity"] = 3
+            scores["immunity"] = 2  # Not useful when safe
 
-        # disarm (亢龙有悔: 禁武)
-        # High value against enemies with strong weapons (especially firefly, aggressive)
-        best_disarm = 0
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            t = state.get_player(pid)
-            if t and t.is_alive():
+        # === disarm (亢龙有悔: disable 1 weapon for 2 rounds) ===
+        # Combat effect — high when fighting someone, low when not in combat
+        if situation in ("C", "D"):
+            # Check the specific enemies we're fighting
+            best_disarm = 0
+            targets_to_check = engaged_enemies if engaged_enemies else []
+            # Also check locked_by enemies (ranged attackers targeting us)
+            targets_to_check = list(set(targets_to_check + locked_by_enemies))
+            if not targets_to_check:
+                # Fallback: check all alive enemies
+                for pid in state.player_order:
+                    if pid == player.player_id:
+                        continue
+                    t = state.get_player(pid)
+                    if t and t.is_alive():
+                        targets_to_check.append(t)
+            for t in targets_to_check:
                 real_weapons = [w for w in getattr(t, 'weapons', [])
                             if w and getattr(w, 'name', '') != "拳击"
                             and not getattr(w, '_hexagram_disabled', False)]
                 if len(real_weapons) == 1:
-                    best_disarm = max(best_disarm, 9)  # Only 1 weapon = devastating
+                    best_disarm = max(best_disarm, 9)
                 elif len(real_weapons) > 1:
-                    best_disarm = max(best_disarm, 6)
-        scores["disarm"] = best_disarm if best_disarm > 0 else 3
-
-        # extra_turn (或跃在渊: 2 extra actions)
-        # Always good, especially in combat
-        # 复用 immunity 中已计算的 caster_in_combat（基于 state.markers）
-        if caster_in_combat:
-            scores["extra_turn"] = 9
-        elif not self._is_development_complete(player, state):
-            scores["extra_turn"] = 8
+                    best_disarm = max(best_disarm, 7)
+            scores["disarm"] = best_disarm if best_disarm > 0 else 4
+            # If losing, disarm is less useful than immunity/escape
+            if situation == "D":
+                scores["disarm"] = min(scores["disarm"], 6)
+        elif situation == "B":
+            # Preparing to attack: disarm is moderately useful (weaken target before engaging)
+            scores["disarm"] = 5
         else:
-            scores["extra_turn"] = 6
+            # Safe development: disarm is nearly useless
+            scores["disarm"] = 2
 
-        # escape (群龙无首: stealth + teleport target)
-        # High value when locked/detected, or to displace a threatening enemy
-        markers = getattr(state, 'markers', None)
-        is_locked = False
-        if markers:
-            locked_by = markers.get_related(player.player_id, "LOCKED_BY")
-            is_locked = len(locked_by) > 0
-        if is_locked:
-            scores["escape"] = 9
-        elif not getattr(player, 'is_invisible', False):
-            scores["escape"] = 5
+        # === extra_turn (或跃在渊: 2 extra action turns) ===
+        # Versatile — always decent, but context changes priority
+        if situation == "A":
+            scores["extra_turn"] = 9  # Great for accelerating development
+        elif situation == "B":
+            scores["extra_turn"] = 8  # Good for attacking (2 extra attacks)
+        elif situation == "C":
+            scores["extra_turn"] = 8  # Good in combat (2 extra attacks)
+        else:  # D: losing
+            scores["extra_turn"] = 5  # Less useful when you need to survive, not act more
+
+        # === escape (群龙无首: stealth + teleport enemy away) ===
+        # Escape effect — high when losing/trapped, low when safe
+        is_locked = len(locked_by_enemies) > 0
+        if situation == "D":
+            scores["escape"] = 10 if is_locked else 9  # Top priority: run away
+        elif situation == "C":
+            # In combat but not losing: escape is moderate (can disengage)
+            scores["escape"] = 5 if is_locked else 3
         else:
+            # Safe or attacking: escape is low priority
             scores["escape"] = 2
 
         return scores
+
 
     def _hexagram_pick_caster(self, player, state, options) -> str:
         """发动者出拳：maximin（最差情况收益最高）"""
