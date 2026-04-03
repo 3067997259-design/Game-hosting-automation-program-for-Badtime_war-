@@ -42,7 +42,8 @@ class ActionTurnManager:
             display.show_info(f"{player.name} 从眩晕中苏醒！HP恢复至 {player.hp}")
 
         # ---- 天赋被动T0（如萤火0.5血自愈） ----
-        if player.talent and hasattr(player.talent, 'on_turn_start'):
+        if (player.talent and hasattr(player.talent, 'on_turn_start')
+            and not getattr(player, '_mythland_talent_suppressed', False)):
             player.talent.on_turn_start(player)
 
         # ---- 震荡处理 ----

@@ -11,6 +11,7 @@
   - 隐身无效，强制相互可见+面对面
   - 六爻的"解除锁定/发现"在结界内不生效
   - 发动者免疫所有控制效果（眩晕等）
+  - 被拉入者的所有天赋效果（主动+被动）在结界期间完全被压制
 
 结界外：
   - 全局轮次完全暂停
@@ -196,6 +197,14 @@ class Mythland(BaseTalent):
                 default=f"  🌀 {n1} 与 {n2} 强制进入面对面！"
             ).format(player1_name=n1, player2_name=n2)
             display.show_info(forced_engaged)
+
+        # 压制被拉入者的所有天赋效果（主动+被动）
+        for pid in self.barrier_players:
+            if pid != self.player_id:  # 只压制非发动者
+                p = self.state.get_player(pid)
+                if p:
+                    p._mythland_talent_suppressed = True
+                    display.show_info(f"  🌀 {p.name} 的天赋在幻想乡中被完全压制！")
 
     # ============================================
     #  结界主循环
@@ -476,6 +485,12 @@ class Mythland(BaseTalent):
 
         # ══ 修复：通知所有涟漪天赋结界已结束 ══
         self._notify_ripple_barrier_end()
+        # 解除天赋压制
+        for pid in self.barrier_players:
+            p = self.state.get_player(pid)
+            if p and getattr(p, '_mythland_talent_suppressed', False):
+                p._mythland_talent_suppressed = False
+                display.show_info(f"  🌀 {p.name} 的天赋压制解除。")
         # ══ 修复结束 ══
 
         self.active = False

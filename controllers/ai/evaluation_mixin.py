@@ -239,14 +239,12 @@ class EvaluationMixin(_Base):
                 return False
             # 火萤不因 HP 低而退出（有减伤 + 0.5 自愈）
             return True
-        # aggressive：只有被打到无甲才撤退
-        if self.personality == "aggressive":
-            total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
-            if total_armor == 0:
-                return False
-        else:
-            # 其他人格：HP <= 0.5 时退出
-            if player.hp <= 0.5:
+        # 所有非火萤人格统一：护甲归零 + 无额外生命值时撤退
+        # （火萤已在上方 lines 237-241 单独处理）
+        total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
+        if total_armor == 0:
+            effective_hp = self._get_effective_hp(player)
+            if effective_hp <= 1.0:
                 return False
         if self._is_at_disadvantage(player, target) and self.personality == "defensive":
             return False
