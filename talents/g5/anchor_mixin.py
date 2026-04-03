@@ -553,35 +553,35 @@ class AnchorMixin:
     # ================================================================
 
     def _anchor_start_simple(self, player):
-        self.anchor_fate = 0
-        self.anchor_variance = 5
-        self.anchor_path = []
-        self.anchor_caster_backup = self._create_player_backup(player)
-        self.anchor_target_snapshot = None
-
+        """获取/到达类锚定：即时生效（V1.92+改动）"""
         self._consume_use()
-        self.anchor_active = True
-        self.anchor_rounds_left = 5
-        self.anchor_destructive_count = 0
+
+        # 即时实现事件
+        self._anchor_resolve_simple_immediate(player)
 
         lines = [
             f"\n{'='*60}",
-            prompt_manager.get_prompt(
-                "talent", "g5ripple.anchor_established_simple",
-                default="  🌊 锚定成立！事件：{anchor_detail}"
-            ).format(anchor_detail=self.anchor_detail),
-            prompt_manager.get_prompt(
-                "talent", "g5ripple.anchor_countdown",
-                default="  ⏳ 5轮后若 {player_name} 存活，事件自动实现。"
-            ).format(player_name=player.name),
-            prompt_manager.get_prompt(
-                "talent", "g5ripple.state_backed_up",
-                default="  📸 状态已备份。"
-            ),
+            f"  🌊 锚定成立并即时实现！事件：{self.anchor_detail}",
+            f"  📸 状态已备份（失败时可回溯）。",
             f"{'='*60}",
         ]
         display.show_info("\n".join(lines))
         return "\n".join(lines)
+
+    def _anchor_resolve_simple_immediate(self, player):
+        """即时实现获取/到达锚定事件"""
+        if self.anchor_type == "acquire":
+            item_name = self.anchor_detail.replace("获取 ", "")
+            self._grant_item_to_player(player, item_name)
+            display.show_info(f"  ✅ {player.name} 立即获得了「{item_name}」！")
+        elif self.anchor_type == "arrive":
+            loc_name = self.anchor_detail.replace("到达 ", "")
+            old_loc = getattr(player, 'location', None)
+            player.location = loc_name
+            display.show_info(f"  ✅ {player.name} 立即到达了「{loc_name}」！（从{old_loc}）")
+        # 不进入锚定监控期，不设置 anchor_active = True
+        # 备份状态以防需要回溯（保留向后兼容）
+        self.anchor_caster_backup = self._create_player_backup(player)
 
     # ================================================================
     #  击杀/护甲类启动
