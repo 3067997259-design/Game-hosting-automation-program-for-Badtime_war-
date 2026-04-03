@@ -491,6 +491,22 @@ class CombatMixin(_Base):
                 if is_passive:
                     target_power = self._estimate_power(t)
                     s += 30 + target_power * 0.3  # 越肉的发育者越危险
+            # ===== 未使用G3回避/远程消耗逻辑 =====
+            if self._has_unused_mythland(t):
+                has_ranged = any(
+                    self._get_weapon_range(w) == "ranged"
+                    for w in getattr(player, 'weapons', []) if w
+                    and not getattr(w, '_hexagram_disabled', False)
+                )
+                if has_ranged:
+                    # 有远程武器 → G3是好目标（可以安全消耗）
+                    s += 60  # 鼓励远程骚扰G3
+                elif self._same_location(player, t):
+                    # 已经在同地点且没远程 → 大幅降分（危险！）
+                    s -= 150
+                else:
+                    # 不在同地点且没远程 → 降分（别去送）
+                    s -= 80
             # 武器有效性（火萤已在专用评分块中处理，跳过）
             if not self._has_firefly_talent(player) and self._all_weapons_countered(player, t):
                 s -= 200
@@ -620,6 +636,15 @@ class CombatMixin(_Base):
                 elif self._get_weapon_range(w) == "area":
                     dmg += getattr(talent, 'aoe_bonus', 0)
             s += dmg * 10
+            # ===== 对未使用G3目标的武器偏好 =====
+            if self._has_unused_mythland(target):
+                wr_check = self._get_weapon_range(w)
+                if wr_check == "ranged":
+                    s += 100  # 强烈偏好远程（安全消耗，不会被拉进幻想乡）
+                elif wr_check == "melee":
+                    s -= 60  # 近战需要同地点，有被拉入风险
+                elif wr_check == "area":
+                    s -= 40  # AOE也需要同地点，有风险
             # 蓄力必须但未蓄力 → 打不出去，大幅扣分
             if (getattr(w, 'requires_charge', False)
                     and getattr(w, 'charge_mandatory', True)
@@ -648,6 +673,14 @@ class CombatMixin(_Base):
                     s += 15
                 elif wr == "melee":
                     s -= 20
+            # 全息影像激活中：强烈偏好AOE武器（影像内+0.5伤害对所有人生效）
+            if (hasattr(player, 'talent') and player.talent
+                    and hasattr(player.talent, 'active') and player.talent.active
+                    and hasattr(player.talent, 'name') and player.talent.name == "请一直，注视着我"):
+                if wr == "area":
+                    s += 50  # 强烈偏好AOE
+                elif wr == "melee":
+                    s += 5   # 近战作为备选（小刀单挑用）
             # 控制效果加分（同地点时更有价值）
             tags = getattr(w, 'special_tags', []) or []
             has_control = any(t in tags for t in ("shock_2_targets", "stun_on_hit"))

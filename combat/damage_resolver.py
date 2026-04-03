@@ -310,9 +310,21 @@ def resolve_damage(attacker, target, weapon, game_state,
                 result["reason"] = "元亨利贞免疫"
                 result["details"].append(f"☯️ 「元亨利贞」免疫了此次伤害！")
                 return result
+
+        # ---- 天赋：修改输出伤害（如火萤IV型 +100%）----
+        effective_raw = raw_damage_override or 1.0
+        if attacker and attacker.talent and hasattr(attacker.talent, 'modify_outgoing_damage'):
+            if not getattr(attacker, '_mythland_talent_suppressed', False):
+                mod = attacker.talent.modify_outgoing_damage(attacker, target, None, effective_raw)
+                if mod:
+                    if "damage_multiplier_override" in mod:
+                        effective_raw = effective_raw * mod["damage_multiplier_override"]
+                    if "bonus_damage" in mod:
+                        effective_raw += mod["bonus_damage"]
+
         return _resolve_weaponless_damage(
             attacker, target, game_state, result,
-            raw_damage_override or 1.0,
+            effective_raw,
             dmg_attr_str,
             is_talent_attack=is_talent_attack,
         )
@@ -347,7 +359,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             return result
 
     # ---- 天赋：修改输出伤害 ----
-    if attacker and attacker.talent:
+    if attacker and attacker.talent and not getattr(attacker, '_mythland_talent_suppressed', False):
         mod = attacker.talent.modify_outgoing_damage(attacker, target, weapon, weapon.get_effective_damage())
         if mod:
             if "damage_multiplier_override" in mod:

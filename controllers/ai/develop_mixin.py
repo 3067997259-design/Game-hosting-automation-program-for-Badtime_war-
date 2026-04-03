@@ -44,12 +44,25 @@ class DevelopMixin(_Base):
             has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
             return has_sharpened_knife and has_gauss
 
-        # 全息影像（请一直注视着我）：需要2种AOE + 至少2件护甲
+        # 全息影像（请一直注视着我）
         if (player.talent and hasattr(player.talent, 'name')
                 and player.talent.name == "请一直，注视着我"):
-            has_two_aoe_types = self._count_distinct_aoe_attrs(player) >= 2
-            has_armor = self._count_outer_armor(player) >= 2
-            return has_two_aoe_types and has_armor
+            talent = player.talent
+            hologram_exhausted = getattr(talent, 'used', False) and getattr(talent, 'max_uses', 0) <= 0 and not getattr(talent, 'active', False)
+            if hologram_exhausted:
+                # 阶段3：影像次数用完，需要单体远程武器 + 护甲
+                real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
+                has_ranged_or_magic = any(
+                    w.name in ("魔法弹幕", "远程魔法弹幕", "高斯步枪")
+                    for w in real_weapons
+                )
+                has_armor = self._count_outer_armor(player) >= 2
+                return has_ranged_or_magic and has_armor
+            else:
+                # 阶段1/2：需要2种AOE + 2外甲（+ 小刀顺手拿）
+                has_two_aoe_types = self._count_distinct_aoe_attrs(player) >= 2
+                has_armor = self._count_outer_armor(player) >= 2
+                return has_two_aoe_types and has_armor
 
         if self.personality == "aggressive":
             has_armor = self._count_outer_armor(player) >= 2
@@ -262,6 +275,9 @@ class DevelopMixin(_Base):
                     commands.append("interact 凭证")
                 if outer < 1 and not self._has_armor_by_name(player, "盾牌"):
                     commands.append("interact 盾牌")
+                # 顺手拿小刀（免费，用于单挑）
+                if not any(w.name == "小刀" for w in player.weapons if w):
+                    commands.append("interact 小刀")
             elif loc == "魔法所":
                 # Priority: 地震 → 地动山摇 → 魔法护盾
                 if "地震" not in learned:
@@ -309,6 +325,39 @@ class DevelopMixin(_Base):
                     commands.append(f"move {enemy_loc}")
 
         return commands
+
+    def _cmd_develop_hologram_post(self, player, state, available):
+        """全息影像次数用完后的发育路径：补单体远程武器"""
+        commands = []
+        loc = self._get_location_str(player)
+        learned = self._get_learned_spells(player)
+        real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
+        has_ranged = any(w.name in ("魔法弹幕", "远程魔法弹幕", "高斯步枪") for w in real_weapons)
+
+        if has_ranged:
+            return []  # 已有远程武器，不需要额外发育
+
+        if "interact" in available:
+            if loc == "魔法所":
+                if "魔法弹幕" not in learned:
+                    commands.append("interact 魔法弹幕")
+                elif "远程魔法弹幕" not in learned:
+                    commands.append("interact 远程魔法弹幕")
+            elif loc == "军事基地":
+                has_pass = getattr(player, 'has_military_pass', False)
+                if not has_pass:
+                    commands.append("interact 通行证")
+                elif not any(w.name == "高斯步枪" for w in real_weapons):
+                    commands.append("interact 高斯步枪")
+
+        if "move" in available and not commands:
+            # 优先去魔法所（免费学魔法弹幕）
+            if loc != "魔法所" and "魔法弹幕" not in learned:
+                commands.append("move 魔法所")
+            elif loc != "军事基地":
+                commands.append("move 军事基地")
+
+        return commands
     # ════════════════════════════════════════════════════════
     #  通用发育命令
     # ════════════════════════════════════════════════════════
@@ -339,9 +388,18 @@ class DevelopMixin(_Base):
         # 全息影像：AOE优先发育路径
         if (player.talent and hasattr(player.talent, 'name')
                 and player.talent.name == "请一直，注视着我"):
-            hologram_cmds = self._cmd_develop_hologram(player, state, available)
-            if hologram_cmds:
-                return hologram_cmds
+            talent = player.talent
+            hologram_exhausted = getattr(talent, 'used', False) and getattr(talent, 'max_uses', 0) <= 0 and not getattr(talent, 'active', False)
+            if hologram_exhausted:
+                # 阶段3：补单体远程武器
+                post_cmds = self._cmd_develop_hologram_post(player, state, available)
+                if post_cmds:
+                    return post_cmds
+                # fall through to general develop
+            else:
+                hologram_cmds = self._cmd_develop_hologram(player, state, available)
+                if hologram_cmds:
+                    return hologram_cmds
         # Fall through to general develop if hologram path returns empty
         # Political 特殊处理：基本需求满足后，跳过通用发育，直奔警察局
         if (self.personality == "political"

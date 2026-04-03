@@ -371,13 +371,13 @@ class G1MythFire(BaseTalent):
 
 
     def trigger_supernova(self, player, destination, game_state):
-        """DHGDR-超新星过载：对目的地所有单位造成1点无视属性克制伤害 + 施加灼烧 + 获得炽愿"""
+        """DHGDR-超新星过载：对目的地所有单位造成2点无视属性克制伤害 + 施加灼烧 + 获得炽愿"""
         from combat.damage_resolver import resolve_location_damage
         from cli import display
 
         if not self.supernova_free_use:
             self.has_supernova = False
-            
+
         display.show_info(
             f"\n{'='*50}\n"
             f"  🌟💥 DHGDR-超新星过载！\n"
@@ -399,7 +399,8 @@ class G1MythFire(BaseTalent):
             t = r["target"]
             res = r["result"]
             hit_count += 1
-            display.show_info(f"  → {t.name} 受到 1.0 伤害（无视克制）")
+            actual_dmg = res.get("final_damage", 1.0)
+            display.show_info(f"  → {t.name} 受到 {actual_dmg} 伤害（无视克制）")
 
             # 施加灼烧
             self.apply_burn(t.player_id)
@@ -418,7 +419,7 @@ class G1MythFire(BaseTalent):
         for u in results_dict.get("police", []):
             hit_count += 1
             if u.is_alive():
-                display.show_info(f"  → 警察{u.unit_id} 受到 1.0 伤害")
+                display.show_info(f"  → 警察{u.unit_id} 受到伤害")
             else:
                 kill_count += 1
                 display.show_info(f"  → 警察{u.unit_id} 被超新星击杀！")
@@ -474,7 +475,7 @@ class G1MythFire(BaseTalent):
             result = resolve_damage(
                 attacker=me, target=target, weapon=None,
                 game_state=self.state,
-                raw_damage_override=0.5,
+                raw_damage_override=0.25,
                 damage_attribute_override="无视属性克制",
                 ignore_counter=True,
                 is_talent_attack=True,
@@ -493,7 +494,7 @@ class G1MythFire(BaseTalent):
                 display.show_info(f"  💀 {target.name} 被灼烧击杀！")
                 # 灼烧击杀也给炽愿
                 self._grant_ardent_wish_from_supernova(1)
-                self._grant_supernova(me)  # 击杀再给超新星
+                # self._grant_supernova(me)  # 击杀再给超新星（由于平衡性调整，暂时被注释掉）
 
         for tid in to_remove:
             if tid in self.burn_targets:

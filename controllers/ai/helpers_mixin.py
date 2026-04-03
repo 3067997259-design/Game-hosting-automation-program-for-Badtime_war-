@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 _Base = BasicAIController if TYPE_CHECKING else object
 
 
-class HelpersMixin(_Base):
+class HelpersMixin(_Base): # type: ignore
 
     # ════════════════════════════════════════════════════════
     #  基础工具
@@ -71,6 +71,22 @@ class HelpersMixin(_Base):
         talent = getattr(player, 'talent', None)
         if talent and hasattr(talent, 'name') and talent.name == "请一直，注视着我":
             return True
+        return False
+
+    def _has_active_hologram(self, player) -> bool:
+        """检查玩家是否有激活中的全息影像"""
+        talent = getattr(player, 'talent', None)
+        if talent and hasattr(talent, 'name') and talent.name == "请一直，注视着我":
+            return getattr(talent, 'active', False)
+        return False
+
+    def _hologram_exhausted(self, player) -> bool:
+        """检查全息影像次数是否已用完且不在激活中"""
+        talent = getattr(player, 'talent', None)
+        if talent and hasattr(talent, 'name') and talent.name == "请一直，注视着我":
+            return (getattr(talent, 'used', False)
+                    and getattr(talent, 'max_uses', 0) <= 0
+                    and not getattr(talent, 'active', False))
         return False
     # ════════════════════════════════════════════════════════
     #  装备查询：护甲
@@ -227,6 +243,14 @@ class HelpersMixin(_Base):
     def _get_learned_spells(self, player) -> set:
         """获取玩家已学法术集合"""
         return getattr(player, 'learned_spells', set())
+
+    def _has_unused_mythland(self, target) -> bool:
+        """检查目标是否持有未使用的神话之外天赋"""
+        talent = getattr(target, 'talent', None)
+        if talent and getattr(talent, 'name', '') == "神话之外":
+            if not getattr(talent, 'used', True):
+                return True
+        return False
     # ════════════════════════════════════════════════════════
     #  位置查询
     # ════════════════════════════════════════════════════════
