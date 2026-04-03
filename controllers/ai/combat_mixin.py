@@ -436,6 +436,9 @@ class CombatMixin(_Base):
             s += max(0, 5 - self._get_effective_hp(t)) * 10
             s -= self._count_outer_armor(t) * 15
             s -= self._count_inner_armor(t) * 10
+            # In _score_target or target evaluation:
+            if t.talent and hasattr(t.talent, 'has_love_wish') and t.talent.has_love_wish(player.player_id):
+                s -= 10000  # Cannot attack this target due to 爱愿
             # ===== 火萤专用评分（全程生效，不只是 debuff 后）=====
             if self._has_firefly_talent(player):
                 # 1. 优先打发育型玩家（defensive/political/builder）

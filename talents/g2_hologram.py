@@ -245,10 +245,20 @@ class Hologram(BaseTalent):
                 barrier_players = getattr(self.state, 'barrier_players', [])
                 if pid in barrier_players:
                     continue
+            # 爱愿检查：如果G5持有者对发动者（G2 caster）持有爱愿，跳过拉拽
+            # (即：G2 caster 有爱愿 → 不能对G5造成负面效果 → 不能拉G5)
+            love_wish_blocked = False
+            if p.talent and hasattr(p.talent, 'love_wish'):
+                # p is G5 holder, check if G2 caster has love_wish from p
+                if p.talent.has_love_wish(self.player_id):
+                    lines.append(f"  💝 {p.name} 的「爱愿」保护其免受拉拽！")
+                    love_wish_blocked = True
+            if love_wish_blocked:
+                continue
 
             # 六爻·元亨利贞：免疫拉拽
             if p.talent and hasattr(p.talent, 'is_immune_to_debuff') and p.talent.is_immune_to_debuff("pull"):
-                lines.append(f"  ☯️ {p.name} 的「元亨利贞」免疫了全息影像的拉拽！")
+                lines.append(f"  ☯️ {p.name} 不为外道所动")
                 continue
 
             roll = roll_d6()

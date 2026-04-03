@@ -10,9 +10,9 @@ if TYPE_CHECKING:
 _Base = BasicAIController if TYPE_CHECKING else object
 
 HEXAGRAM_OUTCOME_MAP = {
-    "石头": ["both_rock", "scissors_rock", "rock_paper"],
-    "剪刀": ["scissors_rock", "both_scissors", "scissors_paper"],
-    "布":   ["rock_paper", "scissors_paper", "both_paper"],
+    "石头": ["steal_armor", "disarm", "escape"],      # 飞龙在天 / 亢龙有悔 / 群龙无首
+    "剪刀": ["disarm", "thunder", "extra_turn"],       # 亢龙有悔 / 潜龙勿用 / 或跃在渊
+    "布":   ["escape", "extra_turn", "immunity"],      # 群龙无首 / 或跃在渊 / 元亨利贞
 }
 
 
@@ -366,12 +366,12 @@ class ChooseMixin(_Base):
                 # Map display names to effect keys
                 best_key = max(scores, key=scores.get)
                 name_map = {
-                    "both_scissors": "潜龙勿用",
-                    "both_rock": "飞龙在天",
-                    "both_paper": "元亨利贞",
-                    "scissors_rock": "亢龙有悔",
-                    "scissors_paper": "或跃在渊",
-                    "rock_paper": "群龙无首",
+                    "thunder": "潜龙勿用",
+                    "steal_armor": "飞龙在天",
+                    "immunity": "元亨利贞",
+                    "disarm": "亢龙有悔",
+                    "extra_turn": "或跃在渊",
+                    "escape": "群龙无首",
                 }
                 best_name = name_map.get(best_key, "")
                 for opt in options:
@@ -441,7 +441,7 @@ class ChooseMixin(_Base):
     def _score_hexagram_effects(self, player, state) -> dict:
         scores = {}
 
-        # both_scissors (潜龙勿用: 天雷 1点无视克制 + 破1甲)
+        # thunder (潜龙勿用: 天雷 1点无视克制 + 破1甲)
         # High value when target has low HP or important outer armor
         best_kill = False
         best_armor_break = False
@@ -455,9 +455,9 @@ class ChooseMixin(_Base):
                     best_kill = True
                 if outer > 0:
                     best_armor_break = True
-        scores["both_scissors"] = 10 if best_kill else (7 if best_armor_break else 5)
+        scores["thunder"] = 10 if best_kill else (7 if best_armor_break else 5)
 
-        # both_rock (飞龙在天: 偷甲)
+        # steal_armor (飞龙在天: 偷甲)
         # High value when self has few armor and enemies have good armor
         my_outer = self._count_outer_armor(player)
         enemy_has_armor = any(
@@ -466,15 +466,15 @@ class ChooseMixin(_Base):
             if pid != player.player_id and state.get_player(pid) and state.get_player(pid).is_alive()
         )
         if my_outer == 0 and enemy_has_armor:
-            scores["both_rock"] = 9
+            scores["steal_armor"] = 9
         elif my_outer < 2 and enemy_has_armor:
-            scores["both_rock"] = 7
+            scores["steal_armor"] = 7
         elif enemy_has_armor:
-            scores["both_rock"] = 5
+            scores["steal_armor"] = 5
         else:
-            scores["both_rock"] = 2
+            scores["steal_armor"] = 2
 
-        # both_paper (元亨利贞: 金身)
+        # immunity (元亨利贞: 金身)
         # High value when HP is low or being attacked
         # 注意：从 state.markers 判断 player 的战斗状态，而非 self._been_attacked_by
         # （对手调用时 self 是对手AI，self._been_attacked_by 不代表 caster 的状态）
@@ -491,15 +491,15 @@ class ChooseMixin(_Base):
                     caster_in_combat = True
                     break
         if hp <= 1.0:
-            scores["both_paper"] = 10
+            scores["immunity"] = 10
         elif hp <= 1.5 and caster_in_combat:
-            scores["both_paper"] = 8
+            scores["immunity"] = 8
         elif caster_in_combat:
-            scores["both_paper"] = 6
+            scores["immunity"] = 6
         else:
-            scores["both_paper"] = 3
+            scores["immunity"] = 3
 
-        # scissors_rock (亢龙有悔: 禁武)
+        # disarm (亢龙有悔: 禁武)
         # High value against enemies with strong weapons (especially firefly, aggressive)
         best_disarm = 0
         for pid in state.player_order:
@@ -514,19 +514,19 @@ class ChooseMixin(_Base):
                     best_disarm = max(best_disarm, 9)  # Only 1 weapon = devastating
                 elif len(real_weapons) > 1:
                     best_disarm = max(best_disarm, 6)
-        scores["scissors_rock"] = best_disarm if best_disarm > 0 else 3
+        scores["disarm"] = best_disarm if best_disarm > 0 else 3
 
-        # scissors_paper (或跃在渊: 2 extra actions)
+        # extra_turn (或跃在渊: 2 extra actions)
         # Always good, especially in combat
-        # 复用 both_paper 中已计算的 caster_in_combat（基于 state.markers）
+        # 复用 immunity 中已计算的 caster_in_combat（基于 state.markers）
         if caster_in_combat:
-            scores["scissors_paper"] = 9
+            scores["extra_turn"] = 9
         elif not self._is_development_complete(player, state):
-            scores["scissors_paper"] = 8
+            scores["extra_turn"] = 8
         else:
-            scores["scissors_paper"] = 6
+            scores["extra_turn"] = 6
 
-        # rock_paper (群龙无首: stealth + teleport target)
+        # escape (群龙无首: stealth + teleport target)
         # High value when locked/detected, or to displace a threatening enemy
         markers = getattr(state, 'markers', None)
         is_locked = False
@@ -534,11 +534,11 @@ class ChooseMixin(_Base):
             locked_by = markers.get_related(player.player_id, "LOCKED_BY")
             is_locked = len(locked_by) > 0
         if is_locked:
-            scores["rock_paper"] = 9
+            scores["escape"] = 9
         elif not getattr(player, 'is_invisible', False):
-            scores["rock_paper"] = 5
+            scores["escape"] = 5
         else:
-            scores["rock_paper"] = 2
+            scores["escape"] = 2
 
         return scores
 

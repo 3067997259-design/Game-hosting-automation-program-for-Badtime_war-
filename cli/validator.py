@@ -8,6 +8,19 @@ from actions.special_op import get_available_specials
 from cli.parser import resolve_player_target
 from models.equipment import WeaponRange
 
+def _check_love_wish_block(attacker_pid, target_pid, game_state):
+    """检查攻击者是否因爱愿无法攻击目标（目标是G5持有者）"""
+    if not game_state:
+        return False
+    target = game_state.get_player(target_pid)
+    if not target or not target.talent:
+        return False
+    # Check if target is G5 (Ripple) holder and attacker has love_wish
+    if hasattr(target.talent, 'love_wish') and hasattr(target.talent, 'has_love_wish'):
+        if target.talent.has_love_wish(attacker_pid):
+            return True
+    return False
+
 def _is_stealth_blocked_by_hologram(player_id, game_state):
     """检查全息影像是否破除目标的隐身"""
     for pid in game_state.player_order:
@@ -371,6 +384,10 @@ def validate_attack(player, parsed, game_state):
         return False, f"{target_str} 已死亡"
     if target_id == player.player_id:
         return False, "不能攻击自己"
+    # 爱愿检查：持有爱愿的玩家无法攻击G5持有者
+    if _check_love_wish_block(player.player_id, target_id, game_state):
+        target_player = game_state.get_player(target_id)
+        return False, f"💝「爱愿」生效中：你无法攻击 {target_player.name}"
     weapon = player.get_weapon(weapon_name)
     if not weapon:
         available = ", ".join(w.name for w in player.weapons)
@@ -585,6 +602,9 @@ def validate_police_command(player, parsed, game_state):
         target = game_state.get_player(target_id)
         if not target or not target.is_alive():
             return False, f"{target_str} 已死亡"
+        # 爱愿检查：队长持有爱愿时，警察无法攻击G5持有者
+        if _check_love_wish_block(player.player_id, target_id, game_state):
+            return False, f"💝「爱愿」生效中：你的警察无法攻击 {target.name}"
         # 也验证警察单位是否存活且可行动
         unit = game_state.police.get_unit(police_id)
         if unit and not unit.is_active():
