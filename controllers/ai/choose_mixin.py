@@ -439,108 +439,171 @@ class ChooseMixin(_Base):
         return False
 
     def _score_hexagram_effects(self, player, state) -> dict:
+        """为六爻6种效果评分 — 基于当前战术处境动态调整"""
         scores = {}
 
-        # thunder (潜龙勿用: 天雷 1点无视克制 + 破1甲)
-        # High value when target has low HP or important outer armor
-        best_kill = False
-        best_armor_break = False
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            t = state.get_player(pid)
-            if t and t.is_alive():
-                outer = self._count_outer_armor(t)
-                if t.hp <= 1.0 and outer == 0:
-                    best_kill = True
-                if outer > 0:
-                    best_armor_break = True
-        scores["thunder"] = 10 if best_kill else (7 if best_armor_break else 5)
-
-        # steal_armor (飞龙在天: 偷甲)
-        # High value when self has few armor and enemies have good armor
+        # ---- Step 1: Determine current situation ----
+        hp = player.hp
         my_outer = self._count_outer_armor(player)
+        is_critical = self._is_critical(player, state)
+        dev_complete = self._is_development_complete(player, state)
+        has_kill = self._has_kill_opportunity(player, state)
+
+        # Check combat state from markers (not self._in_combat which belongs to this AI instance)
+        markers_obj = getattr(state, 'markers', None)
+        engaged_enemies = []
+        locked_by_enemies = []
+        if markers_obj:
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive():
+                    if hasattr(markers_obj, 'has_relation') and markers_obj.has_relation(
+                            player.player_id, 'ENGAGED_WITH', pid):
+                        engaged_enemies.append(t)
+                    locked_list = markers_obj.get_related(player.player_id, "LOCKED_BY") if hasattr(markers_obj, 'get_related') else set()
+                    if pid in locked_list:
+                        locked_by_enemies.append(t)
+
+        in_combat = len(engaged_enemies) > 0 or self._in_combat
+        losing = in_combat and (hp <= 1.0 or is_critical)
+
+        # Classify situation
+        if losing:
+            situation = "D"  # Critical/losing
+        elif in_combat:
+            situation = "C"  # Active combat
+        elif dev_complete or has_kill:
+            situation = "B"  # Ready to attack
+        else:
+            situation = "A"  # Safe development
+
+        # ---- Step 2: Score each effect based on situation ----
+
+        # === thunder (潜龙勿用: 1 damage + break 1 armor) ===
+        # Offensive effect — high when attacking, low when defending/developing
+        if situation == "B":
+            # Check for kill opportunities or armor to break
+            best_kill = False
+            best_armor_break = False
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if t and t.is_alive():
+                    if t.hp <= 1.0 and self._count_outer_armor(t) == 0:
+                        best_kill = True
+                    if self._count_outer_armor(t) > 0:
+                        best_armor_break = True
+            scores["thunder"] = 10 if best_kill else (9 if best_armor_break else 7)
+        elif situation == "C":
+            # In combat: thunder is decent (damage the person you're fighting)
+            combat_target_killable = False
+            for e in engaged_enemies:
+                if e.hp <= 1.0 and self._count_outer_armor(e) == 0:
+                    combat_target_killable = True
+            scores["thunder"] = 8 if combat_target_killable else 6
+        else:
+            # Safe or losing: thunder is low priority
+            scores["thunder"] = 3
+
+        # === steal_armor (飞龙在天: steal 1 outer armor from target) ===
+        # Development effect — high when safe and need armor, low in combat
         enemy_has_armor = any(
             self._count_outer_armor(state.get_player(pid)) > 0
             for pid in state.player_order
             if pid != player.player_id and state.get_player(pid) and state.get_player(pid).is_alive()
         )
-        if my_outer == 0 and enemy_has_armor:
-            scores["steal_armor"] = 9
-        elif my_outer < 2 and enemy_has_armor:
-            scores["steal_armor"] = 7
-        elif enemy_has_armor:
-            scores["steal_armor"] = 5
-        else:
+        if situation == "A":
+            # Safe development: stealing armor is great
+            if my_outer == 0 and enemy_has_armor:
+                scores["steal_armor"] = 9
+            elif my_outer < 2 and enemy_has_armor:
+                scores["steal_armor"] = 7
+            else:
+                scores["steal_armor"] = 4
+        elif situation == "B":
+            scores["steal_armor"] = 5 if enemy_has_armor else 2
+        elif situation == "C":
+            scores["steal_armor"] = 4 if (my_outer == 0 and enemy_has_armor) else 3
+        else:  # D: losing
             scores["steal_armor"] = 2
 
-        # immunity (元亨利贞: 金身)
-        # High value when HP is low or being attacked
-        # 注意：从 state.markers 判断 player 的战斗状态，而非 self._been_attacked_by
-        # （对手调用时 self 是对手AI，self._been_attacked_by 不代表 caster 的状态）
-        hp = player.hp
-        caster_in_combat = False
-        markers_obj = getattr(state, 'markers', None)
-        if markers_obj and hasattr(markers_obj, 'has_relation'):
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                t = state.get_player(pid)
-                if t and t.is_alive() and markers_obj.has_relation(
-                        player.player_id, 'ENGAGED_WITH', pid):
-                    caster_in_combat = True
-                    break
-        if hp <= 1.0:
-            scores["immunity"] = 10
-        elif hp <= 1.5 and caster_in_combat:
-            scores["immunity"] = 8
-        elif caster_in_combat:
-            scores["immunity"] = 6
+        # === immunity (元亨利贞: immune to all damage/debuff for 1 round) ===
+        # Defensive effect — high when in danger, low when safe
+        if situation == "D":
+            scores["immunity"] = 10  # Top priority when losing
+        elif situation == "C":
+            if hp <= 1.0:
+                scores["immunity"] = 9
+            elif hp <= 1.5:
+                scores["immunity"] = 7
+            else:
+                scores["immunity"] = 6
         else:
-            scores["immunity"] = 3
+            scores["immunity"] = 2  # Not useful when safe
 
-        # disarm (亢龙有悔: 禁武)
-        # High value against enemies with strong weapons (especially firefly, aggressive)
-        best_disarm = 0
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            t = state.get_player(pid)
-            if t and t.is_alive():
+        # === disarm (亢龙有悔: disable 1 weapon for 2 rounds) ===
+        # Combat effect — high when fighting someone, low when not in combat
+        if situation in ("C", "D"):
+            # Check the specific enemies we're fighting
+            best_disarm = 0
+            targets_to_check = engaged_enemies if engaged_enemies else []
+            # Also check locked_by enemies (ranged attackers targeting us)
+            targets_to_check = list(set(targets_to_check + locked_by_enemies))
+            if not targets_to_check:
+                # Fallback: check all alive enemies
+                for pid in state.player_order:
+                    if pid == player.player_id:
+                        continue
+                    t = state.get_player(pid)
+                    if t and t.is_alive():
+                        targets_to_check.append(t)
+            for t in targets_to_check:
                 real_weapons = [w for w in getattr(t, 'weapons', [])
                             if w and getattr(w, 'name', '') != "拳击"
                             and not getattr(w, '_hexagram_disabled', False)]
                 if len(real_weapons) == 1:
-                    best_disarm = max(best_disarm, 9)  # Only 1 weapon = devastating
+                    best_disarm = max(best_disarm, 9)
                 elif len(real_weapons) > 1:
-                    best_disarm = max(best_disarm, 6)
-        scores["disarm"] = best_disarm if best_disarm > 0 else 3
-
-        # extra_turn (或跃在渊: 2 extra actions)
-        # Always good, especially in combat
-        # 复用 immunity 中已计算的 caster_in_combat（基于 state.markers）
-        if caster_in_combat:
-            scores["extra_turn"] = 9
-        elif not self._is_development_complete(player, state):
-            scores["extra_turn"] = 8
+                    best_disarm = max(best_disarm, 7)
+            scores["disarm"] = best_disarm if best_disarm > 0 else 4
+            # If losing, disarm is less useful than immunity/escape
+            if situation == "D":
+                scores["disarm"] = min(scores["disarm"], 6)
+        elif situation == "B":
+            # Preparing to attack: disarm is moderately useful (weaken target before engaging)
+            scores["disarm"] = 5
         else:
-            scores["extra_turn"] = 6
+            # Safe development: disarm is nearly useless
+            scores["disarm"] = 2
 
-        # escape (群龙无首: stealth + teleport target)
-        # High value when locked/detected, or to displace a threatening enemy
-        markers = getattr(state, 'markers', None)
-        is_locked = False
-        if markers:
-            locked_by = markers.get_related(player.player_id, "LOCKED_BY")
-            is_locked = len(locked_by) > 0
-        if is_locked:
-            scores["escape"] = 9
-        elif not getattr(player, 'is_invisible', False):
-            scores["escape"] = 5
+        # === extra_turn (或跃在渊: 2 extra action turns) ===
+        # Versatile — always decent, but context changes priority
+        if situation == "A":
+            scores["extra_turn"] = 9  # Great for accelerating development
+        elif situation == "B":
+            scores["extra_turn"] = 8  # Good for attacking (2 extra attacks)
+        elif situation == "C":
+            scores["extra_turn"] = 8  # Good in combat (2 extra attacks)
+        else:  # D: losing
+            scores["extra_turn"] = 5  # Less useful when you need to survive, not act more
+
+        # === escape (群龙无首: stealth + teleport enemy away) ===
+        # Escape effect — high when losing/trapped, low when safe
+        is_locked = len(locked_by_enemies) > 0
+        if situation == "D":
+            scores["escape"] = 10 if is_locked else 9  # Top priority: run away
+        elif situation == "C":
+            # In combat but not losing: escape is moderate (can disengage)
+            scores["escape"] = 5 if is_locked else 3
         else:
+            # Safe or attacking: escape is low priority
             scores["escape"] = 2
 
         return scores
+
 
     def _hexagram_pick_caster(self, player, state, options) -> str:
         """发动者出拳：maximin（最差情况收益最高）"""
