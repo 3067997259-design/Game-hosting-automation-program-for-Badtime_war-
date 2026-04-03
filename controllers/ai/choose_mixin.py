@@ -496,16 +496,12 @@ class ChooseMixin(_Base):
         if not state or not player:
             return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
 
-        # 检查是否有队长可以斩首（仅在能击杀时优先）
-        pe = getattr(state, 'police_engine', None)
-        if pe:
-            captain_id = getattr(pe, 'captain_id', None) or getattr(getattr(pe, 'police', None), 'captain_id', None)
-            if captain_id:
-                captain = state.get_player(captain_id)
-                if captain and captain.is_alive() and captain.name in options:
-                    talent = getattr(player, 'talent', None)
-                    if talent and self._ripple_can_destiny_kill_target(player, self._game_state, talent, captain):
-                        return captain.name
+        # 优先读取 hint（由 _ripple_choose_method 设置的目标）
+        hint = getattr(self, '_ripple_destiny_target_hint', None)
+        if hint:
+            hint_player = state.get_player(hint)
+            if hint_player and hint_player.is_alive() and hint_player.name in options:
+                return hint_player.name
 
         # 否则集中打最容易击杀的目标（HP+甲最低的）
         best_target = None
@@ -841,42 +837,14 @@ class ChooseMixin(_Base):
         return best
 
     def _ripple_can_kill_with_destiny(self, player, target, state) -> bool:
-        """判断爱与记忆之诗能否确定击杀目标"""
+        """判断爱与记忆之诗能否确定击杀目标。
+        复用 _ripple_estimate_effective_stages 保持与伤害分配阶段一致的保守估算。"""
         talent = player.talent
         if not talent:
             return False
-        initial_count = len(state.player_order)
-        base_n = min(4, max(2, initial_count // 2 + 1))
-        destiny_count = getattr(talent, 'destiny_use_count', 0)
-        total_stages = base_n + destiny_count
-
-        ALL_TYPES = ["科技", "普通", "魔法", "无视属性克制"]
-        effective_stages = 0
-
-        target_armor_attrs = []
-        for layer_name in ['outer', 'inner']:
-            armor = None
-            if hasattr(target, 'armor'):
-                if layer_name == 'outer':
-                    from models.armor import ArmorLayer
-                    armor = target.armor.get_active(ArmorLayer.OUTER)
-                else:
-                    armor = target.armor.get_active(ArmorLayer.INNER)
-            if armor:
-                target_armor_attrs.append(getattr(armor, 'attribute', None))
-
-        target_total_armor_hp = len(target_armor_attrs)
-
-        for i in range(total_stages):
-            if i < len(ALL_TYPES):
-                dtype = ALL_TYPES[i % len(ALL_TYPES)]
-            else:
-                dtype = "无视属性克制"
-            # 保守估计：每段都有效（即使被挡也会破甲）
-            effective_stages += 1
-
-        target_hp = self._get_effective_hp(target)
-        return effective_stages >= (target_hp + target_total_armor_hp)
+        effective = self._ripple_estimate_effective_stages(talent, target)
+        total_hp = target.hp + self._count_outer_armor(target) + self._count_inner_armor(target) * 0.5
+        return effective >= total_hp
 
     def _ripple_choose_method(self, player, state, options) -> str:
         """涟漪发动时选择方式（9级优先级，带 hint 系统）"""
@@ -973,6 +941,7 @@ class ChooseMixin(_Base):
         reason = getattr(self, '_ripple_priority_reason', '')
         hint = getattr(self, '_ripple_poem_target_hint', None)
 
+        # 爱与记忆相关的 reason → 选自己（触发爱与记忆之诗）
         if reason in ("斩首队长", "确定击杀", "反杀追杀者", "通用输出", "斩首队长（被警察追杀）"):
             if player.name in options:
                 return player.name
