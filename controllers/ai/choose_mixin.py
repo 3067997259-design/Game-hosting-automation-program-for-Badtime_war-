@@ -362,7 +362,7 @@ class ChooseMixin(_Base):
             if self._player and self._game_state:
                 scores = self._score_hexagram_effects(self._player, self._game_state)
                 # Map display names to effect keys
-                best_key = max(scores, key=scores.get)
+                best_key = max(scores, key=scores.get) # type: ignore
                 name_map = {
                     "thunder": "潜龙勿用",
                     "steal_armor": "飞龙在天",
