@@ -973,7 +973,7 @@ class ChooseMixin(_Base):
         reason = getattr(self, '_ripple_priority_reason', '')
         hint = getattr(self, '_ripple_poem_target_hint', None)
 
-        if reason in ("斩首队长", "确定击杀", "反杀追杀者", "通用输出"):
+        if reason in ("斩首队长", "确定击杀", "反杀追杀者", "通用输出", "斩首队长（被警察追杀）"):
             if player.name in options:
                 return player.name
 
