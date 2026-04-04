@@ -181,6 +181,43 @@ class BasicAIController(
                 candidates.append("forfeit")
                 return candidates
 
+        # ===== 全息影像激活中：留在影像区域用AOE扫场 =====
+        if (player.talent and hasattr(player.talent, 'name')
+                and player.talent.name == "请一直，注视着我"
+                and getattr(player.talent, 'active', False)):
+            hologram = player.talent
+            my_loc = self._get_location_str(player)
+            raw_hologram_loc = getattr(hologram, 'location', None)
+            hologram_loc = str(raw_hologram_loc) if raw_hologram_loc is not None else None
+
+            if my_loc == hologram_loc:
+                # 在影像区域内：优先用AOE攻击被拉入的目标
+                debug_ai_basic(player.name, "全息影像激活中：AOE扫场模式")
+                same_loc = self._get_same_location_targets(player, state)
+                if same_loc:
+                    # 选择最佳AOE武器（根据目标护甲属性）
+                    attack_cmds = self._cmd_attack(player, state, available_actions)
+                    if attack_cmds:
+                        candidates.extend(attack_cmds)
+                        candidates.append("forfeit")
+                        return candidates
+                # 同地点没有目标（都跑了）→ 拿当前地点的装备
+                if "interact" in available_actions:
+                    dev_cmds = self._cmd_develop_hologram(player, state, available_actions)
+                    if dev_cmds:
+                        candidates.extend(dev_cmds)
+                candidates.append("forfeit")
+                return candidates
+            else:
+                # 不在影像区域：移动回去
+                if "move" in available_actions and hologram_loc:
+                    candidates.insert(0, f"move {hologram_loc}")
+                    candidates.append("forfeit")
+                    return candidates
+                # hologram_loc 为 None（异常情况）：兜底 forfeit，避免 fallthrough
+                candidates.append("forfeit")
+                return candidates
+
         # ===== 病毒预防 =====
         if not self._virus_prevention_done and not self._has_virus_immunity(player):
             if self._someone_has_virus_immunity(state):
@@ -322,43 +359,6 @@ class BasicAIController(
                         candidates.extend(rearm_cmds)
                         candidates.append("forfeit")
                         return candidates
-
-        # ===== 全息影像激活中：留在影像区域用AOE扫场 =====
-        if (player.talent and hasattr(player.talent, 'name')
-                and player.talent.name == "请一直，注视着我"
-                and getattr(player.talent, 'active', False)):
-            hologram = player.talent
-            my_loc = self._get_location_str(player)
-            raw_hologram_loc = getattr(hologram, 'location', None)
-            hologram_loc = str(raw_hologram_loc) if raw_hologram_loc is not None else None
-
-            if my_loc == hologram_loc:
-                # 在影像区域内：优先用AOE攻击被拉入的目标
-                debug_ai_basic(player.name, "全息影像激活中：AOE扫场模式")
-                same_loc = self._get_same_location_targets(player, state)
-                if same_loc:
-                    # 选择最佳AOE武器（根据目标护甲属性）
-                    attack_cmds = self._cmd_attack(player, state, available_actions)
-                    if attack_cmds:
-                        candidates.extend(attack_cmds)
-                        candidates.append("forfeit")
-                        return candidates
-                # 同地点没有目标（都跑了）→ 拿当前地点的装备
-                if "interact" in available_actions:
-                    dev_cmds = self._cmd_develop_hologram(player, state, available_actions)
-                    if dev_cmds:
-                        candidates.extend(dev_cmds)
-                candidates.append("forfeit")
-                return candidates
-            else:
-                # 不在影像区域：移动回去
-                if "move" in available_actions and hologram_loc:
-                    candidates.insert(0, f"move {hologram_loc}")
-                    candidates.append("forfeit")
-                    return candidates
-                # hologram_loc 为 None（异常情况）：兜底 forfeit，避免 fallthrough
-                candidates.append("forfeit")
-                return candidates
 
         # ===== 火萤专用逻辑 =====
         if self._has_firefly_talent(player):
