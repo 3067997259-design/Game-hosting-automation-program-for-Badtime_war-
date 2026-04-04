@@ -466,7 +466,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         remaining = _apply_damage_to_armor(
             target, armor_piece, remaining,
             ignore_last_inner_absorb, result,
-            weapon.attribute
+            None if ignore_counter else weapon.attribute
         )
 
     if remaining > 0:
