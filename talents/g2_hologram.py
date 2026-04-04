@@ -491,9 +491,9 @@ class Hologram(BaseTalent):
 
     def _get_bonus_damage(self):
         """影像内额外伤害（含涟漪叠加易伤）"""
-        base = 0.5
+        base = 1.0
         if self.enhanced:
-            base = 1.0
+            base = 1.5
         return base + getattr(self, 'ripple_extra_vulnerability', 0.0)
 
     def get_bonus_damage(self, target_id):

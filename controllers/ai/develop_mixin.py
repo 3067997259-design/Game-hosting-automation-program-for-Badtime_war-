@@ -291,19 +291,38 @@ class DevelopMixin(_Base):
                     commands.append("interact 通行证")
                 elif not has_tech_aoe:
                     commands.append("interact 电磁步枪")
+                # 没有近战武器时，顺手拿高斯步枪（不需蓄力也能用，1.0科技伤害）
+                elif not any(w.name in ("小刀", "高斯步枪") for w in player.weapons if w and w.name != "拳击"):
+                    commands.append("interact 高斯步枪")
                 if outer < 2 and not self._has_armor_by_name(player, "AT力场"):
                     commands.append("interact AT力场")
             elif loc == "商店":
+                # 顺手拿小刀（商店也卖小刀，需要凭证）
+                if vouchers >= 1 and not any(w.name == "小刀" for w in player.weapons if w):
+                    commands.append("interact 小刀")
                 if vouchers >= 1 and outer < 2 and not self._has_armor_by_name(player, "陶瓷护甲"):
                     commands.append("interact 陶瓷护甲")
                 if vouchers < 1:
                     commands.append("interact 打工")
+            # 通用：如果在任何地点且没有近战武器（除拳击），尝试拿当地的武器
 
-        # Charge EMR if needed
-        if "special" in available and not commands:
+        if "interact" in available and not commands:
+            has_real_melee = any(w.name != "拳击" and self._get_weapon_range(w) == "melee"
+                                for w in player.weapons if w)
+            if not has_real_melee:
+                if (loc == "home" or self._is_at_home(player)):
+                    if not any(w.name == "小刀" for w in player.weapons if w):
+                        commands.append("interact 小刀")
+                elif loc == "商店":
+                    if vouchers >= 1 and not any(w.name == "小刀" for w in player.weapons if w):
+                        commands.append("interact 小刀")
+
+        # Charge EMR ASAP (high priority - uncharged EMR is useless)
+        if "special" in available:
             emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
             if emr and not getattr(emr, 'is_charged', False):
-                commands.append("special 蓄力电磁步枪")
+                commands.insert(0, "special 蓄力电磁步枪")  # 插到最前面
+                return commands  # 蓄力是最高优先级，直接返回
 
         # Movement priority: 魔法所 first (free AOE), then 军事基地 (tech AOE)
         if "move" in available and not commands:
