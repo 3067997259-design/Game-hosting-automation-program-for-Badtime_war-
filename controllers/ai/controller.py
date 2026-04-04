@@ -204,7 +204,8 @@ class BasicAIController(
                 debug_ai_basic(player.name, "全息影像激活中：AOE扫场模式")
                 same_loc = self._get_same_location_targets(player, state)
                 if same_loc:
-                    # 改为：
+                    # 检查是否应该先蓄力EMR再攻击
+                    emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
                     if emr and not getattr(emr, 'is_charged', False) and "special" in available_actions:
                         # EMR未蓄力：花1轮蓄力，下轮就有双属性AOE覆盖
                         debug_ai_basic(player.name, "全息影像中：蓄力电磁步枪（确保双属性AOE覆盖）")
@@ -212,8 +213,7 @@ class BasicAIController(
                         candidates.append("forfeit")
                         return candidates
                     # 正常攻击（EMR已蓄力或没有EMR，根据武器评分选择）
-                    attack_cmds = self._cmd_attack(player, state, available_actions
-
+                    attack_cmds = self._cmd_attack(player, state, available_actions)
                     if attack_cmds:
                         candidates.extend(attack_cmds)
                         candidates.append("forfeit")

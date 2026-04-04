@@ -422,7 +422,7 @@ class Hologram(BaseTalent):
         return result
 
     def on_d4_bonus(self, player):
-        """全息影像存在期间，释放者D4点数+2"""
+        """全息影像存在期间，释放者D4点数+3"""
         if not self.active:
             return 0
         if player.player_id == self.player_id:
