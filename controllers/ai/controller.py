@@ -91,6 +91,8 @@ class BasicAIController(
         self._virus_prevention_done: bool = False
         # 行动标记（轮次内）
         self._action_used: bool = False
+        # EMR蓄力标记（全息影像发动前）
+        self._emr_needs_charge_before_hologram: bool = False
 
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command (原 lines 282-308)
@@ -173,6 +175,21 @@ class BasicAIController(
                 candidates.append("forfeit")
                 return candidates
 
+        # ===== G2 EMR蓄力准备：即将发动全息影像但EMR未蓄力 =====
+        if (getattr(self, '_emr_needs_charge_before_hologram', False)
+                and player.talent and hasattr(player.talent, 'name')
+                and player.talent.name == "请一直，注视着我"
+                and not getattr(player.talent, 'active', False)):  # 影像还没激活
+            emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
+            if emr and not getattr(emr, 'is_charged', False) and "special" in available_actions:
+                debug_ai_basic(player.name, "G2准备发动：先蓄力电磁步枪")
+                candidates.insert(0, "special 蓄力电磁步枪")
+                candidates.append("forfeit")
+                self._emr_needs_charge_before_hologram = False  # 清除标记
+                return candidates
+            else:
+                self._emr_needs_charge_before_hologram = False  # EMR已蓄力或无法蓄力，清除标记
+
         # ===== 全息影像激活中：留在影像区域用AOE扫场 =====  # ★ 改动：从 line 326 提前到此处
         if (player.talent and hasattr(player.talent, 'name')
                 and player.talent.name == "请一直，注视着我"
@@ -187,7 +204,23 @@ class BasicAIController(
                 debug_ai_basic(player.name, "全息影像激活中：AOE扫场模式")
                 same_loc = self._get_same_location_targets(player, state)
                 if same_loc:
-                    # 选择最佳AOE武器（根据目标护甲属性）
+                    # 检查是否应该先蓄力EMR再攻击
+                    emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
+                    if emr and not getattr(emr, 'is_charged', False) and "special" in available_actions:
+                        # 检查敌人护甲是否克制魔法（此时EMR比地震更好）
+                        any_magic_countered = False
+                        for t in same_loc:
+                            outer_attrs = self._get_outer_armor_attr(t)
+                            if outer_attrs and "普通" in outer_attrs:
+                                # 普通护甲克制魔法，EMR（科技）更好
+                                any_magic_countered = True
+                                break
+                        if any_magic_countered:
+                            debug_ai_basic(player.name, "全息影像中：敌人有普通护甲克制魔法，先蓄力EMR")
+                            candidates.insert(0, "special 蓄力电磁步枪")
+                            candidates.append("forfeit")
+                            return candidates
+                    # 正常攻击（根据武器评分选择地震或EMR）
                     attack_cmds = self._cmd_attack(player, state, available_actions)
                     if attack_cmds:
                         candidates.extend(attack_cmds)

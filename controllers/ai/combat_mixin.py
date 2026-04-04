@@ -645,11 +645,17 @@ class CombatMixin(_Base):
                     s -= 60  # 近战需要同地点，有被拉入风险
                 elif wr_check == "area":
                     s -= 40  # AOE也需要同地点，有风险
-            # 蓄力必须但未蓄力 → 打不出去，大幅扣分
+            # 蓄力必须但未蓄力
             if (getattr(w, 'requires_charge', False)
                     and getattr(w, 'charge_mandatory', True)
                     and not getattr(w, 'is_charged', False)):
-                s -= 200
+                # 全息影像激活中：轻微扣分（可以先蓄力再用，比拳击强）
+                if (hasattr(player, 'talent') and player.talent
+                        and hasattr(player.talent, 'active') and player.talent.active
+                        and hasattr(player.talent, 'name') and player.talent.name == "请一直，注视着我"):
+                    s -= 30  # 轻微扣分：需要花一轮蓄力，但仍然是可选项
+                else:
+                    s -= 200  # 非影像状态：未蓄力确实打不出去，大幅扣分
             w_attr = self._get_weapon_attr(w)
             if target_outer_attrs and w_attr in EFFECTIVE_AGAINST:
                 effective_set = EFFECTIVE_AGAINST[w_attr]
