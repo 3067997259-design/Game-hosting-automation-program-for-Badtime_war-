@@ -275,6 +275,26 @@ class BasicAIController(
                         self._in_combat = True
                         self._combat_target = t
                         break
+        # ===== 超新星紧急分散 =====
+        if (not self._has_firefly_talent(player)
+                and self._firefly_supernova_threat(player, state)):
+            my_loc = self._get_location_str(player)
+            same_loc_count = len(self._get_same_location_targets(player, state))
+            if same_loc_count >= 2 and "move" in available_actions:
+                # 同地点有2+个其他玩家，紧急分散
+                # 选择没有其他玩家的地点
+                empty_locs = []
+                for loc in ["home", "商店", "医院", "魔法所", "军事基地", "警察局"]:
+                    if loc == my_loc:
+                        continue
+                    enemies = self._count_enemies_at(loc, player, state)
+                    if enemies == 0:
+                        empty_locs.append(loc)
+                if empty_locs:
+                    import random
+                    dest = random.choice(empty_locs)
+                    candidates.insert(0, f"move {dest}")
+                    # 不直接return，让后续逻辑也生成备选命令
 
         # ===== 战斗状态 =====
         if self._in_combat and self._combat_target:
