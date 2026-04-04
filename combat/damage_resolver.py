@@ -461,7 +461,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         remaining = _apply_damage_to_armor(
             target, armor_piece, remaining,
             ignore_last_inner_absorb, result,
-            None if ignore_counter else weapon.attribute
+            None if (ignore_counter or ignore_element) else weapon.attribute
         )
 
     if remaining > 0:
@@ -574,10 +574,9 @@ def resolve_damage(attacker, target, weapon, game_state,
             and result["success"] and not result["killed"]):
         already_cc = pre_attack_stunned or pre_attack_shocked
         if not already_cc:
-            prevent_shock = False
-            if electric_stun_immune:
-                prevent_shock = True
-            elif (target.talent and hasattr(target.talent, 'prevent_stun')
+            prevent_shock = electric_stun_immune
+            if (not prevent_shock
+                    and target.talent and hasattr(target.talent, 'prevent_stun')
                     and not getattr(target, '_mythland_talent_suppressed', False)):
                 prevent_shock = target.talent.prevent_stun(target)
 

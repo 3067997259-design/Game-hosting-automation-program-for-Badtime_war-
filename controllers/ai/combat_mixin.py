@@ -645,10 +645,10 @@ class CombatMixin(_Base):
                     s -= 60  # 近战需要同地点，有被拉入风险
                 elif wr_check == "area":
                     s -= 40  # AOE也需要同地点，有风险
-            # 特殊免疫：陶瓷护甲免疫电磁步枪（电流武器）
+            # 陶瓷护甲免疫电流眩晕（但不免疫伤害，科技 vs 普通仍然有效）
             if w.name == "电磁步枪":
                 if self._target_has_emr_immunity(target):
-                    s -= 500  # 陶瓷护甲硬免疫电流武器，和未蓄力一样不可用
+                    s -= 30  # 失去震荡控制价值，但伤害仍正常结算
             if (getattr(w, 'requires_charge', False)
                     and getattr(w, 'charge_mandatory', True)
                     and not getattr(w, 'is_charged', False)):
