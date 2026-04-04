@@ -165,23 +165,15 @@ class BasicAIController(
             if captain_cmds:
                 candidates.append(captain_cmds[0])
 
-        # ===== 救世主状态 =====
-        if self._is_in_savior_state(player) and self._get_effective_hp(player) > 0.5:
-            debug_ai_basic(player.name, "救世主状态激活，优先攻击")
-            last_attacker = self._get_last_attacker(player, state)
-            if last_attacker:
-                attack_cmds = self._cmd_attack(player, state, available_actions, last_attacker)
-                if attack_cmds:
-                    candidates.extend(attack_cmds)
-                    candidates.append("forfeit")
-                    return candidates
-            attack_cmds = self._cmd_attack(player, state, available_actions)
-            if attack_cmds:
-                candidates.extend(attack_cmds)
+        # ===== 病毒应急 =====                          # ★ 改动：病毒应急提前到全息影像之前
+        if self._needs_virus_cure(player, state):
+            debug_ai_basic(player.name, "进入病毒应急模式")
+            candidates.extend(self._cmd_virus(player, state, available_actions))
+            if candidates:
                 candidates.append("forfeit")
                 return candidates
 
-        # ===== 全息影像激活中：留在影像区域用AOE扫场 =====
+        # ===== 全息影像激活中：留在影像区域用AOE扫场 =====  # ★ 改动：从 line 326 提前到此处
         if (player.talent and hasattr(player.talent, 'name')
                 and player.talent.name == "请一直，注视着我"
                 and getattr(player.talent, 'active', False)):
@@ -218,6 +210,22 @@ class BasicAIController(
                 candidates.append("forfeit")
                 return candidates
 
+        # ===== 救世主状态 =====
+        if self._is_in_savior_state(player) and self._get_effective_hp(player) > 0.5:
+            debug_ai_basic(player.name, "救世主状态激活，优先攻击")
+            last_attacker = self._get_last_attacker(player, state)
+            if last_attacker:
+                attack_cmds = self._cmd_attack(player, state, available_actions, last_attacker)
+                if attack_cmds:
+                    candidates.extend(attack_cmds)
+                    candidates.append("forfeit")
+                    return candidates
+            attack_cmds = self._cmd_attack(player, state, available_actions)
+            if attack_cmds:
+                candidates.extend(attack_cmds)
+                candidates.append("forfeit")
+                return candidates
+
         # ===== 病毒预防 =====
         if not self._virus_prevention_done and not self._has_virus_immunity(player):
             if self._someone_has_virus_immunity(state):
@@ -228,14 +236,6 @@ class BasicAIController(
                     candidates.extend(prevention_cmds)
                     candidates.append("forfeit")
                     return candidates
-
-        # ===== 病毒应急 =====
-        if self._needs_virus_cure(player, state):
-            debug_ai_basic(player.name, "进入病毒应急模式")
-            candidates.extend(self._cmd_virus(player, state, available_actions))
-            if candidates:
-                candidates.append("forfeit")
-                return candidates
 
         # ===== Assassin 主动放毒 =====
         if self._should_release_virus(player, state) and "special" in available_actions:
@@ -333,14 +333,9 @@ class BasicAIController(
                     candidates.insert(0, f"move {dest}")
                     # 不直接return，让后续逻辑也生成备选命令
 
-        # ===== 战斗状态 =====
+        # ===== 战斗状态 =====                           # ★ 改动：删除 hologram pass-through
         if self._in_combat and self._combat_target:
-            # 如果全息影像已激活，优先走全息影像逻辑（AOE扫场）
-            if (player.talent and hasattr(player.talent, 'name')
-                    and player.talent.name == "请一直，注视着我"
-                    and getattr(player.talent, 'active', False)):
-                pass  # 跳过普通战斗逻辑，让下面的全息影像块处理
-            elif self._should_continue_combat(player, self._combat_target):
+            if self._should_continue_combat(player, self._combat_target):
                 debug_ai_combat_state(player.name, f"战斗目标: {self._combat_target.name}")
                 combat_cmds = self._cmd_attack(player, state, available_actions, self._combat_target)
                 if combat_cmds:
@@ -360,7 +355,7 @@ class BasicAIController(
                         candidates.append("forfeit")
                         return candidates
 
-        # ===== 火萤专用逻辑 =====
+        # ===== 火萤专用逻辑 =====                       # ★ 改动：此处不再有全息影像块（已提前）
         if self._has_firefly_talent(player):
             # 超新星优先：有超新星就用
             if self._has_supernova(player) and "move" in available_actions:
@@ -414,7 +409,7 @@ class BasicAIController(
                 candidates.append("forfeit")
                 return candidates
 
-        # ===== 击杀机会 ===== (原 lines 1053-1064)
+        # ===== 击杀机会 =====
         if self._has_kill_opportunity(player, state) and not self._political_develop_only:
             debug_ai_basic(player.name, "发现击杀机会！")
             kill_cmds = self._cmd_attack(player, state, available_actions)
@@ -427,7 +422,7 @@ class BasicAIController(
                 candidates.append("forfeit")
                 return candidates
 
-        # ===== 发育 ===== (原 lines 1066-1083)
+        # ===== 发育 =====
         debug_ai_development_plan(player.name, "进入发育模式")
         develop = self._cmd_develop(player, state, available_actions)
         candidates.extend(develop)
@@ -445,7 +440,7 @@ class BasicAIController(
                 if fallback_loc:
                     candidates.append(f"move {fallback_loc}")
 
-        # ===== 发育完成后主动进攻 ===== (原 lines 1085-1091)
+        # ===== 发育完成后主动进攻 =====
         if self._is_development_complete(player, state) and not self._political_develop_only:
             debug_ai_basic(player.name, "发育完成，尝试进攻")
             attack_cmds = self._cmd_attack(player, state, available_actions)
@@ -453,7 +448,7 @@ class BasicAIController(
                 if cmd not in candidates:
                     candidates.insert(0, cmd)
 
-        # ===== 所有目标受警察保护且无AOE ===== (原 lines 1093-1099)
+        # ===== 所有目标受警察保护且无AOE =====
         if self._is_stuck_by_police(player, state):
             debug_ai_basic(player.name, "所有目标受警察保护且无法穿透，去获取有效武器")
             aoe_cmds = self._cmd_fight_police(player, state, available_actions)
@@ -461,12 +456,12 @@ class BasicAIController(
                 if cmd not in candidates:
                     candidates.insert(0, cmd)
 
-        # ===== 政治型补充 ===== (原 lines 1101-1104)
+        # ===== 政治型补充 =====
         if self.personality == "political":
             political = self._cmd_police_political(player, state, available_actions)
             candidates.extend(political)
 
-        # ===== 常规攻击补充 ===== (原 lines 1106-1112)
+        # ===== 常规攻击补充 =====
         is_political_no_attack = self._political_develop_only or (
             self.personality == "political" and self._political_fallback_level == "none"
         )
