@@ -209,8 +209,21 @@ class ChooseMixin(_Base):
                                 break
                     # --- 条件5（战斗中激活）：正在和人打架 + 有AOE武器 ---
                     # 全息影像在战斗中发动价值极高：震荡硬控 + 易伤 + 额外行动
-                    if not should_activate and self._in_combat and self._combat_target and self._combat_target.is_alive():
-                        if self._same_location(self._player, self._combat_target):
+                    # 注意：choose() 在 T0 阶段调用，self._in_combat 是上一轮缓存，
+                    # 必须直接从 markers 实时检查 ENGAGED_WITH 关系。
+                    if not should_activate:
+                        markers = getattr(self._game_state, 'markers', None)
+                        engaged_target = None
+                        if markers and hasattr(markers, 'has_relation'):
+                            for pid in self._game_state.player_order:
+                                if pid == self._player.player_id:
+                                    continue
+                                t = self._game_state.get_player(pid)
+                                if t and t.is_alive() and markers.has_relation(
+                                        self._player.player_id, "ENGAGED_WITH", pid):
+                                    engaged_target = t
+                                    break
+                        if engaged_target and self._same_location(self._player, engaged_target):
                             # 只要有至少1种AOE武器就值得发动
                             if self._count_distinct_aoe_attrs(self._player) >= 1:
                                 should_activate = True
