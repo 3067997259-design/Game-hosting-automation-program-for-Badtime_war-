@@ -298,7 +298,12 @@ class BasicAIController(
 
         # ===== 战斗状态 =====
         if self._in_combat and self._combat_target:
-            if self._should_continue_combat(player, self._combat_target):
+            # 如果全息影像已激活，优先走全息影像逻辑（AOE扫场）
+            if (player.talent and hasattr(player.talent, 'name')
+                    and player.talent.name == "请一直，注视着我"
+                    and getattr(player.talent, 'active', False)):
+                pass  # 跳过普通战斗逻辑，让下面的全息影像块处理
+            elif self._should_continue_combat(player, self._combat_target):
                 debug_ai_combat_state(player.name, f"战斗目标: {self._combat_target.name}")
                 combat_cmds = self._cmd_attack(player, state, available_actions, self._combat_target)
                 if combat_cmds:

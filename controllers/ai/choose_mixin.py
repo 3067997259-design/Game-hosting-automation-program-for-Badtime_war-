@@ -207,6 +207,13 @@ class ChooseMixin(_Base):
                                 # 全息影像的易伤加成不受火萤减伤影响，是击杀火萤的最佳时机
                                 should_activate = True
                                 break
+                    # --- 条件4（战斗中激活）：正在和人打架 + 有AOE武器 ---
+                    # 全息影像在战斗中发动价值极高：震荡硬控 + 易伤 + 额外行动
+                    if not should_activate and self._in_combat and self._combat_target:
+                        if self._same_location(self._player, self._combat_target):
+                            # 只要有至少1种AOE武器就值得发动
+                            if self._count_distinct_aoe_attrs(self._player) >= 1:
+                                should_activate = True
 
                 if should_activate:
                     for opt in options:
