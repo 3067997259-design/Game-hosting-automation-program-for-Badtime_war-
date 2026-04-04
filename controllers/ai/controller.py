@@ -207,12 +207,17 @@ class BasicAIController(
                     # 检查是否应该先蓄力EMR再攻击
                     emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
                     if emr and not getattr(emr, 'is_charged', False) and "special" in available_actions:
-                        # EMR未蓄力：花1轮蓄力，下轮就有双属性AOE覆盖
-                        debug_ai_basic(player.name, "全息影像中：蓄力电磁步枪（确保双属性AOE覆盖）")
-                        candidates.insert(0, "special 蓄力电磁步枪")
-                        candidates.append("forfeit")
-                        return candidates
-                    # 正常攻击（EMR已蓄力或没有EMR，根据武器评分选择）
+                        # 检查EMR对当前敌人是否有效（陶瓷护甲免疫电流武器）
+                        emr_immune_count = sum(1 for t in same_loc if self._target_has_emr_immunity(t))
+                        if emr_immune_count < len(same_loc):
+                            # 至少有部分敌人没有陶瓷护甲，蓄力EMR有价值
+                            debug_ai_basic(player.name, "全息影像中：蓄力电磁步枪（部分敌人可被电流打击）")
+                            candidates.insert(0, "special 蓄力电磁步枪")
+                            candidates.append("forfeit")
+                            return candidates
+                        else:
+                            debug_ai_basic(player.name, "全息影像中：所有敌人免疫电流，跳过EMR蓄力，直接用魔法AOE")
+                            # 不蓄力，直接走下面的 _cmd_attack 逻辑
                     attack_cmds = self._cmd_attack(player, state, available_actions)
                     if attack_cmds:
                         candidates.extend(attack_cmds)

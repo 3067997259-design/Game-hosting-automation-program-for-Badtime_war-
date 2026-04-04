@@ -645,7 +645,15 @@ class CombatMixin(_Base):
                     s -= 60  # 近战需要同地点，有被拉入风险
                 elif wr_check == "area":
                     s -= 40  # AOE也需要同地点，有风险
-            # 改为：
+            # 特殊免疫：陶瓷护甲免疫电磁步枪（电流武器）
+            if w.name == "电磁步枪" and target_outer_attrs:
+                from utils.attribute import Attribute
+                if Attribute.TECH in target_outer_attrs:
+                    # 检查目标是否有陶瓷护甲
+                    target_armors = getattr(target, 'armor', []) or []
+                    has_ceramic = any(a for a in target_armors if a and a.name == "陶瓷护甲")
+                    if has_ceramic:
+                        s -= 500  # 陶瓷护甲硬免疫电流武器，和未蓄力一样不可用
             if (getattr(w, 'requires_charge', False)
                     and getattr(w, 'charge_mandatory', True)
                     and not getattr(w, 'is_charged', False)):
@@ -797,3 +805,11 @@ class CombatMixin(_Base):
             Attribute.TECH: Attribute.MAGIC,        # 魔法克科技
         }
         return counter_map.get(target_armor_attr, Attribute.ORDINARY)
+
+    def _target_has_emr_immunity(self, target) -> bool:
+        """检查目标是否有对电磁步枪（电流武器）免疫的护甲"""
+        armors = getattr(target, 'armor', []) or []
+        for a in armors:
+            if a and a.name == "陶瓷护甲" and getattr(a, 'current_hp', 0) > 0:
+                return True
+        return False
