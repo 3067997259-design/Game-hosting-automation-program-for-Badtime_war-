@@ -340,23 +340,18 @@ def resolve_damage(attacker, target, weapon, game_state,
             result["details"].append(f"☯️ 「元亨利贞」免疫了此次伤害！")
             return result
 
-    # ======== 陶瓷护甲免疫电流武器检查 ========
-    # 根据README：陶瓷护甲 免疫电流武器伤害与眩晕
-    # 如果武器是电流武器(is_electric)且目标有未破碎的immune_electric护甲，
-    # 则整个攻击无效（包括伤害和后续的震荡效果）
+    # ======== 陶瓷护甲免疫电流眩晕检查 ========
+    # 陶瓷护甲免疫电流武器的眩晕效果，但不免疫伤害
+    # 伤害正常走属性三角结算（科技 vs 普通 = 有效）
+
+    electric_stun_immune = False
     if weapon.is_electric:
         immune, immune_armor = _check_electric_immunity(target)
         if immune and immune_armor:
-            electric_immune_text = prompt_manager.get_prompt(
-                "combat", "electric_immunity",
-                default="🛡️ {target_name} 的「{armor_name}」免疫电流武器伤害与眩晕！攻击无效。"
+            electric_stun_immune = True
+            result["details"].append(
+                f"🛡️ {target.name} 的「{immune_armor.name}」绝缘：免疫电流眩晕，但伤害正常结算"
             )
-            result["reason"] = electric_immune_text.format(
-                target_name=target.name,
-                armor_name=immune_armor.name
-            )
-            result["details"].append(result["reason"])
-            return result
 
     # ---- 天赋：修改输出伤害 ----
     if attacker and attacker.talent and not getattr(attacker, '_mythland_talent_suppressed', False):
@@ -466,7 +461,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         remaining = _apply_damage_to_armor(
             target, armor_piece, remaining,
             ignore_last_inner_absorb, result,
-            weapon.attribute
+            None if ignore_counter else weapon.attribute
         )
 
     if remaining > 0:
@@ -580,8 +575,9 @@ def resolve_damage(attacker, target, weapon, game_state,
         already_cc = pre_attack_stunned or pre_attack_shocked
         if not already_cc:
             prevent_shock = False
-            if (target.talent and hasattr(target.talent, 'prevent_stun')
-                    and not getattr(target, '_mythland_talent_suppressed', False)):
+            if (weapon.special_tags and "stun_on_hit" in weapon.special_tags
+                    and result["success"] and not result["killed"]
+                    and not electric_stun_immune):
                 prevent_shock = target.talent.prevent_stun(target)
 
             if not prevent_shock:
