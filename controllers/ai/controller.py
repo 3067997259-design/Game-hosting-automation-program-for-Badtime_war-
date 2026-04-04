@@ -356,6 +356,9 @@ class BasicAIController(
                     candidates.insert(0, f"move {hologram_loc}")
                     candidates.append("forfeit")
                     return candidates
+                # hologram_loc 为 None（异常情况）：兜底 forfeit，避免 fallthrough
+                candidates.append("forfeit")
+                return candidates
 
         # ===== 火萤专用逻辑 =====
         if self._has_firefly_talent(player):
