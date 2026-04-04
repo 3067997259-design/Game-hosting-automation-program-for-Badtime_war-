@@ -391,19 +391,19 @@ class HelpersMixin(_Base): # type: ignore
                 continue
             enemies_at = self._count_enemies_at(test_loc, player, state)
             candidates.append((test_loc, enemies_at))
-        # 按敌人数升序排序，优先去没人的地方
-        candidates.sort(key=lambda x: x[1])
         # 超新星分散：如果场上有火萤持有超新星，优先去人少的地点
         if self._firefly_supernova_threat(player, state):
             # 统计每个地点的玩家数（含自己）
-            for i, (loc, threat) in enumerate(candidates):
+            for i, (loc, enemy_count) in enumerate(candidates):
                 player_count = self._count_enemies_at(loc, player, state)
                 if player_count >= 2:
-                    # 多人扎堆的地点大幅降低吸引力
-                    candidates[i] = (loc, threat - 200 * player_count)
+                    # 多人扎堆的地点大幅提高排序值（升序中排更后）
+                    candidates[i] = (loc, enemy_count + 200 * player_count)
                 elif player_count == 0:
-                    # 空地点加分（分散到没人的地方）
-                    candidates[i] = (loc, threat + 50)
+                    # 空地点降低排序值（升序中排更前）
+                    candidates[i] = (loc, enemy_count - 50)
+        # 按敌人数升序排序，优先去没人的地方
+        candidates.sort(key=lambda x: x[1])
         if candidates:
             return candidates[0][0]
         return "home"

@@ -261,7 +261,8 @@ class EvaluationMixin(_Base):
         if self._is_at_disadvantage(player, target) and self.personality == "defensive":
             return False
         # 超新星威胁：如果同地点有>=2个其他玩家且场上有火萤持超新星，考虑撤退分散
-        if self._firefly_supernova_threat(player, state):
+        state = getattr(self, '_game_state', None)
+        if state and self._firefly_supernova_threat(player, state):
             my_loc = self._get_location_str(player)
             same_loc_count = len(self._get_same_location_targets(player, state))
             if same_loc_count >= 2:  # 包括战斗目标在内有2+个人
