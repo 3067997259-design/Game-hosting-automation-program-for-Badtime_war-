@@ -422,11 +422,11 @@ class Hologram(BaseTalent):
         return result
 
     def on_d4_bonus(self, player):
-        """全息影像存在期间，释放者D4点数+1"""
+        """全息影像存在期间，释放者D4点数+3"""
         if not self.active:
             return 0
         if player.player_id == self.player_id:
-            return 1
+            return 3
         return 0
 
     # ============================================
@@ -497,12 +497,9 @@ class Hologram(BaseTalent):
         return base + getattr(self, 'ripple_extra_vulnerability', 0.0)
 
     def get_bonus_damage(self, target_id):
-        """
-        计算影像对目标的额外伤害。
-        由 damage_resolver 调用。
-        返回额外伤害值，0表示无影响。
-        """
         if not self.active:
+            return 0
+        if target_id == self.player_id:  # ← 新增：发动者不受自己的易伤
             return 0
         if not self.is_in_hologram(target_id):
             return 0
