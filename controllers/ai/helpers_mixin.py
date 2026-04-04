@@ -88,6 +88,37 @@ class HelpersMixin(_Base): # type: ignore
                     and getattr(talent, 'max_uses', 0) <= 0
                     and not getattr(talent, 'active', False))
         return False
+
+    def _is_being_burned(self, player, state) -> bool:
+        """检查玩家是否正在被灼烧"""
+        for pid in state.player_order:
+            p = state.get_player(pid)
+            if p and p.is_alive() and p.talent and hasattr(p.talent, 'burn_targets'):
+                if player.player_id in p.talent.burn_targets:
+                    if p.talent.burn_targets[player.player_id] > 0:
+                        return True
+        return False
+
+    def _firefly_exists_in_game(self, state) -> bool:
+        """检查场上是否有存活的火萤"""
+        for pid in state.player_order:
+            p = state.get_player(pid)
+            if p and p.is_alive() and self._has_firefly_talent(p):
+                return True
+        return False
+
+    def _firefly_supernova_threat(self, player, state) -> bool:
+        """检测场上是否有火萤持有超新星（对所有非火萤AI构成威胁）"""
+        if self._has_firefly_talent(player):
+            return False  # 火萤自己不怕自己的超新星
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            t = state.get_player(pid)
+            if t and t.is_alive() and t.talent:
+                if getattr(t.talent, 'has_supernova', False):
+                    return True
+        return False
     # ════════════════════════════════════════════════════════
     #  装备查询：护甲
     # ════════════════════════════════════════════════════════
@@ -139,6 +170,7 @@ class HelpersMixin(_Base): # type: ignore
         if hasattr(weapon, 'get_effective_damage'):
             return weapon.get_effective_damage()
         return getattr(weapon, 'base_damage', 1.0)
+
     def _get_weapon_range(self, weapon) -> str:
         """获取武器的射程类型"""
         from models.equipment import WeaponRange
@@ -152,6 +184,7 @@ class HelpersMixin(_Base): # type: ignore
         elif wr == WeaponRange.AREA:
             return "area"
         return "melee"
+
     def _captain_has_police_escort(self, captain, state) -> bool:
         """检查队长所在地点是否有活跃的警察单位"""
         police = getattr(state, 'police', None)
@@ -163,6 +196,7 @@ class HelpersMixin(_Base): # type: ignore
                     and getattr(unit, 'location', None) == captain_loc):
                 return True
         return False
+
     def _get_weapon_attr(self, weapon):
         """获取武器属性（返回 Attribute 枚举）"""
         from utils.attribute import Attribute
@@ -170,6 +204,7 @@ class HelpersMixin(_Base): # type: ignore
         if isinstance(attr, Attribute):
             return attr
         return Attribute.ORDINARY
+
     def _has_melee_only(self, player) -> bool:
         """是否只有近战武器"""
         weapons = getattr(player, 'weapons', [])
@@ -177,6 +212,7 @@ class HelpersMixin(_Base): # type: ignore
             if self._get_weapon_range(w) != "melee":
                 return False
         return True
+
     def _has_two_aoe_types(self, player) -> bool:
         """检查玩家是否拥有两种不同属性的AOE武器（魔法+科技）"""
         from utils.attribute import Attribute
@@ -190,6 +226,7 @@ class HelpersMixin(_Base): # type: ignore
         if "地震" in learned or "地动山摇" in learned:
             aoe_attrs.add(Attribute.MAGIC)
         return Attribute.MAGIC in aoe_attrs and Attribute.TECH in aoe_attrs
+
     def _count_distinct_aoe_attrs(self, player) -> int:
         """Count distinct attribute types among player's AOE weapons"""
         from utils.attribute import Attribute
@@ -265,16 +302,19 @@ class HelpersMixin(_Base): # type: ignore
         if hasattr(loc, 'name'):
             return loc.name
         return str(loc)
+
     def _is_at_home(self, player) -> bool:
         """是否在自己家"""
         loc = self._get_location_str(player)
         pid = getattr(player, 'player_id', '')
         return loc == "home" or loc == f"home_{pid}" or "家" in loc
+
     def _same_location(self, player1, player2) -> bool:
         """两个玩家是否在同一地点"""
         loc1 = self._get_location_str(player1)
         loc2 = self._get_location_str(player2)
         return loc1 == loc2 and loc1 != "unknown"
+
     def _get_same_location_targets(self, player, state) -> List[Any]:
         """获取同地点的敌方玩家"""
         result = []
@@ -285,6 +325,7 @@ class HelpersMixin(_Base): # type: ignore
             if target and target.is_alive() and self._same_location(player, target):
                 result.append(target)
         return result
+
     def _find_nearest_enemy_location(self, player, state) -> Optional[str]:
             """找到威胁度最大的敌人所在位置（因为这游戏没有距离概念啦）
             aggressive 人格会优先去发育者（从未攻击过任何人的玩家）所在位置
@@ -321,9 +362,21 @@ class HelpersMixin(_Base): # type: ignore
                     candidates.append((target_loc, threat))
             if not candidates:
                 return None
+            # 超新星分散：如果场上有火萤持有超新星，优先去人少的地点
+            if self._firefly_supernova_threat(player, state):
+                # 统计每个地点的玩家数（含自己）
+                for i, (loc, threat) in enumerate(candidates):
+                    player_count = self._count_enemies_at(loc, player, state)
+                    if player_count >= 2:
+                        # 多人扎堆的地点大幅降低吸引力
+                        candidates[i] = (loc, threat - 200 * player_count)
+                    elif player_count == 0:
+                        # 空地点加分（分散到没人的地方）
+                        candidates[i] = (loc, threat + 50)
             # 按威胁分排序
             candidates.sort(key=lambda x: x[1], reverse=True)
             return candidates[0][0]
+
     def _find_safe_location(self, player, state) -> Optional[str]:
         """找到最安全的位置（按敌人数量排序）"""
         loc = self._get_location_str(player)
@@ -340,9 +393,21 @@ class HelpersMixin(_Base): # type: ignore
             candidates.append((test_loc, enemies_at))
         # 按敌人数升序排序，优先去没人的地方
         candidates.sort(key=lambda x: x[1])
+        # 超新星分散：如果场上有火萤持有超新星，优先去人少的地点
+        if self._firefly_supernova_threat(player, state):
+            # 统计每个地点的玩家数（含自己）
+            for i, (loc, threat) in enumerate(candidates):
+                player_count = self._count_enemies_at(loc, player, state)
+                if player_count >= 2:
+                    # 多人扎堆的地点大幅降低吸引力
+                    candidates[i] = (loc, threat - 200 * player_count)
+                elif player_count == 0:
+                    # 空地点加分（分散到没人的地方）
+                    candidates[i] = (loc, threat + 50)
         if candidates:
             return candidates[0][0]
         return "home"
+
     def _count_enemies_at(self, location: str, player, state) -> int:
         count = 0
         for pid in state.player_order:

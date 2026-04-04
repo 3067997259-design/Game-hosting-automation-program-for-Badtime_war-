@@ -53,6 +53,7 @@ class EvaluationMixin(_Base):
             if locked_count > 1:
                 return True
             return False
+
     def _is_critical(self, player, state) -> bool:
         # 火萤IV型：自定义危险判定
         if self._has_firefly_talent(player):
@@ -76,7 +77,18 @@ class EvaluationMixin(_Base):
         # 被锚定
         if self._is_anchored(player, state):
             return True
+        # 被灼烧且护甲不足
+        for pid in state.player_order:
+            p = state.get_player(pid)
+            if (p and p.is_alive() and p.talent
+                    and hasattr(p.talent, 'burn_targets')
+                    and player.player_id in p.talent.burn_targets):
+                # 正在被灼烧
+                if self._count_outer_armor(player) + self._count_inner_armor(player) <= 1:
+                    return True  # 触发危险模式，去补甲
+                break
         return False
+
     def _is_anchored(self, player, state) -> bool:
         markers = getattr(state, 'markers', None)
         if not markers or not hasattr(markers, 'has_relation'):
@@ -248,6 +260,12 @@ class EvaluationMixin(_Base):
                 return False
         if self._is_at_disadvantage(player, target) and self.personality == "defensive":
             return False
+        # 超新星威胁：如果同地点有>=2个其他玩家且场上有火萤持超新星，考虑撤退分散
+        if self._firefly_supernova_threat(player, state):
+            my_loc = self._get_location_str(player)
+            same_loc_count = len(self._get_same_location_targets(player, state))
+            if same_loc_count >= 2:  # 包括战斗目标在内有2+个人
+                return False  # 退出战斗，分散风险
         # 所有武器被目标护甲克制 → 退出近战
         if self._all_weapons_countered(player, target):
             return False

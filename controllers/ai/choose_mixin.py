@@ -165,7 +165,7 @@ class ChooseMixin(_Base):
                     # --- 条件1（主动进攻）：发育完成 + 至少2件护甲 + 同地点敌人>=1 ---
                     if (not should_activate
                             and self._is_development_complete(self._player, self._game_state)
-                            and total_armor >= 2
+                            and total_armor >= 1
                             and nearby_total >= 1):
                         # 检查电磁步枪是否已蓄力（未蓄力则推迟发动）
                         emr = next((w for w in self._player.weapons if w and w.name == "电磁步枪"), None)
@@ -193,6 +193,20 @@ class ChooseMixin(_Base):
                         has_captain = pc.get("captain_id") is not None
                         if has_captain:
                             should_activate = True
+                    # --- 条件4（反火萤）：场上有火萤持超新星 + 自己有AOE + 火萤在同地点或可能被拉来 ---
+                    if not should_activate and has_two_aoe:
+                        for pid in self._game_state.player_order:
+                            if pid == self._player.player_id:
+                                continue
+                            t = self._game_state.get_player(pid)
+                            if (t and t.is_alive() and t.talent
+                                    and getattr(t.talent, 'has_supernova', False)):
+                                # 火萤有超新星，紧急发动全息影像
+                                # 全息影像的D6拉人有50%概率把火萤拉过来
+                                # 即使火萤不在同地点，拉过来后震荡可以阻止超新星
+                                # 全息影像的易伤加成不受火萤减伤影响，是击杀火萤的最佳时机
+                                should_activate = True
+                                break
 
                 if should_activate:
                     for opt in options:

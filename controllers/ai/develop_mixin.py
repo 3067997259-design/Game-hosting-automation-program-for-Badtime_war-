@@ -59,9 +59,9 @@ class DevelopMixin(_Base):
                 has_armor = self._count_outer_armor(player) >= 2
                 return has_ranged_or_magic and has_armor
             else:
-                # 阶段1/2：需要2种AOE + 2外甲（+ 小刀顺手拿）
+                # 阶段1/2：需要2种AOE + 至少1外甲（护甲不再是硬性2件门槛）
                 has_two_aoe_types = self._count_distinct_aoe_attrs(player) >= 2
-                has_armor = self._count_outer_armor(player) >= 2
+                has_armor = self._count_outer_armor(player) >= 1
                 return has_two_aoe_types and has_armor
 
         if self.personality == "aggressive":
