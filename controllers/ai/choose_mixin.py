@@ -167,7 +167,12 @@ class ChooseMixin(_Base):
                             and self._is_development_complete(self._player, self._game_state)
                             and total_armor >= 2
                             and nearby_total >= 1):
-                        should_activate = True
+                        # 检查电磁步枪是否已蓄力（未蓄力则推迟发动）
+                        emr = next((w for w in self._player.weapons if w and w.name == "电磁步枪"), None)
+                        if emr and not getattr(emr, 'is_charged', False):
+                            pass  # 电磁步枪未蓄力，推迟发动（下一轮蓄力后再发动）
+                        else:
+                            should_activate = True
 
                     # --- 条件2（保命逃跑）：HP <= 1.0 且被攻击过 且攻击者在同地点 ---
                     # 保命用：交技能震荡攻击者，额外行动回合用来逃跑
