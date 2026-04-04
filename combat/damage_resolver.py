@@ -575,9 +575,10 @@ def resolve_damage(attacker, target, weapon, game_state,
         already_cc = pre_attack_stunned or pre_attack_shocked
         if not already_cc:
             prevent_shock = False
-            if (weapon.special_tags and "stun_on_hit" in weapon.special_tags
-                    and result["success"] and not result["killed"]
-                    and not electric_stun_immune):
+            if electric_stun_immune:
+                prevent_shock = True
+            elif (target.talent and hasattr(target.talent, 'prevent_stun')
+                    and not getattr(target, '_mythland_talent_suppressed', False)):
                 prevent_shock = target.talent.prevent_stun(target)
 
             if not prevent_shock:
