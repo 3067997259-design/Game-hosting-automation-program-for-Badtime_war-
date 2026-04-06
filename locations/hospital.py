@@ -81,6 +81,8 @@ def can_interact(player, item_name, game_state=None):
         if not (player.talent and hasattr(player.talent, 'tactical_unlocked')
                 and player.talent.tactical_unlocked):
             return False, "你需要先习得战术动作才能获取药物"
+        if item_name == "肾上腺素" and getattr(player.talent, 'adrenaline_used', False):
+            return False, "肾上腺素全局仅能使用1次，已经使用过了"
         if hasattr(player.talent, 'medicines') and len(player.talent.medicines) >= 2:
             return False, "你最多同时持有2样药物"
         return True, ""
@@ -118,7 +120,7 @@ def do_interact(player, item_name, game_state=None):
 
     # 星野药物
     HOSHINO_MEDICINES = {"EPO", "海豚巧克力", "肾上腺素"}
-    if item_name in HOSHINO_MEDICINES:
+    elif item_name in HOSHINO_MEDICINES:
         player.talent.medicines.append(item_name)
         count = len(player.talent.medicines)
         return f"💊 {player.name} 获得了药物「{item_name}」！（当前持有 {count}/2）"

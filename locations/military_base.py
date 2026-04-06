@@ -148,7 +148,7 @@ def do_interact(player, item_name, game_state=None):
 
     # 星野战术道具
     HOSHINO_TACTICAL = {"破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃烧瓶"}
-    if item_name in HOSHINO_TACTICAL:
+    elif item_name in HOSHINO_TACTICAL:
         player.talent.tactical_items.append(item_name)
         count = len(player.talent.tactical_items)
         return f"⚔️ {player.name} 获得了战术道具「{item_name}」！（当前持有 {count}/2）"
