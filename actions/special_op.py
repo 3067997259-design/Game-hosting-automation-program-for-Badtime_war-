@@ -44,6 +44,17 @@ def get_available_specials(player, game_state):
     if player.location == "医院" and not game_state.virus.is_active:
         specials.append({"name": "释放病毒", "description": "🦠 释放病毒，全体感染！"})
 
+    # 更衣（Hoshino 形态切换，需在自己家中）
+    if player.talent and hasattr(player.talent, 'form'):
+        if player.location == f"home_{player.player_id}":
+            valid_forms = {"水着-shielder", "临战-Archer", "临战-shielder"}
+            for form in valid_forms:
+                if form != player.talent.form:
+                    specials.append({
+                        "name": f"更衣{form}",
+                        "description": f"更换形态为「{form}」"
+                    })
+
     return specials
 
 
