@@ -61,7 +61,7 @@ def execute(player, op_name, game_state):
     elif op_name == "释放病毒":
         return _do_release_virus(player, game_state)
     elif op_name.startswith("更衣"):
-        form_name = op_name[3:].strip() if len(op_name) > 2 else ""
+        form_name = op_name[2:].strip() if len(op_name) > 2 else ""
         if player.talent and hasattr(player.talent, 'form'):
             if player.location != f"home_{player.player_id}":
                 return "❌ 需要在自己家中才能更衣"
