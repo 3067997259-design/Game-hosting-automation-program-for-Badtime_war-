@@ -56,8 +56,6 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         self.broken_armors_history = set()  # 穿戴过的已破碎护甲名（去重）
         # 临战-shielder 冲刺免cost标记
         self.dash_free_shield_cost = False
-        # 额外生命值（光环提供的）
-        self.halo_extra_hp = 0.0  # 由光环系统管理
 
     def on_register(self):
         """选择初始形态"""
@@ -146,23 +144,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                 display.show_info(f"😰 {player.name} 进入「自我怀疑」状态...")
 
     def get_t0_option(self, player):
-        """T0选项：战术指令宏入口"""
-        if getattr(player, '_eternity_blocked', False):
-            return None
-        if self.is_terror:
-            return None  # Terror 状态下无 T0 选项
-        if not self.tactical_unlocked:
-            return None
-        if self.iron_horus_hp <= 0 and not self.eye_of_horus:
-            return None
-        return {
-            "name": "战术指令宏",
-            "description": f"输入 special Hoshino 发动（Cost: {self.cost}/{self.max_cost}）"
-        }
-
-    def execute_t0(self, player):
-        """执行战术指令宏"""
-        return self._execute_tactical_macro(player)
+        """T0选项：战术指令宏入口（已移至 special Hoshino）"""
+        return None
 
     def receive_damage_to_temp_hp(self, damage):
         remaining = damage

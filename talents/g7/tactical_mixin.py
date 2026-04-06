@@ -100,11 +100,36 @@ class TacticalMixin:
                 available_actions=list(self.TACTICAL_COST.keys()) + ["terminal"],
                 context={"phase": "T0", "situation": "hoshino_tactical_input"}
             )
-            if raw.strip().lower() == "terminal":
+            raw_stripped = raw.strip()
+            raw_lower = raw_stripped.lower()
+            if raw_lower == "terminal":
                 break
-            parsed = self._parse_tactical_command(raw)
+
+            # 查看类指令（不消耗战术动作，不退出战术模式）
+            if raw_lower == "allstatus":
+                display.show_all_players_status(self.state)
+                continue
+            if raw_lower == "status":
+                me = self.state.get_player(self.player_id)
+                if me:
+                    display.show_player_status(me, self.state)
+                continue
+            if raw_lower == "help":
+                display.show_info(
+                    "⚔️ 战术指令宏帮助：\n"
+                    "  架盾(2) 射击(2) 重新装填(0) 持盾(1) 投掷(1)\n"
+                    "  服药(0) 冲刺(1) 取消(0) find(1) lock(1) 转向(0)\n"
+                    "  terminal — 结束输入\n"
+                    "  allstatus / status / police — 查看状态（不消耗动作）"
+                )
+                continue
+            if raw_lower == "police":
+                display.show_police_status(self.state)
+                continue
+
+            parsed = self._parse_tactical_command(raw_stripped)
             if parsed is None:
-                display.show_info(f"⚠️ 无法识别的战术指令: {raw}")
+                display.show_info(f"⚠️ 无法识别的战术指令: {raw_stripped}")
                 continue
             action_name, args = parsed
             # 冲刺每宏最多1次
@@ -298,7 +323,7 @@ class TacticalMixin:
 
     # ---- 重新装填 ----
     def _tac_reload(self, player, item_name):
-        """摧毁一件有属性的物品或护甲，填充4发对应属性子弹"""
+        """摧毁一件有属性的物品、护甲或武器，填充4发对应属性子弹"""
         if not item_name:
             # 让玩家选择
             candidates = []
@@ -308,11 +333,14 @@ class TacticalMixin:
             for armor in player.armor.get_all_active():
                 if armor.name not in ("铁之荷鲁斯",):
                     candidates.append(("armor", armor.name, armor.attribute.value))
+            for weapon in (player.weapons or []):
+                if weapon and weapon.name != "拳击" and hasattr(weapon, 'attribute') and weapon.attribute:
+                    candidates.append(("weapon", weapon.name, weapon.attribute.value))
             if not candidates:
-                return "❌ 没有可消耗的有属性物品或护甲"
+                return "❌ 没有可消耗的有属性物品、护甲或武器"
             names = [f"{name}({attr})" for _, name, attr in candidates]
             item_name = player.controller.choose(
-                "选择要消耗的物品/护甲：", names,
+                "选择要消耗的物品/护甲/武器：", names,
                 context={"phase": "T0", "situation": "hoshino_reload"}
             )
             # 解析选择
@@ -321,10 +349,11 @@ class TacticalMixin:
                     item_name = name
                     break
 
-        # 查找物品/护甲（先不消耗，确认弹药容量后再消耗）
+        # 查找物品/护甲/武器（先不消耗，确认弹药容量后再消耗）
         attr_str = None
         found_item_idx = None
         found_armor = None
+        found_weapon_idx = None
         # 先查物品
         for i, item in enumerate(player.items):
             if item.name == item_name:
@@ -338,6 +367,13 @@ class TacticalMixin:
                     attr_str = armor.attribute.value
                     found_armor = armor
                     break
+        # 最后查武器（拳击不可消耗）
+        if attr_str is None:
+            for i, weapon in enumerate(player.weapons or []):
+                if weapon and weapon.name == item_name and weapon.name != "拳击":
+                    attr_str = weapon.attribute.value if hasattr(weapon, 'attribute') and weapon.attribute else "普通"
+                    found_weapon_idx = i
+                    break
         if attr_str is None:
             return f"❌ 找不到可消耗的「{item_name}」"
 
@@ -347,11 +383,13 @@ class TacticalMixin:
         if new_bullets <= 0:
             return f"❌ 弹药已满（{current_total}/{self.max_ammo}），无法装填"
 
-        # 容量足够，消耗物品/护甲
+        # 容量足够，消耗物品/护甲/武器
         if found_item_idx is not None:
             player.items.pop(found_item_idx)
         elif found_armor is not None:
             player.armor.remove_piece(found_armor)
+        elif found_weapon_idx is not None:
+            player.weapons.pop(found_weapon_idx)
 
         # 填充子弹
         for _ in range(new_bullets):

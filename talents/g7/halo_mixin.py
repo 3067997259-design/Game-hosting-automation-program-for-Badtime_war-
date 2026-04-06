@@ -39,10 +39,6 @@ class HaloMixin:
                 halo['cooldown_remaining'] = cooldown_time
                 break
 
-    def _halo_total_extra_hp(self):
-        """返回当前活跃光环提供的总额外HP"""
-        return sum(0.5 for h in self.halos if h['active'])
-
     def _halo_consume_one(self):
         """消耗1层活跃光环 → 进入黯淡 → 如果没有正在恢复的，开始恢复"""
         alive_count = len([pid for pid in self.state.player_order

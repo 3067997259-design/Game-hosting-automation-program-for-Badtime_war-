@@ -56,7 +56,9 @@ def get_available_specials(player, game_state):
                     })
     # 星野战术指令宏
     if (player.talent and hasattr(player.talent, 'tactical_unlocked')
-        and player.talent.tactical_unlocked and not getattr(player.talent, 'is_terror', False)):
+        and player.talent.tactical_unlocked and not getattr(player.talent, 'is_terror', False)
+        and (getattr(player.talent, 'iron_horus_hp', 0) > 0
+             or getattr(player.talent, 'eye_of_horus', None))):
         specials.append({"name": "Hoshino", "description": "⚔️ 发动战术指令宏"})
 
     # 星野修复铁之荷鲁斯

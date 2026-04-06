@@ -208,6 +208,10 @@ def validate_move(player, destination, game_state):
         return False, "你还没起床！"
     if destination is None:
         return False, "请指定目的地。用法：move <地点名>"
+    # 星野架盾：自身无法移动
+    if (player.talent and hasattr(player.talent, 'shield_mode')
+            and player.talent.shield_mode == "架盾"):
+        return False, "🛡️ 架盾状态下无法移动（正面强攻）"
     # 结界限制
     barrier_msg = _check_barrier_block(player, "move", game_state)
     if barrier_msg:
@@ -232,6 +236,10 @@ def validate_interact(player, item_name, game_state):
         return False, "你还没起床！"
     if item_name is None:
         return False, "请指定交互项目。"
+    # 星野持盾：无法执行 interact
+    if (player.talent and hasattr(player.talent, 'shield_mode')
+            and player.talent.shield_mode in ("持盾", "架盾")):
+        return False, "🛡️ 持盾/架盾状态下无法与地点交互（为了明天，只能向前）"
     # 结界限制
     barrier_msg = _check_barrier_block(player, "interact", game_state)
     if barrier_msg:
