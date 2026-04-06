@@ -155,6 +155,10 @@ class PoemMixin:
             msg = self._poem_light(target)
         elif poem_type == "负世":
             msg = self._poem_bear(target)
+        elif poem_type == "欢愉":
+            msg = self._poem_joy(caster, target)
+        elif poem_type == "守夜人":
+            msg = self._poem_nightwatch(caster, target)
         elif poem_type == "爱与记忆":
             msg = self._poem_destiny(caster)
         else:
@@ -739,3 +743,112 @@ class PoemMixin:
             return "rock_paper"
 
         return False
+
+    # ================================================================
+    #  献予「欢愉」之诗（神代6：要有笑声！）
+    # ================================================================
+
+    def _poem_joy(self, caster, target):
+        """
+        献予「欢愉」之诗：
+        - 被选中的玩家立刻获得1次「插入式笑话」
+        - 后续「插入式笑话」需要的forfeit数减少2
+        README 第 2162 行
+        """
+        talent = target.talent
+        if not talent or talent.name != "要有笑声！":
+            return "❌ 目标天赋不是「要有笑声！」"
+
+        # 立刻获得1次插入式笑话
+        if hasattr(talent, 'cutaway_charges'):
+            talent.cutaway_charges = getattr(talent, 'cutaway_charges', 0) + 1
+        else:
+            talent.cutaway_charges = 1
+
+        # forfeit需求减少2
+        if hasattr(talent, 'forfeit_threshold'):
+            talent.forfeit_threshold = max(0, talent.forfeit_threshold - 2)
+        else:
+            talent.forfeit_reduction = getattr(talent, 'forfeit_reduction', 0) + 2
+
+        charges = getattr(talent, 'cutaway_charges', 1)
+        return (
+            f"🎭 {target.name} 的「要有笑声！」增强！\n"
+            f"   立刻获得1次「插入式笑话」（当前: {charges}次）\n"
+            f"   后续「插入式笑话」所需forfeit数减少2"
+        )
+
+    # ================================================================
+    #  献予「守夜人」之诗（神代7：大叔我啊，剪短发了）
+    # ================================================================
+
+    def _poem_nightwatch(self, caster, target):
+        """
+        献予「守夜人」之诗（特殊：需承受者选择是否接受）
+        README 第 2164-2174 行
+
+        若选择接受：
+        - 色彩值永久赋为null
+        - 若已在Terror：解除Terror，每1.5点额外生命值转化为1点永久额外生命值（向下取整），
+          额外扣除3点（不致死，不足的话有多少扣多少），恢复护甲值为3的铁之荷鲁斯，
+          恢复所有战术指令/药物/战术装备的可用性（需自己回去拿）
+        """
+        import math
+        talent = target.talent
+        if not talent or not hasattr(talent, 'color_is_null'):
+            return "❌ 目标天赋不是「大叔我啊，剪短发了」"
+
+        # 需承受者选择是否接受
+        choice = target.controller.choose(
+            "「向走向过去的少女说出你的愿望吧，她的未来，就是你的过去」\n"
+            "「至少，她会给你一个改写痛苦现实的机会」\n"
+            "是否接受献予「守夜人」之诗？",
+            ["接受", "拒绝"],
+            context={"phase": "T0", "situation": "poem_nightwatch_choice"}
+        )
+
+        if "拒绝" in choice:
+            return "🌙 守夜人拒绝了涟漪的馈赠。"
+
+        msg_parts = ["🌙 献予「守夜人」之诗生效！"]
+
+        # 色彩值永久赋为null
+        talent.color_is_null = True
+        talent.color = 0
+        msg_parts.append("   色彩值永久归null")
+
+        if talent.is_terror:
+            # Terror 解除
+            talent.is_terror = False
+
+            # 强制锁定ID解除 — 恢复原名
+            # 注意：原名可能已丢失，用 player_id 作为 fallback
+            if target.name == "星野-Terror":
+                target.name = f"星野_{target.player_id}"
+            msg_parts.append(f"   Terror 状态解除！ID恢复为 {target.name}")
+
+            # 每1.5点剩余额外生命值转化为1点永久额外生命值（向下取整）
+            permanent_extra = math.floor(talent.terror_extra_hp / 1.5)
+            talent.terror_extra_hp = 0
+            msg_parts.append(f"   额外生命值转化：{permanent_extra}点永久额外HP")
+
+            # 额外扣除3点（不致死，不足2点的话有多少扣多少）
+            deduct = min(permanent_extra, 3)
+            permanent_extra -= deduct
+            msg_parts.append(f"   扣除{deduct}点 → 剩余{permanent_extra}点永久额外HP")
+
+            # 将永久额外HP存储到talent上（用于 receive_damage_to_temp_hp）
+            talent.terror_extra_hp = float(permanent_extra)
+
+            # 恢复护甲值为3的铁之荷鲁斯
+            talent.iron_horus_hp = 3
+            talent.iron_horus_max_hp = 3
+            talent.fusion_shield_done = True
+            msg_parts.append("   铁之荷鲁斯恢复（护甲值: 3）")
+
+            # 恢复所有战术指令、药物和战术装备的可用性（需自己回去拿）
+            if talent.fusion_weapon_done:
+                talent.tactical_unlocked = True
+            msg_parts.append("   战术指令可用性恢复（道具/药物需自行获取）")
+
+        return "\n".join(msg_parts)

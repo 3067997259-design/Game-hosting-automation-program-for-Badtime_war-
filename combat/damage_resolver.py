@@ -86,6 +86,39 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         damage=raw, attribute=damage_attribute_str
     ))
 
+    # ---- 星野持盾：铁之荷鲁斯伤害减免 ----
+    if (target.talent and hasattr(target.talent, 'shield_mode')
+        and target.talent.shield_mode == "持盾"
+        and not getattr(target, '_mythland_talent_suppressed', False)):
+        talent = target.talent
+        attacker_id = attacker.player_id if attacker else None
+        # 只吸收 find 或 lock 的玩家造成的伤害
+        is_found_or_locked = False
+        if attacker_id and game_state:
+            is_found_or_locked = (
+                game_state.markers.has_relation(target.player_id, "ENGAGED_WITH", attacker_id)
+                or game_state.markers.has_relation(target.player_id, "LOCKED_ON", attacker_id)
+            )
+        if is_found_or_locked and talent.iron_horus_hp > 0:
+            # 铁之荷鲁斯作为 priority=100 最外层护甲吸收伤害
+            absorbed = min(raw, talent.iron_horus_hp)
+            talent.iron_horus_hp -= absorbed
+            raw -= absorbed
+            result["details"].append(
+                f"🛡️ 持盾：铁之荷鲁斯吸收 {absorbed} 伤害（剩余护甲值: {talent.iron_horus_hp}）")
+            if talent.iron_horus_hp <= 0:
+                # 破损时吸收所有溢出伤害
+                raw = 0
+                result["details"].append("⚠️ 铁之荷鲁斯进入破损状态！吸收所有溢出伤害")
+                player_obj = game_state.get_player(talent.player_id) if game_state else None
+                if player_obj:
+                    talent._end_shield_mode(player_obj)
+            if raw <= 0:
+                result["final_damage"] = 0
+                result["success"] = False
+                result["reason"] = "持盾伤害减免"
+                return result
+
     # ---- 天赋受伤减免（如火萤IV型 -50%）----
     if (target.talent and hasattr(target.talent, 'modify_incoming_damage')
         and not getattr(target, '_mythland_talent_suppressed', False)):
@@ -98,7 +131,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             )
             result["details"].append(damage_reduced_text.format(damage=raw))
 
-    # ---- 全息影像：目标在影像内额外+0.5 ----
+    # ---- 全息影像：目标在影像内额外+1 ----
     hologram_bonus = _get_hologram_bonus(target, game_state)
     if hologram_bonus > 0:
         raw += hologram_bonus
@@ -377,6 +410,42 @@ def resolve_damage(attacker, target, weapon, game_state,
     )
     result["details"].append(raw_damage_text.format(damage=raw))
 
+    # ---- 星野架盾：正面伤害过滤 ----
+    if (target.talent and hasattr(target.talent, 'shield_mode')
+        and target.talent.shield_mode == "架盾"
+        and not getattr(target, '_mythland_talent_suppressed', False)):
+        talent = target.talent
+        # 检查攻击者是否在正面
+        attacker_id = attacker.player_id if attacker else None
+        if attacker_id and talent.is_front(attacker_id):
+            # 免疫除爱与记忆之诗外所有伤害低于快照护甲值的正面伤害
+            is_love_poem = getattr(result, '_is_love_poem', False)
+            if not is_love_poem:
+                threshold = talent.shield_snapshot_hp
+                if raw <= threshold:
+                    # 完全免疫，铁之荷鲁斯不受伤害
+                    result["final_damage"] = 0
+                    result["success"] = False
+                    result["reason"] = "架盾正面伤害过滤"
+                    result["details"].append(
+                        f"🛡️ 架盾过滤：伤害 {raw} ≤ 铁之荷鲁斯快照 {threshold}，完全免疫")
+                    return result
+                else:
+                    # 溢出：荷鲁斯损耗1点护甲值，无效化剩余
+                    talent.iron_horus_hp = max(0, talent.iron_horus_hp - 1)
+                    result["final_damage"] = 0
+                    result["success"] = False
+                    result["reason"] = "架盾正面伤害过滤（溢出）"
+                    result["details"].append(
+                        f"🛡️ 架盾过滤：伤害 {raw} > 快照 {threshold}，"
+                        f"铁之荷鲁斯损耗1点 → {talent.iron_horus_hp}")
+                    if talent.iron_horus_hp <= 0:
+                        player_obj = game_state.get_player(talent.player_id) if game_state else None
+                        if player_obj:
+                            talent._end_shield_mode(player_obj)
+                        result["details"].append("⚠️ 铁之荷鲁斯护甲归零，架盾状态结束")
+                    return result
+
     # ---- 警察保护阈值减免（非AOE） ----
     if weapon and weapon.weapon_range != WeaponRange.AREA and game_state:
         pe = getattr(game_state, 'police_engine', None)
@@ -392,6 +461,36 @@ def resolve_damage(attacker, target, weapon, game_state,
                 absorbed = threshold
                 raw -= absorbed
                 result["details"].append(f"🚔 警察保护：吸收 {absorbed}，剩余 {raw}")
+
+    # ---- 星野持盾：铁之荷鲁斯伤害减免 ----
+    if (target.talent and hasattr(target.talent, 'shield_mode')
+        and target.talent.shield_mode == "持盾"
+        and not getattr(target, '_mythland_talent_suppressed', False)):
+        talent = target.talent
+        attacker_id = attacker.player_id if attacker else None
+        is_found_or_locked = False
+        if attacker_id and game_state:
+            is_found_or_locked = (
+                game_state.markers.has_relation(target.player_id, "ENGAGED_WITH", attacker_id)
+                or game_state.markers.has_relation(target.player_id, "LOCKED_ON", attacker_id)
+            )
+        if is_found_or_locked and talent.iron_horus_hp > 0:
+            absorbed = min(raw, talent.iron_horus_hp)
+            talent.iron_horus_hp -= absorbed
+            raw -= absorbed
+            result["details"].append(
+                f"🛡️ 持盾：铁之荷鲁斯吸收 {absorbed} 伤害（剩余护甲值: {talent.iron_horus_hp}）")
+            if talent.iron_horus_hp <= 0:
+                raw = 0
+                result["details"].append("⚠️ 铁之荷鲁斯进入破损状态！吸收所有溢出伤害")
+                player_obj = game_state.get_player(talent.player_id) if game_state else None
+                if player_obj:
+                    talent._end_shield_mode(player_obj)
+            if raw <= 0:
+                result["final_damage"] = 0
+                result["success"] = False
+                result["reason"] = "持盾伤害减免"
+                return result
 
     # ---- 萤火受伤减免 ----
     if (target.talent and hasattr(target.talent, 'modify_incoming_damage')
@@ -908,3 +1007,144 @@ def notify_positive_talent_effect(source_player, target_player):
         return
     is_limited = _is_limited_use_talent(source_player.talent)
     target_player.talent.on_positive_talent_used(source_player, is_limited)
+
+def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
+    """
+    Terror 全图伤害结算。
+    走正常护甲→临时HP→HP管线，但：
+    - 不享受加成和减伤（跳过 modify_outgoing/incoming_damage、hologram bonus）
+    - 单体保护不过滤（跳过警察保护阈值）
+    - 无视属性克制（damage_attr=None）
+    - 不无视元亨利贞金身
+    - 死亡判定：无视死者苏生和g4人形态免死，不无视救世主免死
+    """
+    result = {
+        "success": False,
+        "reason": "",
+        "raw_damage": raw_damage,
+        "final_damage": 0,
+        "armor_hit": None,
+        "armor_broken": False,
+        "hp_damage": 0,
+        "target_hp": target.hp,
+        "stunned": False,
+        "killed": False,
+        "details": [],
+    }
+
+    # ---- 元亨利贞金身检查（不无视） ----
+    if (target.talent and hasattr(target.talent, 'is_immune_to_damage')
+            and not getattr(target, '_mythland_talent_suppressed', False)):
+        if target.talent.is_immune_to_damage("无视属性克制"):
+            result["final_damage"] = 0
+            result["success"] = False
+            result["reason"] = "元亨利贞免疫"
+            result["details"].append("☯️ 「元亨利贞」免疫了 Terror 伤害！")
+            return result
+
+    # ---- 不享受加成和减伤：跳过 modify_outgoing_damage、modify_incoming_damage、hologram ----
+    # ---- 单体保护不过滤：跳过警察保护阈值 ----
+
+    # ---- 伤害量化 ----
+    final_damage = quantize_damage(raw_damage)
+    result["final_damage"] = final_damage
+    result["details"].append(f"⚠️ Terror 伤害：{final_damage}（无视属性克制，不享受加成和减伤）")
+
+    remaining = final_damage
+    result["success"] = True
+
+    # ---- 护甲结算（无视属性克制：weapon_attribute=None） ----
+    armor_piece = _select_armor_target(target, None, None)
+    if armor_piece is not None:
+        result["details"].append(f"攻击目标护甲：{armor_piece}")
+        remaining = _apply_damage_to_armor(
+            target, armor_piece, remaining,
+            False, result,
+            None  # weapon_attribute=None → 无视属性克制，不会被护甲克制
+        )
+
+    # ---- 临时生命值结算 ----
+    if remaining > 0:
+        if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
+                and not getattr(target, '_mythland_talent_suppressed', False)):
+            remaining = target.talent.receive_damage_to_temp_hp(remaining)
+        if remaining > 0:
+            result["hp_damage"] = remaining
+            target.hp = round(max(0, target.hp - remaining), 2)
+            result["details"].append(
+                f"生命受到 {remaining} 伤害 → HP: {target.hp}/{target.max_hp}")
+
+    result["target_hp"] = target.hp
+
+    # ---- 石化被攻击自动解除 ----
+    if target.is_alive() and getattr(target, 'is_petrified', False):
+        skip_auto_remove = False
+        if game_state:
+            for pid in game_state.player_order:
+                p = game_state.get_player(pid)
+                if p and p.talent and getattr(p.talent, 'ripple_petrify_lock', False):
+                    skip_auto_remove = True
+                    break
+        if not skip_auto_remove:
+            target.is_petrified = False
+            if game_state:
+                game_state.markers.on_petrify_recover(target.player_id)
+            target.hp = round(max(0, target.hp - 0.5), 2)
+            result["details"].append(
+                f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
+            result["target_hp"] = target.hp
+
+    # ---- 死亡判定（自定义：无视死者苏生和g4人形态免死，不无视救世主免死） ----
+    if target.hp <= 0:
+        prevented = False
+        # 只允许救世主（Savior）的免死生效
+        if (target.talent and not getattr(target, '_mythland_talent_suppressed', False)):
+            # 检查目标自身天赋：只有 Savior 可以免死
+            if hasattr(target.talent, 'name') and target.talent.name == "愿负世，照拂黎明":
+                dr = target.talent.on_death_check(target, attacker)
+                if dr and dr.get("prevent_death"):
+                    target.hp = dr.get("new_hp", 0.5)
+                    prevented = True
+                    result["details"].append(f"💫 救世主免死！HP → {target.hp}")
+        # 其他玩家的救世主天赋也检查
+        if not prevented and game_state:
+            for pid in game_state.player_order:
+                p = game_state.get_player(pid)
+                if (p and p.talent and p.player_id != target.player_id
+                        and hasattr(p.talent, 'name')
+                        and p.talent.name == "愿负世，照拂黎明"):
+                    dr = p.talent.on_death_check(target, attacker)
+                    if dr and dr.get("prevent_death"):
+                        target.hp = dr.get("new_hp", 0.5)
+                        prevented = True
+                        result["details"].append(f"💫 救世主免死！HP → {target.hp}")
+                        break
+        # 注意：死者苏生、g4人形态免死在这里被跳过（不检查）
+
+        if prevented:
+            result["killed"] = False
+            result["target_hp"] = target.hp
+        else:
+            result["killed"] = True
+            result["details"].append(f"💀 {target.name} 被 Terror 击杀！")
+            if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
+                attacker.talent.on_kill(attacker, target)
+
+    elif target.hp <= 0.5 and not target.is_stunned:
+        prevent = False
+        if (target.talent and hasattr(target.talent, 'prevent_stun')
+                and not getattr(target, '_mythland_talent_suppressed', False)):
+            prevent = target.talent.prevent_stun(target)
+        if not prevent:
+            result["stunned"] = True
+            target.is_stunned = True
+            if game_state:
+                game_state.markers.add(target.player_id, "STUNNED")
+            result["details"].append(f"💫 {target.name} 进入眩晕状态！")
+
+    # ---- 愿负世：被攻击时积累火种 ----
+    if (target.talent and hasattr(target.talent, 'on_being_attacked') and attacker
+            and not getattr(target, '_mythland_talent_suppressed', False)):
+        target.talent.on_being_attacked(attacker, None, False)
+
+    return result

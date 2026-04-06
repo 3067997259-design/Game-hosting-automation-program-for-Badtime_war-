@@ -1,3 +1,16 @@
+"""
+Hoshino —— 神代天赋7「大叔我啊，剪短发了」主类
+
+光环系统 + 装备融合 + 战术指令宏 + 正面/背面 + 色彩反转/Terror。
+"""
+
+from talents.base_talent import BaseTalent
+from talents.g7.halo_mixin import HaloMixin
+from talents.g7.fusion_mixin import FusionMixin
+from talents.g7.tactical_mixin import TacticalMixin
+from talents.g7.facing_mixin import FacingMixin
+from talents.g7.terror_mixin import TerrorMixin
+from cli import display
 class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, BaseTalent):
     name = "大叔我啊，剪短发了"
     description = "光环+装备融合+战术指令宏+色彩反转"
@@ -68,23 +81,88 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
 
     def on_round_start(self, round_num):
         """R0: cost回满 + 光环tick + 融合检查 + 战术解锁检查"""
-        pass  # Phase 2/3 实现
+        me = self.state.get_player(self.player_id)
+        if not me or not me.is_alive():
+            return
+
+        # Terror 状态下不回满 cost
+        if not self.is_terror:
+            self.cost = self.max_cost
+
+        # 光环恢复 tick
+        self._halo_tick()
+
+        # 装备融合检查
+        self._check_fusion(me)
+
+        # 闪光弹/烟雾弹过期清理
+        if hasattr(self.state, '_hoshino_smoke_zones'):
+            expired = [loc for loc, expire_round in self.state._hoshino_smoke_zones.items()
+                      if round_num > expire_round]
+            for loc in expired:
+                del self.state._hoshino_smoke_zones[loc]
+
+        # 清理致盲效果
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and hasattr(p, '_hoshino_blind_expire_round'):
+                if round_num > p._hoshino_blind_expire_round:
+                    p._hoshino_blinded = False
+                    del p._hoshino_blind_expire_round
 
     def on_round_end(self, round_num):
-        """R4: 架盾cost扣除"""
-        pass  # Phase 7 实现
+        """R4: 架盾cost扣除（位于R4所有检查之后）"""
+        # 注意：这个方法由 round_manager.py 的 R4-3 天赋轮次结束钩子调用
+        # 但 README 说架盾cost扣除要在"R4所有检查之后"
+        # 所以实际的扣除逻辑在 _r4_shield_cost_check 中，
+        # 由 round_manager.py 在 R4-3 之后单独调用
+        pass
 
     def on_turn_start(self, player):
-        """T0: 自我怀疑/Terror处理 + 色彩≥6选择"""
-        pass  # Phase 8 实现
+        """T0: 自我怀疑/Terror处理 + 色彩≥6选择 + 架盾控制检查"""
+        if not player.is_alive():
+            return
+
+        # 架盾/持盾状态下，眩晕/震荡立刻解除盾牌状态
+        if self.shield_mode and self._should_end_shield(player):
+            display.show_info(f"⚠️ {player.name} 因控制效果，{self.shield_mode}状态结束")
+            self._end_shield_mode(player)
+
+        # 自我怀疑 → 跳过回合 → 反转为 Terror
+        if self.self_doubt_pending:
+            self.self_doubt_pending = False
+            self._enter_terror(player)
+            return {"consume_turn": True, "message": f"😰 {player.name} 的自我怀疑结束，反转为 Terror..."}
+
+        # 色彩≥6 时提供选择是否进入自我怀疑
+        if not self.color_is_null and not self.is_terror and self.color >= 6:
+            choice = player.controller.choose(
+                f"色彩值已达 {self.color}，是否进入「自我怀疑」状态？（下一回合将被跳过并反转为Terror）",
+                ["进入自我怀疑", "暂不"],
+                context={"phase": "T0", "situation": "hoshino_self_doubt_choice"}
+            )
+            if "进入" in choice:
+                self.self_doubt_pending = True
+                display.show_info(f"😰 {player.name} 进入「自我怀疑」状态...")
 
     def get_t0_option(self, player):
         """T0选项：战术指令宏入口"""
-        pass  # Phase 7 实现
+        if getattr(player, '_eternity_blocked', False):
+            return None
+        if self.is_terror:
+            return None  # Terror 状态下无 T0 选项
+        if not self.tactical_unlocked:
+            return None
+        if self.iron_horus_hp <= 0 and not self.eye_of_horus:
+            return None
+        return {
+            "name": "战术指令宏",
+            "description": f"输入 special Hoshino 发动（Cost: {self.cost}/{self.max_cost}）"
+        }
 
     def execute_t0(self, player):
         """执行战术指令宏"""
-        pass  # Phase 7 实现
+        return self._execute_tactical_macro(player)
 
     def receive_damage_to_temp_hp(self, damage):
         remaining = damage
@@ -103,8 +181,11 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         return remaining
 
     def on_death_check(self, player, damage_source):
-        """Terror下无视复活"""
-        pass  # Phase 8 实现
+        """Terror下无视复活，无视任何条件死亡"""
+        if self.is_terror:
+            # Terror 形态下 HP 归零 → 无视任何条件死亡
+            return None  # 不阻止死亡
+        return None
 
     def describe_status(self):
         """状态描述"""

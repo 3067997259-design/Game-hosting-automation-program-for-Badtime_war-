@@ -35,11 +35,80 @@ def execute(player, destination, game_state):
     返回结果描述字符串。
     """
     old_location = player.location
+    # 星野架盾移动阻碍：正面敌人离开需多花1回合
+    if destination != old_location:
+        for pid in game_state.player_order:
+            p = game_state.get_player(pid)
+            if (p and p.is_alive() and p.player_id != player.player_id
+                    and p.talent and hasattr(p.talent, 'shield_mode')
+                    and p.talent.shield_mode == "架盾"
+                    and p.location == old_location
+                    and hasattr(p.talent, 'is_front')
+                    and p.talent.is_front(player.player_id)):
+                # 检查豁免条件
+                is_exempt = False
+                # 超新星过载豁免
+                if (player.talent and hasattr(player.talent, 'has_supernova')
+                        and player.talent.has_supernova):
+                    is_exempt = True
+                # 插入式笑话豁免（神代6，暂未实现）
+                # 原初天赋4强制移动豁免（六爻放逐）
+                if getattr(player, '_hexagram_forced_move', False):
+                    is_exempt = True
+                # 神代天赋5强制位移豁免
+                if getattr(player, '_ripple_forced_move', False):
+                    is_exempt = True
+                # 最后一曲吸引豁免
+                if getattr(player, '_hologram_pull', False):
+                    is_exempt = True
+
+                if not is_exempt:
+                    # 检查是否已经花过一回合（用临时标记）
+                    delay_key = f'_shield_move_delayed_{p.player_id}'
+                    if not getattr(player, delay_key, False):
+                        setattr(player, delay_key, True)
+                        from cli import display
+                        display.show_info(
+                            f"🛡️ {p.name} 的架盾阻碍了你的移动！"
+                            f"需要多花费1回合才能离开。")
+                        # 不执行移动，消耗本回合
+                        game_state.log_event("move_blocked", player=player.player_id,
+                                           blocker=p.player_id, reason="架盾移动阻碍")
+                        return f"🛡️ {player.name} 被 {p.name} 的架盾阻碍，本回合用于挣脱。"
+                    else:
+                        # 已经花过一回合，清除标记，允许移动
+                        delattr(player, delay_key)
+                        break
     player.location = destination
 
     # 触发标记联动（原地移动不清除锁定/面对面，如超新星过载原地触发）
     if destination != old_location:
         game_state.markers.on_player_move(player.player_id)
+    # 星野架盾：有人进入同地点 → 通知 FacingMixin
+    if destination != old_location:
+        for pid in game_state.player_order:
+            p = game_state.get_player(pid)
+            if (p and p.is_alive() and p.player_id != player.player_id
+                    and p.talent and hasattr(p.talent, '_on_player_enter_location')):
+                p.talent._on_player_enter_location(player.player_id, destination)
+    # 星野烟雾弹：进入烟雾区域
+    if hasattr(game_state, '_hoshino_smoke_zones'):
+        if destination in game_state._hoshino_smoke_zones:
+            expire_round = game_state._hoshino_smoke_zones[destination]
+            if game_state.current_round <= expire_round:
+                # 星野进入烟雾获得隐身
+                for pid2 in game_state.player_order:
+                    p2 = game_state.get_player(pid2)
+                    if (p2 and p2.talent and hasattr(p2.talent, 'name')
+                            and p2.talent.name == "大叔我啊，剪短发了"
+                            and p2.player_id == player.player_id):
+                        player.is_stealthed = True
+                        game_state.markers.add(player.player_id, "STEALTH")
+                        from cli import display
+                        display.show_info(f"💨 {player.name} 进入烟雾，获得隐身！")
+                # 其他玩家进入烟雾区域：解除 find/lock
+                if player.talent is None or not hasattr(player.talent, 'name') or player.talent.name != "大叔我啊，剪短发了":
+                    game_state.markers.on_player_move(player.player_id)  # 清除 find/lock
 
     # 军事基地：到达时提供强买通行证选项
     if destination == "军事基地" and not player.has_military_pass and player.vouchers >= 1:
@@ -76,6 +145,28 @@ def execute(player, destination, game_state):
             if destination == "军事基地":
                 game_state.police_engine.check_and_record_crime(player.player_id, "进入军事基地")
 
+    # Terror 进入时：该地区警察单位逃离到队长所在地点
+    if (player.talent and hasattr(player.talent, 'is_terror')
+            and player.talent.is_terror and game_state.police_engine):
+        pe = game_state.police_engine
+        police = game_state.police
+        fled_units = []
+        for unit in police.active_units():
+            if unit.is_alive() and unit.location == destination:
+                # 优先移动到队长所在地点
+                if police.has_captain():
+                    captain = game_state.get_player(police.captain_id)
+                    if captain and captain.is_alive():
+                        unit.location = captain.location
+                        fled_units.append(f"{unit.unit_id}→{captain.location}")
+                        continue
+                # 无队长：强制要求队长提供location（简化：移动到警察局）
+                unit.location = "警察局"
+                fled_units.append(f"{unit.unit_id}→警察局")
+        if fled_units:
+            from cli import display
+            display.show_info(f"🚔 Terror 到来！警察单位逃离：{', '.join(fled_units)}")
+
 
     old_name = get_location_display_name(old_location, game_state)
     new_name = get_location_display_name(destination, game_state)
@@ -96,3 +187,6 @@ def execute(player, destination, game_state):
             player.talent.trigger_supernova(player, destination, game_state)
         # If no targets, preserve supernova for later (don't trigger)
     return f"🚶 {player.name} 从「{old_name}」移动到「{new_name}」。"
+
+
+
