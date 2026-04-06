@@ -54,6 +54,16 @@ def get_available_specials(player, game_state):
                         "name": f"更衣{form}",
                         "description": f"更换形态为「{form}」"
                     })
+    # 星野战术指令宏
+    if (player.talent and hasattr(player.talent, 'tactical_unlocked')
+        and player.talent.tactical_unlocked and not getattr(player.talent, 'is_terror', False)):
+        specials.append({"name": "Hoshino", "description": "⚔️ 发动战术指令宏"})
+
+    # 星野修复铁之荷鲁斯
+    if (player.talent and hasattr(player.talent, 'iron_horus_hp')
+        and player.talent.fusion_shield_done
+        and player.talent.iron_horus_hp < player.talent.iron_horus_max_hp):
+        specials.append({"name": "修复", "description": "🔧 消耗盾牌/AT力场修复铁之荷鲁斯"})
 
     return specials
 
@@ -71,17 +81,34 @@ def execute(player, op_name, game_state):
         return _do_charge(player, weapon_name, game_state)
     elif op_name == "释放病毒":
         return _do_release_virus(player, game_state)
+    elif op_name == "Hoshino":
+        if player.talent and hasattr(player.talent, '_execute_tactical_macro'):
+            msg, consumes = player.talent._execute_tactical_macro(player)
+            return msg
+        return "❌ 你没有战术指令能力"
     elif op_name.startswith("更衣"):
         form_name = op_name[2:].strip() if len(op_name) > 2 else ""
         if player.talent and hasattr(player.talent, 'form'):
             if player.location != f"home_{player.player_id}":
                 return "❌ 需要在自己家中才能更衣"
             valid_forms = {"水着-shielder", "临战-Archer", "临战-shielder"}
-            if form_name not in valid_forms:
-                return f"❌ 无效形态。可选：{', '.join(valid_forms)}"
-            player.talent.form = form_name
-            return f"👗 {player.name} 更换形态为「{form_name}」！"
+            if not form_name or form_name not in valid_forms:
+                # 让玩家选择
+                form_name = player.controller.choose(
+                    "选择要更换到的形态：",
+                    list(valid_forms),
+                    context={"phase": "T1", "situation": "hoshino_change_form"}
+                )
+            if form_name in valid_forms:
+                player.talent.form = form_name
+                return f"👗 {player.name} 更换形态为「{form_name}」！"
+            return f"❌ 无效形态。可选：{', '.join(valid_forms)}"
         return "❌ 你没有可更换的形态"
+    elif op_name.startswith("修复"):
+        sacrifice = op_name[2:].strip() if len(op_name) > 2 else ""
+        if player.talent and hasattr(player.talent, '_repair_horus'):
+            return player.talent._repair_horus(player, sacrifice)
+        return "❌ 你没有可修复的装备"
     else:
         return f"❌ 未知的特殊操作：{op_name}"
 

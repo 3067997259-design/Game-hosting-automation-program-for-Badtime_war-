@@ -37,6 +37,8 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         "请一直，注视着我": "追光",
         "愿负世，照拂黎明": "负世",
         "往世的涟漪": "爱与记忆",
+        "要有笑声！": "欢愉",
+        "大叔我啊，剪短发了": "守夜人",
     }
 
     def __init__(self, player_id, game_state):

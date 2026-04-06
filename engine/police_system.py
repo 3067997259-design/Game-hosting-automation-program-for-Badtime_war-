@@ -672,6 +672,15 @@ class PoliceEngine:
         if unit.location == location:
             return f"❌ {police_id} 已经在 {location}"
 
+        # 新增：不能移动到 Terror 所在地点
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if (p and p.is_alive() and p.location == location
+                    and p.talent and hasattr(p.talent, 'is_terror')
+                    and p.talent.is_terror):
+                return f"⚠️ 警察拒绝移动到 Terror 所在的 {location}（指令被无视，不返还行动回合）"
+
+
         # 检查目标地点是否已有警察
         existing_at_target = self.police.units_at(location)
         if existing_at_target:
@@ -757,6 +766,11 @@ class PoliceEngine:
         target = self.state.get_player(target_id)
         if not target or not target.is_alive():
             return f"❌ 目标不存在或已死亡"
+
+        # 新增：不能攻击 Terror
+        if (target.talent and hasattr(target.talent, 'is_terror')
+                and target.talent.is_terror):
+            return f"⚠️ 警察拒绝攻击 Terror 状态的 {target.name}（指令被无视，不返还行动回合）"
 
         # 必须同地点
         if unit.location != target.location:
@@ -1098,14 +1112,18 @@ class PoliceEngine:
         if target_id and not self.police.has_captain():
             target = self.state.get_player(target_id)
             if target and target.is_alive():
-                for unit in self.police.active_units():
-                    if unit.is_on_map() and unit.location != target.location:
-                        # 方式B：自动赶到，标记为刚到达
-                        unit.location = target.location
-                        just_arrived_ids.add(unit.unit_id)
-                        messages.append(
-                            f"🚔 {unit.unit_id} 追踪到达 {target.location}（方式B，本轮不攻击）"
-                        )
+         # 新增：如果目标是 Terror，不追踪
+                is_terror = (target.talent and hasattr(target.talent, 'is_terror')
+                            and target.talent.is_terror)
+                if not is_terror:
+                    for unit in self.police.active_units():
+                        if unit.is_on_map() and unit.location != target.location:
+                            # 方式B：自动赶到，标记为刚到达
+                            unit.location = target.location
+                            just_arrived_ids.add(unit.unit_id)
+                            messages.append(
+                                f"🚔 {unit.unit_id} 追踪到达 {target.location}（方式B，本轮不攻击）"
+                            )
         # 阶段2.5：检查执法目标是否已死亡
         if self.police.report_phase == "dispatched" and target_id:
             target = self.state.get_player(target_id)

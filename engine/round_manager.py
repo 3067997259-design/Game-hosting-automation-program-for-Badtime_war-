@@ -260,6 +260,18 @@ class RoundManager:
                         attacker.player_id, "伤害玩家")
                 break
 
+    @staticmethod
+    def notify_all_talents_of_death(game_state, victim_id, killer_id=None):
+        """
+        通知所有存活玩家的天赋：有玩家死亡。
+        用于星野色彩计数等需要全局死亡通知的机制。
+        """
+        for pid in game_state.player_order:
+            p = game_state.get_player(pid)
+            if p and p.is_alive() and p.talent:
+                if hasattr(p.talent, '_on_any_player_death'):
+                    p.talent._on_any_player_death(victim_id, killer_id)
+
     # ============================================
     # R4: 轮次结束结算
     # ============================================
@@ -320,6 +332,8 @@ class RoundManager:
                             if self.state.police_engine:
                                 self.state.police_engine.on_player_death(p.player_id)
                             self.state.log_event("death", player=p.player_id, cause="virus")
+                            RoundManager.notify_all_talents_of_death(
+                                self.state, p.player_id, killer_id=None)
         if self.state.check_victory():
             return
 
@@ -328,3 +342,10 @@ class RoundManager:
             p = self.state.get_player(pid)
             if p and p.is_alive() and p.talent:
                 p.talent.on_round_end(self.state.current_round)
+        # R4-4: 星野架盾 cost 扣除（README: "位于R4所有检查之后"）
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and p.is_alive() and p.talent and hasattr(p.talent, '_r4_shield_cost_check'):
+                p.talent._r4_shield_cost_check()
+        if self.state.check_victory():
+            return

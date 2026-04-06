@@ -44,7 +44,12 @@ class ActionTurnManager:
         # ---- 天赋被动T0（如萤火0.5血自愈） ----
         if (player.talent and hasattr(player.talent, 'on_turn_start')
             and not getattr(player, '_mythland_talent_suppressed', False)):
-            player.talent.on_turn_start(player)
+            t0_result = player.talent.on_turn_start(player)
+            # 天赋可通过返回 {"consume_turn": True} 来跳过本回合（如星野自我怀疑）
+            if isinstance(t0_result, dict) and t0_result.get("consume_turn"):
+                msg = t0_result.get("message", "talent_turn_consumed")
+                display.show_info(msg)
+                return msg
 
         # ---- 震荡处理 ----
         if self.state.markers.has(player.player_id, "SHOCKED"):
@@ -164,6 +169,27 @@ class ActionTurnManager:
         if not player.is_awake:
             names = ["wake"]
             descs = [{"usage": "wake", "description": "起床"}]
+            return names, descs
+
+        # Terror 状态：只允许 attack 和 move
+        if (player.talent and hasattr(player.talent, 'is_terror')
+                and player.talent.is_terror):
+            names = ["move"]
+            descs = [
+                {"usage": "move <地点>", "description": "移动（消耗0.5额外HP）"},
+            ]
+            # 检查是否有存活目标可攻击
+            others_alive = []
+            for pid in self.state.player_order:
+                if pid == player.player_id:
+                    continue
+                p = self.state.get_player(pid)
+                if p and p.is_alive():
+                    others_alive.append(p)
+            if others_alive:
+                names.append("attack")
+                descs.append(
+                    {"usage": "attack", "description": "Terror攻击（全图1点无视克制，消耗1额外HP）"})
             return names, descs
 
         names = ["move", "interact", "forfeit"]
@@ -313,6 +339,20 @@ class ActionTurnManager:
 
         elif action == "move":
             dest = parsed["destination"]
+            # Terror 移动：额外消耗0.5额外HP
+            if (player.talent and hasattr(player.talent, 'is_terror')
+                    and player.talent.is_terror):
+                msg = player.talent._terror_move(player, dest)
+                if player.talent.terror_extra_hp <= 0:
+                    player.hp = 0
+                    self.state.markers.on_player_death(player.player_id)
+                    if self.state.police_engine:
+                        self.state.police_engine.on_player_death(player.player_id)
+                    display.show_death(player.name, "Terror 额外HP耗尽")
+                    from engine.round_manager import RoundManager
+                    RoundManager.notify_all_talents_of_death(
+                        self.state, player.player_id, killer_id=None)
+                return msg, "move", True
             msg = move.execute(player, dest, self.state)
             if (self.state.police_engine
                     and self.state.police.reported_target_id == player.player_id
@@ -340,6 +380,21 @@ class ActionTurnManager:
             return msg, "find", not msg.startswith("❌")      # CHANGED
 
         elif action == "attack":
+            # Terror 攻击：走特殊逻辑
+            if (player.talent and hasattr(player.talent, 'is_terror')
+                    and player.talent.is_terror):
+                msg = player.talent._terror_attack(player)
+                # Terror 攻击后检查额外HP
+                if player.talent.terror_extra_hp <= 0:
+                    player.hp = 0
+                    self.state.markers.on_player_death(player.player_id)
+                    if self.state.police_engine:
+                        self.state.police_engine.on_player_death(player.player_id)
+                    display.show_death(player.name, "Terror 额外HP耗尽")
+                    from engine.round_manager import RoundManager
+                    RoundManager.notify_all_talents_of_death(
+                        self.state, player.player_id, killer_id=None)
+                return msg, "attack", True
             return self._execute_attack(parsed, player)        # 内部已改为三元组
 
         elif action == "special":
@@ -493,6 +548,10 @@ class ActionTurnManager:
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target_id)
                 display.show_death(target.name, f"被 {player.name} 的 {weapon_name} 击杀")
+                # 新增：通知所有天赋（星野色彩计数等）
+                from engine.round_manager import RoundManager
+                RoundManager.notify_all_talents_of_death(
+                    self.state, target_id, killer_id=player.player_id)
 
         return msg, "attack", not is_failure                   # CHANGED
 
