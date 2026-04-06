@@ -334,7 +334,7 @@ class TacticalMixin:
                 if armor.name not in ("铁之荷鲁斯",):
                     candidates.append(("armor", armor.name, armor.attribute.value))
             for weapon in (player.weapons or []):
-                if weapon and hasattr(weapon, 'attribute') and weapon.attribute:
+                if weapon and weapon.name != "拳击" and hasattr(weapon, 'attribute') and weapon.attribute:
                     candidates.append(("weapon", weapon.name, weapon.attribute.value))
             if not candidates:
                 return "❌ 没有可消耗的有属性物品、护甲或武器"
@@ -367,10 +367,10 @@ class TacticalMixin:
                     attr_str = armor.attribute.value
                     found_armor = armor
                     break
-        # 最后查武器
+        # 最后查武器（拳击不可消耗）
         if attr_str is None:
             for i, weapon in enumerate(player.weapons or []):
-                if weapon and weapon.name == item_name:
+                if weapon and weapon.name == item_name and weapon.name != "拳击":
                     attr_str = weapon.attribute.value if hasattr(weapon, 'attribute') and weapon.attribute else "普通"
                     found_weapon_idx = i
                     break
