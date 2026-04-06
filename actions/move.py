@@ -37,6 +37,20 @@ def execute(player, destination, game_state):
     old_location = player.location
     # 星野架盾移动阻碍：正面敌人离开需多花1回合
     if destination != old_location:
+        # 清理过期的架盾延迟标记（blocker已死亡/不在同地点/不再架盾）
+        stale_keys = []
+        for attr_name in list(vars(player)):
+            if attr_name.startswith('_shield_move_delayed_'):
+                blocker_id = attr_name[len('_shield_move_delayed_'):]
+                bp = game_state.get_player(blocker_id)
+                if not (bp and bp.is_alive()
+                        and bp.talent and hasattr(bp.talent, 'shield_mode')
+                        and bp.talent.shield_mode == "架盾"
+                        and bp.location == old_location):
+                    stale_keys.append(attr_name)
+        for key in stale_keys:
+            delattr(player, key)
+
         for pid in game_state.player_order:
             p = game_state.get_player(pid)
             if (p and p.is_alive() and p.player_id != player.player_id
@@ -107,6 +121,7 @@ def execute(player, destination, game_state):
                         from cli import display
                         display.show_info(f"💨 {player.name} 进入烟雾，获得隐身！")
                 # 其他玩家进入烟雾区域：解除 find/lock
+                # 注意：on_player_move 已在上方第86行调用过，此处为幂等操作，保留以明确烟雾语义
                 if player.talent is None or not hasattr(player.talent, 'name') or player.talent.name != "大叔我啊，剪短发了":
                     game_state.markers.on_player_move(player.player_id)  # 清除 find/lock
 

@@ -131,7 +131,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             )
             result["details"].append(damage_reduced_text.format(damage=raw))
 
-    # ---- 全息影像：目标在影像内额外+1 ----
+    # ---- 全息影像：目标在影像内额外+hologram_bonus ----
     hologram_bonus = _get_hologram_bonus(target, game_state)
     if hologram_bonus > 0:
         raw += hologram_bonus
@@ -419,7 +419,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         attacker_id = attacker.player_id if attacker else None
         if attacker_id and talent.is_front(attacker_id):
             # 免疫除爱与记忆之诗外所有伤害低于快照护甲值的正面伤害
-            is_love_poem = getattr(result, '_is_love_poem', False)
+            is_love_poem = result.get('_is_love_poem', False)
             if not is_love_poem:
                 threshold = talent.shield_snapshot_hp
                 if raw <= threshold:
@@ -503,7 +503,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             )
             result["details"].append(damage_reduced_text.format(damage=raw))
 
-    # ---- 全息影像：目标在影像内额外+0.5 ----
+    # ---- 全息影像：目标在影像内额外+hologram_bonus ----
     hologram_bonus = _get_hologram_bonus(target, game_state)
     if hologram_bonus > 0:
         raw += hologram_bonus

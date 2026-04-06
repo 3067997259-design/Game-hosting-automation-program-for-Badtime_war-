@@ -832,7 +832,7 @@ class PoemMixin:
             talent.terror_extra_hp = 0
             msg_parts.append(f"   额外生命值转化：{permanent_extra}点永久额外HP")
 
-            # 额外扣除3点（不致死，不足2点的话有多少扣多少）
+            # 额外扣除3点（不致死，不足3点的话有多少扣多少）
             deduct = min(permanent_extra, 3)
             permanent_extra -= deduct
             msg_parts.append(f"   扣除{deduct}点 → 剩余{permanent_extra}点永久额外HP")

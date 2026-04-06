@@ -44,7 +44,12 @@ class ActionTurnManager:
         # ---- 天赋被动T0（如萤火0.5血自愈） ----
         if (player.talent and hasattr(player.talent, 'on_turn_start')
             and not getattr(player, '_mythland_talent_suppressed', False)):
-            player.talent.on_turn_start(player)
+            t0_result = player.talent.on_turn_start(player)
+            # 天赋可通过返回 {"consume_turn": True} 来跳过本回合（如星野自我怀疑）
+            if isinstance(t0_result, dict) and t0_result.get("consume_turn"):
+                msg = t0_result.get("message", "talent_turn_consumed")
+                display.show_info(msg)
+                return msg
 
         # ---- 震荡处理 ----
         if self.state.markers.has(player.player_id, "SHOCKED"):
@@ -386,6 +391,7 @@ class ActionTurnManager:
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(player.player_id)
                     display.show_death(player.name, "Terror 额外HP耗尽")
+                    from engine.round_manager import RoundManager
                     RoundManager.notify_all_talents_of_death(
                         self.state, player.player_id, killer_id=None)
                 return msg, "attack", True

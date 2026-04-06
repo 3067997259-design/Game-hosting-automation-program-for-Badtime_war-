@@ -59,11 +59,6 @@ def get_available_specials(player, game_state):
         and player.talent.tactical_unlocked and not getattr(player.talent, 'is_terror', False)):
         specials.append({"name": "Hoshino", "description": "⚔️ 发动战术指令宏"})
 
-    # 星野更衣
-    if (player.talent and hasattr(player.talent, 'form')
-        and player.location == f"home_{player.player_id}"):
-        specials.append({"name": "更衣", "description": "👗 更换形态（需在自己家中）"})
-
     # 星野修复铁之荷鲁斯
     if (player.talent and hasattr(player.talent, 'iron_horus_hp')
         and player.talent.fusion_shield_done
