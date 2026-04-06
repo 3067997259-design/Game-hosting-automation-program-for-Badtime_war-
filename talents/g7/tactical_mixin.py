@@ -5,8 +5,45 @@ from cli import display
 from talents.g7.items import TACTICAL_ITEMS, MEDICINES
 
 
+from typing import Any
+
 class TacticalMixin:
     """战术指令宏系统 Mixin"""
+
+    # 类型声明（运行时由 Hoshino.__init__ 初始化）
+    state: Any
+    player_id: str
+    tactical_unlocked: bool
+    is_terror: bool
+    iron_horus_hp: int
+    iron_horus_max_hp: int
+    eye_of_horus: Any
+    cost: int
+    max_cost: int
+    shield_mode: str | None
+    shield_snapshot_hp: int
+    front_players: set
+    back_players: set
+    ammo: list
+    max_ammo: int
+    tactical_items: list
+    medicines: list
+    adrenaline_used: bool
+    halos: list
+    form: str | None
+    shoot_streak: int
+    dash_free_shield_cost: bool
+
+    # 跨 Mixin 方法 stub（由 FacingMixin 提供）
+    def _init_facing(self, player) -> None: ...
+    def _on_find_target(self, target_id: str) -> None: ...
+    def _flip_facing(self) -> None: ...
+    def _clear_facing(self) -> None: ...
+    def is_front(self, pid: str) -> bool: ...
+    def is_back(self, pid: str) -> bool: ...
+
+    # 跨 Mixin 方法 stub（由 HaloMixin 提供）
+    def _halo_restore_one(self) -> bool: ...
 
     TACTICAL_COST = {
         "架盾": 2, "射击": 2, "重新装填": 0, "持盾": 1,
@@ -612,4 +649,3 @@ class TacticalMixin:
                 return 0
         return 1  # 需要多花费1回合
 
-    

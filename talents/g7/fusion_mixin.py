@@ -1,5 +1,14 @@
+from typing import Any
 class FusionMixin:
     """装备融合系统 Mixin"""
+    state: Any
+    fusion_shield_done: bool
+    fusion_weapon_done: bool
+    iron_horus_hp: int
+    iron_horus_max_hp: int
+    eye_of_horus: Any
+    ammo: list
+    tactical_unlocked: bool
 
     def _check_fusion(self, player):
         """检查是否满足融合条件，执行融合"""

@@ -2,10 +2,31 @@
 
 import math
 from cli import display
-
+from typing import Any
 
 class TerrorMixin:
     """色彩反转 + Terror 状态 Mixin"""
+
+    # 类型声明（运行时由 Hoshino.__init__ 初始化）
+    state: Any
+    player_id: str
+    color: int
+    color_is_null: bool
+    is_terror: bool
+    self_doubt_pending: bool
+    terror_extra_hp: float
+    broken_armors_history: set
+    tactical_unlocked: bool
+    tactical_items: list
+    medicines: list
+    iron_horus_hp: int
+    iron_horus_max_hp: int
+    fusion_shield_done: bool
+    halos: list
+    shield_mode: str | None
+    cost: int
+    # 跨 Mixin 方法 stub（由 FacingMixin 提供）
+    def _clear_facing(self) -> None: ...
 
     def _on_any_player_death(self, victim_id, killer_id=None):
         """色彩计数：每有玩家出局 +2，自己击杀额外 +2"""

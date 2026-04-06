@@ -1,5 +1,14 @@
+from typing import Any
+
 class FacingMixin:
     """正面/背面空间系统 Mixin"""
+
+    # 类型声明（运行时由 Hoshino.__init__ 初始化）
+    state: Any
+    player_id: str
+    shield_mode: str | None
+    front_players: set
+    back_players: set
 
     def _init_facing(self, player):
         """架盾时初始化：当前地点已有玩家 → 正面，之后进入的 → 背面"""

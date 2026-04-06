@@ -27,10 +27,10 @@ class PoemMixin:
     total_uses: int
     poem_use_counts: dict
     destiny_use_count: int
-
     # 辅助方法（由主类 Ripple 提供）
     def _consume_use(self, cost: int = 12) -> None: ...
     def get_destiny_cost(self) -> int: ...
+    def grant_love_wish(self, target_id: str, rounds: int) -> None: ...  # 新增
 
     # ================================================================
     #  献诗入口
@@ -118,7 +118,7 @@ class PoemMixin:
         notify_positive_talent_effect(caster, target)
         # 施加爱愿（爱与记忆之诗是自我目标，不施加）
         if poem_type != "爱与记忆" and target.player_id != self.player_id:
-            self.grant_love_wish(target.player_id)
+            self.grant_love_wish(target.player_id, 1)
 
         return self._dispatch_poem(player, target, poem_type), True  # 成功消耗行动
 

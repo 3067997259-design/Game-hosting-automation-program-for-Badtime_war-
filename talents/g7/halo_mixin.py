@@ -1,5 +1,11 @@
+from typing import Any
 class HaloMixin:
     """光环系统 Mixin"""
+
+    # 类型声明（运行时由 Hoshino.__init__ 初始化）
+    state: Any
+    player_id: str
+    halos: list
 
     def _halo_init(self):
         """游戏开始时初始化光环"""
