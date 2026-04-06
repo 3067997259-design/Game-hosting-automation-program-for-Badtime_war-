@@ -144,6 +144,7 @@ class BaseTalent:
             "Mythland": "g3mythland",
             "Savior": "g4savior",
             "Ripple": "g5ripple",
+            "Hoshino": "g7hoshino",
         }
 
         class_name = self.__class__.__name__

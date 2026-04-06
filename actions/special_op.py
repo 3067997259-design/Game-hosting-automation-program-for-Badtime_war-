@@ -60,6 +60,17 @@ def execute(player, op_name, game_state):
         return _do_charge(player, weapon_name, game_state)
     elif op_name == "释放病毒":
         return _do_release_virus(player, game_state)
+    elif op_name.startswith("更衣"):
+        form_name = op_name[3:].strip() if len(op_name) > 2 else ""
+        if player.talent and hasattr(player.talent, 'form'):
+            if player.location != f"home_{player.player_id}":
+                return "❌ 需要在自己家中才能更衣"
+            valid_forms = {"水着-shielder", "临战-Archer", "临战-shielder"}
+            if form_name not in valid_forms:
+                return f"❌ 无效形态。可选：{', '.join(valid_forms)}"
+            player.talent.form = form_name
+            return f"👗 {player.name} 更换形态为「{form_name}」！"
+        return "❌ 你没有可更换的形态"
     else:
         return f"❌ 未知的特殊操作：{op_name}"
 
