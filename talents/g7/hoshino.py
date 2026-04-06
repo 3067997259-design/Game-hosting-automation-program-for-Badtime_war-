@@ -56,8 +56,6 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         self.broken_armors_history = set()  # 穿戴过的已破碎护甲名（去重）
         # 临战-shielder 冲刺免cost标记
         self.dash_free_shield_cost = False
-        # 额外生命值（光环提供的）
-        self.halo_extra_hp = 0.0  # 由光环系统管理
 
     def on_register(self):
         """选择初始形态"""

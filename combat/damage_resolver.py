@@ -52,6 +52,27 @@ def _check_love_wish_immunity(attacker, target, game_state):
     return target.talent.has_love_wish(attacker.player_id)
 
 
+def _check_hoshino_color_10(target, result):
+    """星野色彩≥10：本体HP受伤未死 → 不眩晕 + 恢复破碎护甲 + 自我怀疑。
+    在 HP 扣减后、眩晕/死亡判定前调用。
+    返回 True 表示触发了色彩10效果（调用方应跳过眩晕判定）。"""
+    if not target.talent or not hasattr(target.talent, '_check_color_10_on_hp_damage'):
+        return False
+    if getattr(target, '_mythland_talent_suppressed', False):
+        return False
+    hp_damage = result.get("hp_damage", 0)
+    if hp_damage <= 0:
+        return False  # 本体HP未受伤，不触发
+    return target.talent._check_color_10_on_hp_damage(target, hp_damage)
+
+
+def _record_hoshino_armor_break(target, armor_name):
+    """记录星野穿戴过的已破碎护甲名（供色彩10恢复用）"""
+    if (target.talent and hasattr(target.talent, 'broken_armors_history')
+            and not getattr(target, '_mythland_talent_suppressed', False)):
+        target.talent.broken_armors_history.add(armor_name)
+
+
 def _resolve_weaponless_damage(attacker, target, game_state, result,
                                 raw_damage, damage_attribute_str,
                                 is_talent_attack=False):
@@ -202,6 +223,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
 
     result["target_hp"] = target.hp
 
+    # ---- 星野色彩10：本体HP受伤未死 → 不眩晕 + 恢复护甲 + 自我怀疑 ----
+    color_10_triggered = _check_hoshino_color_10(target, result)
+
     # ---- 石化被攻击自动解除 ----
     # README: 被攻击时石化自动解除（+0.5伤害）
     if target.is_alive() and getattr(target, 'is_petrified', False):
@@ -253,7 +277,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
                 target.talent.on_player_death_check(target)
 
-    elif target.hp <= 0.5 and not target.is_stunned:
+    elif target.hp <= 0.5 and not target.is_stunned and not color_10_triggered:
         prevent = False
         if (target.talent and hasattr(target.talent, 'prevent_stun')
                 and not getattr(target, '_mythland_talent_suppressed', False)):
@@ -582,6 +606,9 @@ def resolve_damage(attacker, target, weapon, game_state,
 
     result["target_hp"] = target.hp
 
+    # ---- 星野色彩10：本体HP受伤未死 → 不眩晕 + 恢复护甲 + 自我怀疑 ----
+    color_10_triggered = _check_hoshino_color_10(target, result)
+
     # 记录攻击前的CC状态，用于后续电磁步枪震荡判定
     pre_attack_stunned = getattr(target, 'is_stunned', False)
     pre_attack_shocked = getattr(target, 'is_shocked', False)
@@ -638,7 +665,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
                 target.talent.on_player_death_check(target)
 
-    elif target.hp <= 0.5 and not target.is_stunned:
+    elif target.hp <= 0.5 and not target.is_stunned and not color_10_triggered:
         prevent = False
         if (target.talent and hasattr(target.talent, 'prevent_stun')
                 and not getattr(target, '_mythland_talent_suppressed', False)):
@@ -923,6 +950,9 @@ def _apply_damage_to_armor(target, armor_piece, damage,
         armor_piece.is_broken = True
         result["armor_broken"] = True
 
+        # 记录星野穿戴过的已破碎护甲名（供色彩10恢复用）
+        _record_hoshino_armor_break(target, armor_piece.name)
+
         armor_destroyed_text = prompt_manager.get_prompt(
             "combat", "armor_destroyed_detailed",
             default="护甲「{armor_name}」被击破！溢出：{overflow}"
@@ -1076,6 +1106,9 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
 
     result["target_hp"] = target.hp
 
+    # ---- 星野色彩10：本体HP受伤未死 → 不眩晕 + 恢复护甲 + 自我怀疑 ----
+    color_10_triggered = _check_hoshino_color_10(target, result)
+
     # ---- 石化被攻击自动解除 ----
     if target.is_alive() and getattr(target, 'is_petrified', False):
         skip_auto_remove = False
@@ -1130,7 +1163,7 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
                 attacker.talent.on_kill(attacker, target)
 
-    elif target.hp <= 0.5 and not target.is_stunned:
+    elif target.hp <= 0.5 and not target.is_stunned and not color_10_triggered:
         prevent = False
         if (target.talent and hasattr(target.talent, 'prevent_stun')
                 and not getattr(target, '_mythland_talent_suppressed', False)):
