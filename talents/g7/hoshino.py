@@ -144,13 +144,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                 display.show_info(f"😰 {player.name} 进入「自我怀疑」状态...")
 
     def get_t0_option(self, player):
-        """T0选项：战术指令宏入口"""
+        """T0选项：战术指令宏入口（已移至 special Hoshino）"""
         return None
-
-
-    def execute_t0(self, player):
-        """执行战术指令宏"""
-        return self._execute_tactical_macro(player)
 
     def receive_damage_to_temp_hp(self, damage):
         remaining = damage

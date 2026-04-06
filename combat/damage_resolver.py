@@ -606,12 +606,13 @@ def resolve_damage(attacker, target, weapon, game_state,
 
     result["target_hp"] = target.hp
 
-    # ---- 星野色彩10：本体HP受伤未死 → 不眩晕 + 恢复护甲 + 自我怀疑 ----
-    color_10_triggered = _check_hoshino_color_10(target, result)
-
     # 记录攻击前的CC状态，用于后续电磁步枪震荡判定
+    # （必须在色彩10检查之前，因为色彩10会清除 is_stunned）
     pre_attack_stunned = getattr(target, 'is_stunned', False)
     pre_attack_shocked = getattr(target, 'is_shocked', False)
+
+    # ---- 星野色彩10：本体HP受伤未死 → 不眩晕 + 恢复护甲 + 自我怀疑 ----
+    color_10_triggered = _check_hoshino_color_10(target, result)
 
     # ---- 石化被攻击自动解除 ----
     # README: 被攻击时石化自动解除（+0.5伤害）
