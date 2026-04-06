@@ -802,9 +802,9 @@ class CombatMixin(_Base):
         return counter_map.get(target_armor_attr, Attribute.ORDINARY)
 
     def _target_has_emr_immunity(self, target) -> bool:
-        """检查目标是否有对电磁步枪（电流武器）免疫的护甲
+        """检查目标是否有对电磁步枪（电流武器）免疫眩晕的护甲
         与 damage_resolver._check_electric_immunity 保持一致：
-        检查 immune_electric tag 且护甲未破碎。
+        陶瓷护甲只免疫电流眩晕，不免疫伤害。检查 immune_electric tag 且护甲未破碎。
         """
         armor_obj = getattr(target, 'armor', None)
         if armor_obj and hasattr(armor_obj, 'get_all_active'):

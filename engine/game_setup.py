@@ -22,6 +22,7 @@ from talents.g1_firefly import G1MythFire
 from talents.g2_hologram import Hologram
 from talents.g3_mythland import Mythland
 from talents.g5_ripple import Ripple
+from talents.g7_hoshino import Hoshino
 
 import random
 import json
@@ -86,6 +87,8 @@ TALENT_TABLE = [
      "背负世界，然后拯救世界，也拯救你自己"),
     (12, "神代天赋-往世的涟漪", Ripple,
      "追忆满后发动：锚定命运或献诗增强。无次数限制，爱与记忆逐次成长"),
+     (13, "神代天赋-大叔我啊，剪短发了", Hoshino,
+     "光环+装备融合+战术指令宏+色彩反转→Terror"),
 ]
 
 AI_DISABLED_TALENTS: set = _resolve_disabled_talents(
