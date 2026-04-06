@@ -33,8 +33,8 @@ def quantize_damage(damage):
 
 def _check_electric_immunity(target):
     """
-    检查目标是否拥有能免疫电流武器的护甲（陶瓷护甲 immune_electric tag）。
-    根据README：陶瓷护甲：外层护甲，普通护盾1，免疫电流武器伤害与眩晕
+    检查目标是否拥有能免疫电流武器眩晕的护甲（陶瓷护甲 immune_electric tag）。
+    现在陶瓷护甲只抵抗震荡，不再免疫电磁步枪的伤害。
     返回：(bool, ArmorPiece or None)
     """
     all_active = target.armor.get_all_active()

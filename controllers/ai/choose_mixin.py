@@ -595,59 +595,6 @@ class ChooseMixin(_Base):
         return effective
 
 
-    def _ripple_can_destiny_kill_captain(self, player, state, talent) -> bool:
-        """爱与记忆能否斩首队长"""
-        pe = getattr(state, 'police_engine', None)
-        if not pe:
-            return False
-        captain_id = getattr(pe, 'captain_id', None) or getattr(getattr(pe, 'police', None), 'captain_id', None)
-        if not captain_id:
-            return False
-        captain = state.get_player(captain_id)
-        if not captain or not captain.is_alive():
-            return False
-        # 检查追忆是否够
-        cost = talent.get_destiny_cost()
-        if talent.reminiscence < cost:
-            return False
-        effective = self._ripple_estimate_effective_stages(talent, captain)
-        return effective >= captain.hp + self._count_outer_armor(captain)
-
-
-    def _ripple_can_destiny_confirm_kill(self, player, state, talent) -> bool:
-        """爱与记忆能否确定击杀某个目标（非队长）"""
-        cost = talent.get_destiny_cost()
-        if talent.reminiscence < cost:
-            return False
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            t = state.get_player(pid)
-            if not t or not t.is_alive():
-                continue
-            # 跳过有死者苏生未触发的
-            if t.talent and t.talent.name == "死者苏生" and hasattr(t.talent, 'used') and not t.talent.used:
-                continue
-            # 跳过愿负世火种高的（会触发救世主）
-            if t.talent and hasattr(t.talent, 'divinity') and getattr(t.talent, 'divinity', 0) >= 8:
-                continue
-            effective = self._ripple_estimate_effective_stages(talent, t)
-            total_hp = t.hp + self._count_outer_armor(t) + self._count_inner_armor(t) * 0.5
-            if effective >= total_hp:
-                return True
-        return False
-
-
-    def _ripple_can_destiny_kill_target(self, player, state, talent, target) -> bool:
-        """爱与记忆能否击杀指定目标"""
-        cost = talent.get_destiny_cost()
-        if talent.reminiscence < cost:
-            return False
-        effective = self._ripple_estimate_effective_stages(talent, target)
-        total_hp = target.hp + self._count_outer_armor(target) + self._count_inner_armor(target) * 0.5
-        return effective >= total_hp
-
-
     def _ripple_get_chaser(self, player, state):
         """获取正在追杀涟漪的玩家（面对面/锁定/同地点攻击者）"""
         markers = getattr(state, 'markers', None)
@@ -839,10 +786,16 @@ class ChooseMixin(_Base):
 
     def _ripple_can_kill_with_destiny(self, player, target, state) -> bool:
         """判断爱与记忆之诗能否确定击杀目标。
-        复用 _ripple_estimate_effective_stages 保持与伤害分配阶段一致的保守估算。"""
+        先检查追忆是否足够支付递增费用，再复用
+        _ripple_estimate_effective_stages 保持与伤害分配阶段一致的保守估算。"""
         talent = player.talent
         if not talent:
             return False
+        # 费用检查：爱与记忆之诗费用递增 min(24, 12 + 3 × 已使用次数)
+        if hasattr(talent, 'get_destiny_cost'):
+            cost = talent.get_destiny_cost()
+            if talent.reminiscence < cost:
+                return False
         effective = self._ripple_estimate_effective_stages(talent, target)
         total_hp = target.hp + self._count_outer_armor(target) + self._count_inner_armor(target) * 0.5
         return effective >= total_hp
