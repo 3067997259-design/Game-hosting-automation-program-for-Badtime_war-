@@ -100,11 +100,36 @@ class TacticalMixin:
                 available_actions=list(self.TACTICAL_COST.keys()) + ["terminal"],
                 context={"phase": "T0", "situation": "hoshino_tactical_input"}
             )
-            if raw.strip().lower() == "terminal":
+            raw_stripped = raw.strip()
+            raw_lower = raw_stripped.lower()
+            if raw_lower == "terminal":
                 break
-            parsed = self._parse_tactical_command(raw)
+
+            # 查看类指令（不消耗战术动作，不退出战术模式）
+            if raw_lower == "allstatus":
+                display.show_all_players_status(self.state)
+                continue
+            if raw_lower == "status":
+                me = self.state.get_player(self.player_id)
+                if me:
+                    display.show_player_status(me, self.state)
+                continue
+            if raw_lower == "help":
+                display.show_info(
+                    "⚔️ 战术指令宏帮助：\n"
+                    "  架盾(2) 射击(2) 重新装填(0) 持盾(1) 投掷(1)\n"
+                    "  服药(0) 冲刺(1) 取消(0) find(1) lock(1) 转向(0)\n"
+                    "  terminal — 结束输入\n"
+                    "  allstatus / status / police — 查看状态（不消耗动作）"
+                )
+                continue
+            if raw_lower == "police":
+                display.show_police_status(self.state)
+                continue
+
+            parsed = self._parse_tactical_command(raw_stripped)
             if parsed is None:
-                display.show_info(f"⚠️ 无法识别的战术指令: {raw}")
+                display.show_info(f"⚠️ 无法识别的战术指令: {raw_stripped}")
                 continue
             action_name, args = parsed
             # 冲刺每宏最多1次

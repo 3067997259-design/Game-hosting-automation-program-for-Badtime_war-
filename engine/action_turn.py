@@ -198,6 +198,18 @@ class ActionTurnManager:
             {"usage": "interact <项目名>", "description": "与当前地点交互"},
             {"usage": "forfeit", "description": "放弃行动"},
         ]
+        # 星野架盾/持盾：过滤不可用行动
+        if (player.talent and hasattr(player.talent, 'shield_mode')
+                and player.talent.shield_mode):
+            shield_mode = player.talent.shield_mode
+            if shield_mode == "架盾":
+                # 架盾：不能 move 也不能 interact
+                names = [n for n in names if n not in ("move", "interact")]
+                descs = [d for d in descs if d["usage"].split()[0] not in ("move", "interact")]
+            elif shield_mode == "持盾":
+                # 持盾：不能 interact
+                names = [n for n in names if n != "interact"]
+                descs = [d for d in descs if not d["usage"].startswith("interact")]
 
         # 用 get_player 遍历 player_order，避免依赖 alive_players() 的签名
         others_alive = []

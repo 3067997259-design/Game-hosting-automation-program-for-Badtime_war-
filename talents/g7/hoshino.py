@@ -147,18 +147,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
 
     def get_t0_option(self, player):
         """T0选项：战术指令宏入口"""
-        if getattr(player, '_eternity_blocked', False):
-            return None
-        if self.is_terror:
-            return None  # Terror 状态下无 T0 选项
-        if not self.tactical_unlocked:
-            return None
-        if self.iron_horus_hp <= 0 and not self.eye_of_horus:
-            return None
-        return {
-            "name": "战术指令宏",
-            "description": f"输入 special Hoshino 发动（Cost: {self.cost}/{self.max_cost}）"
-        }
+        return None
+
 
     def execute_t0(self, player):
         """执行战术指令宏"""
