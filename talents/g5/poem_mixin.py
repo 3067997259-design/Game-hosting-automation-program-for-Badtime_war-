@@ -118,7 +118,7 @@ class PoemMixin:
         notify_positive_talent_effect(caster, target)
         # 施加爱愿（爱与记忆之诗是自我目标，不施加）
         if poem_type != "爱与记忆" and target.player_id != self.player_id:
-            self.grant_love_wish(target.player_id, 1)
+            self.grant_love_wish(target.player_id, 12)
 
         return self._dispatch_poem(player, target, poem_type), True  # 成功消耗行动
 
