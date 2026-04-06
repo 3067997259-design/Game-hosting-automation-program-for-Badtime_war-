@@ -98,6 +98,7 @@ class TerrorMixin:
         self.medicines.clear()
 
         # 失去铁之荷鲁斯 → 按护甲值折算额外生命值
+        original_horus_hp = self.iron_horus_hp
         horus_extra = self.iron_horus_hp * 1.5
         self.iron_horus_hp = 0
 
@@ -117,7 +118,7 @@ class TerrorMixin:
             player.armor.remove_piece(armor)
 
         self.terror_extra_hp = horus_extra + halo_extra + armor_extra
-        display.show_info(f"  铁之荷鲁斯({self.iron_horus_hp}→{horus_extra}HP) + "
+        display.show_info(f"  铁之荷鲁斯({original_horus_hp}→{horus_extra}HP) + "
                          f"光环({halo_extra}HP) + 护甲({armor_extra}HP)")
         display.show_info(f"  Terror 额外生命值: {self.terror_extra_hp}")
 
@@ -155,9 +156,10 @@ class TerrorMixin:
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(t.player_id)
                     player.kill_count += 1
-                    # 色彩 +2（击杀额外）
-                    if not self.color_is_null:
-                        self.color += 2
+                    # 通知所有天赋（包括自身的色彩计数 _on_any_player_death）
+                    from engine.round_manager import RoundManager
+                    RoundManager.notify_all_talents_of_death(
+                        self.state, t.player_id, killer_id=player.player_id)
 
             # 伤害结算后扣除额外HP（不同归于尽）
             self.terror_extra_hp = round(max(0, self.terror_extra_hp - 1.0), 2)

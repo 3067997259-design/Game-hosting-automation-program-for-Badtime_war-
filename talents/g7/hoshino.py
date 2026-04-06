@@ -34,7 +34,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         self.fusion_weapon_done = False
         self.tactical_unlocked = False
         # 弹药
-        self.ammo = []  # list of {"attribute": Attribute, "count": int}
+        self.ammo = []  # list of {"attribute": str}，每个条目代表一发子弹
         self.max_ammo = 8
         # 盾牌模式 + 正面/背面
         self.shield_mode = None      # "架盾" / "持盾" / None
@@ -200,7 +200,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             if self.shield_mode:
                 parts.append(f"盾:{self.shield_mode}")
             if self.tactical_unlocked:
-                total_ammo = sum(a.get('count', 0) for a in self.ammo) if self.ammo else 0
+                total_ammo = len(self.ammo)
                 parts.append(f"弹药:{total_ammo}/{self.max_ammo}")
             parts.append(f"色彩:{self.color}")
             if self.form:

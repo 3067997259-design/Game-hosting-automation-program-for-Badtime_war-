@@ -615,6 +615,10 @@ class ActionTurnManager:
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(t.player_id)
                 display.show_death(t.name, f"被 {player.name} 的 {weapon.name} 击杀")
+                # 通知所有天赋（星野色彩计数等）
+                from engine.round_manager import RoundManager
+                RoundManager.notify_all_talents_of_death(
+                    self.state, t.player_id, killer_id=player.player_id)
 
         # ---- 范围攻击同时波及同地点警察 ----
         pe = self.state.police_engine
