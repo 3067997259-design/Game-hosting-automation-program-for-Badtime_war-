@@ -5,8 +5,45 @@ from cli import display
 from talents.g7.items import TACTICAL_ITEMS, MEDICINES
 
 
+from typing import Any
+
 class TacticalMixin:
     """战术指令宏系统 Mixin"""
+
+    # 类型声明（运行时由 Hoshino.__init__ 初始化）
+    state: Any
+    player_id: str
+    tactical_unlocked: bool
+    is_terror: bool
+    iron_horus_hp: int
+    iron_horus_max_hp: int
+    eye_of_horus: Any
+    cost: int
+    max_cost: int
+    shield_mode: str | None
+    shield_snapshot_hp: int
+    front_players: set
+    back_players: set
+    ammo: list
+    max_ammo: int
+    tactical_items: list
+    medicines: list
+    adrenaline_used: bool
+    halos: list
+    form: str | None
+    shoot_streak: int
+    dash_free_shield_cost: bool
+
+    # 跨 Mixin 方法 stub（由 FacingMixin 提供）
+    def _init_facing(self, player) -> None: ...
+    def _on_find_target(self, target_id: str) -> None: ...
+    def _flip_facing(self) -> None: ...
+    def _clear_facing(self) -> None: ...
+    def is_front(self, pid: str) -> bool: ...
+    def is_back(self, pid: str) -> bool: ...
+
+    # 跨 Mixin 方法 stub（由 HaloMixin 提供）
+    def _halo_restore_one(self) -> bool: ...
 
     TACTICAL_COST = {
         "架盾": 2, "射击": 2, "重新装填": 0, "持盾": 1,
@@ -81,7 +118,7 @@ class TacticalMixin:
             display.show_info(f"   ✓ {action_name} {''.join(args)} (cost: {cost})")
 
         if not commands:
-            return "战术指令宏为空，取消。", False
+            return "❌ 战术指令宏为空，取消。", False
 
         # 计算总 cost
         total_cost = sum(self.TACTICAL_COST[cmd] for cmd, _ in commands)
@@ -284,30 +321,39 @@ class TacticalMixin:
                     item_name = name
                     break
 
-        # 查找并消耗
+        # 查找物品/护甲（先不消耗，确认弹药容量后再消耗）
         attr_str = None
+        found_item_idx = None
+        found_armor = None
         # 先查物品
         for i, item in enumerate(player.items):
             if item.name == item_name:
                 attr_str = item.attribute.value if hasattr(item, 'attribute') and item.attribute else "普通"
-                player.items.pop(i)
+                found_item_idx = i
                 break
         # 再查护甲
         if attr_str is None:
             for armor in player.armor.get_all_active():
                 if armor.name == item_name and armor.name != "铁之荷鲁斯":
                     attr_str = armor.attribute.value
-                    player.armor.remove_piece(armor)
+                    found_armor = armor
                     break
         if attr_str is None:
             return f"❌ 找不到可消耗的「{item_name}」"
 
-        # 填充4发子弹
-        current_total = sum(a.get("count", 0) for a in self.ammo)
+        # 检查弹药容量（在消耗物品之前）
+        current_total = len(self.ammo)
         new_bullets = min(4, self.max_ammo - current_total)
         if new_bullets <= 0:
             return f"❌ 弹药已满（{current_total}/{self.max_ammo}），无法装填"
-        # 简化：每发子弹作为独立条目
+
+        # 容量足够，消耗物品/护甲
+        if found_item_idx is not None:
+            player.items.pop(found_item_idx)
+        elif found_armor is not None:
+            player.armor.remove_piece(found_armor)
+
+        # 填充子弹
         for _ in range(new_bullets):
             self.ammo.append({"attribute": attr_str})
         overflow = 4 - new_bullets
@@ -603,4 +649,3 @@ class TacticalMixin:
                 return 0
         return 1  # 需要多花费1回合
 
-    
