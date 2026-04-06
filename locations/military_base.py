@@ -17,10 +17,17 @@ MILITARY_MENU = {
     "导弹控制权":   "取得导弹控制权（导弹三步流程第1步）",
     "雷达":         "花1回合改造，使自己或导弹获得探测能力",
     "隐形涂层":     "使用后进入隐身",
+    # 星野战术道具（需习得战术动作）
+    "破片手雷":     "⚔️ 战术道具：0.5伤害+脆弱debuff（需习得战术动作）",
+    "震撼弹":       "⚔️ 战术道具：AOE震荡（含警察）（需习得战术动作）",
+    "闪光弹":       "⚔️ 战术道具：致盲（需习得战术动作）",
+    "烟雾弹":       "⚔️ 战术道具：区域烟雾（需习得战术动作）",
+    "燃烧瓶":       "⚔️ 战术道具：2层灼烧（需习得战术动作）",
 }
 
 # 需要通行证才能交互的项目（办理通行证本身不需要）
-NEED_PASS = {"AT力场", "电磁步枪", "高斯步枪", "导弹控制权", "雷达", "隐形涂层"}
+NEED_PASS = {"AT力场", "电磁步枪", "高斯步枪", "导弹控制权", "雷达", "隐形涂层",
+             "破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃烧瓶"}
 
 
 def get_menu():
@@ -70,6 +77,16 @@ def can_interact(player, item_name, game_state=None):
         can_equip, equip_reason = player.armor.check_can_equip(test_armor)
         if not can_equip:
             return False, f"无法装备AT力场：{equip_reason}"
+
+    # 星野战术道具：需习得战术动作，最多持有2样
+    HOSHINO_TACTICAL = {"破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃烧瓶"}
+    if item_name in HOSHINO_TACTICAL:
+        if not (player.talent and hasattr(player.talent, 'tactical_unlocked')
+                and player.talent.tactical_unlocked):
+            return False, "你需要先习得战术动作才能获取战术道具"
+        if hasattr(player.talent, 'tactical_items') and len(player.talent.tactical_items) >= 2:
+            return False, "你最多同时持有2样战术道具"
+        return True, ""
 
     return True, ""
 
@@ -128,6 +145,13 @@ def do_interact(player, item_name, game_state=None):
             game_state.markers.on_player_go_invisible(
                 player.player_id, list(game_state.players.values()))
         return f"🫥 {player.name} 使用了隐形涂层，进入隐身状态！"
+
+    # 星野战术道具
+    HOSHINO_TACTICAL = {"破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃烧瓶"}
+    elif item_name in HOSHINO_TACTICAL:
+        player.talent.tactical_items.append(item_name)
+        count = len(player.talent.tactical_items)
+        return f"⚔️ {player.name} 获得了战术道具「{item_name}」！（当前持有 {count}/2）"
 
     return "❌ 未知项目"
 

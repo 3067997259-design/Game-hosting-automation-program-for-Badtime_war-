@@ -17,6 +17,10 @@ HOSPITAL_MENU = {
     "不老泉手术":   "内层魔法护甲1（需凭证，消耗所有凭证）",
     "防毒面具":     "免疫病毒（本来是免费的，为了针对毒警体系现在不免费了）",
     # "释放病毒" → Phase 3 在 special_op 中处理，不在交互菜单
+        # 星野药物（需习得战术动作，不检查凭证）
+    "EPO":          "💊 cost+1（需习得战术动作）",
+    "海豚巧克力":   "🍫 回复1层光环（需习得战术动作）",
+    "肾上腺素":     "💉 全局仅1次，回满cost和光环（需习得战术动作）",
 }
 
 # 不需要凭证的项目
@@ -71,6 +75,18 @@ def can_interact(player, item_name, game_state=None):
             return False, "防毒面具需要购买凭证（不消耗凭证）。"
         return True, ""
 
+    # 星野药物：需习得战术动作，不检查凭证，最多持有2样
+    HOSHINO_MEDICINES = {"EPO", "海豚巧克力", "肾上腺素"}
+    if item_name in HOSHINO_MEDICINES:
+        if not (player.talent and hasattr(player.talent, 'tactical_unlocked')
+                and player.talent.tactical_unlocked):
+            return False, "你需要先习得战术动作才能获取药物"
+        if item_name == "肾上腺素" and getattr(player.talent, 'adrenaline_used', False):
+            return False, "肾上腺素全局仅能使用1次，已经使用过了"
+        if hasattr(player.talent, 'medicines') and len(player.talent.medicines) >= 2:
+            return False, "你最多同时持有2样药物"
+        return True, ""
+
     return True, ""
 
 
@@ -101,6 +117,13 @@ def do_interact(player, item_name, game_state=None):
         return _do_surgery(player, "不老泉",
                            ArmorPiece("不老泉", Attribute.MAGIC, ArmorLayer.INNER, 1.0),
                            game_state)
+
+    # 星野药物
+    HOSHINO_MEDICINES = {"EPO", "海豚巧克力", "肾上腺素"}
+    elif item_name in HOSHINO_MEDICINES:
+        player.talent.medicines.append(item_name)
+        count = len(player.talent.medicines)
+        return f"💊 {player.name} 获得了药物「{item_name}」！（当前持有 {count}/2）"
 
     return "❌ 未知项目"
 
