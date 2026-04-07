@@ -356,6 +356,10 @@ def validate_attack(player, parsed, game_state):
     ok, reason = _check_not_disabled(player, game_state)
     if not ok:
         return False, reason
+    # Terror 攻击：跳过所有常规校验（不需要目标、武器）
+    if (player.talent and hasattr(player.talent, 'is_terror')
+            and player.talent.is_terror):
+        return True, ""
     target_str = parsed.get("target")
     weapon_name = parsed.get("weapon")
     if not target_str:
