@@ -116,6 +116,15 @@ class GameState:
                 except Exception:
                     pass  # 不让控制器错误影响游戏流程
 
+    def is_terror_alive(self):
+        """场上是否存在存活的 Terror"""
+        for pid in self.player_order:
+            p = self.get_player(pid)
+            if (p and p.is_alive() and p.talent
+                    and hasattr(p.talent, 'is_terror') and p.talent.is_terror):
+                return True
+        return False
+
     @property
     def response_window(self):
         return self._response_window

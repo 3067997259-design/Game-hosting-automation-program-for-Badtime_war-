@@ -63,6 +63,7 @@ def _check_barrier_block(player, action_type, game_state):
         return reason
     return None
 
+
 def _is_police_crime_blocked(player, parsed, game_state):
     """[Issue 5] 检查警察成员（非队长）是否因犯罪限制被阻止执行该行动。
     README 10.8.1: 加入警察后不能犯罪，违法条目视为不允许执行。"""
@@ -221,13 +222,13 @@ def validate_move(player, destination, game_state):
         return False, f"「{destination}」不是有效地点。可用：{', '.join(valid)}"
     # 超新星过载：允许选择当前地点作为目的地
     if destination == player.location:
-            if player.talent and hasattr(player.talent, 'has_supernova') and player.talent.has_supernova:
-                return True, ""
-            # 半进入状态：允许 move 同地点（突破守点）
-            if (getattr(player, '_shield_half_entered', False)
-                    and getattr(player, '_shield_half_entered_location', None) == destination):
-                return True, ""
-            return False, "你已经在这个地点了。"
+        if player.talent and hasattr(player.talent, 'has_supernova') and player.talent.has_supernova:
+            return True, ""
+        # 半进入状态：允许 move 同地点（突破守点）
+        if (getattr(player, '_shield_half_entered', False)
+                and getattr(player, '_shield_half_entered_location', None) == destination):
+            return True, ""
+        return False, "你已经在这个地点了。"
     # 军事基地：无通行证时提示可强买或花回合办理
     if destination == "军事基地" and not player.has_military_pass:
         if player.vouchers >= 1:
@@ -243,6 +244,9 @@ def validate_interact(player, item_name, game_state):
     # 半进入状态：禁用 interact
     if getattr(player, '_shield_half_entered', False):
         return False, "🛡️ 你还没完全进入此地点，无法交互。再次 move 到此地点可完全进入。"
+    # Terror 全局禁用 interact
+    if game_state.is_terror_alive():
+        return False, "⚠️ Terror 降临，所有地点交互已被封锁。"
     # 星野持盾：无法执行 interact
     if (player.talent and hasattr(player.talent, 'shield_mode')
             and player.talent.shield_mode in ("持盾", "架盾")):
