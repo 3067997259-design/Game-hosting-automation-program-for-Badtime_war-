@@ -106,6 +106,37 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
     result["details"].append(external_damage_text.format(
         damage=raw, attribute=damage_attribute_str
     ))
+    # ---- 星野架盾：正面伤害过滤（无武器路径） ----
+    if (target.talent and hasattr(target.talent, 'shield_mode')
+        and target.talent.shield_mode == "架盾"
+        and not getattr(target, '_mythland_talent_suppressed', False)):
+        talent = target.talent
+        attacker_id = attacker.player_id if attacker else None
+        if attacker_id and talent.is_front(attacker_id):
+            is_love_poem = (damage_attribute_str == "爱与记忆")  # 爱与记忆之诗不被过滤
+            if not is_love_poem:
+                threshold = talent.shield_snapshot_hp
+                if raw <= threshold:
+                    result["final_damage"] = 0
+                    result["success"] = False
+                    result["reason"] = "架盾正面伤害过滤"
+                    result["details"].append(
+                        f"🛡️ 架盾过滤：伤害 {raw} ≤ 铁之荷鲁斯快照 {threshold}，完全免疫")
+                    return result
+                else:
+                    talent.iron_horus_hp = max(0, talent.iron_horus_hp - 1)
+                    result["final_damage"] = 0
+                    result["success"] = False
+                    result["reason"] = "架盾正面伤害过滤（溢出）"
+                    result["details"].append(
+                        f"🛡️ 架盾过滤：伤害 {raw} > 快照 {threshold}，"
+                        f"铁之荷鲁斯损耗1点 → {talent.iron_horus_hp}")
+                    if talent.iron_horus_hp <= 0:
+                        player_obj = game_state.get_player(talent.player_id) if game_state else None
+                        if player_obj:
+                            talent._end_shield_mode(player_obj)
+                        result["details"].append("⚠️ 铁之荷鲁斯护甲归零，架盾状态结束")
+                    return result
 
     # ---- 星野持盾：铁之荷鲁斯伤害减免 ----
     if (target.talent and hasattr(target.talent, 'shield_mode')
