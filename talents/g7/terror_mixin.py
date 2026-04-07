@@ -2,7 +2,10 @@
 
 import math
 from cli import display
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    def _clear_facing(self) -> None: ...
 
 class TerrorMixin:
     """色彩反转 + Terror 状态 Mixin"""
@@ -25,8 +28,9 @@ class TerrorMixin:
     halos: list
     shield_mode: str | None
     cost: int
-    # 跨 Mixin 方法 stub（由 FacingMixin 提供）
-    def _clear_facing(self) -> None: ...
+    if TYPE_CHECKING:
+        def _clear_facing(self) -> None: ...
+
 
     def _on_any_player_death(self, victim_id, killer_id=None):
         """色彩计数：每有玩家出局 +2，自己击杀额外 +2"""

@@ -77,17 +77,16 @@ def execute(player, destination, game_state):
                     is_exempt = True
 
                 if not is_exempt:
-                    # 检查是否已经花过一回合（用临时标记）
                     delay_key = f'_shield_move_delayed_{p.player_id}'
                     if not getattr(player, delay_key, False):
                         setattr(player, delay_key, True)
                         from cli import display
                         display.show_info(
-                            f"🛡️ {p.name} 的架盾阻碍了你的移动！"
+                            f"🛡️ {p.name} 的架盾阻碍了 {player.name} 的移动！"
+                            f"（{player.name} 在 {p.name} 的正面）"
                             f"需要多花费1回合才能离开。")
-                        # 不执行移动，消耗本回合
                         game_state.log_event("move_blocked", player=player.player_id,
-                                           blocker=p.player_id, reason="架盾移动阻碍")
+                                        blocker=p.player_id, reason="架盾移动阻碍")
                         return f"🛡️ {player.name} 被 {p.name} 的架盾阻碍，本回合用于挣脱。"
                     else:
                         # 已经花过一回合，清除标记，允许移动
