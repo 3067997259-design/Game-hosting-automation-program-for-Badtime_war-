@@ -304,9 +304,15 @@ class TacticalMixin:
                 extra_msg += "（破甲！）"
                 # 破甲：额外1点无视克制伤害
                 from combat.damage_resolver import resolve_damage
-                resolve_damage(player, target, weapon=None, game_state=self.state,
+                result = resolve_damage(player, target, weapon=None, game_state=self.state,
                              raw_damage_override=1.0, damage_attribute_override="无视属性克制",
                              is_talent_attack=True)
+                if result.get("killed"):
+                    self.state.markers.on_player_death(target.player_id)
+                    if self.state.police_engine:
+                        self.state.police_engine.on_player_death(target.player_id)
+                    player.kill_count += 1
+                    extra_msg += " 💀击杀！"
             else:
                 for _ in range(3):
                     self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
@@ -322,18 +328,22 @@ class TacticalMixin:
             if threshold > 0 and threshold >= 1.5:
                 return f"🚔 警察保护过滤（阈值{threshold}≥1.5）"
 
-        # 脆弱检查：每颗弹丸有20%概率触发破甲（脆弱状态下40%）
-        break_chance = 0.2
+        # 脆弱检查：脆弱状态下每颗弹丸有20%概率触发破甲
         if getattr(target, '_hoshino_fragile', False):
-            break_chance += 0.2
-        armor_break = random.random() < break_chance
-        if armor_break:
-            # 破甲：额外1点无视克制伤害
-            from combat.damage_resolver import resolve_damage
-            resolve_damage(player, target, weapon=None, game_state=self.state,
-                        raw_damage_override=1.0, damage_attribute_override="无视属性克制",
-                        is_talent_attack=True)
-            return f"💥破甲！HP→{target.hp}"
+            armor_break = random.random() < 0.2
+            if armor_break:
+                # 破甲：额外1点无视克制伤害
+                from combat.damage_resolver import resolve_damage
+                result = resolve_damage(player, target, weapon=None, game_state=self.state,
+                            raw_damage_override=1.0, damage_attribute_override="无视属性克制",
+                            is_talent_attack=True)
+                if result.get("killed"):
+                    self.state.markers.on_player_death(target.player_id)
+                    if self.state.police_engine:
+                        self.state.police_engine.on_player_death(target.player_id)
+                    player.kill_count += 1
+                    return f"💥破甲！💀 击杀！"
+                return f"💥破甲！HP→{target.hp}"
 
         from combat.damage_resolver import resolve_damage
         result = resolve_damage(
