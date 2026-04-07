@@ -47,7 +47,7 @@ class TacticalMixin:
     TACTICAL_COST = {
         "架盾": 2, "射击": 2, "重新装填": 0, "持盾": 1,
         "投掷": 1, "服药": 0, "冲刺": 1, "取消": 0,
-        "find": 1, "lock": 1, "转向": 0,
+        "find": 1, "lock": 1, "转向": 0, "排弹": 0,
     }
 
     def _parse_tactical_command(self, raw):
@@ -70,6 +70,7 @@ class TacticalMixin:
             "find": "find", "找": "find", "找到": "find",
             "lock": "lock", "锁定": "lock",
             "turn": "转向", "flip": "转向",
+            "reorder": "排弹", "排列": "换弹",
         }
         action = aliases.get(cmd, cmd)
         if action not in self.TACTICAL_COST:
@@ -87,11 +88,12 @@ class TacticalMixin:
 
         display.show_info("⚔️ 进入战术指令宏模式。依次输入战术动作，输入 terminal 结束。")
         display.show_info(f"   当前 Cost: {self.cost}/{self.max_cost}")
-        display.show_info(f"   可用战术：架盾(2) 射击(2) 重新装填(0) 持盾(1) 投掷(1) 服药(0) 冲刺(1) 取消(0) find(1) lock(1) 转向(0)")
+        display.show_info(f"   可用战术：架盾(2) 射击(2) 重新装填(0) 持盾(1) 投掷(1) 服药(0) 冲刺(1) 取消(0) find(1) lock(1) 转向(0) 排弹(0)")
 
         # 收集指令
         commands = []
         dash_count = 0
+        reorder_count = 0
         while True:
             raw = player.controller.get_command(
                 player=player,
@@ -117,7 +119,7 @@ class TacticalMixin:
                 display.show_info(
                     "⚔️ 战术指令宏帮助：\n"
                     "  架盾(2) 射击(2) 重新装填(0) 持盾(1) 投掷(1)\n"
-                    "  服药(0) 冲刺(1) 取消(0) find(1) lock(1) 转向(0)\n"
+                    "  服药(0) 冲刺(1) 取消(0) find(1) lock(1) 转向(0) 排弹(0)\n"
                     "  terminal — 结束输入\n"
                     "  allstatus / status / police — 查看状态（不消耗动作）"
                 )
@@ -137,6 +139,11 @@ class TacticalMixin:
                 if dash_count > 1:
                     display.show_info("⚠️ 每个战术指令宏最多包含1次冲刺")
                     continue
+            if action_name == "排弹":
+                reorder_count += 1
+                if reorder_count > 1:
+                    display.show_info("⚠️ 每个战术指令宏最多包含1次排弹")
+                    continue
             commands.append((action_name, args))
             cost = self.TACTICAL_COST[action_name]
             display.show_info(f"   ✓ {action_name} {''.join(args)} (cost: {cost})")
@@ -152,21 +159,23 @@ class TacticalMixin:
 
         # 扣除 cost 并依次执行
         lines = [f"⚔️ 战术指令宏开始执行（总 Cost: {total_cost}）"]
+        prev_action = None  # 追踪上一个动作
         for i, (action_name, args) in enumerate(commands):
             cost = self.TACTICAL_COST[action_name]
             self.cost -= cost
             is_last = (i == len(commands) - 1)
-            result = self._dispatch_tactical(player, action_name, args, is_last)
+            result = self._dispatch_tactical(player, action_name, args, is_last, prev_action=prev_action)
             lines.append(f"  [{i+1}] {action_name}: {result} (剩余Cost: {self.cost})")
-            # 架盾/持盾结束检查（眩晕/震荡/荷鲁斯归零）
+            # 架盾/持盾结束检查
             if self.shield_mode and self._should_end_shield(player):
                 self._end_shield_mode(player)
                 lines.append(f"  ⚠️ 架盾/持盾状态被强制结束")
+            prev_action = action_name
 
         lines.append(f"⚔️ 战术指令宏执行完毕。剩余 Cost: {self.cost}/{self.max_cost}")
         return "\n".join(lines), True  # 消耗回合
 
-    def _dispatch_tactical(self, player, action_name, args, is_last):
+    def _dispatch_tactical(self, player, action_name, args, is_last, prev_action=None):
         """分发单个战术动作"""
         if action_name == "架盾":
             return self._tac_deploy_shield(player)
@@ -193,12 +202,14 @@ class TacticalMixin:
             return self._tac_cancel(player)
         elif action_name == "find":
             target_name = args[0] if args else None
-            return self._tac_find(player, target_name)
+            return self._tac_find(player, target_name, prev_action=prev_action)
         elif action_name == "lock":
             target_name = args[0] if args else None
             return self._tac_lock(player, target_name)
         elif action_name == "转向":
             return self._tac_flip(player)
+        elif action_name == "排弹":
+            return self._tac_reorder(player)
         return "❌ 未知战术动作"
 
     # ---- 架盾 ----
@@ -302,16 +313,20 @@ class TacticalMixin:
             armor_break = random.random() < break_chance
             if armor_break:
                 extra_msg += "（破甲！）"
-                # 破甲：额外1点无视克制伤害
                 from combat.damage_resolver import resolve_damage
                 result = resolve_damage(player, target, weapon=None, game_state=self.state,
                              raw_damage_override=1.0, damage_attribute_override="无视属性克制",
                              is_talent_attack=True)
+                for detail in result.get("details", []):
+                    extra_msg += f"\n      {detail}"
                 if result.get("killed"):
                     self.state.markers.on_player_death(target.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(target.player_id)
                     player.kill_count += 1
+                    from engine.round_manager import RoundManager
+                    RoundManager.notify_all_talents_of_death(
+                        self.state, target.player_id, killer_id=player.player_id)
                     extra_msg += " 💀击杀！"
             else:
                 for _ in range(3):
@@ -328,22 +343,29 @@ class TacticalMixin:
             if threshold > 0 and threshold >= 1.5:
                 return f"🚔 警察保护过滤（阈值{threshold}≥1.5）"
 
-        # 脆弱检查：脆弱状态下每颗弹丸有20%概率触发破甲
         if getattr(target, '_hoshino_fragile', False):
             armor_break = random.random() < 0.2
             if armor_break:
-                # 破甲：额外1点无视克制伤害
                 from combat.damage_resolver import resolve_damage
                 result = resolve_damage(player, target, weapon=None, game_state=self.state,
                             raw_damage_override=1.0, damage_attribute_override="无视属性克制",
                             is_talent_attack=True)
+                detail_lines = []
+                for detail in result.get("details", []):
+                    detail_lines.append(f"    {detail}")
                 if result.get("killed"):
                     self.state.markers.on_player_death(target.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(target.player_id)
                     player.kill_count += 1
-                    return f"💥破甲！💀 击杀！"
-                return f"💥破甲！HP→{target.hp}"
+                    from engine.round_manager import RoundManager
+                    RoundManager.notify_all_talents_of_death(
+                        self.state, target.player_id, killer_id=player.player_id)
+                    detail_lines.append("    💀 击杀！")
+                summary = f"💥破甲！HP→{target.hp}"
+                if detail_lines:
+                    return summary + "\n" + "\n".join(detail_lines)
+                return summary
 
         from combat.damage_resolver import resolve_damage
         result = resolve_damage(
@@ -353,13 +375,26 @@ class TacticalMixin:
             damage_attribute_override=attribute_str,
             is_talent_attack=True,
         )
+        # 收集结算详情（护甲破坏、溢出、HP变化等）
+        detail_lines = []
+        for detail in result.get("details", []):
+            detail_lines.append(f"    {detail}")
+
         if result.get("killed"):
             self.state.markers.on_player_death(target.player_id)
             if self.state.police_engine:
                 self.state.police_engine.on_player_death(target.player_id)
             player.kill_count += 1
-            return f"💀 击杀！"
-        return f"HP→{result.get('target_hp', '?')}"
+            detail_lines.append("    💀 击杀！")
+            # 通知所有天赋（星野色彩计数等）
+            from engine.round_manager import RoundManager
+            RoundManager.notify_all_talents_of_death(
+                self.state, target.player_id, killer_id=player.player_id)
+
+        summary = f"HP→{result.get('target_hp', '?')}"
+        if detail_lines:
+            return summary + "\n" + "\n".join(detail_lines)
+        return summary
 
     # ---- 重新装填 ----
     def _tac_reload(self, player, item_name):
@@ -487,19 +522,25 @@ class TacticalMixin:
         lines = [f"💣 投掷「{item_name}」→ {location}"]
 
         if effect == "fragile":
-            # 破片手雷：0.5伤害 + 脆弱debuff
             for t in targets:
                 from combat.damage_resolver import resolve_damage
                 r = resolve_damage(player, t, weapon=None, game_state=self.state,
                                  raw_damage_override=0.5, damage_attribute_override="普通",
                                  is_talent_attack=True)
-                t._hoshino_fragile = True  # 脆弱标记
-                lines.append(f"  → {t.name}: HP→{r.get('target_hp', '?')} + 脆弱")
+                t._hoshino_fragile = True
+                # 包含护甲详情
+                detail_str = ""
+                for detail in r.get("details", []):
+                    detail_str += f"\n      {detail}"
+                lines.append(f"  → {t.name}: HP→{r.get('target_hp', '?')} + 脆弱{detail_str}")
                 if r.get("killed"):
                     self.state.markers.on_player_death(t.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(t.player_id)
                     player.kill_count += 1
+                    from engine.round_manager import RoundManager
+                    RoundManager.notify_all_talents_of_death(
+                        self.state, t.player_id, killer_id=player.player_id)
 
         elif effect == "shock":
             # 震撼弹：AOE震荡（含警察）
@@ -616,6 +657,10 @@ class TacticalMixin:
                         losers = [t for t in targets_at_dest if rolls[t.player_id] == min_roll]
                         impact_target = random.choice(losers)
 
+                    # 冲击：建立面对面关系
+                    self.state.markers.add_relation(player.player_id, "ENGAGED_WITH", impact_target.player_id)
+                    self.state.markers.add_relation(impact_target.player_id, "ENGAGED_WITH", player.player_id)
+
                     # 冲击：对目标施加震荡
                     impact_target.is_shocked = True
                     impact_target.is_stunned = True
@@ -642,7 +687,7 @@ class TacticalMixin:
         self._end_shield_mode(player)
         return f"🔓 取消{old_mode}状态"
 
-    def _tac_find(self, player, target_name):
+    def _tac_find(self, player, target_name, prev_action=None):
         """战术指令宏内的 find"""
         from cli.parser import resolve_player_target
         target_id = resolve_player_target(target_name, self.state) if target_name else None
@@ -650,9 +695,23 @@ class TacticalMixin:
             return "❌ 无效的目标"
         from actions import find_target
         result = find_target.execute(player, target_id, self.state)
-        # 通知 FacingMixin
+
+        # 通知 FacingMixin（架盾模式下 find 的人归入正面）
         if self.shield_mode == "架盾":
             self._on_find_target(target_id)
+
+        # "肘开23，迎接24"：持盾状态下，冲刺后紧接 find 成功 → 自动冲击+震荡
+        if (prev_action == "冲刺" and self.shield_mode == "持盾"
+                and "找到了" in result):  # find 成功的标志
+            target = self.state.get_player(target_id)
+            if target and target.is_alive():
+                target.is_shocked = True
+                target.is_stunned = True
+                self.state.markers.add(target.player_id, "SHOCKED")
+                self.state.markers.add(target.player_id, "STUNNED")
+                result += f"\n   💥 肘开23，迎接24！冲击 {target.name}！⚡震荡"
+                # 注意：这里不需要额外添加 engage_with，因为 find 已经建立了
+
         return result
 
     def _tac_lock(self, player, target_name):
@@ -671,6 +730,48 @@ class TacticalMixin:
             return "❌ 转向需要在架盾状态下"
         self._flip_facing()  # FacingMixin
         return f"🔄 转向！正面{len(self.front_players)}人，背面{len(self.back_players)}人"
+
+    def _tac_reorder(self, player):
+        """排弹：重新排列弹匣内子弹顺序（每宏限1次）"""
+        if not self.ammo:
+            return "❌ 弹匣为空，无需排弹"
+        if len(self.ammo) == 1:
+            return "❌ 弹匣只有1发子弹，无需排弹"
+
+        # 显示当前弹匣
+        current_display = " ".join(
+            f"[{i+1}]{b.get('attribute', '普通')}" for i, b in enumerate(self.ammo)
+        )
+        display.show_info(f"  当前弹匣: {current_display}")
+
+        # 请求新顺序
+        raw_order = player.controller.get_command(
+            player=player,
+            game_state=self.state,
+            available_actions=[str(i+1) for i in range(len(self.ammo))],
+            context={"phase": "T0", "situation": "hoshino_reorder_ammo",
+                     "ammo": [b.get("attribute", "普通") for b in self.ammo]}
+        )
+
+        # 解析输入的数字序列
+        try:
+            indices = [int(x) - 1 for x in raw_order.strip().split()]
+        except ValueError:
+            return "❌ 输入格式错误，请输入数字序列（如: 2 1 3 4）"
+
+        # 验证：必须是当前弹匣长度的完整排列
+        n = len(self.ammo)
+        if sorted(indices) != list(range(n)):
+            return f"❌ 请输入 1~{n} 的完整排列（如: {' '.join(str(i+1) for i in range(n))}）"
+
+        # 执行重排
+        new_ammo = [self.ammo[i] for i in indices]
+        self.ammo = new_ammo
+
+        new_display = " ".join(
+            f"[{i+1}]{b.get('attribute', '普通')}" for i, b in enumerate(self.ammo)
+        )
+        return f"🔄 弹匣重排: {new_display}"
 
     def _should_end_shield(self, player):
         """检查是否应该强制结束架盾/持盾"""
