@@ -63,14 +63,6 @@ def _check_barrier_block(player, action_type, game_state):
         return reason
     return None
 
-def _is_terror_alive(game_state):
-    """场上是否存在存活的 Terror"""
-    for pid in game_state.player_order:
-        p = game_state.get_player(pid)
-        if (p and p.is_alive() and p.talent
-                and hasattr(p.talent, 'is_terror') and p.talent.is_terror):
-            return True
-    return False
 
 def _is_police_crime_blocked(player, parsed, game_state):
     """[Issue 5] 检查警察成员（非队长）是否因犯罪限制被阻止执行该行动。
@@ -253,7 +245,7 @@ def validate_interact(player, item_name, game_state):
     if getattr(player, '_shield_half_entered', False):
         return False, "🛡️ 你还没完全进入此地点，无法交互。再次 move 到此地点可完全进入。"
     # Terror 全局禁用 interact
-    if _is_terror_alive(game_state):
+    if game_state.is_terror_alive():
         return False, "⚠️ Terror 降临，所有地点交互已被封锁。"
     # 星野持盾：无法执行 interact
     if (player.talent and hasattr(player.talent, 'shield_mode')

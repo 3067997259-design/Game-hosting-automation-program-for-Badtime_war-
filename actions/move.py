@@ -90,6 +90,9 @@ def execute(player, destination, game_state):
                     and p.talent.is_front(player.player_id)):
                 # 检查豁免条件
                 is_exempt = False
+                # 半进入状态豁免：已经花过回合进入，不再额外阻碍离开
+                if getattr(player, '_shield_half_entered', False):
+                    is_exempt = True
                 # 超新星过载豁免
                 if (player.talent and hasattr(player.talent, 'has_supernova')
                         and player.talent.has_supernova):
