@@ -484,10 +484,10 @@
       "reload_overflow": "⚠️ 弹匣溢出！丢弃 {excess} 发，剩余 {count}/{max}",
       "hold_broken": "❌ 铁之荷鲁斯已破损，无法持盾",
       "hold_already": "❌ 已处于持盾状态",
-      "hold_ok": "🛡️ 持盾！铁之荷鲁斯作为最外层护甲吸收伤害",
+      "hold_ok": "🛡️ 持盾！铁之荷鲁斯展开（护甲值: {iron_horus_hp}）",
       "throw_no_items": "❌ 没有战术道具",
       "throw_not_found": "❌ 未找到指定道具",
-      "throw_header": "🎯 投掷 {item_name} 到 {location}",
+      "throw_header": "💣 投掷「{item_name}」→ {location}",
       "throw_fragile": "  💥 {target_name} 受到 {damage} 点伤害！破碎道具额外伤害！",
       "throw_shock": "  ⚡ {target_name} 进入震荡状态！",
       "throw_blind": "  🌫️ {target_name} 陷入致盲！",
@@ -534,7 +534,7 @@
       "terror_attack_desc": "Terror 攻击：对全图除自己外所有单位造成1点无视克制伤害",
       "terror_death": "Terror 额外HP归零 → 无视任何条件死亡",
       "validate_shield_no_move": "🛡️ 架盾状态下无法移动（正面强攻）",
-      "validate_terror_no_interact": "❌ Terror 状态下无法与地点交互",
+      "validate_terror_no_interact": "⚠️ Terror 降临，所有地点交互已被封锁。",
       "validate_shield_no_interact": "❌ 持盾/架盾状态下无法与地点交互"
     }
   },

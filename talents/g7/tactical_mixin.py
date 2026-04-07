@@ -376,13 +376,15 @@ class TacticalMixin:
                     from engine.round_manager import RoundManager
                     RoundManager.notify_all_talents_of_death(
                         self.state, target.player_id, killer_id=player.player_id)
-                    extra_msg += " 💀击杀！"
+                    extra_msg += prompt_manager.get_prompt("talent", "g7hoshino.shoot_kill")
             else:
                 for _ in range(3):
                     r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
                     extra_msg += f"\n      {r}"
 
-        return f"🔫 {mode}（{bullet_attr}属性）→ {'; '.join(results)}{extra_msg}"
+        return prompt_manager.get_prompt("talent", "g7hoshino.shoot_result",
+                                       mode=mode, bullet_attr=bullet_attr,
+                                       results='; '.join(results), extra_msg=extra_msg)
 
     def _apply_pellet_damage(self, player, target, damage, attribute_str):
         """对单个目标施加一颗弹丸伤害"""
@@ -413,7 +415,7 @@ class TacticalMixin:
                     from engine.round_manager import RoundManager
                     RoundManager.notify_all_talents_of_death(
                         self.state, target.player_id, killer_id=player.player_id)
-                    detail_lines.append("    💀 击杀！")
+                    detail_lines.append("    " + prompt_manager.get_prompt("talent", "g7hoshino.shoot_kill"))
                 summary = f"💥破甲！HP→{target.hp}"
                 if detail_lines:
                     return summary + "\n" + "\n".join(detail_lines)
@@ -522,9 +524,8 @@ class TacticalMixin:
         for _ in range(new_bullets):
             self.ammo.append({"attribute": attr_str})
         overflow = 4 - new_bullets
-        bullets_str = " ".join([attr_str] * new_bullets)
         msg = prompt_manager.get_prompt("talent", "g7hoshino.reload_ok",
-                                      count=new_bullets, bullets=bullets_str,
+                                      item_name=item_name, count=new_bullets, attr=attr_str,
                                       total=current_total + new_bullets, max=self.max_ammo)
         if overflow > 0:
             msg += prompt_manager.get_prompt("talent", "g7hoshino.reload_overflow",
@@ -540,7 +541,8 @@ class TacticalMixin:
         self.shield_mode = "持盾"
         # 持盾模式下铁之荷鲁斯作为 priority=100 最外层护甲
         # 实际的伤害减免在 damage_resolver 中通过 modify_incoming_damage 钩子实现
-        return prompt_manager.get_prompt("talent", "g7hoshino.hold_ok")
+        return prompt_manager.get_prompt("talent", "g7hoshino.hold_ok",
+                                       iron_horus_hp=self.iron_horus_hp)
 
     # ---- 投掷 ----
     def _tac_throw(self, player, item_name, location):
@@ -574,7 +576,8 @@ class TacticalMixin:
         if self.shield_mode == "架盾":
             targets = [t for t in targets if self.is_front(t.player_id)]
 
-        lines = [f"💣 投掷「{item_name}」→ {location}"]
+        lines = [prompt_manager.get_prompt("talent", "g7hoshino.throw_header",
+                                         item_name=item_name, location=location)]
 
         if effect == "fragile":
             for t in targets:
