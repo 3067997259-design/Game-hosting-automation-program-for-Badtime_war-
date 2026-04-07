@@ -5,7 +5,7 @@ from cli import display
 from talents.g7.items import TACTICAL_ITEMS, MEDICINES
 
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 class TacticalMixin:
     """战术指令宏系统 Mixin"""
@@ -34,16 +34,15 @@ class TacticalMixin:
     shoot_streak: int
     dash_free_shield_cost: bool
 
-    # 跨 Mixin 方法 stub（由 FacingMixin 提供）
-    def _init_facing(self, player) -> None: ...
-    def _on_find_target(self, target_id: str) -> None: ...
-    def _flip_facing(self) -> None: ...
-    def _clear_facing(self) -> None: ...
-    def is_front(self, pid: str) -> bool: ...
-    def is_back(self, pid: str) -> bool: ...
-
-    # 跨 Mixin 方法 stub（由 HaloMixin 提供）
-    def _halo_restore_one(self) -> bool: ...
+    # 以下 stub 仅供静态类型检查器使用，运行时不定义（避免遮蔽 FacingMixin/HaloMixin 的真实实现）
+    if TYPE_CHECKING:
+        def _init_facing(self, player) -> None: ...
+        def _on_find_target(self, target_id: str) -> None: ...
+        def _flip_facing(self) -> None: ...
+        def _clear_facing(self) -> None: ...
+        def is_front(self, pid: str) -> bool: ...
+        def is_back(self, pid: str) -> bool: ...
+        def _halo_restore_one(self) -> bool: ...
 
     TACTICAL_COST = {
         "架盾": 2, "射击": 2, "重新装填": 0, "持盾": 1,
@@ -209,9 +208,22 @@ class TacticalMixin:
         if self.shield_mode == "架盾":
             return "❌ 已处于架盾状态"
         self.shield_mode = "架盾"
-        self.shield_snapshot_hp = self.iron_horus_hp  # 快照护甲值用于正面伤害过滤阈值
-        self._init_facing(player)  # FacingMixin
-        return f"🛡️ 架盾！铁之荷鲁斯护甲值快照: {self.shield_snapshot_hp}，正面: {len(self.front_players)}人"
+        self.shield_snapshot_hp = self.iron_horus_hp
+        self._init_facing(player)
+        # 列出正面玩家名字
+        front_names = []
+        for pid in self.front_players:
+            p = self.state.get_player(pid)
+            if p:
+                front_names.append(p.name)
+        back_names = []
+        for pid in self.back_players:
+            p = self.state.get_player(pid)
+            if p:
+                back_names.append(p.name)
+        return (f"🛡️ 架盾！铁之荷鲁斯护甲值快照: {self.shield_snapshot_hp}\n"
+                f"   正面({len(self.front_players)}): {', '.join(front_names) or '无'}\n"
+                f"   背面({len(self.back_players)}): {', '.join(back_names) or '无'}")
 
     # ---- 射击 ----
     def _tac_shoot(self, player, target_name):
@@ -282,14 +294,25 @@ class TacticalMixin:
         if self.form == "临战-Archer" and self.shoot_streak % 2 == 0:
             # 额外执行1次射击（不消耗cost和子弹，20%破甲）
             extra_msg = "\n   🏹 临战-Archer 额外射击！"
-            armor_break = random.random() < 0.2
+            # 基础破甲概率20%，脆弱+20%
+            break_chance = 0.2
+            if getattr(target, '_hoshino_fragile', False):
+                break_chance += 0.2
+                extra_msg += "（脆弱加成！）"
+            armor_break = random.random() < break_chance
             if armor_break:
                 extra_msg += "（破甲！）"
                 # 破甲：额外1点无视克制伤害
                 from combat.damage_resolver import resolve_damage
-                resolve_damage(player, target, weapon=None, game_state=self.state,
+                result = resolve_damage(player, target, weapon=None, game_state=self.state,
                              raw_damage_override=1.0, damage_attribute_override="无视属性克制",
                              is_talent_attack=True)
+                if result.get("killed"):
+                    self.state.markers.on_player_death(target.player_id)
+                    if self.state.police_engine:
+                        self.state.police_engine.on_player_death(target.player_id)
+                    player.kill_count += 1
+                    extra_msg += " 💀击杀！"
             else:
                 for _ in range(3):
                     self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
@@ -304,6 +327,23 @@ class TacticalMixin:
             threshold = pe.get_protection_threshold(target.player_id)
             if threshold > 0 and threshold >= 1.5:
                 return f"🚔 警察保护过滤（阈值{threshold}≥1.5）"
+
+        # 脆弱检查：脆弱状态下每颗弹丸有20%概率触发破甲
+        if getattr(target, '_hoshino_fragile', False):
+            armor_break = random.random() < 0.2
+            if armor_break:
+                # 破甲：额外1点无视克制伤害
+                from combat.damage_resolver import resolve_damage
+                result = resolve_damage(player, target, weapon=None, game_state=self.state,
+                            raw_damage_override=1.0, damage_attribute_override="无视属性克制",
+                            is_talent_attack=True)
+                if result.get("killed"):
+                    self.state.markers.on_player_death(target.player_id)
+                    if self.state.police_engine:
+                        self.state.police_engine.on_player_death(target.player_id)
+                    player.kill_count += 1
+                    return f"💥破甲！💀 击杀！"
+                return f"💥破甲！HP→{target.hp}"
 
         from combat.damage_resolver import resolve_damage
         result = resolve_damage(

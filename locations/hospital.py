@@ -29,6 +29,9 @@ FREE_ITEMS = {"打工"}
 # 手术项目
 SURGERY_ITEMS = {"晶化皮肤手术", "额外心脏手术", "不老泉手术"}
 
+# 星野药物（需习得战术动作）
+HOSHINO_MEDICINES = {"EPO", "海豚巧克力", "肾上腺素"}
+
 
 def get_menu():
     return dict(HOSPITAL_MENU)
@@ -76,7 +79,6 @@ def can_interact(player, item_name, game_state=None):
         return True, ""
 
     # 星野药物：需习得战术动作，不检查凭证，最多持有2样
-    HOSHINO_MEDICINES = {"EPO", "海豚巧克力", "肾上腺素"}
     if item_name in HOSHINO_MEDICINES:
         if not (player.talent and hasattr(player.talent, 'tactical_unlocked')
                 and player.talent.tactical_unlocked):
@@ -119,7 +121,6 @@ def do_interact(player, item_name, game_state=None):
                            game_state)
 
     # 星野药物
-    HOSHINO_MEDICINES = {"EPO", "海豚巧克力", "肾上腺素"}
     elif item_name in HOSHINO_MEDICINES:
         player.talent.medicines.append(item_name)
         count = len(player.talent.medicines)

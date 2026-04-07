@@ -25,9 +25,11 @@ MILITARY_MENU = {
     "燃烧瓶":       "⚔️ 战术道具：2层灼烧（需习得战术动作）",
 }
 
+# 星野战术道具（需习得战术动作）
+HOSHINO_TACTICAL = {"破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃烧瓶"}
+
 # 需要通行证才能交互的项目（办理通行证本身不需要）
-NEED_PASS = {"AT力场", "电磁步枪", "高斯步枪", "导弹控制权", "雷达", "隐形涂层",
-             "破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃烧瓶"}
+NEED_PASS = {"AT力场", "电磁步枪", "高斯步枪", "导弹控制权", "雷达", "隐形涂层"} | HOSHINO_TACTICAL
 
 
 def get_menu():
@@ -79,7 +81,6 @@ def can_interact(player, item_name, game_state=None):
             return False, f"无法装备AT力场：{equip_reason}"
 
     # 星野战术道具：需习得战术动作，最多持有2样
-    HOSHINO_TACTICAL = {"破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃烧瓶"}
     if item_name in HOSHINO_TACTICAL:
         if not (player.talent and hasattr(player.talent, 'tactical_unlocked')
                 and player.talent.tactical_unlocked):
@@ -147,7 +148,6 @@ def do_interact(player, item_name, game_state=None):
         return f"🫥 {player.name} 使用了隐形涂层，进入隐身状态！"
 
     # 星野战术道具
-    HOSHINO_TACTICAL = {"破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃烧瓶"}
     elif item_name in HOSHINO_TACTICAL:
         player.talent.tactical_items.append(item_name)
         count = len(player.talent.tactical_items)
