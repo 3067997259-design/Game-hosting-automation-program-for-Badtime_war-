@@ -1042,6 +1042,11 @@ def _talent_death_check(target, attacker, game_state):
     优先级：1. 免死效果 → 2. 复活效果（死者苏生）
     返回 True 表示死亡被阻止。
     """
+    # Terror 状态：无视任何条件死亡（包括复活、免死等）
+    if (target.talent and hasattr(target.talent, 'is_terror')
+            and target.talent.is_terror):
+        return False
+
     if target.talent:
         death_result = target.talent.on_death_check(target, attacker)
         if death_result and death_result.get("prevent_death"):
@@ -1115,7 +1120,7 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
     # ---- 元亨利贞金身检查（不无视） ----
     if (target.talent and hasattr(target.talent, 'is_immune_to_damage')
             and not getattr(target, '_mythland_talent_suppressed', False)):
-        if target.talent.is_immune_to_damage("无视属性克制"):
+        if target.talent.is_immune_to_damage(None):
             result["final_damage"] = 0
             result["success"] = False
             result["reason"] = "元亨利贞免疫"
@@ -1188,15 +1193,17 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
         prevented = False
         # 只允许救世主（Savior）的免死生效
         if (target.talent and not getattr(target, '_mythland_talent_suppressed', False)):
-            # 检查目标自身天赋：只有 Savior 可以免死
             if hasattr(target.talent, 'name') and target.talent.name == "愿负世，照拂黎明":
-                dr = target.talent.on_death_check(target, attacker)
-                if dr and dr.get("prevent_death"):
-                    target.hp = dr.get("new_hp", 0.5)
+                if getattr(target.talent, 'is_savior', False):
+                    # 已在救世主状态 → Terror 不无视救世主免死
+                    # 阻止死亡，设 HP 为 0.5，退出救世主状态
+                    target.hp = 0.5
                     prevented = True
-                    savior_survive = prompt_manager.get_prompt("talent", "g7hoshino.terror_savior_survive",
-                                                      hp=target.hp)
-                    result["details"].append(savior_survive)
+                    if hasattr(target.talent, '_exit_savior_state'):
+                        target.talent._exit_savior_state()
+                    result["details"].append(
+                        prompt_manager.get_prompt("talent", "g7hoshino.terror_savior_survive", hp=target.hp))
+                # else: 人形态 → Terror 无视人形态免死 → 不调用 on_death_check，直接跳过
         # 其他玩家的救世主天赋也检查
         if not prevented and game_state:
             for pid in game_state.player_order:
