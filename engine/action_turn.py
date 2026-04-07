@@ -3,6 +3,7 @@
 from cli import display
 from cli.parser import parse, resolve_player_target
 from cli.validator import validate
+from engine import prompt_manager
 from actions import (action_registry, wake_up, move, interact,
                      forfeit, lock_target, find_target, attack, special_op)
 
@@ -368,7 +369,8 @@ class ActionTurnManager:
                     self.state.markers.on_player_death(player.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(player.player_id)
-                    display.show_death(player.name, "Terror 额外HP耗尽")
+                    terror_death = prompt_manager.get_prompt("talent", "g7hoshino.terror_death")
+                    display.show_death(player.name, terror_death)
                     from engine.round_manager import RoundManager
                     RoundManager.notify_all_talents_of_death(
                         self.state, player.player_id, killer_id=None)
@@ -410,7 +412,8 @@ class ActionTurnManager:
                     self.state.markers.on_player_death(player.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(player.player_id)
-                    display.show_death(player.name, "Terror 额外HP耗尽")
+                    terror_death = prompt_manager.get_prompt("talent", "g7hoshino.terror_death")
+                    display.show_death(player.name, terror_death)
                     from engine.round_manager import RoundManager
                     RoundManager.notify_all_talents_of_death(
                         self.state, player.player_id, killer_id=None)

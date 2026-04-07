@@ -7,6 +7,7 @@ from actions.interact import get_location_module
 from actions.special_op import get_available_specials
 from cli.parser import resolve_player_target
 from models.equipment import WeaponRange
+from engine import prompt_manager
 
 def _check_love_wish_block(attacker_pid, target_pid, game_state):
     """检查攻击者是否因爱愿无法攻击目标（目标是G5持有者）"""
@@ -212,7 +213,7 @@ def validate_move(player, destination, game_state):
     # 星野架盾：自身无法移动
     if (player.talent and hasattr(player.talent, 'shield_mode')
             and player.talent.shield_mode == "架盾"):
-        return False, "🛡️ 架盾状态下无法移动（正面强攻）"
+        return False, prompt_manager.get_prompt("talent", "g7hoshino.validate_shield_no_move")
     # 结界限制
     barrier_msg = _check_barrier_block(player, "move", game_state)
     if barrier_msg:
@@ -246,11 +247,11 @@ def validate_interact(player, item_name, game_state):
         return False, "🛡️ 你还没完全进入此地点，无法交互。再次 move 到此地点可完全进入。"
     # Terror 全局禁用 interact
     if game_state.is_terror_alive():
-        return False, "⚠️ Terror 降临，所有地点交互已被封锁。"
+        return False, prompt_manager.get_prompt("talent", "g7hoshino.validate_terror_no_interact")
     # 星野持盾：无法执行 interact
     if (player.talent and hasattr(player.talent, 'shield_mode')
             and player.talent.shield_mode in ("持盾", "架盾")):
-        return False, "🛡️ 持盾/架盾状态下无法与地点交互（为了明天，只能向前）"
+        return False, prompt_manager.get_prompt("talent", "g7hoshino.validate_shield_no_interact")
     # 结界限制
     barrier_msg = _check_barrier_block(player, "interact", game_state)
     if barrier_msg:
