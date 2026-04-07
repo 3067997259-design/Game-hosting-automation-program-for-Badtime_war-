@@ -177,7 +177,8 @@ class ActionTurnManager:
                 and player.talent.is_terror):
             names = ["move"]
             descs = [
-                {"usage": "move <地点>", "description": "移动（消耗0.5额外HP）"},
+                {"usage": "move <地点>", "description": prompt_manager.get_prompt(
+                    "talent", "g7hoshino.terror_move_desc")},
             ]
             # 检查是否有存活目标可攻击
             others_alive = []
@@ -190,7 +191,8 @@ class ActionTurnManager:
             if others_alive:
                 names.append("attack")
                 descs.append(
-                    {"usage": "attack", "description": "Terror攻击（全图1点无视克制，消耗1额外HP）"})
+                    {"usage": "attack", "description": prompt_manager.get_prompt(
+                        "talent", "g7hoshino.terror_attack_desc")})
             return names, descs
 
         names = ["move", "interact", "forfeit"]
