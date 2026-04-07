@@ -67,17 +67,15 @@ def execute(player, destination, game_state):
     if destination != old_location:
         # 清理过期的架盾延迟标记（blocker已死亡/不在同地点/不再架盾）
         stale_keys = []
-        # 清理过期的守点进入延迟标记
+        # 清理过期的架盾移动延迟标记
         for attr_name in list(vars(player)):
-            if attr_name.startswith('_shield_enter_delayed_'):
-                blocker_id = attr_name[len('_shield_enter_delayed_'):]
+            if attr_name.startswith('_shield_move_delayed_'):
+                blocker_id = attr_name[len('_shield_move_delayed_'):]
                 bp = game_state.get_player(blocker_id)
                 if not (bp and bp.is_alive()
                         and bp.talent and hasattr(bp.talent, 'shield_mode')
                         and bp.talent.shield_mode == "架盾"
-                        and bp.location == destination
-                        and hasattr(bp.talent, 'shield_guard_mode')
-                        and bp.talent.shield_guard_mode == "block_entering"):
+                        and bp.location == old_location):
                     stale_keys.append(attr_name)
         for key in stale_keys:
             delattr(player, key)

@@ -221,13 +221,13 @@ def validate_move(player, destination, game_state):
         return False, f"「{destination}」不是有效地点。可用：{', '.join(valid)}"
     # 超新星过载：允许选择当前地点作为目的地
     if destination == player.location:
-            if player.talent and hasattr(player.talent, 'has_supernova') and player.talent.has_supernova:
-                return True, ""
-            # 半进入状态：允许 move 同地点（突破守点）
-            if (getattr(player, '_shield_half_entered', False)
-                    and getattr(player, '_shield_half_entered_location', None) == destination):
-                return True, ""
-            return False, "你已经在这个地点了。"
+        if player.talent and hasattr(player.talent, 'has_supernova') and player.talent.has_supernova:
+            return True, ""
+        # 半进入状态：允许 move 同地点（突破守点）
+        if (getattr(player, '_shield_half_entered', False)
+                and getattr(player, '_shield_half_entered_location', None) == destination):
+            return True, ""
+        return False, "你已经在这个地点了。"
     # 军事基地：无通行证时提示可强买或花回合办理
     if destination == "军事基地" and not player.has_military_pass:
         if player.vouchers >= 1:

@@ -274,7 +274,7 @@ class TacticalMixin:
                 if not target or target.player_id not in self.front_players or not target.is_alive():
                     # 输入的名字不在正面，提示可选目标
                     names = [p.name for p in front_alive]
-                    return f"❌ 「{target_name}」不在正面。可选目标：{', '.join(names)}"
+                    return f"❌ 「{target_name}」不在正面，子弹浪费了。可选目标：{', '.join(names)}"
             else:
                 # 未指定目标，交互式选择
                 if len(front_alive) == 1:
