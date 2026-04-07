@@ -764,11 +764,13 @@ class TacticalMixin:
         return result
 
     def _tac_flip(self, player):
-        """转向：正面↔背面互换"""
+        """转向：正面↔背面互换 + 切换守点模式"""
         if self.shield_mode != "架盾":
             return "❌ 转向需要在架盾状态下"
-        self._flip_facing()  # FacingMixin
-        return f"🔄 转向！正面{len(self.front_players)}人，背面{len(self.back_players)}人"
+        self._flip_facing()  # FacingMixin（内部会 toggle shield_guard_mode）
+        mode_desc = "阻止进入（守点）" if self.shield_guard_mode == "block_entering" else "阻止离开"
+        return (f"🔄 转向！正面{len(self.front_players)}人，背面{len(self.back_players)}人\n"
+                f"   当前模式：{mode_desc}")
 
     def _tac_reorder(self, player):
         """排弹：重新排列弹匣内子弹顺序（每宏限1次）"""

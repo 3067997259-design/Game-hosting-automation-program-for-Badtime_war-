@@ -36,17 +36,48 @@ def execute(player, destination, game_state):
     """
     old_location = player.location
     # 星野架盾移动阻碍：正面敌人离开需多花1回合
+    # 半进入状态处理：再次 move 同地点 → 突破（正面→背面 + engage 断裂）
+    if (destination == old_location
+            and getattr(player, '_shield_half_entered', False)
+            and getattr(player, '_shield_half_entered_location', None) == destination):
+        blocker_id = getattr(player, '_shield_half_entered_blocker', None)
+        blocker = game_state.get_player(blocker_id) if blocker_id else None
+        # 清除半进入标记
+        del player._shield_half_entered
+        if hasattr(player, '_shield_half_entered_location'):
+            del player._shield_half_entered_location
+        if hasattr(player, '_shield_half_entered_blocker'):
+            del player._shield_half_entered_blocker
+        # 正面→背面
+        if blocker and blocker.talent and hasattr(blocker.talent, 'front_players'):
+            blocker.talent.front_players.discard(player.player_id)
+            blocker.talent.back_players.add(player.player_id)
+        # 断裂 engage_with
+        if blocker_id:
+            game_state.markers.remove_relation(player.player_id, "ENGAGED_WITH", blocker_id)
+            game_state.markers.remove_relation(blocker_id, "ENGAGED_WITH", player.player_id)
+        blocker_name = blocker.name if blocker else "星野"
+        from cli import display
+        display.show_info(f"🏃 {player.name} 突破了 {blocker_name} 的封锁，进入背面！")
+        old_name = get_location_display_name(old_location, game_state)
+        game_state.log_event("move", player=player.player_id,
+                             from_loc=old_location, to_loc=destination)
+        return f"🏃 {player.name} 完全进入「{old_name}」，脱离正面范围。"
+
     if destination != old_location:
         # 清理过期的架盾延迟标记（blocker已死亡/不在同地点/不再架盾）
         stale_keys = []
+        # 清理过期的守点进入延迟标记
         for attr_name in list(vars(player)):
-            if attr_name.startswith('_shield_move_delayed_'):
-                blocker_id = attr_name[len('_shield_move_delayed_'):]
+            if attr_name.startswith('_shield_enter_delayed_'):
+                blocker_id = attr_name[len('_shield_enter_delayed_'):]
                 bp = game_state.get_player(blocker_id)
                 if not (bp and bp.is_alive()
                         and bp.talent and hasattr(bp.talent, 'shield_mode')
                         and bp.talent.shield_mode == "架盾"
-                        and bp.location == old_location):
+                        and bp.location == destination
+                        and hasattr(bp.talent, 'shield_guard_mode')
+                        and bp.talent.shield_guard_mode == "block_entering"):
                     stale_keys.append(attr_name)
         for key in stale_keys:
             delattr(player, key)
@@ -93,6 +124,23 @@ def execute(player, destination, game_state):
                         delattr(player, delay_key)
                         break
     player.location = destination
+
+    # 半进入玩家移动到其他地点：清除半进入标记，从正面移除
+    if (destination != old_location
+            and getattr(player, '_shield_half_entered', False)):
+        blocker_id = getattr(player, '_shield_half_entered_blocker', None)
+        blocker = game_state.get_player(blocker_id) if blocker_id else None
+        if blocker and blocker.talent and hasattr(blocker.talent, 'front_players'):
+            blocker.talent.front_players.discard(player.player_id)
+            # 不归入背面，因为玩家已经离开了该地点
+        if blocker_id:
+            game_state.markers.remove_relation(player.player_id, "ENGAGED_WITH", blocker_id)
+            game_state.markers.remove_relation(blocker_id, "ENGAGED_WITH", player.player_id)
+        del player._shield_half_entered
+        if hasattr(player, '_shield_half_entered_location'):
+            del player._shield_half_entered_location
+        if hasattr(player, '_shield_half_entered_blocker'):
+            del player._shield_half_entered_blocker
 
     # 触发标记联动（原地移动不清除锁定/面对面，如超新星过载原地触发）
     if destination != old_location:

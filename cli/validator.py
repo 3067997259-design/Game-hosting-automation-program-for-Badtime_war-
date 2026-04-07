@@ -221,9 +221,13 @@ def validate_move(player, destination, game_state):
         return False, f"「{destination}」不是有效地点。可用：{', '.join(valid)}"
     # 超新星过载：允许选择当前地点作为目的地
     if destination == player.location:
-        if player.talent and hasattr(player.talent, 'has_supernova') and player.talent.has_supernova:
-            return True, ""
-        return False, "你已经在这个地点了。"
+            if player.talent and hasattr(player.talent, 'has_supernova') and player.talent.has_supernova:
+                return True, ""
+            # 半进入状态：允许 move 同地点（突破守点）
+            if (getattr(player, '_shield_half_entered', False)
+                    and getattr(player, '_shield_half_entered_location', None) == destination):
+                return True, ""
+            return False, "你已经在这个地点了。"
     # 军事基地：无通行证时提示可强买或花回合办理
     if destination == "军事基地" and not player.has_military_pass:
         if player.vouchers >= 1:
@@ -236,6 +240,9 @@ def validate_interact(player, item_name, game_state):
         return False, "你还没起床！"
     if item_name is None:
         return False, "请指定交互项目。"
+    # 半进入状态：禁用 interact
+    if getattr(player, '_shield_half_entered', False):
+        return False, "🛡️ 你还没完全进入此地点，无法交互。再次 move 到此地点可完全进入。"
     # 星野持盾：无法执行 interact
     if (player.talent and hasattr(player.talent, 'shield_mode')
             and player.talent.shield_mode in ("持盾", "架盾")):
