@@ -70,7 +70,7 @@ class TacticalMixin:
             "find": "find", "找": "find", "找到": "find",
             "lock": "lock", "锁定": "lock",
             "turn": "转向", "flip": "转向",
-            "reorder": "排弹", "排列": "换弹",
+            "reorder": "排弹", "排列": "排弹",
         }
         action = aliases.get(cmd, cmd)
         if action not in self.TACTICAL_COST:
@@ -624,60 +624,60 @@ class TacticalMixin:
 
     # ---- 冲刺 ----
     def _tac_dash(self, player, dest, is_last):
-            """冲刺：消耗1cost，持盾状态下的战术移动"""
-            if self.shield_mode != "持盾":
-                return "❌ 冲刺需要在持盾状态下"
-            if dest is None:
-                from actions.move import get_all_valid_locations
-                locs = get_all_valid_locations(self.state)
-                dest = player.controller.choose(
-                    "选择冲刺目标地点：", locs,
-                    context={"phase": "T0", "situation": "hoshino_dash"}
-                )
-            # 执行移动
-            from actions import move
-            move.execute(player, dest, self.state)
-            msg = f"🏃 冲刺到 {dest}"
+        """冲刺：消耗1cost，持盾状态下的战术移动"""
+        if self.shield_mode != "持盾":
+            return "❌ 冲刺需要在持盾状态下"
+        if dest is None:
+            from actions.move import get_all_valid_locations
+            locs = get_all_valid_locations(self.state)
+            dest = player.controller.choose(
+                "选择冲刺目标地点：", locs,
+                context={"phase": "T0", "situation": "hoshino_dash"}
+            )
+        # 执行移动
+        from actions import move
+        move.execute(player, dest, self.state)
+        msg = f"🏃 冲刺到 {dest}"
 
-            # 临战-shielder 特殊：冲刺为宏最后一个动作时
-            # → 自动锁定冲刺目标地点的一个玩家 → 冲击 → 自动架盾 → 该轮R4不扣cost
-            if is_last and self.form == "临战-shielder":
-                targets_at_dest = [
-                    p for p in self.state.players_at_location(dest)
-                    if p.player_id != player.player_id and p.is_alive()
-                ]
-                if targets_at_dest:
-                    import random
-                    if len(targets_at_dest) == 1:
-                        impact_target = targets_at_dest[0]
-                    else:
-                        # 多人时掷骰子，点数最低者吃冲击
-                        rolls = {t.player_id: random.randint(1, 6) for t in targets_at_dest}
-                        min_roll = min(rolls.values())
-                        losers = [t for t in targets_at_dest if rolls[t.player_id] == min_roll]
-                        impact_target = random.choice(losers)
+        # 临战-shielder 特殊：冲刺为宏最后一个动作时
+        # → 自动锁定冲刺目标地点的一个玩家 → 冲击 → 自动架盾 → 该轮R4不扣cost
+        if is_last and self.form == "临战-shielder":
+            targets_at_dest = [
+                p for p in self.state.players_at_location(dest)
+                if p.player_id != player.player_id and p.is_alive()
+            ]
+            if targets_at_dest:
+                import random
+                if len(targets_at_dest) == 1:
+                    impact_target = targets_at_dest[0]
+                else:
+                    # 多人时掷骰子，点数最低者吃冲击
+                    rolls = {t.player_id: random.randint(1, 6) for t in targets_at_dest}
+                    min_roll = min(rolls.values())
+                    losers = [t for t in targets_at_dest if rolls[t.player_id] == min_roll]
+                    impact_target = random.choice(losers)
 
-                    # 冲击：建立面对面关系
-                    self.state.markers.add_relation(player.player_id, "ENGAGED_WITH", impact_target.player_id)
-                    self.state.markers.add_relation(impact_target.player_id, "ENGAGED_WITH", player.player_id)
+                # 冲击：建立面对面关系
+                self.state.markers.add_relation(player.player_id, "ENGAGED_WITH", impact_target.player_id)
+                self.state.markers.add_relation(impact_target.player_id, "ENGAGED_WITH", player.player_id)
 
-                    # 冲击：对目标施加震荡
-                    impact_target.is_shocked = True
-                    impact_target.is_stunned = True
-                    self.state.markers.add(impact_target.player_id, "SHOCKED")
-                    self.state.markers.add(impact_target.player_id, "STUNNED")
-                    msg += f"\n   💥 冲击 {impact_target.name}！⚡震荡"
+                # 冲击：对目标施加震荡
+                impact_target.is_shocked = True
+                impact_target.is_stunned = True
+                self.state.markers.add(impact_target.player_id, "SHOCKED")
+                self.state.markers.add(impact_target.player_id, "STUNNED")
+                msg += f"\n   💥 冲击 {impact_target.name}！⚡震荡"
 
-                    # 自动进入架盾模式
-                    self.shield_mode = "架盾"
-                    self.shield_snapshot_hp = self.iron_horus_hp
-                    self._init_facing(player)  # FacingMixin
-                    msg += f"\n   🛡️ 自动架盾！"
+                # 自动进入架盾模式
+                self.shield_mode = "架盾"
+                self.shield_snapshot_hp = self.iron_horus_hp
+                self._init_facing(player)  # FacingMixin
+                msg += f"\n   🛡️ 自动架盾！"
 
-                    # 该轮R4不扣cost
-                    self.dash_free_shield_cost = True
+                # 该轮R4不扣cost
+                self.dash_free_shield_cost = True
 
-            return msg
+        return msg
 
     def _tac_cancel(self, player):
         """取消架盾或持盾状态"""
