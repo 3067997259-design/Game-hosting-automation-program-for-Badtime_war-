@@ -170,7 +170,7 @@ class TacticalMixin:
             if self.shield_mode and self._should_end_shield(player):
                 self._end_shield_mode(player)
                 lines.append(f"  ⚠️ 架盾/持盾状态被强制结束")
-            if action_name == "冲刺":
+            if action_name == "冲刺" and not result.startswith("❌"):
                 has_dashed = True
 
         lines.append(f"⚔️ 战术指令宏执行完毕。剩余 Cost: {self.cost}/{self.max_cost}")
