@@ -595,7 +595,10 @@ class TacticalMixin:
                 detail_str = ""
                 for detail in r.get("details", []):
                     detail_str += f"\n      {detail}"
-                lines.append(f"  → {t.name}: HP→{r.get('target_hp', '?')} + 脆弱{detail_str}")
+                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_fragile",
+                                                      target_name=t.name,
+                                                      target_hp=r.get('target_hp', '?'),
+                                                      details=detail_str))
                 if r.get("killed"):
                     self.state.markers.on_player_death(t.player_id)
                     if self.state.police_engine:

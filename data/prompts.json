@@ -485,7 +485,7 @@
       "throw_no_items": "❌ 没有战术道具",
       "throw_not_owned": "❌ 你没有「{item_name}」",
       "throw_header": "💣 投掷「{item_name}」→ {location}",
-      "throw_fragile": "  💥 {target_name} 受到 {damage} 点伤害！破碎道具额外伤害！",
+      "throw_fragile": "  → {target_name}: HP→{target_hp} + 脆弱{details}",
       "throw_shock": "  ⚡ {target_name} 进入震荡状态！",
       "throw_blind": "  🌫️ {target_name} 陷入致盲！",
       "throw_smoke": "  💨 制造烟雾区域，持续 {rounds} 轮",
