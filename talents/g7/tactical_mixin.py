@@ -663,10 +663,11 @@ class TacticalMixin:
 
         if effect == "cost_plus_1":
             self.cost = min(self.cost + 1, self.max_cost + 1)  # EPO可以超过max
-            return prompt_manager.get_prompt("talent", "g7hoshino.med_epo")
+            return prompt_manager.get_prompt("talent", "g7hoshino.med_epo", cost=self.cost)
         elif effect == "restore_halo":
             restored = self._halo_restore_one()
-            return f"🍫 海豚巧克力！{'恢复1层光环' if restored else '光环已满'}"
+            return prompt_manager.get_prompt("talent", "g7hoshino.med_chocolate",
+                                            result='恢复1层光环' if restored else '光环已满')
         elif effect == "full_restore":
             self.adrenaline_used = True
             self.cost = self.max_cost

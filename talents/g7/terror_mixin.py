@@ -69,7 +69,7 @@ class TerrorMixin:
         if not self.self_doubt_pending:
             return None
         self.self_doubt_pending = False
-        msg = prompt_manager.get_prompt("talent", "g7hoshino.self_doubt_skip", player=player)
+        msg = prompt_manager.get_prompt("talent", "g7hoshino.self_doubt_skip", player_name=player.name)
         display.show_info(msg)
         # 反转为 Terror
         self._enter_terror(player)
