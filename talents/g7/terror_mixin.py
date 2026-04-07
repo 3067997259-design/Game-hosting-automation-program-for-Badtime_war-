@@ -4,8 +4,6 @@ import math
 from cli import display
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    def _clear_facing(self) -> None: ...
 
 class TerrorMixin:
     """色彩反转 + Terror 状态 Mixin"""
