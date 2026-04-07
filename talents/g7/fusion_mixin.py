@@ -9,6 +9,7 @@ class FusionMixin:
     eye_of_horus: Any
     ammo: list
     tactical_unlocked: bool
+    is_terror: bool
 
     def _check_fusion(self, player):
         """检查是否满足融合条件，执行融合"""
@@ -53,7 +54,8 @@ class FusionMixin:
 
     def _check_tactical_unlock(self):
         """同时持有两件融合装备 → 解锁战术指令"""
-        if self.fusion_shield_done and self.fusion_weapon_done and not self.tactical_unlocked:
+        if (self.fusion_shield_done and self.fusion_weapon_done
+                and not self.tactical_unlocked and not self.is_terror):
             self.tactical_unlocked = True
             from cli import display
             display.show_info(f"⚔️ 战术指令已解锁！使用 special Hoshino 发动战术指令宏。")
