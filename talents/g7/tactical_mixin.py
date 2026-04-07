@@ -286,7 +286,8 @@ class TacticalMixin:
                 if not target or target.player_id not in self.front_players or not target.is_alive():
                     # 输入的名字不在正面，提示可选目标
                     names = [p.name for p in front_alive]
-                    return f"❌ 「{target_name}」不在正面，子弹浪费了。可选目标：{', '.join(names)}"
+                    return prompt_manager.get_prompt("talent", "g7hoshino.shoot_wrong_target",
+                                                    target_name=target_name, available=', '.join(names))
             else:
                 # 未指定目标，交互式选择
                 if len(front_alive) == 1:
@@ -395,7 +396,8 @@ class TacticalMixin:
         if pe:
             threshold = pe.get_protection_threshold(target.player_id)
             if threshold > 0 and threshold >= 1.5:
-                return f"🚔 警察保护过滤（阈值{threshold}≥1.5）"
+                return prompt_manager.get_prompt("talent", "g7hoshino.shoot_pellet_police_filter",
+                                               threshold=threshold)
 
         if getattr(target, '_hoshino_fragile', False):
             armor_break = random.random() < 0.2
@@ -439,7 +441,7 @@ class TacticalMixin:
             if self.state.police_engine:
                 self.state.police_engine.on_player_death(target.player_id)
             player.kill_count += 1
-            detail_lines.append("    💀 击杀！")
+            detail_lines.append("    " + prompt_manager.get_prompt("talent", "g7hoshino.shoot_kill"))
             # 通知所有天赋（星野色彩计数等）
             from engine.round_manager import RoundManager
             RoundManager.notify_all_talents_of_death(
@@ -555,7 +557,8 @@ class TacticalMixin:
                 context={"phase": "T0", "situation": "hoshino_throw_item"}
             )
         if item_name not in self.tactical_items:
-            return f"❌ 你没有「{item_name}」"
+            return prompt_manager.get_prompt("talent", "g7hoshino.throw_not_owned",
+                                            item_name=item_name)
         if location is None:
             from actions.move import get_all_valid_locations
             locs = get_all_valid_locations(self.state)
@@ -607,7 +610,8 @@ class TacticalMixin:
                 t.is_stunned = True
                 self.state.markers.add(t.player_id, "SHOCKED")
                 self.state.markers.add(t.player_id, "STUNNED")
-                lines.append(f"  → {t.name}: ⚡震荡")
+                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_shock",
+                                                     target_name=t.name))
             # 警察也受影响
             pe = getattr(self.state, 'police_engine', None)
             if pe and hasattr(self.state, 'police') and self.state.police:
@@ -622,14 +626,16 @@ class TacticalMixin:
             for t in targets:
                 t._hoshino_blinded = True
                 t._hoshino_blind_expire_round = self.state.current_round + 1
-                lines.append(f"  → {t.name}: 👁️致盲")
+                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_blind",
+                                                     target_name=t.name))
 
         elif effect == "smoke":
             # 烟雾弹：区域烟雾
             if not hasattr(self.state, '_hoshino_smoke_zones'):
                 self.state._hoshino_smoke_zones = {}
             self.state._hoshino_smoke_zones[location] = self.state.current_round + 1
-            lines.append(f"  → {location} 展开烟雾（持续到下轮R4）")
+            lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_smoke",
+                                                 rounds=1))
 
         elif effect == "burn":
             # 燃烧瓶：2层灼烧（复用g1灼烧逻辑）
@@ -640,7 +646,8 @@ class TacticalMixin:
                     # 直接设置灼烧属性
                     t._burn_stacks = getattr(t, '_burn_stacks', 0) + 2
                     t._burn_damage_per_stack = 0.5
-                lines.append(f"  → {t.name}: 🔥+2层灼烧")
+                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_burn",
+                                                     target_name=t.name))
 
         return "\n".join(lines)
 
@@ -654,7 +661,8 @@ class TacticalMixin:
                 context={"phase": "T0", "situation": "hoshino_medicine"}
             )
         if med_name not in self.medicines:
-            return f"❌ 你没有「{med_name}」"
+            return prompt_manager.get_prompt("talent", "g7hoshino.med_not_owned",
+                                            med_name=med_name)
 
         med_data = MEDICINES.get(med_name, {})
         effect = med_data.get("effect", "")
