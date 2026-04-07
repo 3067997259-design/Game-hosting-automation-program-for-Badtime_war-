@@ -198,6 +198,12 @@ class ActionTurnManager:
             {"usage": "interact <项目名>", "description": "与当前地点交互"},
             {"usage": "forfeit", "description": "放弃行动"},
         ]
+
+        # Terror 存活时：全场禁用 interact
+        if _is_terror_alive_on_field(self.state):
+            names = [n for n in names if n != "interact"]
+            descs = [d for d in descs if not d["usage"].startswith("interact")]
+
         # 星野架盾/持盾：过滤不可用行动
         if (player.talent and hasattr(player.talent, 'shield_mode')
                 and player.talent.shield_mode):
@@ -258,6 +264,8 @@ class ActionTurnManager:
                 })
 
         return names, descs
+
+
 
     # ================================================================
     #  T1：选择行动类型并执行
@@ -675,3 +683,12 @@ class ActionTurnManager:
         action_type = self._phase_t1(player)
         self._phase_t2(player, action_type)
         return action_type
+
+
+def _is_terror_alive_on_field(game_state):
+    for pid in game_state.player_order:
+        p = game_state.get_player(pid)
+        if (p and p.is_alive() and p.talent
+                and hasattr(p.talent, 'is_terror') and p.talent.is_terror):
+            return True
+    return False
