@@ -61,13 +61,12 @@ def parse(raw_input, player_id):
 
     # ---- 攻击 ----
     if cmd in ("attack", "攻击", "atk", "打"):
-            target = parts[1] if len(parts) >= 2 else None
-            weapon = parts[2] if len(parts) >= 3 else None
-            layer_str = parts[3] if len(parts) >= 4 else None
-            attr_str = parts[4] if len(parts) >= 5 else None
-            return {"action": "attack", "target": target, "weapon": weapon,
-                    "layer": layer_str, "attr": attr_str}
-
+        target = parts[1] if len(parts) >= 2 else None
+        weapon = parts[2] if len(parts) >= 3 else None
+        layer_str = parts[3] if len(parts) >= 4 else None
+        attr_str = parts[4] if len(parts) >= 5 else None
+        return {"action": "attack", "target": target, "weapon": weapon,
+                "layer": layer_str, "attr": attr_str}
 
     # ---- 特殊操作 ----
     if cmd in ("special", "特殊", "sp", "操作"):
