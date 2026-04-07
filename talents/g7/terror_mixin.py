@@ -2,6 +2,7 @@
 
 import math
 from cli import display
+from engine.prompt_manager import prompt_manager
 from typing import TYPE_CHECKING, Any
 
 
@@ -55,7 +56,9 @@ class TerrorMixin:
             )
             if choice == "进入自我怀疑":
                 self.self_doubt_pending = True
-                display.show_info(f"😰 {player.name} 进入「自我怀疑」状态，下一次行动回合将被跳过...")
+                msg = prompt_manager.get_prompt("talent", "g7hoshino.self_doubt_next_skip",
+                                              player_name=player.name)
+                display.show_info(msg)
         return None
 
     def _process_self_doubt(self, player):
@@ -66,7 +69,8 @@ class TerrorMixin:
         if not self.self_doubt_pending:
             return None
         self.self_doubt_pending = False
-        display.show_info(f"😰 {player.name} 处于「自我怀疑」状态，本回合被跳过...")
+        msg = prompt_manager.get_prompt("talent", "g7hoshino.self_doubt_skip", player_name=player.name)
+        display.show_info(msg)
         # 反转为 Terror
         self._enter_terror(player)
         return "self_doubt_terror"
@@ -98,17 +102,25 @@ class TerrorMixin:
                     if success:
                         restored_names.add(armor_name)
         if restored_names:
-            display.show_info(f"🛡️ 色彩反转！恢复护甲：{', '.join(restored_names)}")
+            msg = prompt_manager.get_prompt("talent", "g7hoshino.color_10_armor_restore",
+                                        restored_names=', '.join(restored_names))
+            display.show_info(msg)
         # 进入自我怀疑
         self.self_doubt_pending = True
-        display.show_info(f"😰 {player.name} 色彩值达到10，进入「自我怀疑」状态...")
+        msg = prompt_manager.get_prompt("talent", "g7hoshino.color_10_self_doubt",
+                                    player_name=player.name)
+        display.show_info(msg)
         return True
 
     def _enter_terror(self, player):
         """进入 Terror 状态"""
-        display.show_info(f"\n{'='*60}")
-        display.show_info(f"  ⚠️ 色彩反转 — {player.name} → 「星野-Terror」")
-        display.show_info(f"{'='*60}\n")
+        banner_top = prompt_manager.get_prompt("talent", "g7hoshino.terror_banner_top")
+        banner_mid = prompt_manager.get_prompt("talent", "g7hoshino.terror_banner_mid",
+                                           player_name=player.name)
+        banner_bot = prompt_manager.get_prompt("talent", "g7hoshino.terror_banner_bot")
+        display.show_info(f"\n{banner_top}")
+        display.show_info(banner_mid)
+        display.show_info(f"{banner_bot}\n")
 
         self.is_terror = True
 
@@ -141,9 +153,15 @@ class TerrorMixin:
             player.armor.remove_piece(armor)
 
         self.terror_extra_hp = horus_extra + halo_extra + armor_extra
-        display.show_info(f"  铁之荷鲁斯({original_horus_hp}→{horus_extra}HP) + "
-                         f"光环({halo_extra}HP) + 护甲({armor_extra}HP)")
-        display.show_info(f"  Terror 额外生命值: {self.terror_extra_hp}")
+        hp_calc = prompt_manager.get_prompt("talent", "g7hoshino.terror_hp_calc",
+                                         original_horus_hp=original_horus_hp,
+                                         horus_extra=horus_extra,
+                                         halo_extra=halo_extra,
+                                         armor_extra=armor_extra)
+        display.show_info(hp_calc)
+        extra_hp_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_extra_hp",
+                                              terror_extra_hp=self.terror_extra_hp)
+        display.show_info(extra_hp_msg)
 
         # 结束架盾/持盾
         self.shield_mode = None
@@ -161,7 +179,8 @@ class TerrorMixin:
             from combat.damage_resolver import resolve_terror_damage
             from cli import display
 
-            lines = ["⚠️ Terror 攻击！"]
+            header = prompt_manager.get_prompt("talent", "g7hoshino.terror_attack_header")
+            lines = [header]
 
             for pid in self.state.player_order:
                 t = self.state.get_player(pid)
@@ -186,10 +205,13 @@ class TerrorMixin:
 
             # 伤害结算后扣除额外HP（不同归于尽）
             self.terror_extra_hp = round(max(0, self.terror_extra_hp - 1.0), 2)
-            lines.append(f"  Terror 额外HP: {self.terror_extra_hp}")
+            extra_hp_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_extra_hp_status",
+                                                 terror_extra_hp=self.terror_extra_hp)
+            lines.append(extra_hp_msg)
 
             if self.terror_extra_hp <= 0:
-                lines.append("  ⚠️ Terror 额外HP归零！")
+                zero_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_extra_hp_zero")
+                lines.append(zero_msg)
 
             return "\n".join(lines)
 
@@ -203,12 +225,15 @@ class TerrorMixin:
 
         # 行动完成后扣除
         self.terror_extra_hp = round(max(0, self.terror_extra_hp - 0.5), 2)
-        msg += f"\n  Terror 额外HP: {self.terror_extra_hp}"
+        extra_hp_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_extra_hp_status",
+                                          terror_extra_hp=self.terror_extra_hp)
+        msg += f"\n{extra_hp_msg}"
 
         # 警察逃离逻辑（在 police_system 中处理）
 
         if self.terror_extra_hp <= 0:
-            msg += f"\n  ⚠️ Terror 额外HP归零，判定死亡！"
+            death_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_move_hp_zero")
+            msg += f"\n{death_msg}"
             player.hp = 0
 
         return msg
@@ -233,7 +258,7 @@ class TerrorMixin:
         player = target
         talent = target.talent
         if not hasattr(talent, 'color_is_null'):
-            return "❌ 目标不是星野"
+            return prompt_manager.get_prompt("talent", "g7hoshino.target_not_hoshino")
 
         # 需承受者选择是否接受
         choice = player.controller.choose(
@@ -242,13 +267,13 @@ class TerrorMixin:
             context={"phase": "T0", "situation": "poem_nightwatch_choice"}
         )
         if choice == "拒绝":
-            return "🌙 守夜人拒绝了涟漪的馈赠。"
+            return prompt_manager.get_prompt("talent", "g7hoshino.poem_reject")
 
         # 色彩值永久赋为null
         talent.color_is_null = True
         talent.color = 0
 
-        msg_parts = ["🌙 献予「守夜人」之诗生效！色彩值永久归null"]
+        msg_parts = [prompt_manager.get_prompt("talent", "g7hoshino.poem_accept")]
 
         if talent.is_terror:
             # Terror 解除
@@ -266,8 +291,10 @@ class TerrorMixin:
             talent.fusion_shield_done = True
             # 恢复战术可用性
             talent.tactical_unlocked = True
-            msg_parts.append(f"Terror 解除！永久额外HP: {permanent_extra}")
-            msg_parts.append(f"铁之荷鲁斯恢复（护甲值3）")
-            msg_parts.append("战术指令、药物和战术装备可用性恢复（需自己回去拿）")
+            terror_cancel = prompt_manager.get_prompt("talent", "g7hoshino.poem_terror_cancel",
+                                                 permanent_extra=permanent_extra)
+            msg_parts.append(terror_cancel)
+            msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_horus_restore"))
+            msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_tactical_restore"))
 
         return "\n".join(msg_parts)

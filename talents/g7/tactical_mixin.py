@@ -2,6 +2,7 @@
 
 import random
 from cli import display
+from engine.prompt_manager import prompt_manager
 from talents.g7.items import TACTICAL_ITEMS, MEDICINES
 
 
@@ -80,15 +81,17 @@ class TacticalMixin:
     def _execute_tactical_macro(self, player):
         """战术指令宏主入口。返回 (消息str, 是否消耗回合bool)"""
         if not self.tactical_unlocked:
-            return "❌ 战术指令尚未解锁（需同时持有铁之荷鲁斯和荷鲁斯之眼）", False
+            return prompt_manager.get_prompt("talent", "g7hoshino.macro_not_unlocked"), False
         if self.is_terror:
-            return "❌ Terror 状态下无法使用战术指令", False
+            return prompt_manager.get_prompt("talent", "g7hoshino.macro_terror_block"), False
         if self.iron_horus_hp <= 0 and not self.eye_of_horus:
-            return "❌ 铁之荷鲁斯已破损且荷鲁斯之眼不可用", False
+            return prompt_manager.get_prompt("talent", "g7hoshino.macro_broken"), False
 
-        display.show_info("⚔️ 进入战术指令宏模式。依次输入战术动作，输入 terminal 结束。")
-        display.show_info(f"   当前 Cost: {self.cost}/{self.max_cost}")
-        display.show_info(f"   可用战术：架盾(2) 射击(2) 重新装填(0) 持盾(1) 投掷(1) 服药(0) 冲刺(1) 取消(0) find(1) lock(1) 转向(0) 排弹(0)")
+        display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.macro_enter"))
+        cost_display = prompt_manager.get_prompt("talent", "g7hoshino.macro_cost_display",
+                                            cost=self.cost, max_cost=self.max_cost)
+        display.show_info(cost_display)
+        display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.macro_tactics_list"))
 
         # 收集指令
         commands = []
@@ -116,13 +119,7 @@ class TacticalMixin:
                     display.show_player_status(me, self.state)
                 continue
             if raw_lower == "help":
-                display.show_info(
-                    "⚔️ 战术指令宏帮助：\n"
-                    "  架盾(2) 射击(2) 重新装填(0) 持盾(1) 投掷(1)\n"
-                    "  服药(0) 冲刺(1) 取消(0) find(1) lock(1) 转向(0) 排弹(0)\n"
-                    "  terminal — 结束输入\n"
-                    "  allstatus / status / police — 查看状态（不消耗动作）"
-                )
+                display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.macro_help"))
                 continue
             if raw_lower == "police":
                 display.show_police_status(self.state)
@@ -130,50 +127,63 @@ class TacticalMixin:
 
             parsed = self._parse_tactical_command(raw_stripped)
             if parsed is None:
-                display.show_info(f"⚠️ 无法识别的战术指令: {raw_stripped}")
+                msg = prompt_manager.get_prompt("talent", "g7hoshino.macro_unknown_cmd",
+                                             raw_cmd=raw_stripped)
+                display.show_info(msg)
                 continue
             action_name, args = parsed
             # 冲刺每宏最多1次
             if action_name == "冲刺":
                 dash_count += 1
                 if dash_count > 1:
-                    display.show_info("⚠️ 每个战术指令宏最多包含1次冲刺")
+                    display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.macro_dash_limit"))
                     continue
             if action_name == "排弹":
                 reorder_count += 1
                 if reorder_count > 1:
-                    display.show_info("⚠️ 每个战术指令宏最多包含1次排弹")
+                    display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.macro_reorder_limit"))
                     continue
             commands.append((action_name, args))
             cost = self.TACTICAL_COST[action_name]
-            display.show_info(f"   ✓ {action_name} {''.join(args)} (cost: {cost})")
+            cmd_added = prompt_manager.get_prompt("talent", "g7hoshino.macro_cmd_added",
+                                             action_name=action_name, args=''.join(args), cost=cost)
+            display.show_info(cmd_added)
 
         if not commands:
-            return "❌ 战术指令宏为空，取消。", False
+            return prompt_manager.get_prompt("talent", "g7hoshino.macro_empty"), False
 
         # 计算总 cost
         total_cost = sum(self.TACTICAL_COST[cmd] for cmd, _ in commands)
         if total_cost > self.cost:
-            display.show_info(f"❌ Cost 不足！需要 {total_cost}，当前 {self.cost}。战术指令宏不执行，返还回合。")
-            return f"❌ Cost 不足（需要{total_cost}，当前{self.cost}），战术指令宏取消", False
+            cost_insuf = prompt_manager.get_prompt("talent", "g7hoshino.macro_cost_insufficient_display",
+                                                total_cost=total_cost, current_cost=self.cost)
+            display.show_info(cost_insuf)
+            return prompt_manager.get_prompt("talent", "g7hoshino.macro_cost_insufficient",
+                                          total_cost=total_cost, current_cost=self.cost), False
 
         # 扣除 cost 并依次执行
-        lines = [f"⚔️ 战术指令宏开始执行（总 Cost: {total_cost}）"]
+        start_msg = prompt_manager.get_prompt("talent", "g7hoshino.macro_start", total_cost=total_cost)
+        lines = [start_msg]
         has_dashed = False  # 追踪本宏内是否执行过冲刺
         for i, (action_name, args) in enumerate(commands):
             cost = self.TACTICAL_COST[action_name]
             self.cost -= cost
             is_last = (i == len(commands) - 1)
             result = self._dispatch_tactical(player, action_name, args, is_last, has_dashed=has_dashed)
-            lines.append(f"  [{i+1}] {action_name}: {result} (剩余Cost: {self.cost})")
+            step_msg = prompt_manager.get_prompt("talent", "g7hoshino.macro_step",
+                                             step=i+1, action_name=action_name, result=result,
+                                             remaining_cost=self.cost)
+            lines.append(step_msg)
             # 架盾/持盾结束检查
             if self.shield_mode and self._should_end_shield(player):
                 self._end_shield_mode(player)
-                lines.append(f"  ⚠️ 架盾/持盾状态被强制结束")
+                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.macro_shield_forced_end"))
             if action_name == "冲刺" and not result.startswith("❌"):
                 has_dashed = True
 
-        lines.append(f"⚔️ 战术指令宏执行完毕。剩余 Cost: {self.cost}/{self.max_cost}")
+        done_msg = prompt_manager.get_prompt("talent", "g7hoshino.macro_done",
+                                          cost=self.cost, max_cost=self.max_cost)
+        lines.append(done_msg)
         return "\n".join(lines), True  # 消耗回合
 
     def _dispatch_tactical(self, player, action_name, args, is_last, has_dashed=False):
@@ -211,14 +221,14 @@ class TacticalMixin:
             return self._tac_flip(player)
         elif action_name == "排弹":
             return self._tac_reorder(player)
-        return "❌ 未知战术动作"
+        return prompt_manager.get_prompt("talent", "g7hoshino.macro_unknown_action")
 
     # ---- 架盾 ----
     def _tac_deploy_shield(self, player):
         if self.iron_horus_hp <= 0:
-            return "❌ 铁之荷鲁斯已破损，无法架盾"
+            return prompt_manager.get_prompt("talent", "g7hoshino.deploy_broken")
         if self.shield_mode == "架盾":
-            return "❌ 已处于架盾状态"
+            return prompt_manager.get_prompt("talent", "g7hoshino.deploy_already")
         self.shield_mode = "架盾"
         self.shield_snapshot_hp = self.iron_horus_hp
         self._init_facing(player)
@@ -233,14 +243,16 @@ class TacticalMixin:
             p = self.state.get_player(pid)
             if p:
                 back_names.append(p.name)
-        return (f"🛡️ 架盾！铁之荷鲁斯护甲值快照: {self.shield_snapshot_hp}\n"
+        deploy_msg = prompt_manager.get_prompt("talent", "g7hoshino.deploy_ok",
+                                          snapshot_hp=self.shield_snapshot_hp)
+        return (f"{deploy_msg}\n"
                 f"   正面({len(self.front_players)}): {', '.join(front_names) or '无'}\n"
                 f"   背面({len(self.back_players)}): {', '.join(back_names) or '无'}")
 
     # ---- 射击 ----
     def _tac_shoot(self, player, target_name):
         if not self.ammo:
-            return "❌ 荷鲁斯之眼没有子弹"
+            return prompt_manager.get_prompt("talent", "g7hoshino.shoot_no_ammo")
         # 消耗1发子弹
         bullet = self.ammo[0]
         bullet_attr = bullet.get("attribute", "普通")
@@ -264,7 +276,7 @@ class TacticalMixin:
                     front_alive.append(p)
             if not front_alive:
                 # 子弹已消耗，但无有效目标
-                return "❌ 正面没有存活的目标，子弹浪费了"
+                return prompt_manager.get_prompt("talent", "g7hoshino.shoot_no_front_target")
 
             if target_name:
                 # 尝试匹配玩家输入的名字
@@ -274,7 +286,8 @@ class TacticalMixin:
                 if not target or target.player_id not in self.front_players or not target.is_alive():
                     # 输入的名字不在正面，提示可选目标
                     names = [p.name for p in front_alive]
-                    return f"❌ 「{target_name}」不在正面，子弹浪费了。可选目标：{', '.join(names)}"
+                    return prompt_manager.get_prompt("talent", "g7hoshino.shoot_wrong_target",
+                                                    target_name=target_name, available=', '.join(names))
             else:
                 # 未指定目标，交互式选择
                 if len(front_alive) == 1:
@@ -282,7 +295,9 @@ class TacticalMixin:
                 else:
                     names = [p.name for p in front_alive]
                     from cli import display
-                    display.show_info(f"  正面目标: {', '.join(names)}")
+                    front_targets = prompt_manager.get_prompt("talent", "g7hoshino.shoot_front_targets",
+                                                       names=', '.join(names))
+                    display.show_info(front_targets)
                     choice = player.controller.choose(
                         "选择架盾射击主目标：", names,
                         context={"phase": "T0", "situation": "hoshino_shield_shoot_target"}
@@ -294,7 +309,7 @@ class TacticalMixin:
             target_id = resolve_player_target(target_name, self.state) if target_name else None
             target = self.state.get_player(target_id) if target_id else None
             if not target or not target.is_alive():
-                return "❌ 无效的射击目标"
+                return prompt_manager.get_prompt("talent", "g7hoshino.shoot_invalid_target")
 
         # 弹丸分配逻辑（每发3颗弹丸，每颗0.5伤害）
         pellet_damage = 0.5
@@ -362,24 +377,27 @@ class TacticalMixin:
                     from engine.round_manager import RoundManager
                     RoundManager.notify_all_talents_of_death(
                         self.state, target.player_id, killer_id=player.player_id)
-                    extra_msg += " 💀击杀！"
+                    extra_msg += prompt_manager.get_prompt("talent", "g7hoshino.shoot_kill")
             else:
                 for _ in range(3):
                     r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
                     extra_msg += f"\n      {r}"
 
-        return f"🔫 {mode}（{bullet_attr}属性）→ {'; '.join(results)}{extra_msg}"
+        return prompt_manager.get_prompt("talent", "g7hoshino.shoot_result",
+                                       mode=mode, bullet_attr=bullet_attr,
+                                       results='; '.join(results), extra_msg=extra_msg)
 
     def _apply_pellet_damage(self, player, target, damage, attribute_str):
         """对单个目标施加一颗弹丸伤害"""
         if not target.is_alive():
-            return "(目标已死亡)"
+            return prompt_manager.get_prompt("talent", "g7hoshino.shoot_pellet_dead")
         # 警察保护简化：若保护阈值 < 1.5（一发子弹总伤害），忽略保护
         pe = getattr(self.state, 'police_engine', None)
         if pe:
             threshold = pe.get_protection_threshold(target.player_id)
             if threshold > 0 and threshold >= 1.5:
-                return f"🚔 警察保护过滤（阈值{threshold}≥1.5）"
+                return prompt_manager.get_prompt("talent", "g7hoshino.shoot_pellet_police_filter",
+                                               threshold=threshold)
 
         if getattr(target, '_hoshino_fragile', False):
             armor_break = random.random() < 0.2
@@ -399,7 +417,7 @@ class TacticalMixin:
                     from engine.round_manager import RoundManager
                     RoundManager.notify_all_talents_of_death(
                         self.state, target.player_id, killer_id=player.player_id)
-                    detail_lines.append("    💀 击杀！")
+                    detail_lines.append("    " + prompt_manager.get_prompt("talent", "g7hoshino.shoot_kill"))
                 summary = f"💥破甲！HP→{target.hp}"
                 if detail_lines:
                     return summary + "\n" + "\n".join(detail_lines)
@@ -423,7 +441,7 @@ class TacticalMixin:
             if self.state.police_engine:
                 self.state.police_engine.on_player_death(target.player_id)
             player.kill_count += 1
-            detail_lines.append("    💀 击杀！")
+            detail_lines.append("    " + prompt_manager.get_prompt("talent", "g7hoshino.shoot_kill"))
             # 通知所有天赋（星野色彩计数等）
             from engine.round_manager import RoundManager
             RoundManager.notify_all_talents_of_death(
@@ -450,7 +468,7 @@ class TacticalMixin:
                 if weapon and weapon.name != "拳击" and hasattr(weapon, 'attribute') and weapon.attribute:
                     candidates.append(("weapon", weapon.name, weapon.attribute.value))
             if not candidates:
-                return "❌ 没有可消耗的有属性物品、护甲或武器"
+                return prompt_manager.get_prompt("talent", "g7hoshino.reload_no_candidates")
             names = [f"{name}({attr})" for _, name, attr in candidates]
             item_name = player.controller.choose(
                 "选择要消耗的物品/护甲/武器：", names,
@@ -488,13 +506,15 @@ class TacticalMixin:
                     found_weapon_idx = i
                     break
         if attr_str is None:
-            return f"❌ 找不到可消耗的「{item_name}」"
+            return prompt_manager.get_prompt("talent", "g7hoshino.reload_not_found",
+                                          item_name=item_name)
 
         # 检查弹药容量（在消耗物品之前）
         current_total = len(self.ammo)
         new_bullets = min(4, self.max_ammo - current_total)
         if new_bullets <= 0:
-            return f"❌ 弹药已满（{current_total}/{self.max_ammo}），无法装填"
+            return prompt_manager.get_prompt("talent", "g7hoshino.reload_full",
+                                          current_total=current_total, max_ammo=self.max_ammo)
 
         # 容量足够，消耗物品/护甲/武器
         if found_item_idx is not None:
@@ -508,27 +528,30 @@ class TacticalMixin:
         for _ in range(new_bullets):
             self.ammo.append({"attribute": attr_str})
         overflow = 4 - new_bullets
-        total_after = sum(1 for _ in self.ammo)
-        msg = f"🔄 消耗「{item_name}」→ 装填{new_bullets}发{attr_str}子弹（{total_after}/{self.max_ammo}）"
+        msg = prompt_manager.get_prompt("talent", "g7hoshino.reload_ok",
+                                      item_name=item_name, count=new_bullets, attr=attr_str,
+                                      total=current_total + new_bullets, max=self.max_ammo)
         if overflow > 0:
-            msg += f"，{overflow}发溢出弃去"
+            msg += prompt_manager.get_prompt("talent", "g7hoshino.reload_overflow",
+                                          excess=overflow, count=current_total + new_bullets, max=self.max_ammo)
         return msg
 
     # ---- 持盾 ----
     def _tac_hold_shield(self, player):
         if self.iron_horus_hp <= 0:
-            return "❌ 铁之荷鲁斯已破损，无法持盾"
+            return prompt_manager.get_prompt("talent", "g7hoshino.hold_broken")
         if self.shield_mode == "持盾":
-            return "❌ 已处于持盾状态"
+            return prompt_manager.get_prompt("talent", "g7hoshino.hold_already")
         self.shield_mode = "持盾"
         # 持盾模式下铁之荷鲁斯作为 priority=100 最外层护甲
         # 实际的伤害减免在 damage_resolver 中通过 modify_incoming_damage 钩子实现
-        return f"🛡️ 持盾！铁之荷鲁斯展开（护甲值: {self.iron_horus_hp}）"
+        return prompt_manager.get_prompt("talent", "g7hoshino.hold_ok",
+                                       iron_horus_hp=self.iron_horus_hp)
 
     # ---- 投掷 ----
     def _tac_throw(self, player, item_name, location):
         if not self.tactical_items:
-            return "❌ 没有战术道具"
+            return prompt_manager.get_prompt("talent", "g7hoshino.throw_no_items")
         if item_name is None:
             names = [it for it in self.tactical_items]
             item_name = player.controller.choose(
@@ -536,7 +559,8 @@ class TacticalMixin:
                 context={"phase": "T0", "situation": "hoshino_throw_item"}
             )
         if item_name not in self.tactical_items:
-            return f"❌ 你没有「{item_name}」"
+            return prompt_manager.get_prompt("talent", "g7hoshino.throw_not_owned",
+                                            item_name=item_name)
         if location is None:
             from actions.move import get_all_valid_locations
             locs = get_all_valid_locations(self.state)
@@ -557,7 +581,8 @@ class TacticalMixin:
         if self.shield_mode == "架盾":
             targets = [t for t in targets if self.is_front(t.player_id)]
 
-        lines = [f"💣 投掷「{item_name}」→ {location}"]
+        lines = [prompt_manager.get_prompt("talent", "g7hoshino.throw_header",
+                                         item_name=item_name, location=location)]
 
         if effect == "fragile":
             for t in targets:
@@ -570,7 +595,10 @@ class TacticalMixin:
                 detail_str = ""
                 for detail in r.get("details", []):
                     detail_str += f"\n      {detail}"
-                lines.append(f"  → {t.name}: HP→{r.get('target_hp', '?')} + 脆弱{detail_str}")
+                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_fragile",
+                                                      target_name=t.name,
+                                                      target_hp=r.get('target_hp', '?'),
+                                                      details=detail_str))
                 if r.get("killed"):
                     self.state.markers.on_player_death(t.player_id)
                     if self.state.police_engine:
@@ -587,7 +615,8 @@ class TacticalMixin:
                 t.is_stunned = True
                 self.state.markers.add(t.player_id, "SHOCKED")
                 self.state.markers.add(t.player_id, "STUNNED")
-                lines.append(f"  → {t.name}: ⚡震荡")
+                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_shock",
+                                                     target_name=t.name))
             # 警察也受影响
             pe = getattr(self.state, 'police_engine', None)
             if pe and hasattr(self.state, 'police') and self.state.police:
@@ -602,14 +631,16 @@ class TacticalMixin:
             for t in targets:
                 t._hoshino_blinded = True
                 t._hoshino_blind_expire_round = self.state.current_round + 1
-                lines.append(f"  → {t.name}: 👁️致盲")
+                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_blind",
+                                                     target_name=t.name))
 
         elif effect == "smoke":
             # 烟雾弹：区域烟雾
             if not hasattr(self.state, '_hoshino_smoke_zones'):
                 self.state._hoshino_smoke_zones = {}
             self.state._hoshino_smoke_zones[location] = self.state.current_round + 1
-            lines.append(f"  → {location} 展开烟雾（持续到下轮R4）")
+            lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_smoke",
+                                                 rounds=1))
 
         elif effect == "burn":
             # 燃烧瓶：2层灼烧（复用g1灼烧逻辑）
@@ -620,36 +651,41 @@ class TacticalMixin:
                     # 直接设置灼烧属性
                     t._burn_stacks = getattr(t, '_burn_stacks', 0) + 2
                     t._burn_damage_per_stack = 0.5
-                lines.append(f"  → {t.name}: 🔥+2层灼烧")
+                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_burn",
+                                                     target_name=t.name))
 
         return "\n".join(lines)
 
     # ---- 服药 ----
     def _tac_medicine(self, player, med_name):
         if not self.medicines:
-            return "❌ 没有药物"
+            return prompt_manager.get_prompt("talent", "g7hoshino.med_no_meds")
         if med_name is None:
             med_name = player.controller.choose(
                 "选择服用的药物：", self.medicines,
                 context={"phase": "T0", "situation": "hoshino_medicine"}
             )
         if med_name not in self.medicines:
-            return f"❌ 你没有「{med_name}」"
+            return prompt_manager.get_prompt("talent", "g7hoshino.med_not_owned",
+                                            med_name=med_name)
 
         med_data = MEDICINES.get(med_name, {})
         effect = med_data.get("effect", "")
 
         if effect == "full_restore" and self.adrenaline_used:
-            return "❌ 肾上腺素全局仅能使用1次"
+            return prompt_manager.get_prompt("talent", "g7hoshino.med_adrenaline_used")
 
         self.medicines.remove(med_name)
 
         if effect == "cost_plus_1":
             self.cost = min(self.cost + 1, self.max_cost + 1)  # EPO可以超过max
-            return f"💊 EPO！Cost+1 → {self.cost}"
+            return prompt_manager.get_prompt("talent", "g7hoshino.med_epo", cost=self.cost)
         elif effect == "restore_halo":
             restored = self._halo_restore_one()
-            return f"🍫 海豚巧克力！{'恢复1层光环' if restored else '光环已满'}"
+            if restored:
+                return prompt_manager.get_prompt("talent", "g7hoshino.med_chocolate_restore")
+            else:
+                return prompt_manager.get_prompt("talent", "g7hoshino.med_chocolate_full")
         elif effect == "full_restore":
             self.adrenaline_used = True
             self.cost = self.max_cost
@@ -657,14 +693,14 @@ class TacticalMixin:
                 h['active'] = True
                 h['recovering'] = False
                 h['cooldown_remaining'] = 0
-            return f"💉 肾上腺素！Cost和光环全部回满"
-        return f"💊 服用了{med_name}"
+            return prompt_manager.get_prompt("talent", "g7hoshino.med_adrenaline")
+        return prompt_manager.get_prompt("talent", "g7hoshino.med_generic", med_name=med_name)
 
     # ---- 冲刺 ----
     def _tac_dash(self, player, dest, is_last):
         """冲刺：消耗1cost，持盾状态下的战术移动"""
         if self.shield_mode != "持盾":
-            return "❌ 冲刺需要在持盾状态下"
+            return prompt_manager.get_prompt("talent", "g7hoshino.dash_no_hold")
         if dest is None:
             from actions.move import get_all_valid_locations
             locs = get_all_valid_locations(self.state)
@@ -675,7 +711,8 @@ class TacticalMixin:
         # 执行移动
         from actions import move
         move.execute(player, dest, self.state)
-        msg = f"🏃 冲刺到 {dest}"
+        dash_ok = prompt_manager.get_prompt("talent", "g7hoshino.dash_ok", destination=dest)
+        msg = dash_ok
 
         # 临战-shielder 特殊：冲刺为宏最后一个动作时
         # → 自动锁定冲刺目标地点的一个玩家 → 冲击 → 自动架盾 → 该轮R4不扣cost
@@ -704,13 +741,15 @@ class TacticalMixin:
                 impact_target.is_stunned = True
                 self.state.markers.add(impact_target.player_id, "SHOCKED")
                 self.state.markers.add(impact_target.player_id, "STUNNED")
-                msg += f"\n   💥 冲击 {impact_target.name}！⚡震荡"
+                impact_msg = prompt_manager.get_prompt("talent", "g7hoshino.dash_impact",
+                                                  target_name=impact_target.name)
+                msg += f"\n{impact_msg}"
 
                 # 自动进入架盾模式
                 self.shield_mode = "架盾"
                 self.shield_snapshot_hp = self.iron_horus_hp
                 self._init_facing(player)  # FacingMixin
-                msg += f"\n   🛡️ 自动架盾！"
+                msg += f"\n{prompt_manager.get_prompt('talent', 'g7hoshino.dash_auto_shield')}"
 
                 # 该轮R4不扣cost
                 self.dash_free_shield_cost = True
@@ -720,17 +759,17 @@ class TacticalMixin:
     def _tac_cancel(self, player):
         """取消架盾或持盾状态"""
         if not self.shield_mode:
-            return "❌ 当前没有架盾或持盾状态"
+            return prompt_manager.get_prompt("talent", "g7hoshino.cancel_no_shield")
         old_mode = self.shield_mode
         self._end_shield_mode(player)
-        return f"🔓 取消{old_mode}状态"
+        return prompt_manager.get_prompt("talent", "g7hoshino.cancel_ok", old_mode=old_mode)
 
     def _tac_find(self, player, target_name, has_dashed=False):
         """战术指令宏内的 find"""
         from cli.parser import resolve_player_target
         target_id = resolve_player_target(target_name, self.state) if target_name else None
         if not target_id:
-            return "❌ 无效的目标"
+            return prompt_manager.get_prompt("talent", "g7hoshino.find_invalid")
         from actions import find_target
         result = find_target.execute(player, target_id, self.state)
 
@@ -748,7 +787,9 @@ class TacticalMixin:
                 target.is_stunned = True
                 self.state.markers.add(target.player_id, "SHOCKED")
                 self.state.markers.add(target.player_id, "STUNNED")
-                result += f"\n   💥 肘开23，迎接24！冲击 {target.name}！⚡震荡"
+                dash_impact = prompt_manager.get_prompt("talent", "g7hoshino.dash_find_impact",
+                                              target_name=target.name)
+                result += f"\n{dash_impact}"
                 # 注意：这里不需要额外添加 engage_with，因为 find 已经建立了
 
         return result
@@ -758,7 +799,7 @@ class TacticalMixin:
         from cli.parser import resolve_player_target
         target_id = resolve_player_target(target_name, self.state) if target_name else None
         if not target_id:
-            return "❌ 无效的目标"
+            return prompt_manager.get_prompt("talent", "g7hoshino.lock_invalid")
         from actions import lock_target
         result = lock_target.execute(player, target_id, self.state)
         return result
@@ -766,24 +807,28 @@ class TacticalMixin:
     def _tac_flip(self, player):
         """转向：正面↔背面互换 + 切换守点模式"""
         if self.shield_mode != "架盾":
-            return "❌ 转向需要在架盾状态下"
+            return prompt_manager.get_prompt("talent", "g7hoshino.flip_no_shield")
         self._flip_facing()  # FacingMixin（内部会 toggle shield_guard_mode）
         mode_desc = "阻止进入（守点）" if self.shield_guard_mode == "block_entering" else "阻止离开"
-        return (f"🔄 转向！正面{len(self.front_players)}人，背面{len(self.back_players)}人\n"
-                f"   当前模式：{mode_desc}")
+        return prompt_manager.get_prompt("talent", "g7hoshino.flip_ok",
+                                    front=len(self.front_players),
+                                    back=len(self.back_players),
+                                    mode=mode_desc)
 
     def _tac_reorder(self, player):
         """排弹：重新排列弹匣内子弹顺序（每宏限1次）"""
         if not self.ammo:
-            return "❌ 弹匣为空，无需排弹"
+            return prompt_manager.get_prompt("talent", "g7hoshino.reorder_empty")
         if len(self.ammo) == 1:
-            return "❌ 弹匣只有1发子弹，无需排弹"
+            return prompt_manager.get_prompt("talent", "g7hoshino.reorder_single")
 
         # 显示当前弹匣
         current_display = " ".join(
             f"[{i+1}]{b.get('attribute', '普通')}" for i, b in enumerate(self.ammo)
         )
-        display.show_info(f"  当前弹匣: {current_display}")
+        current_msg = prompt_manager.get_prompt("talent", "g7hoshino.reorder_current",
+                                         current_display=current_display)
+        display.show_info(current_msg)
 
         # 请求新顺序
         raw_order = player.controller.get_command(
@@ -798,12 +843,14 @@ class TacticalMixin:
         try:
             indices = [int(x) - 1 for x in raw_order.strip().split()]
         except ValueError:
-            return "❌ 输入格式错误，请输入数字序列（如: 2 1 3 4）"
+            return prompt_manager.get_prompt("talent", "g7hoshino.reorder_error")
 
         # 验证：必须是当前弹匣长度的完整排列
         n = len(self.ammo)
         if sorted(indices) != list(range(n)):
-            return f"❌ 请输入 1~{n} 的完整排列（如: {' '.join(str(i+1) for i in range(n))}）"
+            example = ' '.join(str(i+1) for i in range(n))
+            return prompt_manager.get_prompt("talent", "g7hoshino.reorder_invalid",
+                                         n=n, example=example)
 
         # 执行重排
         new_ammo = [self.ammo[i] for i in indices]
@@ -812,7 +859,8 @@ class TacticalMixin:
         new_display = " ".join(
             f"[{i+1}]{b.get('attribute', '普通')}" for i, b in enumerate(self.ammo)
         )
-        return f"🔄 弹匣重排: {new_display}"
+        return prompt_manager.get_prompt("talent", "g7hoshino.reorder_ok",
+                                      new_display=new_display)
 
     def _should_end_shield(self, player):
         """检查是否应该强制结束架盾/持盾"""
@@ -849,7 +897,9 @@ class TacticalMixin:
             if player:
                 self._end_shield_mode(player)
                 from cli import display
-                display.show_info(f"⚠️ {player.name} Cost不足，架盾状态结束")
+                msg = prompt_manager.get_prompt("talent", "g7hoshino.r4_cost_end_shield",
+                                         player_name=player.name)
+                display.show_info(msg)
 
     def get_move_extra_cost(self, mover_id):
         """

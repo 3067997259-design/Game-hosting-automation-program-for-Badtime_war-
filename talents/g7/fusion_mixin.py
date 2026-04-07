@@ -1,4 +1,5 @@
 from typing import Any
+from engine.prompt_manager import prompt_manager
 class FusionMixin:
     """装备融合系统 Mixin"""
     state: Any
@@ -40,7 +41,9 @@ class FusionMixin:
         self.iron_horus_max_hp = 3
         self.fusion_shield_done = True
         from cli import display
-        display.show_info(f"🛡️ 盾牌与AT力场融合为「铁之荷鲁斯」！（护甲值：{self.iron_horus_hp}）")
+        msg = prompt_manager.get_prompt("talent", "g7hoshino.fuse_iron_horus",
+                                        iron_horus_hp=self.iron_horus_hp)
+        display.show_info(msg)
 
     def _fuse_eye_of_horus(self, player):
         """电磁步枪 + 高斯步枪 → 荷鲁斯之眼"""
@@ -50,7 +53,8 @@ class FusionMixin:
         self.ammo = []  # 初始无子弹
         self.fusion_weapon_done = True
         from cli import display
-        display.show_info(f"🔫 电磁步枪与高斯步枪融合为「荷鲁斯之眼」！（无子弹）")
+        msg = prompt_manager.get_prompt("talent", "g7hoshino.fuse_eye_of_horus")
+        display.show_info(msg)
 
     def _check_tactical_unlock(self):
         """同时持有两件融合装备 → 解锁战术指令"""
@@ -58,14 +62,15 @@ class FusionMixin:
                 and not self.tactical_unlocked and not self.is_terror):
             self.tactical_unlocked = True
             from cli import display
-            display.show_info(f"⚔️ 战术指令已解锁！使用 special Hoshino 发动战术指令宏。")
+            msg = prompt_manager.get_prompt("talent", "g7hoshino.tactical_unlocked")
+            display.show_info(msg)
 
     def _repair_horus(self, player, sacrifice_name):
         """special 修复 <护甲名>：消耗一件盾牌/AT力场修复铁之荷鲁斯"""
         if not self.fusion_shield_done:
-            return "❌ 你还没有铁之荷鲁斯"
+            return prompt_manager.get_prompt("talent", "g7hoshino.repair_no_horus")
         if self.iron_horus_hp >= self.iron_horus_max_hp:
-            return "❌ 铁之荷鲁斯护甲值已满"
+            return prompt_manager.get_prompt("talent", "g7hoshino.repair_full")
         # 找到要消耗的护甲
         target_armor = None
         for armor in player.armor.get_all_active():
@@ -73,9 +78,13 @@ class FusionMixin:
                 target_armor = armor
                 break
         if not target_armor:
-            return f"❌ 你没有可用的「{sacrifice_name}」"
+            return prompt_manager.get_prompt("talent", "g7hoshino.repair_no_material",
+                                            sacrifice_name=sacrifice_name)
         if sacrifice_name not in ("盾牌", "AT力场"):
-            return f"❌ 只能消耗盾牌或AT力场来修复铁之荷鲁斯"
+            return prompt_manager.get_prompt("talent", "g7hoshino.repair_wrong_material")
         player.armor.remove_piece(target_armor)
         self.iron_horus_hp = min(self.iron_horus_hp + 1, self.iron_horus_max_hp)
-        return f"🔧 消耗「{sacrifice_name}」修复铁之荷鲁斯！护甲值：{self.iron_horus_hp}/{self.iron_horus_max_hp}"
+        return prompt_manager.get_prompt("talent", "g7hoshino.repair_ok",
+                                        sacrifice_name=sacrifice_name,
+                                        iron_horus_hp=self.iron_horus_hp,
+                                        iron_horus_max_hp=self.iron_horus_max_hp)

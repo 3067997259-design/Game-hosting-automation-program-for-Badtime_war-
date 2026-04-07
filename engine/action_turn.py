@@ -3,6 +3,7 @@
 from cli import display
 from cli.parser import parse, resolve_player_target
 from cli.validator import validate
+from engine.prompt_manager import prompt_manager
 from actions import (action_registry, wake_up, move, interact,
                      forfeit, lock_target, find_target, attack, special_op)
 
@@ -176,7 +177,8 @@ class ActionTurnManager:
                 and player.talent.is_terror):
             names = ["move"]
             descs = [
-                {"usage": "move <地点>", "description": "移动（消耗0.5额外HP）"},
+                {"usage": "move <地点>", "description": prompt_manager.get_prompt(
+                    "talent", "g7hoshino.terror_move_desc")},
             ]
             # 检查是否有存活目标可攻击
             others_alive = []
@@ -189,7 +191,8 @@ class ActionTurnManager:
             if others_alive:
                 names.append("attack")
                 descs.append(
-                    {"usage": "attack", "description": "Terror攻击（全图1点无视克制，消耗1额外HP）"})
+                    {"usage": "attack", "description": prompt_manager.get_prompt(
+                        "talent", "g7hoshino.terror_attack_desc")})
             return names, descs
 
         names = ["move", "interact", "forfeit"]
@@ -368,7 +371,8 @@ class ActionTurnManager:
                     self.state.markers.on_player_death(player.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(player.player_id)
-                    display.show_death(player.name, "Terror 额外HP耗尽")
+                    terror_death = prompt_manager.get_prompt("talent", "g7hoshino.terror_death")
+                    display.show_death(player.name, terror_death)
                     from engine.round_manager import RoundManager
                     RoundManager.notify_all_talents_of_death(
                         self.state, player.player_id, killer_id=None)
@@ -410,7 +414,8 @@ class ActionTurnManager:
                     self.state.markers.on_player_death(player.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(player.player_id)
-                    display.show_death(player.name, "Terror 额外HP耗尽")
+                    terror_death = prompt_manager.get_prompt("talent", "g7hoshino.terror_death")
+                    display.show_death(player.name, terror_death)
                     from engine.round_manager import RoundManager
                     RoundManager.notify_all_talents_of_death(
                         self.state, player.player_id, killer_id=None)

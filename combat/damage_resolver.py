@@ -121,22 +121,26 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                     result["final_damage"] = 0
                     result["success"] = False
                     result["reason"] = "架盾正面伤害过滤"
-                    result["details"].append(
-                        f"🛡️ 架盾过滤：伤害 {raw} ≤ 铁之荷鲁斯快照 {threshold}，完全免疫")
+                    shield_immune = prompt_manager.get_prompt(
+                        "talent", "g7hoshino.shield_filter_immune",
+                        raw=raw, threshold=threshold)
+                    result["details"].append(shield_immune)
                     return result
                 else:
                     talent.iron_horus_hp = max(0, talent.iron_horus_hp - 1)
                     result["final_damage"] = 0
                     result["success"] = False
                     result["reason"] = "架盾正面伤害过滤（溢出）"
-                    result["details"].append(
-                        f"🛡️ 架盾过滤：伤害 {raw} > 快照 {threshold}，"
-                        f"铁之荷鲁斯损耗1点 → {talent.iron_horus_hp}")
+                    shield_overflow = prompt_manager.get_prompt(
+                        "talent", "g7hoshino.shield_filter_overflow",
+                        raw=raw, threshold=threshold, remaining_hp=talent.iron_horus_hp)
+                    result["details"].append(shield_overflow)
                     if talent.iron_horus_hp <= 0:
                         player_obj = game_state.get_player(talent.player_id) if game_state else None
                         if player_obj:
                             talent._end_shield_mode(player_obj)
-                        result["details"].append("⚠️ 铁之荷鲁斯护甲归零，架盾状态结束")
+                        result["details"].append(
+                            prompt_manager.get_prompt("talent", "g7hoshino.shield_horus_zero"))
                     return result
 
     # ---- 星野持盾：铁之荷鲁斯伤害减免 ----
@@ -157,12 +161,15 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             absorbed = min(raw, talent.iron_horus_hp)
             talent.iron_horus_hp -= absorbed
             raw -= absorbed
-            result["details"].append(
-                f"🛡️ 持盾：铁之荷鲁斯吸收 {absorbed} 伤害（剩余护甲值: {talent.iron_horus_hp}）")
+            hold_absorb = prompt_manager.get_prompt(
+                "talent", "g7hoshino.hold_absorb",
+                absorbed=absorbed, remaining_hp=talent.iron_horus_hp)
+            result["details"].append(hold_absorb)
             if talent.iron_horus_hp <= 0:
                 # 破损时吸收所有溢出伤害
                 raw = 0
-                result["details"].append("⚠️ 铁之荷鲁斯进入破损状态！吸收所有溢出伤害")
+                result["details"].append(
+                    prompt_manager.get_prompt("talent", "g7hoshino.hold_broken_absorb"))
                 player_obj = game_state.get_player(talent.player_id) if game_state else None
                 if player_obj:
                     talent._end_shield_mode(player_obj)
@@ -486,8 +493,10 @@ def resolve_damage(attacker, target, weapon, game_state,
                     result["final_damage"] = 0
                     result["success"] = False
                     result["reason"] = "架盾正面伤害过滤"
-                    result["details"].append(
-                        f"🛡️ 架盾过滤：伤害 {raw} ≤ 铁之荷鲁斯快照 {threshold}，完全免疫")
+                    shield_immune = prompt_manager.get_prompt(
+                        "talent", "g7hoshino.shield_filter_immune",
+                        raw=raw, threshold=threshold)
+                    result["details"].append(shield_immune)
                     return result
                 else:
                     # 溢出：荷鲁斯损耗1点护甲值，无效化剩余
@@ -495,14 +504,16 @@ def resolve_damage(attacker, target, weapon, game_state,
                     result["final_damage"] = 0
                     result["success"] = False
                     result["reason"] = "架盾正面伤害过滤（溢出）"
-                    result["details"].append(
-                        f"🛡️ 架盾过滤：伤害 {raw} > 快照 {threshold}，"
-                        f"铁之荷鲁斯损耗1点 → {talent.iron_horus_hp}")
+                    shield_overflow = prompt_manager.get_prompt(
+                        "talent", "g7hoshino.shield_filter_overflow",
+                        raw=raw, threshold=threshold, remaining_hp=talent.iron_horus_hp)
+                    result["details"].append(shield_overflow)
                     if talent.iron_horus_hp <= 0:
                         player_obj = game_state.get_player(talent.player_id) if game_state else None
                         if player_obj:
                             talent._end_shield_mode(player_obj)
-                        result["details"].append("⚠️ 铁之荷鲁斯护甲归零，架盾状态结束")
+                        result["details"].append(
+                            prompt_manager.get_prompt("talent", "g7hoshino.shield_horus_zero"))
                     return result
 
     # ---- 警察保护阈值减免（非AOE） ----
@@ -537,11 +548,14 @@ def resolve_damage(attacker, target, weapon, game_state,
             absorbed = min(raw, talent.iron_horus_hp)
             talent.iron_horus_hp -= absorbed
             raw -= absorbed
-            result["details"].append(
-                f"🛡️ 持盾：铁之荷鲁斯吸收 {absorbed} 伤害（剩余护甲值: {talent.iron_horus_hp}）")
+            hold_absorb = prompt_manager.get_prompt(
+                "talent", "g7hoshino.hold_absorb",
+                absorbed=absorbed, remaining_hp=talent.iron_horus_hp)
+            result["details"].append(hold_absorb)
             if talent.iron_horus_hp <= 0:
                 raw = 0
-                result["details"].append("⚠️ 铁之荷鲁斯进入破损状态！吸收所有溢出伤害")
+                result["details"].append(
+                    prompt_manager.get_prompt("talent", "g7hoshino.hold_broken_absorb"))
                 player_obj = game_state.get_player(talent.player_id) if game_state else None
                 if player_obj:
                     talent._end_shield_mode(player_obj)
@@ -1105,7 +1119,8 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             result["final_damage"] = 0
             result["success"] = False
             result["reason"] = "元亨利贞免疫"
-            result["details"].append("☯️ 「元亨利贞」免疫了 Terror 伤害！")
+            gold_body = prompt_manager.get_prompt("talent", "g7hoshino.terror_gold_body_immune")
+            result["details"].append(gold_body)
             return result
 
     # ---- 不享受加成和减伤：跳过 modify_outgoing_damage、modify_incoming_damage、hologram ----
@@ -1114,7 +1129,9 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
     # ---- 伤害量化 ----
     final_damage = quantize_damage(raw_damage)
     result["final_damage"] = final_damage
-    result["details"].append(f"⚠️ Terror 伤害：{final_damage}（无视属性克制，不享受加成和减伤）")
+    terror_damage = prompt_manager.get_prompt("talent", "g7hoshino.terror_damage_detail",
+                                        damage=final_damage)
+    result["details"].append(terror_damage)
 
     remaining = final_damage
     result["success"] = True
@@ -1137,8 +1154,10 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
-            result["details"].append(
-                f"生命受到 {remaining} 伤害 → HP: {target.hp}/{target.max_hp}")
+            hp_damage = prompt_manager.get_prompt("talent", "g7hoshino.terror_hp_damage",
+                                            damage=remaining,
+                                            current_hp=target.hp, max_hp=target.max_hp)
+            result["details"].append(hp_damage)
 
     result["target_hp"] = target.hp
 
@@ -1159,8 +1178,9 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
             target.hp = round(max(0, target.hp - 0.5), 2)
-            result["details"].append(
-                f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
+            petrify_break = prompt_manager.get_prompt("talent", "g7hoshino.terror_petrify_break",
+                                             target_name=target.name, hp=target.hp)
+            result["details"].append(petrify_break)
             result["target_hp"] = target.hp
 
     # ---- 死亡判定（自定义：无视死者苏生和g4人形态免死，不无视救世主免死） ----
@@ -1174,7 +1194,9 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
                 if dr and dr.get("prevent_death"):
                     target.hp = dr.get("new_hp", 0.5)
                     prevented = True
-                    result["details"].append(f"💫 救世主免死！HP → {target.hp}")
+                    savior_survive = prompt_manager.get_prompt("talent", "g7hoshino.terror_savior_survive",
+                                                      hp=target.hp)
+                    result["details"].append(savior_survive)
         # 其他玩家的救世主天赋也检查
         if not prevented and game_state:
             for pid in game_state.player_order:
@@ -1186,7 +1208,9 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
                     if dr and dr.get("prevent_death"):
                         target.hp = dr.get("new_hp", 0.5)
                         prevented = True
-                        result["details"].append(f"💫 救世主免死！HP → {target.hp}")
+                        savior_survive = prompt_manager.get_prompt("talent", "g7hoshino.terror_savior_survive",
+                                                          hp=target.hp)
+                        result["details"].append(savior_survive)
                         break
         # 注意：死者苏生、g4人形态免死在这里被跳过（不检查）
 
@@ -1195,7 +1219,9 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             result["target_hp"] = target.hp
         else:
             result["killed"] = True
-            result["details"].append(f"💀 {target.name} 被 Terror 击杀！")
+            terror_kill = prompt_manager.get_prompt("talent", "g7hoshino.terror_kill",
+                                          target_name=target.name)
+            result["details"].append(terror_kill)
             if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
                 attacker.talent.on_kill(attacker, target)
 
@@ -1209,7 +1235,9 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             target.is_stunned = True
             if game_state:
                 game_state.markers.add(target.player_id, "STUNNED")
-            result["details"].append(f"💫 {target.name} 进入眩晕状态！")
+            terror_stun = prompt_manager.get_prompt("talent", "g7hoshino.terror_stun",
+                                          target_name=target.name)
+            result["details"].append(terror_stun)
 
     # ---- 愿负世：被攻击时积累火种 ----
     if (target.talent and hasattr(target.talent, 'on_being_attacked') and attacker

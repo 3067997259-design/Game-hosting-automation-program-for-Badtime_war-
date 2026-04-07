@@ -11,6 +11,7 @@ from talents.g7.tactical_mixin import TacticalMixin
 from talents.g7.facing_mixin import FacingMixin
 from talents.g7.terror_mixin import TerrorMixin
 from cli import display
+from engine.prompt_manager import prompt_manager
 class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, BaseTalent):
     name = "大叔我啊，剪短发了"
     description = "光环+装备融合+战术指令宏+色彩反转"
@@ -124,14 +125,17 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
 
         # 架盾/持盾状态下，眩晕/震荡立刻解除盾牌状态
         if self.shield_mode and self._should_end_shield(player):
-            display.show_info(f"⚠️ {player.name} 因控制效果，{self.shield_mode}状态结束")
+            msg = prompt_manager.get_prompt("talent", "g7hoshino.shield_end_control",
+                                          player_name=player.name, shield_mode=self.shield_mode)
+            display.show_info(msg)
             self._end_shield_mode(player)
 
         # 自我怀疑 → 跳过回合 → 反转为 Terror
         if self.self_doubt_pending:
             self.self_doubt_pending = False
             self._enter_terror(player)
-            return {"consume_turn": True, "message": f"😰 {player.name} 的自我怀疑结束，反转为 Terror..."}
+            return {"consume_turn": True, "message": prompt_manager.get_prompt(
+                "talent", "g7hoshino.self_doubt_terror", player_name=player.name)}
 
         # 色彩≥6 时提供选择是否进入自我怀疑
         if not self.color_is_null and not self.is_terror and self.color >= 6:
@@ -142,7 +146,9 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             )
             if "进入" in choice:
                 self.self_doubt_pending = True
-                display.show_info(f"😰 {player.name} 进入「自我怀疑」状态...")
+                msg = prompt_manager.get_prompt("talent", "g7hoshino.self_doubt_enter",
+                                             player_name=player.name)
+                display.show_info(msg)
 
     def get_t0_option(self, player):
         """T0选项：战术指令宏入口（已移至 special Hoshino）"""
