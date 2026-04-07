@@ -7,7 +7,7 @@ from actions.interact import get_location_module
 from actions.special_op import get_available_specials
 from cli.parser import resolve_player_target
 from models.equipment import WeaponRange
-from engine import prompt_manager
+from engine.prompt_manager import prompt_manager
 
 def _check_love_wish_block(attacker_pid, target_pid, game_state):
     """检查攻击者是否因爱愿无法攻击目标（目标是G5持有者）"""

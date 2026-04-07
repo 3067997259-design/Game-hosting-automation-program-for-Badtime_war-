@@ -11,7 +11,7 @@ from talents.g7.tactical_mixin import TacticalMixin
 from talents.g7.facing_mixin import FacingMixin
 from talents.g7.terror_mixin import TerrorMixin
 from cli import display
-from engine import prompt_manager
+from engine.prompt_manager import prompt_manager
 class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, BaseTalent):
     name = "大叔我啊，剪短发了"
     description = "光环+装备融合+战术指令宏+色彩反转"

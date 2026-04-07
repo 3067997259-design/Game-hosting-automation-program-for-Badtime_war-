@@ -3,7 +3,7 @@
 from cli import display
 from cli.parser import parse, resolve_player_target
 from cli.validator import validate
-from engine import prompt_manager
+from engine.prompt_manager import prompt_manager
 from actions import (action_registry, wake_up, move, interact,
                      forfeit, lock_target, find_target, attack, special_op)
 

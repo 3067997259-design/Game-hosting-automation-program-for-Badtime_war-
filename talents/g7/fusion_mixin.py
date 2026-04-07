@@ -1,5 +1,5 @@
 from typing import Any
-from engine import prompt_manager
+from engine.prompt_manager import prompt_manager
 class FusionMixin:
     """装备融合系统 Mixin"""
     state: Any

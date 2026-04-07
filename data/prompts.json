@@ -496,9 +496,9 @@
       "med_no_meds": "❌ 没有药物",
       "med_not_found": "❌ 未找到指定药物",
       "med_adrenaline_used": "❌ 肾上腺素全局仅能使用1次",
-      "med_epo": "💉 注射EPO！额外行动回合+1（无需选择目标，直接生效）",
-      "med_chocolate": "🍫 服用巧克力！清除自身所有debuff（眩晕/震荡/石化）",
-      "med_adrenaline": "💉 注射肾上腺素！额外行动回合+1（无需选择目标，直接生效）",
+      "med_epo": "💊 EPO！Cost+1 → {cost}",
+      "med_chocolate": "🍫 海豚巧克力！{result}",
+      "med_adrenaline": "💉 肾上腺素！Cost和光环全部回满",
       "med_generic": "💊 服用了{med_name}",
       "dash_no_hold": "❌ 冲刺需要在持盾状态下",
       "dash_ok": "🏃 冲刺到 {destination}",
@@ -535,7 +535,7 @@
       "terror_death": "Terror 额外HP归零 → 无视任何条件死亡",
       "validate_shield_no_move": "🛡️ 架盾状态下无法移动（正面强攻）",
       "validate_terror_no_interact": "❌ Terror 状态下无法与地点交互",
-      "validate_shield_no_interact": "❌ 架盾状态下无法与地点交互"
+      "validate_shield_no_interact": "❌ 持盾/架盾状态下无法与地点交互"
     }
   },
   "system": {

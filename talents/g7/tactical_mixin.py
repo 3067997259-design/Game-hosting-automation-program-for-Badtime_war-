@@ -2,7 +2,7 @@
 
 import random
 from cli import display
-from engine import prompt_manager
+from engine.prompt_manager import prompt_manager
 from talents.g7.items import TACTICAL_ITEMS, MEDICINES
 
 

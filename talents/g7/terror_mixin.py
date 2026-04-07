@@ -2,7 +2,7 @@
 
 import math
 from cli import display
-from engine import prompt_manager
+from engine.prompt_manager import prompt_manager
 from typing import TYPE_CHECKING, Any
 
 
