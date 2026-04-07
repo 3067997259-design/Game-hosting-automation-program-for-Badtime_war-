@@ -39,6 +39,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         # 盾牌模式 + 正面/背面
         self.shield_mode = None      # "架盾" / "持盾" / None
         self.shield_snapshot_hp = 0  # 架盾时铁之荷鲁斯的护甲值快照（用于正面伤害过滤阈值）
+        self.shield_guard_mode = "block_leaving"  # "block_leaving" / "block_entering"
         self.front_players = set()
         self.back_players = set()
         # 战术道具 + 药物

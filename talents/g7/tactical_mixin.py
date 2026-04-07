@@ -254,13 +254,47 @@ class TacticalMixin:
         else:
             mode = "普通射击"
 
-        # 解析目标
-        from cli.parser import resolve_player_target
-        target_id = resolve_player_target(target_name, self.state) if target_name else None
-        target = self.state.get_player(target_id) if target_id else None
+        # 解析目标（架盾射击模式下从正面玩家中选择，不需要 find）
+        if mode == "架盾射击":
+            # 获取正面存活玩家列表
+            front_alive = []
+            for pid in self.front_players:
+                p = self.state.get_player(pid)
+                if p and p.is_alive():
+                    front_alive.append(p)
+            if not front_alive:
+                # 子弹已消耗，但无有效目标
+                return "❌ 正面没有存活的目标，子弹浪费了"
 
-        if not target or not target.is_alive():
-            return "❌ 无效的射击目标"
+            if target_name:
+                # 尝试匹配玩家输入的名字
+                from cli.parser import resolve_player_target
+                target_id = resolve_player_target(target_name, self.state)
+                target = self.state.get_player(target_id) if target_id else None
+                if not target or target.player_id not in self.front_players or not target.is_alive():
+                    # 输入的名字不在正面，提示可选目标
+                    names = [p.name for p in front_alive]
+                    return f"❌ 「{target_name}」不在正面。可选目标：{', '.join(names)}"
+            else:
+                # 未指定目标，交互式选择
+                if len(front_alive) == 1:
+                    target = front_alive[0]
+                else:
+                    names = [p.name for p in front_alive]
+                    from cli import display
+                    display.show_info(f"  正面目标: {', '.join(names)}")
+                    choice = player.controller.choose(
+                        "选择架盾射击主目标：", names,
+                        context={"phase": "T0", "situation": "hoshino_shield_shoot_target"}
+                    )
+                    target = next((p for p in front_alive if p.name == choice), front_alive[0])
+        else:
+            # 持盾射击和普通射击：仍需指定目标名
+            from cli.parser import resolve_player_target
+            target_id = resolve_player_target(target_name, self.state) if target_name else None
+            target = self.state.get_player(target_id) if target_id else None
+            if not target or not target.is_alive():
+                return "❌ 无效的射击目标"
 
         # 弹丸分配逻辑（每发3颗弹丸，每颗0.5伤害）
         pellet_damage = 0.5
@@ -730,11 +764,13 @@ class TacticalMixin:
         return result
 
     def _tac_flip(self, player):
-        """转向：正面↔背面互换"""
+        """转向：正面↔背面互换 + 切换守点模式"""
         if self.shield_mode != "架盾":
             return "❌ 转向需要在架盾状态下"
-        self._flip_facing()  # FacingMixin
-        return f"🔄 转向！正面{len(self.front_players)}人，背面{len(self.back_players)}人"
+        self._flip_facing()  # FacingMixin（内部会 toggle shield_guard_mode）
+        mode_desc = "阻止进入（守点）" if self.shield_guard_mode == "block_entering" else "阻止离开"
+        return (f"🔄 转向！正面{len(self.front_players)}人，背面{len(self.back_players)}人\n"
+                f"   当前模式：{mode_desc}")
 
     def _tac_reorder(self, player):
         """排弹：重新排列弹匣内子弹顺序（每宏限1次）"""
