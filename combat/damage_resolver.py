@@ -75,7 +75,8 @@ def _record_hoshino_armor_break(target, armor_name):
 
 def _resolve_weaponless_damage(attacker, target, game_state, result,
                                 raw_damage, damage_attribute_str,
-                                is_talent_attack=False):
+                                is_talent_attack=False,
+                                is_love_poem=False):
     """
     无武器伤害结算（爱与记忆之诗等外部伤害源）。
     走护甲结算但不涉及武器天赋修正。
@@ -106,6 +107,37 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
     result["details"].append(external_damage_text.format(
         damage=raw, attribute=damage_attribute_str
     ))
+    # ---- 星野架盾：正面伤害过滤（无武器路径） ----
+    if (target.talent and hasattr(target.talent, 'shield_mode')
+        and target.talent.shield_mode == "架盾"
+        and not getattr(target, '_mythland_talent_suppressed', False)):
+        talent = target.talent
+        attacker_id = attacker.player_id if attacker else None
+        if attacker_id and talent.is_front(attacker_id):
+            # is_love_poem 由调用方通过参数传入
+            if not is_love_poem:
+                threshold = talent.shield_snapshot_hp
+                if raw <= threshold:
+                    result["final_damage"] = 0
+                    result["success"] = False
+                    result["reason"] = "架盾正面伤害过滤"
+                    result["details"].append(
+                        f"🛡️ 架盾过滤：伤害 {raw} ≤ 铁之荷鲁斯快照 {threshold}，完全免疫")
+                    return result
+                else:
+                    talent.iron_horus_hp = max(0, talent.iron_horus_hp - 1)
+                    result["final_damage"] = 0
+                    result["success"] = False
+                    result["reason"] = "架盾正面伤害过滤（溢出）"
+                    result["details"].append(
+                        f"🛡️ 架盾过滤：伤害 {raw} > 快照 {threshold}，"
+                        f"铁之荷鲁斯损耗1点 → {talent.iron_horus_hp}")
+                    if talent.iron_horus_hp <= 0:
+                        player_obj = game_state.get_player(talent.player_id) if game_state else None
+                        if player_obj:
+                            talent._end_shield_mode(player_obj)
+                        result["details"].append("⚠️ 铁之荷鲁斯护甲归零，架盾状态结束")
+                    return result
 
     # ---- 星野持盾：铁之荷鲁斯伤害减免 ----
     if (target.talent and hasattr(target.talent, 'shield_mode')
@@ -323,7 +355,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                    ignore_last_inner_absorb=False,
                    raw_damage_override=None,
                    damage_attribute_override=None,
-                   is_talent_attack=False):
+                   is_talent_attack=False,
+                   is_love_poem=False):
     """
     完整伤害结算。
     新增参数（Phase 4）：
@@ -332,6 +365,7 @@ def resolve_damage(attacker, target, weapon, game_state,
     新增参数（Phase 5 涟漪）：
       raw_damage_override: 无武器时的原始伤害值
       damage_attribute_override: 无武器时的伤害属性（字符串）
+      is_love_poem: 是否为爱与记忆之诗伤害（穿透架盾）
     """
     result = {
         "success": False,
@@ -384,6 +418,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             effective_raw,
             dmg_attr_str,
             is_talent_attack=is_talent_attack,
+            is_love_poem=is_love_poem,
         )
 
     # ======== 六爻·元亨利贞：免疫伤害（有武器路径） ========
@@ -443,7 +478,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         attacker_id = attacker.player_id if attacker else None
         if attacker_id and talent.is_front(attacker_id):
             # 免疫除爱与记忆之诗外所有伤害低于快照护甲值的正面伤害
-            is_love_poem = result.get('_is_love_poem', False)
+            # is_love_poem 由调用方通过参数传入
             if not is_love_poem:
                 threshold = talent.shield_snapshot_hp
                 if raw <= threshold:
