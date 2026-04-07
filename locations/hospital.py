@@ -119,8 +119,7 @@ def do_interact(player, item_name, game_state=None):
                            game_state)
 
     # 星野药物
-    HOSHINO_MEDICINES = {"EPO", "海豚巧克力", "肾上腺素"}
-    elif item_name in HOSHINO_MEDICINES:
+    elif item_name in {"EPO", "海豚巧克力", "肾上腺素"}:
         player.talent.medicines.append(item_name)
         count = len(player.talent.medicines)
         return f"💊 {player.name} 获得了药物「{item_name}」！（当前持有 {count}/2）"
