@@ -25,7 +25,7 @@ Bug 修复：
 
 import copy
 import random
-from typing import Any, Optional, List
+from typing import Any, Optional, List, TYPE_CHECKING
 from cli import display
 from controllers.human import HumanController
 from engine.prompt_manager import prompt_manager
@@ -60,13 +60,11 @@ class AnchorMixin:
     _caster_round_start_shocked: bool
     _caster_round_start_petrified: bool
 
-    # ================================================================
-    #  辅助方法（由主类 Ripple 提供，此处声明供类型检查）
-    # ================================================================
-
-    def _get_caster(self): ...
-    def _has_human_players(self) -> bool: ...
-    def _consume_use(self, cost: int = 12) -> None: ...
+    # 以下 stub 仅供静态类型检查器使用，运行时不定义（避免遮蔽 Ripple 的真实实现）
+    if TYPE_CHECKING:
+        def _get_caster(self): ...
+        def _has_human_players(self) -> bool: ...
+        def _consume_use(self, cost: int = 12) -> None: ...
 
     # ================================================================
     #  方式一：锚定命运 —— 入口

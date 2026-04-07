@@ -8,7 +8,7 @@ PoemMixin —— 献诗系统（方式二）
   - apply_hexagram_free_choice: 六爻献诗自由选择
 """
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from cli import display
 from engine.prompt_manager import prompt_manager
 from combat.damage_resolver import resolve_damage
@@ -27,10 +27,11 @@ class PoemMixin:
     total_uses: int
     poem_use_counts: dict
     destiny_use_count: int
-    # 辅助方法（由主类 Ripple 提供）
-    def _consume_use(self, cost: int = 12) -> None: ...
-    def get_destiny_cost(self) -> int: ...
-    def grant_love_wish(self, target_id: str, rounds: int) -> None: ...  # 新增
+    # 以下 stub 仅供静态类型检查器使用，运行时不定义（避免遮蔽 Ripple 的真实实现）
+    if TYPE_CHECKING:
+        def _consume_use(self, cost: int = 12) -> None: ...
+        def get_destiny_cost(self) -> int: ...
+        def grant_love_wish(self, target_id: str, rounds: int) -> None: ...
 
     # ================================================================
     #  献诗入口
