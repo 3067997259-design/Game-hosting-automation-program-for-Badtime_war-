@@ -652,6 +652,7 @@ class PoemMixin:
                 damage_attribute_override=damage_attr,
                 ignore_counter=True,
                 is_talent_attack=True,
+                is_love_poem=True,
             )
 
             lines.append(prompt_manager.get_prompt(

@@ -75,7 +75,8 @@ def _record_hoshino_armor_break(target, armor_name):
 
 def _resolve_weaponless_damage(attacker, target, game_state, result,
                                 raw_damage, damage_attribute_str,
-                                is_talent_attack=False):
+                                is_talent_attack=False,
+                                is_love_poem=False):
     """
     无武器伤害结算（爱与记忆之诗等外部伤害源）。
     走护甲结算但不涉及武器天赋修正。
@@ -113,7 +114,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         talent = target.talent
         attacker_id = attacker.player_id if attacker else None
         if attacker_id and talent.is_front(attacker_id):
-            is_love_poem = (damage_attribute_str == "爱与记忆")  # 爱与记忆之诗不被过滤
+            # is_love_poem 由调用方通过参数传入
             if not is_love_poem:
                 threshold = talent.shield_snapshot_hp
                 if raw <= threshold:
@@ -354,7 +355,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                    ignore_last_inner_absorb=False,
                    raw_damage_override=None,
                    damage_attribute_override=None,
-                   is_talent_attack=False):
+                   is_talent_attack=False,
+                   is_love_poem=False):
     """
     完整伤害结算。
     新增参数（Phase 4）：
@@ -363,6 +365,7 @@ def resolve_damage(attacker, target, weapon, game_state,
     新增参数（Phase 5 涟漪）：
       raw_damage_override: 无武器时的原始伤害值
       damage_attribute_override: 无武器时的伤害属性（字符串）
+      is_love_poem: 是否为爱与记忆之诗伤害（穿透架盾）
     """
     result = {
         "success": False,
@@ -415,6 +418,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             effective_raw,
             dmg_attr_str,
             is_talent_attack=is_talent_attack,
+            is_love_poem=is_love_poem,
         )
 
     # ======== 六爻·元亨利贞：免疫伤害（有武器路径） ========
@@ -474,7 +478,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         attacker_id = attacker.player_id if attacker else None
         if attacker_id and talent.is_front(attacker_id):
             # 免疫除爱与记忆之诗外所有伤害低于快照护甲值的正面伤害
-            is_love_poem = result.get('_is_love_poem', False)
+            # is_love_poem 由调用方通过参数传入
             if not is_love_poem:
                 threshold = talent.shield_snapshot_hp
                 if raw <= threshold:
