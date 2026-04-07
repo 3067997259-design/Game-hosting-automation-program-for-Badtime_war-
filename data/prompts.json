@@ -24,7 +24,8 @@
     "police_no_crimes": " 犯罪记录：无",
     "police_enforcement": " 🚔 警察执法：",
     "police_enforcement_item": " {msg}",
-    "virus_death": " 💀🦠 {player_name} 因病毒死亡！"
+    "virus_death": " 💀🦠 {player_name} 因病毒死亡！",
+    "validate_terror_no_interact": "⚠️ Terror 降临，所有地点交互已被封锁。"
   },
   "combat": {
     "attack_hit": " 🗡️ {attacker} 使用 {weapon} 攻击 {target}！",
@@ -479,8 +480,8 @@
       "shoot_kill": " 💀击杀！",
       "shoot_result": "🔫 {mode}（{bullet_attr}属性）→ {results}{extra_msg}",
       "reload_no_candidates": "❌ 没有可消耗的有属性物品、护甲或武器",
-      "reload_not_found": "❌ 未找到指定物品",
-      "reload_full": "❌ 弹匣已满",
+      "reload_not_found": "❌ 找不到可消耗的「{item_name}」",
+      "reload_full": "❌ 弹药已满（{current_total}/{max_ammo}），无法装填",
       "reload_ok": "🔄 消耗「{item_name}」→ 装填{count}发{attr}子弹（{total}/{max}）",
       "reload_overflow": "⚠️ 弹匣溢出！丢弃 {excess} 发，剩余 {count}/{max}",
       "hold_broken": "❌ 铁之荷鲁斯已破损，无法持盾",
@@ -500,7 +501,8 @@
       "med_not_owned": "❌ 你没有「{med_name}」",
       "med_adrenaline_used": "❌ 肾上腺素全局仅能使用1次",
       "med_epo": "💊 EPO！Cost+1 → {cost}",
-      "med_chocolate": "🍫 海豚巧克力！{result}",
+      "med_chocolate_restore": "🍫 海豚巧克力！恢复1层光环",
+      "med_chocolate_full": "🍫 海豚巧克力！光环已满",
       "med_adrenaline": "💉 肾上腺素！Cost和光环全部回满",
       "med_generic": "💊 服用了{med_name}",
       "dash_no_hold": "❌ 冲刺需要在持盾状态下",
@@ -537,7 +539,6 @@
       "terror_attack_desc": "Terror 攻击：对全图除自己外所有单位造成1点无视克制伤害",
       "terror_death": "Terror 额外HP归零 → 无视任何条件死亡",
       "validate_shield_no_move": "🛡️ 架盾状态下无法移动（正面强攻）",
-      "validate_terror_no_interact": "⚠️ Terror 降临，所有地点交互已被封锁。",
       "validate_shield_no_interact": "❌ 持盾/架盾状态下无法与地点交互"
     }
   },

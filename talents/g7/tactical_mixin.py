@@ -506,13 +506,15 @@ class TacticalMixin:
                     found_weapon_idx = i
                     break
         if attr_str is None:
-            return prompt_manager.get_prompt("talent", "g7hoshino.reload_not_found")
+            return prompt_manager.get_prompt("talent", "g7hoshino.reload_not_found",
+                                          item_name=item_name)
 
         # 检查弹药容量（在消耗物品之前）
         current_total = len(self.ammo)
         new_bullets = min(4, self.max_ammo - current_total)
         if new_bullets <= 0:
-            return prompt_manager.get_prompt("talent", "g7hoshino.reload_full")
+            return prompt_manager.get_prompt("talent", "g7hoshino.reload_full",
+                                          current_total=current_total, max_ammo=self.max_ammo)
 
         # 容量足够，消耗物品/护甲/武器
         if found_item_idx is not None:
@@ -677,8 +679,10 @@ class TacticalMixin:
             return prompt_manager.get_prompt("talent", "g7hoshino.med_epo", cost=self.cost)
         elif effect == "restore_halo":
             restored = self._halo_restore_one()
-            return prompt_manager.get_prompt("talent", "g7hoshino.med_chocolate",
-                                            result='恢复1层光环' if restored else '光环已满')
+            if restored:
+                return prompt_manager.get_prompt("talent", "g7hoshino.med_chocolate_restore")
+            else:
+                return prompt_manager.get_prompt("talent", "g7hoshino.med_chocolate_full")
         elif effect == "full_restore":
             self.adrenaline_used = True
             self.cost = self.max_cost
@@ -782,7 +786,7 @@ class TacticalMixin:
                 self.state.markers.add(target.player_id, "STUNNED")
                 dash_impact = prompt_manager.get_prompt("talent", "g7hoshino.dash_find_impact",
                                               target_name=target.name)
-                result += f"\n   {dash_impact}"
+                result += f"\n{dash_impact}"
                 # 注意：这里不需要额外添加 engage_with，因为 find 已经建立了
 
         return result

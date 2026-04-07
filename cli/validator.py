@@ -247,7 +247,7 @@ def validate_interact(player, item_name, game_state):
         return False, "🛡️ 你还没完全进入此地点，无法交互。再次 move 到此地点可完全进入。"
     # Terror 全局禁用 interact
     if game_state.is_terror_alive():
-        return False, prompt_manager.get_prompt("talent", "g7hoshino.validate_terror_no_interact")
+        return False, prompt_manager.get_prompt("game", "validate_terror_no_interact")
     # 星野持盾：无法执行 interact
     if (player.talent and hasattr(player.talent, 'shield_mode')
             and player.talent.shield_mode in ("持盾", "架盾")):
