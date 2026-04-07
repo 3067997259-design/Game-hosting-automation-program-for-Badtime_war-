@@ -159,23 +159,24 @@ class TacticalMixin:
 
         # 扣除 cost 并依次执行
         lines = [f"⚔️ 战术指令宏开始执行（总 Cost: {total_cost}）"]
-        prev_action = None  # 追踪上一个动作
+        has_dashed = False  # 追踪本宏内是否执行过冲刺
         for i, (action_name, args) in enumerate(commands):
             cost = self.TACTICAL_COST[action_name]
             self.cost -= cost
             is_last = (i == len(commands) - 1)
-            result = self._dispatch_tactical(player, action_name, args, is_last, prev_action=prev_action)
+            result = self._dispatch_tactical(player, action_name, args, is_last, has_dashed=has_dashed)
             lines.append(f"  [{i+1}] {action_name}: {result} (剩余Cost: {self.cost})")
             # 架盾/持盾结束检查
             if self.shield_mode and self._should_end_shield(player):
                 self._end_shield_mode(player)
                 lines.append(f"  ⚠️ 架盾/持盾状态被强制结束")
-            prev_action = action_name
+            if action_name == "冲刺":
+                has_dashed = True
 
         lines.append(f"⚔️ 战术指令宏执行完毕。剩余 Cost: {self.cost}/{self.max_cost}")
         return "\n".join(lines), True  # 消耗回合
 
-    def _dispatch_tactical(self, player, action_name, args, is_last, prev_action=None):
+    def _dispatch_tactical(self, player, action_name, args, is_last, has_dashed=False):
         """分发单个战术动作"""
         if action_name == "架盾":
             return self._tac_deploy_shield(player)
@@ -202,7 +203,7 @@ class TacticalMixin:
             return self._tac_cancel(player)
         elif action_name == "find":
             target_name = args[0] if args else None
-            return self._tac_find(player, target_name, prev_action=prev_action)
+            return self._tac_find(player, target_name, has_dashed=has_dashed)
         elif action_name == "lock":
             target_name = args[0] if args else None
             return self._tac_lock(player, target_name)
@@ -330,12 +331,15 @@ class TacticalMixin:
                     extra_msg += " 💀击杀！"
             else:
                 for _ in range(3):
-                    self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
+                    r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
+                    extra_msg += f"\n      {r}"
 
         return f"🔫 {mode}（{bullet_attr}属性）→ {'; '.join(results)}{extra_msg}"
 
     def _apply_pellet_damage(self, player, target, damage, attribute_str):
         """对单个目标施加一颗弹丸伤害"""
+        if not target.is_alive():
+            return "(目标已死亡)"
         # 警察保护简化：若保护阈值 < 1.5（一发子弹总伤害），忽略保护
         pe = getattr(self.state, 'police_engine', None)
         if pe:
@@ -687,7 +691,7 @@ class TacticalMixin:
         self._end_shield_mode(player)
         return f"🔓 取消{old_mode}状态"
 
-    def _tac_find(self, player, target_name, prev_action=None):
+    def _tac_find(self, player, target_name, has_dashed=False):
         """战术指令宏内的 find"""
         from cli.parser import resolve_player_target
         target_id = resolve_player_target(target_name, self.state) if target_name else None
@@ -700,9 +704,10 @@ class TacticalMixin:
         if self.shield_mode == "架盾":
             self._on_find_target(target_id)
 
-        # "肘开23，迎接24"：持盾状态下，冲刺后紧接 find 成功 → 自动冲击+震荡
-        if (prev_action == "冲刺" and self.shield_mode == "持盾"
-                and "找到了" in result):  # find 成功的标志
+        # "肘开23，迎接24"：持盾状态下，本宏内冲刺过且 find 成功 → 自动冲击+震荡
+        find_success = self.state.markers.has_relation(player.player_id, "ENGAGED_WITH", target_id)
+        if (has_dashed and self.shield_mode == "持盾"
+                and find_success):
             target = self.state.get_player(target_id)
             if target and target.is_alive():
                 target.is_shocked = True
