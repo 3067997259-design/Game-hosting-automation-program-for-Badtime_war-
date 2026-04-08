@@ -141,6 +141,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             if p and hasattr(p, '_hoshino_blind_expire_round'):
                 if round_num > p._hoshino_blind_expire_round:
                     p._hoshino_blinded = False
+                    if hasattr(p, '_hoshino_blind_snapshot'):
+                        del p._hoshino_blind_snapshot  # 释放快照内存
                     del p._hoshino_blind_expire_round
 
     def on_round_end(self, round_num):

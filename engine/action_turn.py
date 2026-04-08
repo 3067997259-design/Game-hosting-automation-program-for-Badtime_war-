@@ -290,10 +290,15 @@ class ActionTurnManager:
         while attempts < max_retries:
             attempts += 1
 
-            # ══ CONTROLLER：输入来源 ══
+            from engine.filtered_state import FilteredGameState
+
+            observable = (FilteredGameState(self.state, player.player_id)
+                        if getattr(player, '_hoshino_blinded', False)
+                        else self.state)
+
             raw = player.controller.get_command(
                 player=player,
-                game_state=self.state,
+                game_state=observable,
                 available_actions=action_names,
                 context={
                     "phase": "T1",
@@ -312,7 +317,14 @@ class ActionTurnManager:
                 display.show_player_status(player, self.state)
                 continue
             if raw_lower == "allstatus":
-                display.show_all_players_status(self.state)
+                if getattr(player, '_hoshino_blinded', False):
+                    from engine.filtered_state import FilteredGameState
+                    display.show_all_players_status(FilteredGameState(self.state, player.player_id))
+                    display.show_info(prompt_manager.get_prompt(
+                        "talent", "g7hoshino.blind_info_stale",
+                        default="⚠️ [致盲中·以上信息可能已过时]"))
+                else:
+                    display.show_all_players_status(self.state)
                 continue
             if raw_lower == "police":
                 display.show_police_status(self.state)

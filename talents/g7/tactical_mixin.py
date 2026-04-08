@@ -111,7 +111,14 @@ class TacticalMixin:
 
             # 查看类指令（不消耗战术动作，不退出战术模式）
             if raw_lower == "allstatus":
-                display.show_all_players_status(self.state)
+                if getattr(player, '_hoshino_blinded', False):
+                    from engine.filtered_state import FilteredGameState
+                    display.show_all_players_status(FilteredGameState(self.state, player.player_id))
+                    display.show_info(prompt_manager.get_prompt(
+                        "talent", "g7hoshino.blind_info_stale",
+                        default="⚠️ [致盲中·以上信息可能已过时]"))
+                else:
+                    display.show_all_players_status(self.state)
                 continue
             if raw_lower == "status":
                 me = self.state.get_player(self.player_id)
@@ -633,12 +640,14 @@ class TacticalMixin:
                         lines.append(f"  → {unit.unit_id}: ⚡震荡")
 
         elif effect == "blind":
-            # 闪光弹：致盲（持续到下轮R4）
+            from engine.filtered_state import create_snapshot
             for t in targets:
                 t._hoshino_blinded = True
                 t._hoshino_blind_expire_round = self.state.current_round + 1
-                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_blind",
-                                                     target_name=t.name))
+                t._hoshino_blind_snapshot = create_snapshot(self.state, t.player_id)
+                lines.append(prompt_manager.get_prompt(
+                    "talent", "g7hoshino.tac_blind_hit",
+                    default="  → {name}: 👁️致盲").format(name=t.name))
 
         elif effect == "smoke":
             # 烟雾弹：区域烟雾
