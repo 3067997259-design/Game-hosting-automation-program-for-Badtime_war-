@@ -289,6 +289,16 @@ class ActionTurnManager:
 
         from engine.filtered_state import FilteredGameState
         is_blinded = getattr(player, '_hoshino_blinded', False)
+        # 兜底：致盲已过期但未被清理（如 Hoshino 死亡导致 on_round_start 未执行）
+        if is_blinded:
+            expire_round = getattr(player, '_hoshino_blind_expire_round', -1)
+            if self.state.current_round > expire_round:
+                player._hoshino_blinded = False
+                for attr in ('_hoshino_blind_snapshot', '_hoshino_blind_markers_simple',
+                             '_hoshino_blind_markers_relations', '_hoshino_blind_expire_round'):
+                    if hasattr(player, attr):
+                        delattr(player, attr)
+                is_blinded = False
         observable = (FilteredGameState(self.state, player.player_id)
                       if is_blinded else self.state)
 

@@ -114,21 +114,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
 
     def on_round_start(self, round_num):
         """R0: cost回满 + 光环tick + 融合检查 + 战术解锁检查"""
-        me = self.state.get_player(self.player_id)
-        if not me or not me.is_alive():
-            return
-
-        # Terror 状态下不回满 cost
-        if not self.is_terror:
-            self.cost = self.max_cost
-
-        # 光环恢复 tick
-        self._halo_tick()
-
-        # 装备融合检查
-        self._check_fusion(me)
-
-        # 闪光弹/烟雾弹过期清理
+        # 闪光弹/烟雾弹过期清理（即使 Hoshino 已死也必须执行，否则致盲永久化）
         if hasattr(self.state, '_hoshino_smoke_zones'):
             expired = [loc for loc, expire_round in self.state._hoshino_smoke_zones.items()
                       if round_num > expire_round]
@@ -148,6 +134,20 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                     if hasattr(p, '_hoshino_blind_markers_relations'):
                         del p._hoshino_blind_markers_relations
                     del p._hoshino_blind_expire_round
+
+        me = self.state.get_player(self.player_id)
+        if not me or not me.is_alive():
+            return
+
+        # Terror 状态下不回满 cost
+        if not self.is_terror:
+            self.cost = self.max_cost
+
+        # 光环恢复 tick
+        self._halo_tick()
+
+        # 装备融合检查
+        self._check_fusion(me)
 
     def on_round_end(self, round_num):
         """R4: 架盾cost扣除（位于R4所有检查之后）"""
