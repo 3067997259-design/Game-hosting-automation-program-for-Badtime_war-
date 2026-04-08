@@ -163,7 +163,7 @@ class TacticalMixin:
 
         # 扣除 cost 并依次执行
         start_msg = prompt_manager.get_prompt("talent", "g7hoshino.macro_start",
-            default="⚔️ 战术指令宏开始执行").format()
+            default="⚔️ 战术指令宏开始执行（总 Cost: {total_cost}）", total_cost=total_cost)
         lines = [start_msg]
         has_dashed = False  # 追踪本宏内是否执行过冲刺
         for i, (action_name, args) in enumerate(commands):
