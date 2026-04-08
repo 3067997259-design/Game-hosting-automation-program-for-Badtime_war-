@@ -290,6 +290,14 @@ def validate_lock(player, target_str, game_state):
     )
     if not has_ranged:
         return False, "锁定是远程攻击前置，你没有远程武器"
+    # 烟雾弹：目标在烟雾区域内禁止 lock（星野自己除外）
+    target_loc = target.location
+    if hasattr(game_state, '_hoshino_smoke_zones') and target_loc in game_state._hoshino_smoke_zones:
+        is_hoshino = (player.talent and hasattr(player.talent, 'form'))
+        if not is_hoshino:
+            return False, prompt_manager.get_prompt(
+                "talent", "g7hoshino.smoke_no_lock",
+                default="🌫️ 目标在烟雾区域中，无法锁定")
 
     # 全息影像/结界：破除隐身（必须在可见性检查之前）
     if _is_stealth_blocked(target_id, game_state):
@@ -335,6 +343,16 @@ def validate_find(player, target_str, game_state):
         return False, "不能对自己使用找到"
     if target.location != player.location:
         return False, f"{target.name} 不在你的位置"
+    # 烟雾弹：烟雾区域内禁止 find（星野自己除外）
+    if hasattr(game_state, '_hoshino_smoke_zones'):
+        player_in_smoke = player.location in game_state._hoshino_smoke_zones
+        if player_in_smoke:
+            # 星野自己可以在烟雾中 find
+            is_hoshino = (player.talent and hasattr(player.talent, 'form'))
+            if not is_hoshino:
+                return False, prompt_manager.get_prompt(
+                    "talent", "g7hoshino.smoke_no_find",
+                    default="🌫️ 烟雾中无法执行 find")
 
     # 全息影像/结界：破除隐身（必须在可见性检查之前）
     if _is_stealth_blocked(target_id, game_state):
@@ -359,6 +377,15 @@ def validate_find(player, target_str, game_state):
     hologram_block = _check_hologram_lock_find(player, game_state)
     if hologram_block:
         return False, hologram_block
+
+    # 方案B：烟雾中的星野 find 了你，你不能反向 find 星野
+    target_player = game_state.get_player(target_id)
+    if (target_player and target_player.talent and hasattr(target_player.talent, 'form')):
+        if hasattr(game_state, '_hoshino_smoke_zones'):
+            if target_player.location in game_state._hoshino_smoke_zones:
+                return False, prompt_manager.get_prompt(
+                    "talent", "g7hoshino.smoke_no_reverse_find",
+                    default="🌫️ 目标在烟雾中，无法反向 find")
 
     return True, ""
 
