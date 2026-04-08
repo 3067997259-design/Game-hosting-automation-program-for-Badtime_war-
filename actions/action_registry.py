@@ -117,7 +117,7 @@ def _get_police_actions(player, game_state):
                 "description": "指引警察追踪目标（立刻到达）",
             })
 
-    existing_police = pe.get_current_police_member_id() if pe else None
+    existing_police = pe.get_current_police_member_id()
     has_existing_police = existing_police is not None and existing_police != player.player_id
     if (not player.is_police
             and not police.is_criminal(player.player_id)
