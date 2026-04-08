@@ -359,8 +359,10 @@ class TacticalMixin:
                         results.append(prompt_manager.get_prompt("talent", "g7hoshino.pellet_miss",
                             default="💨 弹丸飞散！"))
             else:
-                # 多目标：3颗随机分配，不飞散
-                for _ in range(3):
+                # 多目标：选中目标至少命中1颗，剩余2颗随机分配，不飞散
+                r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
+                results.append(f"{target.name}: {r}")
+                for _ in range(2):
                     t = random.choice(front_targets)
                     r = self._apply_pellet_damage(player, t, pellet_damage, bullet_attr)
                     results.append(f"{t.name}: {r}")
@@ -723,14 +725,6 @@ class TacticalMixin:
                 return prompt_manager.get_prompt("talent", "g7hoshino.med_chocolate_restore")
             else:
                 return prompt_manager.get_prompt("talent", "g7hoshino.med_chocolate_full")
-        elif effect == "full_restore":
-            self.adrenaline_used = True
-            self.cost = self.max_cost
-            for h in self.halos:
-                h['active'] = True
-                h['recovering'] = False
-                h['cooldown_remaining'] = 0
-            return prompt_manager.get_prompt("talent", "g7hoshino.med_adrenaline")
         return prompt_manager.get_prompt("talent", "g7hoshino.med_generic", med_name=med_name)
 
     # ---- 冲刺 ----
@@ -924,7 +918,7 @@ class TacticalMixin:
         if self.dash_free_shield_cost:
             self.dash_free_shield_cost = False
             return
-        # 水着-shielder：架盾cost降为1
+        # 水着-shielder：架盾免cost；其他形态cost-1
         deduct = 0 if self.form == "水着-shielder" else 1
         if self.cost >= deduct:
             self.cost -= deduct

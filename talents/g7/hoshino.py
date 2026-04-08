@@ -63,7 +63,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         """选择初始形态"""
         me = self.state.get_player(self.player_id)
         forms = [
-            "水着-shielder（起床获盾牌，架盾cost降为1）",
+            "水着-shielder（起床获盾牌，架盾免cost）",
             "临战-Archer（起床获额外行动，射击连续2次后额外1次）",
             "临战-shielder（起床恢复1层光环，冲刺尾部自动冲击+架盾）",
         ]

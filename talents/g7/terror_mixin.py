@@ -132,7 +132,7 @@ class TerrorMixin:
         self.tactical_items.clear()
         self.medicines.clear()
 
-        # 失去铁之荷鲁斯 → 按护甲值折算额外生命值
+        # 失去铁之荷鲁斯 → 每点护甲值折算1额外生命值
         original_horus_hp = self.iron_horus_hp
         horus_extra = self.iron_horus_hp * 1.0
         self.iron_horus_hp = 0
@@ -144,7 +144,7 @@ class TerrorMixin:
             h['recovering'] = False
             h['cooldown_remaining'] = 0
 
-        # 失去所有护甲 → 每层1.5额外生命值
+        # 失去所有护甲 → 每层1额外生命值
         armor_extra = 0.0
         all_armor = list(player.armor.get_all_active())
         for armor in all_armor:

@@ -57,7 +57,6 @@ class FusionMixin:
         display.show_info(msg)
 
     def _check_tactical_unlock(self):
-        from talents.g7.items import TACTICAL_ITEMS, MEDICINES
         if (self.fusion_shield_done and self.fusion_weapon_done
                 and not self.tactical_unlocked and not self.is_terror):
             self.tactical_unlocked = True

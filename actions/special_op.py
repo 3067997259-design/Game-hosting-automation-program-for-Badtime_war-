@@ -1,6 +1,7 @@
 """特殊操作（Phase 3 完整版）：新增释放病毒"""
 
 from models.equipment import make_weapon, make_armor
+from engine.prompt_manager import prompt_manager
 
 
 def get_available_specials(player, game_state):
