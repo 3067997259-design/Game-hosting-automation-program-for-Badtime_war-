@@ -83,34 +83,37 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         """起床时根据形态给予加成"""
         from engine.prompt_manager import prompt_manager
 
+        msgs = []
+
+        # 通用：起床自带凭证（军人优待）
+        if player.vouchers < 1:
+            player.vouchers = max(player.vouchers, 1)
+            msgs.append(prompt_manager.get_prompt("talent", "g7hoshino.wakeup_voucher",
+                default="📋 军人优待：自动获得1张购买凭证"))
+
+        # 形态加成
         if self.form == "水着-shielder":
-            # 起床自动获得盾牌
             from models.equipment import make_armor
             armor = make_armor("盾牌")
             if armor:
                 success, reason = player.add_armor(armor)
                 if success:
-                    return prompt_manager.get_prompt("talent", "g7hoshino.wakeup_shield",
+                    msgs.append(prompt_manager.get_prompt("talent", "g7hoshino.wakeup_shield",
                         default="🛡️ {player_name} 起床获得盾牌！（水着-shielder）").format(
-                        player_name=player.name)
-            return None
-
+                        player_name=player.name))
         elif self.form == "临战-Archer":
-            # 起床获得1个额外行动回合
             player.hoshino_wakeup_extra_turn = True
-            return prompt_manager.get_prompt("talent", "g7hoshino.wakeup_extra_turn",
+            msgs.append(prompt_manager.get_prompt("talent", "g7hoshino.wakeup_extra_turn",
                 default="🏹 {player_name} 起床获得额外行动回合！（临战-Archer）").format(
-                player_name=player.name)
-
+                player_name=player.name))
         elif self.form == "临战-shielder":
-            # 起床恢复1层光环
             restored = self._halo_restore_one()
             if restored:
-                return prompt_manager.get_prompt("talent", "g7hoshino.wakeup_halo",
+                msgs.append(prompt_manager.get_prompt("talent", "g7hoshino.wakeup_halo",
                     default="✨ {player_name} 起床恢复1层光环！（临战-shielder）").format(
-                    player_name=player.name)
+                    player_name=player.name))
 
-        return None
+        return "\n".join(msgs) if msgs else None
 
     def on_round_start(self, round_num):
         """R0: cost回满 + 光环tick + 融合检查 + 战术解锁检查"""
@@ -142,6 +145,18 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         # Terror 状态下不回满 cost
         if not self.is_terror:
             self.cost = self.max_cost
+            # 肾上腺素下回合效果
+            if getattr(self, '_adrenaline_next_round', False):
+                self._adrenaline_next_round = False
+                self.cost = self.max_cost + 5  # cost 额外 +5（本回合为10）
+                # 光环全恢复
+                for h in self.halos:
+                    h['active'] = True
+                    h['recovering'] = False
+                    h['cooldown_remaining'] = 0
+                from cli import display
+                display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.adrenaline_effect",
+                    default="💉 肾上腺素生效！Cost={cost}，光环全恢复！").format(cost=self.cost))
 
         # 光环恢复 tick
         self._halo_tick()

@@ -44,6 +44,11 @@ def get_available_specials(player, game_state):
     if player.location == "医院" and not game_state.virus.is_active:
         specials.append({"name": "释放病毒", "description": "🦠 释放病毒，全体感染！"})
 
+    # 星野取消架盾/持盾（不消耗回合）
+    if (player.talent and hasattr(player.talent, 'shield_mode')
+            and player.talent.shield_mode in ("架盾", "持盾")):
+        specials.append({"name": "取消盾牌", "description": "🛡️ 取消当前架盾/持盾状态"})
+
     # 更衣（Hoshino 形态切换，需在自己家中）
     if player.talent and hasattr(player.talent, 'form'):
         if player.location == f"home_{player.player_id}":
@@ -67,6 +72,13 @@ def get_available_specials(player, game_state):
         and player.talent.iron_horus_hp < player.talent.iron_horus_max_hp):
         specials.append({"name": "修复", "description": "🔧 消耗盾牌/AT力场修复铁之荷鲁斯"})
 
+    # 星野注射肾上腺素（宏外使用）
+    if (player.talent and hasattr(player.talent, 'form')
+            and hasattr(player.talent, 'adrenaline_used')
+            and not player.talent.adrenaline_used
+            and "肾上腺素" in getattr(player.talent, 'medicines', [])):
+        specials.append({"name": "肾上腺素", "description": "💉 注射肾上腺素（下回合 cost+5 + 光环全恢复 + D4+3行动顺序）"})
+
     return specials
 
 
@@ -83,6 +95,14 @@ def execute(player, op_name, game_state):
         return _do_charge(player, weapon_name, game_state)
     elif op_name == "释放病毒":
         return _do_release_virus(player, game_state)
+    elif op_name == "取消盾牌":
+        if (player.talent and hasattr(player.talent, 'shield_mode')
+                and player.talent.shield_mode in ("架盾", "持盾")):
+            old_mode = player.talent.shield_mode
+            player.talent._end_shield_mode(player)
+            game_state.log_event("cancel_shield", player=player.player_id, mode=old_mode)
+            return f"🛡️ {player.name} 取消了{old_mode}状态"
+        return "❌ 你没有处于架盾/持盾状态"
     elif op_name == "Hoshino":
         if player.talent and hasattr(player.talent, '_execute_tactical_macro'):
             msg, consumes = player.talent._execute_tactical_macro(player)
@@ -112,6 +132,18 @@ def execute(player, op_name, game_state):
         if player.talent and hasattr(player.talent, '_repair_horus'):
             return player.talent._repair_horus(player, sacrifice)
         return "❌ 你没有可修复的装备"
+    elif op_name == "肾上腺素":
+        if (player.talent and hasattr(player.talent, 'adrenaline_used')
+                and not player.talent.adrenaline_used
+                and "肾上腺素" in getattr(player.talent, 'medicines', [])):
+            player.talent.adrenaline_used = True
+            player.talent.medicines.remove("肾上腺素")
+            player.talent._adrenaline_next_round = True  # 标记下回合生效
+            game_state.log_event("adrenaline", player=player.player_id)
+            return prompt_manager.get_prompt("talent", "g7hoshino.adrenaline_injected",
+                default="💉 {player_name} 注射了肾上腺素！下回合将获得额外 cost 和光环恢复").format(
+                player_name=player.name)
+        return "❌ 无法使用肾上腺素"
     else:
         return f"❌ 未知的特殊操作：{op_name}"
 
