@@ -493,26 +493,32 @@ class PoliceMixin(_Base):
     # ════════════════════════════════════════════════════════
 
     def _political_should_fallback(self, player, state):
-        """Check if political AI should fall back.
-        Returns:
-            "none"         — 正常政治路径
-            "develop_only" — 只发育不攻击
-            "full_balanced" — 完全 balanced 策略含攻击
-        """
         police = getattr(state, 'police', None)
         if not police:
             return "full_balanced"
         if police.permanently_disabled:
             return "full_balanced"
+        # 自己是队长 → 正常路径
         if police.captain_id == player.player_id:
             return "none"
+        # 已有队长（不是自己）→ full_balanced
         if police.has_captain():
             return "full_balanced"
+        # 自己有犯罪记录 → develop_only
         is_criminal = getattr(player, 'is_criminal', False)
         if not is_criminal:
             is_criminal = police.is_criminal(player.player_id)
         if is_criminal:
             return "develop_only"
+        # 新增：已有其他玩家是警察（不是自己）→ full_balanced
+        # 因为一局只能有一个警察，自己不可能再加入
+        pe = getattr(state, 'police_engine', None)
+        if pe:
+            existing = pe.get_current_police_member_id()
+            if existing is not None and existing != player.player_id:
+                return "full_balanced"
+        # 自己是警察但不是队长 → 正常路径（去竞选）
+        # 没有人是警察 → 正常路径（去加入）
         return "none"
 
     def _should_become_captain(self, player, state) -> bool:

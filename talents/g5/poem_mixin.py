@@ -282,38 +282,50 @@ class PoemMixin:
                       and police.captain_id == target.player_id)
         is_police = getattr(target, 'is_police', False)
 
+        # 一局只能有一个活着的警察成员
+        existing_police = pe.get_current_police_member_id()
+        has_other_police = (existing_police is not None
+                            and existing_police != target.player_id)
+
         # ============================================================
         #  分支1：无队长 且 无存活警察单位
         # ============================================================
         if not has_captain and not has_alive_police:
-            if not is_police:
-                target.is_police = True
-                self.state.markers.add(target.player_id, "IS_POLICE")
-                lines.append(f"👮 {target.name} 犯罪记录清除，获得警察岗位！")
+            if has_other_police and not is_police:
+                # 已有其他警察成员，无法赋予岗位和队长
+                lines.append(f"👮 {target.name} 犯罪记录清除！（本局已有警察成员，无法赋予警察岗位）")
+            else:
+                if not is_police:
+                    target.is_police = True
+                    self.state.markers.add(target.player_id, "IS_POLICE")
+                    lines.append(f"👮 {target.name} 犯罪记录清除，获得警察岗位！")
 
-            police.captain_id = target.player_id
-            police.authority = 3
-            target.is_captain = True
-            self.state.markers.add(target.player_id, "IS_CAPTAIN")
-            lines.append(f"👑 {target.name} 立即成为警队队长！威信：3")
+                police.captain_id = target.player_id
+                police.authority = 3
+                target.is_captain = True
+                self.state.markers.add(target.player_id, "IS_CAPTAIN")
+                lines.append(f"👑 {target.name} 立即成为警队队长！威信：3")
 
-            if police.permanently_disabled:
-                police.permanently_disabled = False
-                lines.append("🏙️ 警察局永久禁用已解除！")
+                if police.permanently_disabled:
+                    police.permanently_disabled = False
+                    lines.append("🏙️ 警察局永久禁用已解除！")
 
-            pe._on_captain_elected()
-            lines.append("🚔 队长上任，3个警察单位已在警察局就位！")
+                pe._on_captain_elected()
+                lines.append("🚔 队长上任，3个警察单位已在警察局就位！")
 
         # ============================================================
         #  分支2：目标不是警察
         # ============================================================
         elif not is_police:
-            target.is_police = True
-            self.state.markers.add(target.player_id, "IS_POLICE")
-            lines.append(prompt_manager.get_prompt(
-                "talent", "g5ripple.poem_law_police_granted",
-                default="👮 {target_name} 犯罪记录清除，获得警察岗位！"
-            ).format(target_name=target.name))
+            if has_other_police:
+                lines.append(f"👮 {target.name} 犯罪记录清除！（本局已有警察成员，无法赋予警察岗位）")
+            else:
+                target.is_police = True
+                self.state.markers.add(target.player_id, "IS_POLICE")
+                lines.append(prompt_manager.get_prompt(
+                    "talent", "g5ripple.poem_law_police_granted",
+                    default="👮 {target_name} 犯罪记录清除，获得警察岗位！"
+                ).format(target_name=target.name))
 
         # ============================================================
         #  分支3：目标是警察但不是队长，且队长空缺
