@@ -162,11 +162,17 @@ class TacticalMixin:
                                           total_cost=total_cost, current_cost=self.cost), False
 
         # 扣除 cost 并依次执行
-        start_msg = prompt_manager.get_prompt("talent", "g7hoshino.macro_start", total_cost=total_cost)
+        start_msg = prompt_manager.get_prompt("talent", "g7hoshino.macro_start",
+            default="⚔️ 战术指令宏开始执行（总 Cost: {total_cost}）", total_cost=total_cost)
         lines = [start_msg]
         has_dashed = False  # 追踪本宏内是否执行过冲刺
         for i, (action_name, args) in enumerate(commands):
             cost = self.TACTICAL_COST[action_name]
+            if cost > self.cost:
+                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.macro_step_cost_insufficient",
+                    default="  ❌ Cost不足执行 {action_name}（需要{cost}，当前{current_cost}），宏中断").format(
+                    action_name=action_name, cost=cost, current_cost=self.cost))
+                break
             self.cost -= cost
             is_last = (i == len(commands) - 1)
             result = self._dispatch_tactical(player, action_name, args, is_last, has_dashed=has_dashed)

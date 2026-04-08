@@ -212,6 +212,13 @@ class RoundManager:
                 display.show_info(
                     f"📌 {actor.name} 的额外行动回合已插入！（全息影像）")
 
+            # === 星野临战-Archer 起床额外回合 ===
+            if getattr(actor, 'hoshino_wakeup_extra_turn', False):
+                actor.hoshino_wakeup_extra_turn = False
+                action_queue.insert(i + 1, actor.player_id)
+                display.show_info(
+                    f"📌 {actor.name} 的额外行动回合已插入！（临战-Archer起床加成）")
+
             # 检查胜利
             if self.state.check_victory():
                 return
