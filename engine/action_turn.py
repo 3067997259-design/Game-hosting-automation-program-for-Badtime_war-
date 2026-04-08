@@ -287,14 +287,13 @@ class ActionTurnManager:
         max_retries = 10
         attempts = 0
 
+        from engine.filtered_state import FilteredGameState
+        is_blinded = getattr(player, '_hoshino_blinded', False)
+        observable = (FilteredGameState(self.state, player.player_id)
+                      if is_blinded else self.state)
+
         while attempts < max_retries:
             attempts += 1
-
-            from engine.filtered_state import FilteredGameState
-
-            observable = (FilteredGameState(self.state, player.player_id)
-                        if getattr(player, '_hoshino_blinded', False)
-                        else self.state)
 
             raw = player.controller.get_command(
                 player=player,
@@ -317,14 +316,11 @@ class ActionTurnManager:
                 display.show_player_status(player, self.state)
                 continue
             if raw_lower == "allstatus":
-                if getattr(player, '_hoshino_blinded', False):
-                    from engine.filtered_state import FilteredGameState
-                    display.show_all_players_status(FilteredGameState(self.state, player.player_id))
+                display.show_all_players_status(observable)
+                if is_blinded:
                     display.show_info(prompt_manager.get_prompt(
                         "talent", "g7hoshino.blind_info_stale",
                         default="⚠️ [致盲中·以上信息可能已过时]"))
-                else:
-                    display.show_all_players_status(self.state)
                 continue
             if raw_lower == "police":
                 display.show_police_status(self.state)

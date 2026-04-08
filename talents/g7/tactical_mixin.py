@@ -646,8 +646,8 @@ class TacticalMixin:
                 t._hoshino_blind_expire_round = self.state.current_round + 1
                 t._hoshino_blind_snapshot = create_snapshot(self.state, t.player_id)
                 lines.append(prompt_manager.get_prompt(
-                    "talent", "g7hoshino.tac_blind_hit",
-                    default="  → {name}: 👁️致盲").format(name=t.name))
+                    "talent", "g7hoshino.throw_blind",
+                    target_name=t.name))
 
         elif effect == "smoke":
             # 烟雾弹：区域烟雾

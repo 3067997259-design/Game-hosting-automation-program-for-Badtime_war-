@@ -414,7 +414,6 @@
       ],
       "activate": "「神代天赋7：大叔我啊，剪短发了」{player_name}指挥星野加入了战斗！",
       "blind_info_stale": "⚠️ [致盲中·以上信息可能已过时]",
-      "fragile_armor_break_bonus": "🔥 WEAK! 脆弱已生效：破甲概率 +20%",
       "fuse_iron_horus": "🛡️ 我拿回了「铁之荷鲁斯」（护甲值：{iron_horus_hp}）",
       "fuse_eye_of_horus": "🔫 我拿回了「荷鲁斯之眼」，弹仓OK，膛室OK，但还没有子弹。总之，先确认一下子弹吧",
       "tactical_unlocked": "⚔️ 报告，星野已完成战备整理，随时可以突击。（使用 special Hoshino 发动战术指令宏）",
