@@ -313,7 +313,7 @@ class ActionTurnManager:
                 display.show_help()
                 continue
             if raw_lower == "status":
-                display.show_player_status(player, self.state)
+                display.show_player_status(player, observable)
                 continue
             if raw_lower == "allstatus":
                 display.show_all_players_status(observable)

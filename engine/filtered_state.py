@@ -23,6 +23,8 @@ class FrozenPlayer:
         self.has_detection = getattr(player, 'has_detection', False)
         self.vouchers = getattr(player, 'vouchers', 0)
         self.talent_name = getattr(player, 'talent_name', None)
+        # talent 设为 None，防止 AI controller 访问 p.talent 时 AttributeError
+        self.talent = None
         # 冻结天赋状态字符串，不保留实时引用
         if player.talent and hasattr(player.talent, 'describe_status'):
             self._frozen_talent_status = player.talent.describe_status()
@@ -35,7 +37,7 @@ class FrozenPlayer:
         try:
             self.armor = copy.deepcopy(player.armor)
         except Exception:
-            self.armor = list(player.armor) if player.armor else []
+            self.armor = player.armor  # ArmorSlots 不可迭代，退化为引用
         try:
             self.items = copy.deepcopy(getattr(player, 'items', []))
         except Exception:
@@ -73,19 +75,11 @@ class FrozenPlayer:
 class FrozenMarkers:
     """快照标记：冻结闪光弹命中时刻的标记状态"""
 
-    def __init__(self, real_markers, blinded_pid, snapshot_pids):
+    def __init__(self, real_markers, blinded_pid, frozen_simple=None, frozen_relations=None):
         self._real = real_markers
         self._blinded_pid = blinded_pid
-        # 为快照中的每个玩家冻结标记
-        self._frozen_simple = {}
-        self._frozen_relations = {}
-        for pid in snapshot_pids:
-            self._frozen_simple[pid] = real_markers.get_all_simple(pid)
-            self._frozen_relations[pid] = {
-                "LOCKED_BY": set(real_markers.get_related(pid, "LOCKED_BY")),
-                "ENGAGED_WITH": set(real_markers.get_related(pid, "ENGAGED_WITH")),
-                "DETECTED_BY": set(real_markers.get_related(pid, "DETECTED_BY")),
-            }
+        self._frozen_simple = frozen_simple or {}
+        self._frozen_relations = frozen_relations or {}
 
     def describe_markers(self, player_id):
         """对自己返回实时标记，对其他玩家返回冻结标记"""
@@ -119,15 +113,23 @@ class FrozenMarkers:
 
 
 def create_snapshot(game_state, blinded_player_id):
-    """为被致盲的玩家创建所有其他玩家的快照"""
+    """为被致盲的玩家创建所有其他玩家的快照（含标记数据）"""
     snapshot = {}
+    frozen_simple = {}
+    frozen_relations = {}
     for pid in game_state.player_order:
         if pid == blinded_player_id:
             continue
         p = game_state.get_player(pid)
         if p:
             snapshot[pid] = FrozenPlayer(p)
-    return snapshot
+            frozen_simple[pid] = game_state.markers.get_all_simple(pid)
+            frozen_relations[pid] = {
+                "LOCKED_BY": set(game_state.markers.get_related(pid, "LOCKED_BY")),
+                "ENGAGED_WITH": set(game_state.markers.get_related(pid, "ENGAGED_WITH")),
+                "DETECTED_BY": set(game_state.markers.get_related(pid, "DETECTED_BY")),
+            }
+    return snapshot, frozen_simple, frozen_relations
 
 
 class FilteredGameState:
@@ -141,12 +143,12 @@ class FilteredGameState:
     def __init__(self, real_state, blinded_player_id):
         self._real = real_state
         self._blinded_pid = blinded_player_id
-        self._snapshot = getattr(
-            real_state.get_player(blinded_player_id),
-            '_hoshino_blind_snapshot', {}
-        )
+        blinded_player = real_state.get_player(blinded_player_id)
+        self._snapshot = getattr(blinded_player, '_hoshino_blind_snapshot', {})
+        frozen_simple = getattr(blinded_player, '_hoshino_blind_markers_simple', {})
+        frozen_relations = getattr(blinded_player, '_hoshino_blind_markers_relations', {})
         self._markers = FrozenMarkers(
-            real_state.markers, blinded_player_id, self._snapshot.keys()
+            real_state.markers, blinded_player_id, frozen_simple, frozen_relations
         )
 
     @property
