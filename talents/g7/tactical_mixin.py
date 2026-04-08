@@ -333,36 +333,42 @@ class TacticalMixin:
         results = []
 
         if mode == "持盾射击":
-            # 3颗全部命中 find 的目标（独头弹）
-            for _ in range(3):
+            # 2颗必中
+            for _ in range(2):
                 r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
                 results.append(r)
+            # 第3颗 50% 概率飞散
+            if random.random() < 0.5:
+                r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
+                results.append(r)
+            else:
+                results.append(prompt_manager.get_prompt("talent", "g7hoshino.pellet_miss",
+                    default="💨 弹丸飞散！"))
         elif mode == "架盾射击":
-            # 目标至少1颗，剩余2颗随机分配给正面单位
-            r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
-            results.append(f"{target.name}: {r}")
             front_targets = [self.state.get_player(pid) for pid in self.front_players
-                           if pid != target.player_id and self.state.get_player(pid) and self.state.get_player(pid).is_alive()]
-            all_front = front_targets + [target]  # target also in front
-            for _ in range(2):
-                if all_front:
-                    t = random.choice(all_front)
+                            if self.state.get_player(pid) and self.state.get_player(pid).is_alive()]
+            if len(front_targets) <= 1:
+                # 单目标：1必中 + 2颗各50%飞散
+                r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
+                results.append(f"{target.name}: {r}")
+                for _ in range(2):
+                    if random.random() < 0.5:
+                        r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
+                        results.append(f"{target.name}: {r}")
+                    else:
+                        results.append(prompt_manager.get_prompt("talent", "g7hoshino.pellet_miss",
+                            default="💨 弹丸飞散！"))
+            else:
+                # 多目标：选中目标至少命中1颗，剩余2颗随机分配，不飞散
+                r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
+                results.append(f"{target.name}: {r}")
+                for _ in range(2):
+                    t = random.choice(front_targets)
                     r = self._apply_pellet_damage(player, t, pellet_damage, bullet_attr)
                     results.append(f"{t.name}: {r}")
         else:
-            # 普通射击：目标至少2颗，剩余1颗随机分配给 engaged 单位
-            for _ in range(2):
-                r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
-                results.append(f"{target.name}: {r}")
-            # 剩余1颗随机分配
-            engaged = [self.state.get_player(pid) for pid in self.state.player_order
-                      if pid != player.player_id and self.state.get_player(pid) and self.state.get_player(pid).is_alive()
-                      and self.state.markers.has_relation(player.player_id, "ENGAGED_WITH", pid)]
-            if engaged:
-                t = random.choice(engaged)
-                r = self._apply_pellet_damage(player, t, pellet_damage, bullet_attr)
-                results.append(f"{t.name}: {r}")
-            else:
+            # 普通射击：3颗全部命中目标
+            for _ in range(3):
                 r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
                 results.append(f"{target.name}: {r}")
 
@@ -703,6 +709,10 @@ class TacticalMixin:
 
         if effect == "full_restore" and self.adrenaline_used:
             return prompt_manager.get_prompt("talent", "g7hoshino.med_adrenaline_used")
+        # 新增：肾上腺素不允许在宏内使用
+        if effect == "full_restore":
+            return prompt_manager.get_prompt("talent", "g7hoshino.med_adrenaline_macro_block",
+                default="❌ 肾上腺素不能在战术指令宏中使用，请在宏外通过 special 使用")
 
         self.medicines.remove(med_name)
 
@@ -715,14 +725,6 @@ class TacticalMixin:
                 return prompt_manager.get_prompt("talent", "g7hoshino.med_chocolate_restore")
             else:
                 return prompt_manager.get_prompt("talent", "g7hoshino.med_chocolate_full")
-        elif effect == "full_restore":
-            self.adrenaline_used = True
-            self.cost = self.max_cost
-            for h in self.halos:
-                h['active'] = True
-                h['recovering'] = False
-                h['cooldown_remaining'] = 0
-            return prompt_manager.get_prompt("talent", "g7hoshino.med_adrenaline")
         return prompt_manager.get_prompt("talent", "g7hoshino.med_generic", med_name=med_name)
 
     # ---- 冲刺 ----
@@ -916,8 +918,8 @@ class TacticalMixin:
         if self.dash_free_shield_cost:
             self.dash_free_shield_cost = False
             return
-        # 水着-shielder：架盾cost降为1
-        deduct = 1 if self.form == "水着-shielder" else 2
+        # 水着-shielder：架盾免cost；其他形态cost-1
+        deduct = 0 if self.form == "水着-shielder" else 1
         if self.cost >= deduct:
             self.cost -= deduct
         else:

@@ -57,13 +57,57 @@ class FusionMixin:
         display.show_info(msg)
 
     def _check_tactical_unlock(self):
-        """同时持有两件融合装备 → 解锁战术指令"""
         if (self.fusion_shield_done and self.fusion_weapon_done
                 and not self.tactical_unlocked and not self.is_terror):
             self.tactical_unlocked = True
             from cli import display
             msg = prompt_manager.get_prompt("talent", "g7hoshino.tactical_unlocked")
             display.show_info(msg)
+
+            # 解锁时自动配发：2次自由选择
+            from talents.g7.items import TACTICAL_ITEMS, MEDICINES
+            player = self.state.get_player(self.player_id)
+            if player:
+                for pick_round in range(2):
+                    options = []
+                    # 战术道具（最多2个）
+                    if len(self.tactical_items) < 2:
+                        for item_name in TACTICAL_ITEMS:
+                            options.append(f"道具：{item_name}")
+                    # 药物（肾上腺素全局1次，其他可重复）
+                    for med_name in MEDICINES:
+                        if med_name == "肾上腺素" and "肾上腺素" in self.medicines:
+                            continue  # 已有肾上腺素就不再提供
+                        options.append(f"药物：{med_name}")
+                    # 子弹（弹匣未满时）
+                    if len(self.ammo) + 2 <= self.max_ammo:
+                        for attr in ["普通", "科技", "魔法"]:
+                            options.append(f"子弹：2发{attr}属性")
+
+                    if not options:
+                        break
+
+                    choice = player.controller.choose(
+                        f"战术解锁配发（第{pick_round+1}/2次选择）：",
+                        options,
+                        context={"phase": "T0", "situation": "hoshino_tactical_equip"}
+                    )
+
+                    if choice.startswith("道具："):
+                        item_name = choice[3:]
+                        self.tactical_items.append(item_name)
+                    elif choice.startswith("药物："):
+                        med_name = choice[3:]
+                        self.medicines.append(med_name)
+                    elif choice.startswith("子弹："):
+                        # 解析属性："子弹：2发普通属性" → "普通"
+                        for attr in ["普通", "科技", "魔法"]:
+                            if attr in choice:
+                                self.ammo.extend([{"attribute": attr}, {"attribute": attr}])
+                                break
+
+                    display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.tactical_auto_equip",
+                        default="  ✓ 获得：{choice}").format(choice=choice))
 
     def _repair_horus(self, player, sacrifice_name):
         """special 修复 <护甲名>：消耗一件盾牌/AT力场修复铁之荷鲁斯"""

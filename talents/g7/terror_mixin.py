@@ -132,9 +132,9 @@ class TerrorMixin:
         self.tactical_items.clear()
         self.medicines.clear()
 
-        # 失去铁之荷鲁斯 → 按护甲值折算额外生命值
+        # 失去铁之荷鲁斯 → 每点护甲值折算1额外生命值
         original_horus_hp = self.iron_horus_hp
-        horus_extra = self.iron_horus_hp * 1.5
+        horus_extra = self.iron_horus_hp * 1.0
         self.iron_horus_hp = 0
 
         # 失去所有光环 → 每层折算1额外生命值
@@ -144,12 +144,12 @@ class TerrorMixin:
             h['recovering'] = False
             h['cooldown_remaining'] = 0
 
-        # 失去所有护甲 → 每层1.5额外生命值
+        # 失去所有护甲 → 每层1额外生命值
         armor_extra = 0.0
         all_armor = list(player.armor.get_all_active())
         for armor in all_armor:
             if not armor.is_broken:
-                armor_extra += 1.5
+                armor_extra += 1.0
             player.armor.remove_piece(armor)
 
         self.terror_extra_hp = horus_extra + halo_extra + armor_extra
@@ -204,7 +204,7 @@ class TerrorMixin:
                         self.state, t.player_id, killer_id=player.player_id)
 
             # 伤害结算后扣除额外HP（不同归于尽）
-            self.terror_extra_hp = round(max(0, self.terror_extra_hp - 1.0), 2)
+            self.terror_extra_hp = round(max(0, self.terror_extra_hp - 1.5), 2)
             extra_hp_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_extra_hp_status",
                                                  terror_extra_hp=self.terror_extra_hp)
             lines.append(extra_hp_msg)
