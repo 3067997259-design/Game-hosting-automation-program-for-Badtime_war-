@@ -660,7 +660,7 @@ class TacticalMixin:
             if not hasattr(self.state, '_hoshino_smoke_zones'):
                 self.state._hoshino_smoke_zones = {}
             self.state._hoshino_smoke_zones[location] = self.state.current_round + 1
-            lines.append(prompt_manager.get_prompt("talent", "g7hoshino.tac_smoke_deploy",
+            lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_smoke",
                                                    location=location))
             # 新增：清除该地点所有非星野玩家的已有 find/lock
             for p in self.state.players_at_location(location):
@@ -668,7 +668,7 @@ class TacticalMixin:
                     self.state.markers.on_player_move(p.player_id)
                     lines.append(prompt_manager.get_prompt(
                         "talent", "g7hoshino.smoke_clear_relations",
-                        default="  🌫️ {name} 的 find/lock 关系被烟雾解除").format(name=p.name))
+                        name=p.name))
 
         elif effect == "burn":
             # 燃烧瓶：2层灼烧（复用g1灼烧逻辑）
