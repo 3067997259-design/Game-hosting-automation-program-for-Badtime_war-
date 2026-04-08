@@ -163,18 +163,9 @@ class TacticalMixin:
         if not commands:
             return prompt_manager.get_prompt("talent", "g7hoshino.macro_empty"), False
 
-        # 计算总 cost
-        total_cost = sum(self.TACTICAL_COST[cmd] for cmd, _ in commands)
-        if total_cost > self.cost:
-            cost_insuf = prompt_manager.get_prompt("talent", "g7hoshino.macro_cost_insufficient_display",
-                                                total_cost=total_cost, current_cost=self.cost)
-            display.show_info(cost_insuf)
-            return prompt_manager.get_prompt("talent", "g7hoshino.macro_cost_insufficient",
-                                          total_cost=total_cost, current_cost=self.cost), False
-
         # 扣除 cost 并依次执行
         start_msg = prompt_manager.get_prompt("talent", "g7hoshino.macro_start",
-            default="⚔️ 战术指令宏开始执行（总 Cost: {total_cost}）", total_cost=total_cost)
+            default="⚔️ 战术指令宏开始执行（当前 Cost: {current_cost}）", current_cost=self.cost)
         lines = [start_msg]
         has_dashed = False  # 追踪本宏内是否执行过冲刺
         for i, (action_name, args) in enumerate(commands):

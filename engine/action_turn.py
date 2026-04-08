@@ -443,7 +443,10 @@ class ActionTurnManager:
         elif action == "special":
             op = parsed["operation"]
             msg = special_op.execute(player, op, self.state)
-            return msg, "special", not msg.startswith("❌")   # CHANGED
+            # 取消盾牌和肾上腺素不消耗行动回合
+            if op in ("取消盾牌", "肾上腺素"):
+                return msg, "special", False
+            return msg, "special", not msg.startswith("❌")
 
         elif action == "report":
             target_id = resolve_player_target(parsed["target"], self.state)
