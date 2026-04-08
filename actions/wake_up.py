@@ -12,4 +12,10 @@ def execute(player, game_state):
     player.location = home_id
     game_state.markers.on_player_wake_up(player.player_id)
     game_state.log_event("wake_up", player=player.player_id, location=home_id)
+    # 天赋起床加成 hook
+    if player.talent and hasattr(player.talent, 'on_wakeup'):
+        wakeup_msg = player.talent.on_wakeup(player, game_state)
+        if wakeup_msg:
+            result_msg = f"☀️ {player.name} 起床了！出现在自己家中。\n{wakeup_msg}"
+            return result_msg
     return f"☀️ {player.name} 起床了！出现在自己家中。"

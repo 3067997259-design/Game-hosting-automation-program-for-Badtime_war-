@@ -79,6 +79,39 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             self.form = "临战-shielder"
         self.initial_player_count = len(self.state.player_order)
 
+    def on_wakeup(self, player, game_state):
+        """起床时根据形态给予加成"""
+        from engine.prompt_manager import prompt_manager
+
+        if self.form == "水着-shielder":
+            # 起床自动获得盾牌
+            from models.equipment import make_armor
+            armor = make_armor("盾牌")
+            if armor:
+                success, reason = player.add_armor(armor)
+                if success:
+                    return prompt_manager.get_prompt("talent", "g7hoshino.wakeup_shield",
+                        default="🛡️ {player_name} 起床获得盾牌！（水着-shielder）").format(
+                        player_name=player.name)
+            return None
+
+        elif self.form == "临战-Archer":
+            # 起床获得1个额外行动回合
+            player.hoshino_wakeup_extra_turn = True
+            return prompt_manager.get_prompt("talent", "g7hoshino.wakeup_extra_turn",
+                default="🏹 {player_name} 起床获得额外行动回合！（临战-Archer）").format(
+                player_name=player.name)
+
+        elif self.form == "临战-shielder":
+            # 起床恢复1层光环
+            restored = self._halo_restore_one()
+            if restored:
+                return prompt_manager.get_prompt("talent", "g7hoshino.wakeup_halo",
+                    default="✨ {player_name} 起床恢复1层光环！（临战-shielder）").format(
+                    player_name=player.name)
+
+        return None
+
     def on_round_start(self, round_num):
         """R0: cost回满 + 光环tick + 融合检查 + 战术解锁检查"""
         me = self.state.get_player(self.player_id)
