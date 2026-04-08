@@ -1204,7 +1204,7 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
                     result["details"].append(
                         prompt_manager.get_prompt("talent", "g7hoshino.terror_savior_survive", hp=target.hp))
                 # else: 人形态 → Terror 无视人形态免死 → 不调用 on_death_check，直接跳过
-        # 其他玩家的救世主天赋也检查
+        # 其他玩家的救世主天赋检查（当前 on_death_check 仅对自身生效，实际不会触发跨玩家保护）
         if not prevented and game_state:
             for pid in game_state.player_order:
                 p = game_state.get_player(pid)
