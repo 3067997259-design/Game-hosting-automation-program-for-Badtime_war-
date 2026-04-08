@@ -112,11 +112,16 @@ class FrozenMarkers:
         """对自己的可见性查询返回实时数据，对其他玩家使用冻结数据"""
         if target_pid == self._blinded_pid:
             return self._real.is_visible_to(target_pid, observer_pid, observer_has_detection)
-        # 使用冻结标记判断：隐身且未被压制 → 不可见（除非观察者有侦测）
+        # 使用冻结标记判断：隐身且未被压制 → 不可见（除非观察者有侦测或已探测）
         simple = self._frozen_simple.get(target_pid, set())
         if "INVISIBLE" in simple and "INVISIBLE_SUPPRESSED" not in simple:
-            if not observer_has_detection:
-                return False
+            if observer_has_detection:
+                return True
+            # 被发现也算可见
+            relations = self._frozen_relations.get(target_pid, {})
+            if observer_pid in relations.get("DETECTED_BY", set()):
+                return True
+            return False
         return True
 
     def __getattr__(self, name):
