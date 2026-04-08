@@ -575,6 +575,10 @@ class PoliceEngine:
             return False, "你有犯罪记录，不能加入警察"
         if player.location != "警察局":
             return False, "需要在警察局才能加入"
+        # 一局只能有一个警察成员
+        existing = self.get_current_police_member_id()
+        if existing is not None and existing != player_id:
+            return False, "本局已有警察成员，不能再加入"
         return True, ""
 
     def do_recruit(self, player_id):
@@ -897,6 +901,8 @@ class PoliceEngine:
         # 1. 解除队长身份
         if captain:
             captain.is_captain = False
+            captain.is_police = False
+            self.state.markers.remove(captain_id, "IS_POLICE")  # 如果有这个marker的话
             self.state.markers.remove(captain_id, "IS_CAPTAIN")
         messages.append(f"⚠️ 威信归零！{captain.name if captain else captain_id} 队长身份解除！")
 
@@ -944,6 +950,13 @@ class PoliceEngine:
     # ============================================
     #  辅助方法
     # ============================================
+    def get_current_police_member_id(self):
+        """获取当前警察成员的player_id（一局只能有一个），无则返回None"""
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and p.is_alive() and getattr(p, 'is_police', False):
+                return pid
+        return None
 
     def summon_police_unit(self, location):
         """

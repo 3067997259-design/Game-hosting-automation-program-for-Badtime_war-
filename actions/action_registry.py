@@ -117,10 +117,12 @@ def _get_police_actions(player, game_state):
                 "description": "指引警察追踪目标（立刻到达）",
             })
 
-    # 加入警察
+    existing_police = pe.get_current_police_member_id() if pe else None
+    has_existing_police = existing_police is not None and existing_police != player.player_id
     if (not player.is_police
             and not police.is_criminal(player.player_id)
-            and player.location == "警察局"):
+            and player.location == "警察局"
+            and not has_existing_police):
         actions.append({
             "name": "加入警察", "usage": "recruit",
             "description": "加入警队，三选二奖励",
