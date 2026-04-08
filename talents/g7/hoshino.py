@@ -47,6 +47,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         self.tactical_items = []     # 最多2
         self.medicines = []
         self.adrenaline_used = False
+        self._adrenaline_d4_rounds = 0  # 肾上腺素 D4+3 剩余轮数
         # 射击连击（临战-Archer 用）
         self.shoot_streak = 0
         # 色彩反转
@@ -142,12 +143,17 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         if not me or not me.is_alive():
             return
 
+        # 肾上腺素 D4+3 递减（在 cost 重置之前）
+        if getattr(self, '_adrenaline_d4_rounds', 0) > 0:
+            self._adrenaline_d4_rounds -= 1
+
         # Terror 状态下不回满 cost
         if not self.is_terror:
             self.cost = self.max_cost
             # 肾上腺素下回合效果
             if getattr(self, '_adrenaline_next_round', False):
                 self._adrenaline_next_round = False
+                self._adrenaline_d4_rounds = 1  # D4+3 本轮生效
                 self.cost = self.max_cost + 5  # cost 额外 +5（本回合为10）
                 # 光环全恢复
                 for h in self.halos:
@@ -230,6 +236,13 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             # Terror 形态下 HP 归零 → 无视任何条件死亡
             return None  # 不阻止死亡
         return None
+
+    def on_d4_bonus(self, player):
+        """肾上腺素注射后，下一轮 D4+3"""
+        if player.player_id == self.player_id:
+            if getattr(self, '_adrenaline_d4_rounds', 0) > 0:
+                return 3
+        return 0
 
     def describe_status(self):
         """状态描述"""
