@@ -481,34 +481,42 @@ class Hexagram(BaseTalent):
 
         # 3. 强制目标移动到随机地点（D6决定）
         if target is not None and target.is_alive():
-            # 构建可用地点列表（排除目标当前位置）
-            available_locs = [loc for loc in ALL_LOCATIONS
-                              if loc != target.location]
-            # 加入所有玩家的家（排除目标当前位置）
-            for pid in self.state.player_order:
-                home_loc = f"home_{pid}"
-                if home_loc != target.location:
-                    available_locs.append(home_loc)
-
-            if available_locs:
-                roll = roll_d6()
-                dest_idx = (roll - 1) % len(available_locs)
-                destination = available_locs[dest_idx]
-
-                old_loc = target.location or "未知"
-                target.location = destination
-                # 清除目标的锁定/面对面关系
-                self.state.markers.on_player_move(target.player_id)
-
-                # 显示地点名
-                from actions.move import get_location_display_name
-                dest_display = get_location_display_name(
-                    destination, self.state)
-                lines.append(
-                    f"   🎲 D6 = {roll} → {target.name} 被传送到"
-                    f"「{dest_display}」！（从{old_loc}）")
+            # 星野架盾：免疫强制放逐
+            if (target.talent and hasattr(target.talent, 'shield_mode')
+                    and target.talent.shield_mode == "架盾"):
+                from engine.prompt_manager import prompt_manager
+                lines.append(prompt_manager.get_prompt(
+                    "talent", "g7hoshino.shield_immune_exile",
+                    default="   🛡️ {name} 架盾状态免疫强制放逐！").format(name=target.name))
             else:
-                lines.append(f"   （{target.name} 无处可去）")
+                # 构建可用地点列表（排除目标当前位置）
+                available_locs = [loc for loc in ALL_LOCATIONS
+                                if loc != target.location]
+                # 加入所有玩家的家（排除目标当前位置）
+                for pid in self.state.player_order:
+                    home_loc = f"home_{pid}"
+                    if home_loc != target.location:
+                        available_locs.append(home_loc)
+
+                if available_locs:
+                    roll = roll_d6()
+                    dest_idx = (roll - 1) % len(available_locs)
+                    destination = available_locs[dest_idx]
+
+                    old_loc = target.location or "未知"
+                    target.location = destination
+                    # 清除目标的锁定/面对面关系
+                    self.state.markers.on_player_move(target.player_id)
+
+                    # 显示地点名
+                    from actions.move import get_location_display_name
+                    dest_display = get_location_display_name(
+                        destination, self.state)
+                    lines.append(
+                        f"   🎲 D6 = {roll} → {target.name} 被传送到"
+                        f"「{dest_display}」！（从{old_loc}）")
+                else:
+                    lines.append(f"   （{target.name} 无处可去）")
         else:
             lines.append("   （无有效目标可传送）")
 

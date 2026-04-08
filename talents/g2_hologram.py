@@ -261,6 +261,25 @@ class Hologram(BaseTalent):
                 lines.append(f"  ☯️ {p.name} 不为外道所动")
                 continue
 
+            # 星野架盾：吸引概率从50%降低至20%（D6放弃式：1成功，2-5失败，6重掷）
+            if (p.talent and hasattr(p.talent, 'shield_mode')
+                    and p.talent.shield_mode == "架盾"):
+                from utils.dice import roll_d6
+                while True:
+                    shield_roll = roll_d6()
+                    if shield_roll <= 5:
+                        break
+                    # shield_roll == 6: 重掷
+                if shield_roll >= 2:  # 2-5 = 抵抗（80%）
+                    lines.append(prompt_manager.get_prompt(
+                        "talent", "g7hoshino.shield_resist_pull",
+                        default="  🛡️ {name}: D6(放弃式) = {roll} → 架盾抵抗了歌声！").format(
+                        name=p.name, roll=shield_roll))
+                    continue
+                else:  # shield_roll == 1 = 被吸引（20%）
+                    # 继续执行下面的正常拉拽逻辑（不 continue）
+                    pass
+
             roll = roll_d6()
             old_loc = p.location or "未知"
 

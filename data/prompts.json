@@ -537,7 +537,14 @@
       "validate_shield_no_interact": "❌ 持盾/架盾状态下无法与地点交互",
       "wakeup_shield": "🛡️sensei，星野已经起床了，拿到了盾牌（水着-shielder）",
       "wakeup_extra_turn": "🏹 sensei，星野已经起床了，准备继续接受指挥(获得额外行动回合)（临战-Archer）",
-      "wakeup_halo": "✨ sensei，星野已经起床了,准备加入战斗(恢复1层光环！)（临战-shielder）"
+      "wakeup_halo": "✨ sensei，星野已经起床了,准备加入战斗(恢复1层光环！)（临战-shielder）",
+      "smoke_no_find": "🌫️ 烟雾中无法执行 find",
+      "smoke_no_lock": "🌫️ 目标在烟雾区域中，无法锁定",
+      "smoke_no_reverse_find": "🌫️ 目标在烟雾中，无法反向 find",
+      "smoke_clear_relations": "  🌫️ {name} 的 find/lock 关系被烟雾解除",
+      "shield_immune_exile": "   🛡️ 碍事。",
+      "shield_resist_pull": "  🛡️ 是演出吗……等到一切结束，再请sensei一起来看吧。"
+
     }
   },
   "system": {

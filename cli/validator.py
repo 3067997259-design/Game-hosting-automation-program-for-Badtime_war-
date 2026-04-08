@@ -52,6 +52,18 @@ def _check_hologram_lock_find(player, game_state):
                 return reason
     return None
 
+def _is_smoke_active(game_state, location):
+    """检查指定地点的烟雾是否仍在有效期内"""
+    if not hasattr(game_state, '_hoshino_smoke_zones'):
+        return False
+    if location not in game_state._hoshino_smoke_zones:
+        return False
+    return game_state.current_round <= game_state._hoshino_smoke_zones[location]
+
+def _is_hoshino_player(player):
+    """检查玩家是否为星野（通过天赋名判断）"""
+    return (player.talent and getattr(player.talent, 'name', '') == "大叔我啊，剪短发了")
+
 def _check_barrier_block(player, action_type, game_state):
     """检查结界是否禁止该行动"""
     if not hasattr(game_state, 'active_barrier') or not game_state.active_barrier:
@@ -290,6 +302,13 @@ def validate_lock(player, target_str, game_state):
     )
     if not has_ranged:
         return False, "锁定是远程攻击前置，你没有远程武器"
+    # 烟雾弹：目标在烟雾区域内禁止 lock（星野自己除外）
+    target_loc = target.location
+    if _is_smoke_active(game_state, target_loc):
+        if not _is_hoshino_player(player):
+            return False, prompt_manager.get_prompt(
+                "talent", "g7hoshino.smoke_no_lock",
+                default="🌫️ 目标在烟雾区域中，无法锁定")
 
     # 全息影像/结界：破除隐身（必须在可见性检查之前）
     if _is_stealth_blocked(target_id, game_state):
@@ -335,6 +354,13 @@ def validate_find(player, target_str, game_state):
         return False, "不能对自己使用找到"
     if target.location != player.location:
         return False, f"{target.name} 不在你的位置"
+    # 烟雾弹：烟雾区域内禁止 find（星野自己除外）
+    if _is_smoke_active(game_state, player.location):
+        # 星野自己可以在烟雾中 find
+        if not _is_hoshino_player(player):
+            return False, prompt_manager.get_prompt(
+                "talent", "g7hoshino.smoke_no_find",
+                default="🌫️ 烟雾中无法执行 find")
 
     # 全息影像/结界：破除隐身（必须在可见性检查之前）
     if _is_stealth_blocked(target_id, game_state):

@@ -103,6 +103,7 @@ def execute(player, op_name, game_state):
                 )
             if form_name in valid_forms:
                 player.talent.form = form_name
+                game_state.log_event("change_form", player=player.player_id, form=form_name)
                 return f"👗 {player.name} 更换形态为「{form_name}」！"
             return f"❌ 无效形态。可选：{', '.join(valid_forms)}"
         return "❌ 你没有可更换的形态"
