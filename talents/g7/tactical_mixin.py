@@ -105,7 +105,7 @@ class TacticalMixin:
         while True:
             raw = player.controller.get_command(
                 player=player,
-                game_state=self.state,
+                game_state=_blind_observable or self.state,
                 available_actions=list(self.TACTICAL_COST.keys()) + ["terminal"],
                 context={"phase": "T0", "situation": "hoshino_tactical_input"}
             )

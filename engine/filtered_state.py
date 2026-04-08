@@ -108,6 +108,17 @@ class FrozenMarkers:
             parts.append(f"👊与{eid}面对面")
         return " ".join(parts) if parts else "无异常"
 
+    def is_visible_to(self, target_pid, observer_pid, observer_has_detection=False):
+        """对自己的可见性查询返回实时数据，对其他玩家使用冻结数据"""
+        if target_pid == self._blinded_pid:
+            return self._real.is_visible_to(target_pid, observer_pid, observer_has_detection)
+        # 使用冻结标记判断：隐身且未被压制 → 不可见（除非观察者有侦测）
+        simple = self._frozen_simple.get(target_pid, set())
+        if "INVISIBLE" in simple and "INVISIBLE_SUPPRESSED" not in simple:
+            if not observer_has_detection:
+                return False
+        return True
+
     def __getattr__(self, name):
         return getattr(self._real, name)
 
@@ -165,6 +176,15 @@ class FilteredGameState:
         for pid in self._real.player_order:
             p = self.get_player(pid)
             if p and p.is_alive() and getattr(p, 'location', None) == location:
+                result.append(p)
+        return result
+
+    def alive_players(self):
+        """返回过滤后的存活玩家列表：自己返回实时，其他返回快照"""
+        result = []
+        for pid in self._real.player_order:
+            p = self.get_player(pid)
+            if p and p.is_alive():
                 result.append(p)
         return result
 
