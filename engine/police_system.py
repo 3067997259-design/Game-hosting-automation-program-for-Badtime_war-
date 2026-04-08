@@ -1005,7 +1005,14 @@ class PoliceEngine:
         玩家死亡时的警察系统清理。
         如果死者是队长，解除队长身份并重置系统。
         如果死者是举报者，重置执法流程。
+        如果死者是警察成员，清除警察身份。
         """
+        # 清除警察身份（无论是否队长）
+        player = self.state.get_player(player_id)
+        if player and getattr(player, 'is_police', False):
+            player.is_police = False
+            self.state.markers.remove(player_id, "IS_POLICE")
+
         # 队长死亡处理
         if self.police.captain_id == player_id:
             captain = self.state.get_player(player_id)
