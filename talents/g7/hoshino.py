@@ -114,6 +114,27 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
 
     def on_round_start(self, round_num):
         """R0: cost回满 + 光环tick + 融合检查 + 战术解锁检查"""
+        # 闪光弹/烟雾弹过期清理（即使 Hoshino 已死也必须执行，否则致盲永久化）
+        if hasattr(self.state, '_hoshino_smoke_zones'):
+            expired = [loc for loc, expire_round in self.state._hoshino_smoke_zones.items()
+                      if round_num > expire_round]
+            for loc in expired:
+                del self.state._hoshino_smoke_zones[loc]
+
+        # 清理致盲效果
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and hasattr(p, '_hoshino_blind_expire_round'):
+                if round_num > p._hoshino_blind_expire_round:
+                    p._hoshino_blinded = False
+                    if hasattr(p, '_hoshino_blind_snapshot'):
+                        del p._hoshino_blind_snapshot  # 释放快照内存
+                    if hasattr(p, '_hoshino_blind_markers_simple'):
+                        del p._hoshino_blind_markers_simple
+                    if hasattr(p, '_hoshino_blind_markers_relations'):
+                        del p._hoshino_blind_markers_relations
+                    del p._hoshino_blind_expire_round
+
         me = self.state.get_player(self.player_id)
         if not me or not me.is_alive():
             return
@@ -127,21 +148,6 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
 
         # 装备融合检查
         self._check_fusion(me)
-
-        # 闪光弹/烟雾弹过期清理
-        if hasattr(self.state, '_hoshino_smoke_zones'):
-            expired = [loc for loc, expire_round in self.state._hoshino_smoke_zones.items()
-                      if round_num > expire_round]
-            for loc in expired:
-                del self.state._hoshino_smoke_zones[loc]
-
-        # 清理致盲效果
-        for pid in self.state.player_order:
-            p = self.state.get_player(pid)
-            if p and hasattr(p, '_hoshino_blind_expire_round'):
-                if round_num > p._hoshino_blind_expire_round:
-                    p._hoshino_blinded = False
-                    del p._hoshino_blind_expire_round
 
     def on_round_end(self, round_num):
         """R4: 架盾cost扣除（位于R4所有检查之后）"""

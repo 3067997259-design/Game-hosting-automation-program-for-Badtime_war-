@@ -97,10 +97,15 @@ class TacticalMixin:
         commands = []
         dash_count = 0
         reorder_count = 0
+        # 致盲状态下预建过滤视图，避免每次 allstatus 重建泄露实时数据
+        _blind_observable = None
+        if getattr(player, '_hoshino_blinded', False):
+            from engine.filtered_state import FilteredGameState
+            _blind_observable = FilteredGameState(self.state, player.player_id)
         while True:
             raw = player.controller.get_command(
                 player=player,
-                game_state=self.state,
+                game_state=_blind_observable or self.state,
                 available_actions=list(self.TACTICAL_COST.keys()) + ["terminal"],
                 context={"phase": "T0", "situation": "hoshino_tactical_input"}
             )
@@ -111,7 +116,13 @@ class TacticalMixin:
 
             # 查看类指令（不消耗战术动作，不退出战术模式）
             if raw_lower == "allstatus":
-                display.show_all_players_status(self.state)
+                if _blind_observable:
+                    display.show_all_players_status(_blind_observable)
+                    display.show_info(prompt_manager.get_prompt(
+                        "talent", "g7hoshino.blind_info_stale",
+                        default="⚠️ [致盲中·以上信息可能已过时]"))
+                else:
+                    display.show_all_players_status(self.state)
                 continue
             if raw_lower == "status":
                 me = self.state.get_player(self.player_id)
@@ -633,12 +644,17 @@ class TacticalMixin:
                         lines.append(f"  → {unit.unit_id}: ⚡震荡")
 
         elif effect == "blind":
-            # 闪光弹：致盲（持续到下轮R4）
+            from engine.filtered_state import create_snapshot
             for t in targets:
                 t._hoshino_blinded = True
                 t._hoshino_blind_expire_round = self.state.current_round + 1
-                lines.append(prompt_manager.get_prompt("talent", "g7hoshino.throw_blind",
-                                                     target_name=t.name))
+                snapshot, frozen_simple, frozen_relations = create_snapshot(self.state, t.player_id)
+                t._hoshino_blind_snapshot = snapshot
+                t._hoshino_blind_markers_simple = frozen_simple
+                t._hoshino_blind_markers_relations = frozen_relations
+                lines.append(prompt_manager.get_prompt(
+                    "talent", "g7hoshino.throw_blind",
+                    target_name=t.name))
 
         elif effect == "smoke":
             # 烟雾弹：区域烟雾

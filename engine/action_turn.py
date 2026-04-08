@@ -287,13 +287,27 @@ class ActionTurnManager:
         max_retries = 10
         attempts = 0
 
+        from engine.filtered_state import FilteredGameState
+        is_blinded = getattr(player, '_hoshino_blinded', False)
+        # 兜底：致盲已过期但未被清理（如 Hoshino 死亡导致 on_round_start 未执行）
+        if is_blinded:
+            expire_round = getattr(player, '_hoshino_blind_expire_round', -1)
+            if self.state.current_round > expire_round:
+                player._hoshino_blinded = False
+                for attr in ('_hoshino_blind_snapshot', '_hoshino_blind_markers_simple',
+                             '_hoshino_blind_markers_relations', '_hoshino_blind_expire_round'):
+                    if hasattr(player, attr):
+                        delattr(player, attr)
+                is_blinded = False
+        observable = (FilteredGameState(self.state, player.player_id)
+                      if is_blinded else self.state)
+
         while attempts < max_retries:
             attempts += 1
 
-            # ══ CONTROLLER：输入来源 ══
             raw = player.controller.get_command(
                 player=player,
-                game_state=self.state,
+                game_state=observable,
                 available_actions=action_names,
                 context={
                     "phase": "T1",
@@ -309,10 +323,14 @@ class ActionTurnManager:
                 display.show_help()
                 continue
             if raw_lower == "status":
-                display.show_player_status(player, self.state)
+                display.show_player_status(player, observable)
                 continue
             if raw_lower == "allstatus":
-                display.show_all_players_status(self.state)
+                display.show_all_players_status(observable)
+                if is_blinded:
+                    display.show_info(prompt_manager.get_prompt(
+                        "talent", "g7hoshino.blind_info_stale",
+                        default="⚠️ [致盲中·以上信息可能已过时]"))
                 continue
             if raw_lower == "police":
                 display.show_police_status(self.state)
