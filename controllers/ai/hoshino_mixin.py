@@ -281,12 +281,24 @@ class HoshinoMixin(_Base):
                     used_cost += COST["find"]
 
         elif shield_mode == "持盾":
-            if same_loc and prefer_deploy:
-                # 持盾中 + 同地点 + HP低 → 取消持盾 → 架盾
+            if same_loc and has_find and prefer_deploy:
+                # 持盾中 + 同地点 + 已 find + HP低 → 取消持盾 → 架盾 → find（确保目标在正面）
                 queue.append("取消")  # cost 0
                 if can_afford("架盾"):
                     queue.append("架盾")
                     used_cost += COST["架盾"]
+                if can_afford("find"):
+                    queue.append(f"find {target.name}")
+                    used_cost += COST["find"]
+            elif same_loc and not has_find and prefer_deploy:
+                # 持盾中 + 同地点 + 没 find + HP低 → 取消持盾 → 架盾 → find
+                queue.append("取消")  # cost 0
+                if can_afford("架盾"):
+                    queue.append("架盾")
+                    used_cost += COST["架盾"]
+                if can_afford("find"):
+                    queue.append(f"find {target.name}")
+                    used_cost += COST["find"]
             elif same_loc and has_find:
                 # 持盾 + 同地点 + 已 find → 直接射击
                 pass
@@ -306,10 +318,13 @@ class HoshinoMixin(_Base):
 
         else:  # shield_mode is None
             if same_loc and prefer_deploy:
-                # 同地点 + HP低 → 架盾（不需要 find，直接射击正面）
+                # 同地点 + HP低 → 架盾 → find（确保目标在正面可射击）
                 if can_afford("架盾"):
                     queue.append("架盾")
                     used_cost += COST["架盾"]
+                if can_afford("find"):
+                    queue.append(f"find {target.name}")
+                    used_cost += COST["find"]
             elif same_loc and has_find:
                 # 同地点 + 已 find + HP健康 → 持盾然后射击
                 if can_afford("持盾"):
