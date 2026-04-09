@@ -189,6 +189,22 @@ class BasicAIController(
                     self._hoshino_macro_queue = []
                     debug_ai_basic(player.name, f"星野战术宏：目标 {target.name}")
                     return ["special Hoshino", "forfeit"]
+                elif target is None:
+                    # 没有攻击目标：先尝试顺手拿，再移动到敌人位置
+                    grab = self._hoshino_grab_while_here(player, state, available_actions)
+                    if grab:
+                        debug_ai_basic(player.name, "星野：无目标，顺手拿物品")
+                        grab.append("forfeit")
+                        return grab
+                    enemy_loc = self._find_nearest_enemy_location(player, state)
+                    if enemy_loc and "move" in available_actions:
+                        loc = self._get_location_str(player)
+                        if enemy_loc == "home" and self._is_at_home(player):
+                            pass  # 已在家，不移动
+                        elif enemy_loc != loc:
+                            debug_ai_basic(player.name, f"星野：无目标，移动到 {enemy_loc}")
+                            return [f"move {enemy_loc}", "forfeit"]
+                    # 都不行 → fall through
             else:
                 if not can_shoot:
                     debug_ai_basic(player.name, "星野：无弹药且无可装填物品，跳过战术宏")

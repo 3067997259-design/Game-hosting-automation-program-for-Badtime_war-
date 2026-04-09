@@ -46,9 +46,14 @@ class DevelopMixin(_Base):
         # 星野（神代天赋7）
         if self._has_hoshino_talent(player):
             talent = player.talent
-            # 战术指令解锁 + 有子弹 = 发育完成
-            return (getattr(talent, 'tactical_unlocked', False)
-                    and len(getattr(talent, 'ammo', [])) > 0)
+            tactical_unlocked = getattr(talent, 'tactical_unlocked', False)
+            has_ammo = len(getattr(talent, 'ammo', [])) > 0
+            has_consumable = bool(self._hoshino_find_consumable_for_reload(player))
+            iron_horus_hp = getattr(talent, 'iron_horus_hp', 0)
+            # 战术指令解锁 + (有子弹或有可消耗品) + 荷鲁斯未破损 = 发育完成
+            return (tactical_unlocked
+                    and (has_ammo or has_consumable)
+                    and iron_horus_hp > 0)
 
         # 全息影像（请一直注视着我）
         if (player.talent and hasattr(player.talent, 'name')
@@ -463,16 +468,20 @@ class DevelopMixin(_Base):
             if not consumable:
                 # 没有消耗品 → 在当前地点就地取材
                 if "interact" in available:
-                    reload_item = self._hoshino_pick_reload_item_at_location(player, state, loc)
-                    if reload_item:
-                        commands.append(f"interact {reload_item}")
+                    result = self._hoshino_pick_best_item(player, state, loc)
+                    if result:
+                        commands.append(f"interact {result['name']}")
                         return commands
                 # 当前地点没有可拿的 → 移动到最佳地点
                 if "move" in available and not commands:
-                    best_loc = self._hoshino_best_reload_destination(player, state)
-                    if best_loc and best_loc != loc:
-                        commands.append(f"move {best_loc}")
-                        return commands
+                    best_loc = self._hoshino_best_item_destination(player, state)
+                    if best_loc:
+                        # 用 _is_at_home 检查避免 home vs home_pN 导致无限移动
+                        if best_loc == "home" and self._is_at_home(player):
+                            pass  # 已在家，不移动
+                        elif best_loc != loc:
+                            commands.append(f"move {best_loc}")
+                            return commands
 
         # 有消耗品但需要在战术宏里装填 → 发育完成，交给战斗逻辑
 
@@ -502,10 +511,30 @@ class DevelopMixin(_Base):
                     return commands
 
         # ===== 阶段4：发育完成，寻找目标 =====
-        if "move" in available and not commands:
+        # 顺手拿：当前地点有可拿物品
+        if not commands and "interact" in available:
+            result = self._hoshino_pick_best_item(player, state, loc)
+            if result:
+                commands.append(f"interact {result['name']}")
+
+        # 移动到敌人位置
+        if not commands and "move" in available:
             enemy_loc = self._find_nearest_enemy_location(player, state)
-            if enemy_loc and enemy_loc != loc:
-                commands.append(f"move {enemy_loc}")
+            if enemy_loc:
+                if enemy_loc == "home" and self._is_at_home(player):
+                    pass  # 已在家，不移动
+                elif enemy_loc != loc:
+                    commands.append(f"move {enemy_loc}")
+
+        # 拳击同地点敌人
+        if not commands and "attack" in available:
+            same_targets = self._get_same_location_targets(player, state)
+            if same_targets:
+                commands.append("attack")
+
+        # 兜底：确保永远不返回空列表
+        if not commands:
+            commands.append("forfeit")
 
         return commands
     # ════════════════════════════════════════════════════════
