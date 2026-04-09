@@ -96,6 +96,117 @@ class HoshinoMixin(_Base):
         if not talent or not hasattr(talent, 'is_front'):
             return False
         return talent.is_front(target.player_id)
+
+    def _hoshino_pick_reload_item_at_location(self, player, state, loc) -> Optional[str]:
+        """根据当前地点选择最佳的可消耗物品用于装填子弹。
+        优先选择能产出与当前弹药属性不同的物品（属性多样化）。"""
+        talent = getattr(player, 'talent', None)
+        has_pass = getattr(player, 'has_military_pass', False)
+        vouchers = getattr(player, 'vouchers', 0)
+        iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
+        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 3) if talent else 3
+
+        # 已有的子弹属性统计（用于属性多样化）
+        ammo = getattr(talent, 'ammo', []) if talent else []
+        existing_attrs = set(b.get("attribute", "普通") for b in ammo)
+
+        # 各地点可拿的消耗品及其属性
+        # 注意：盾牌和AT力场是修复材料，只有荷鲁斯满血时才用于装填
+        horus_full = iron_horus_hp >= iron_horus_max
+
+        candidates = []  # (item_name, attribute, priority)
+
+        if loc == "home" or self._is_at_home(player):
+            if not player.has_weapon("小刀"):
+                candidates.append(("小刀", "普通", 1))
+            if horus_full and not self._has_armor_by_name(player, "盾牌"):
+                candidates.append(("盾牌", "普通", 0))  # 低优先级，修复材料
+
+        elif loc == "商店":
+            if vouchers >= 1:
+                if not player.has_weapon("小刀"):
+                    candidates.append(("小刀", "普通", 1))
+                # 陶瓷护甲也是普通属性，但比小刀贵（需凭证）
+                if not self._has_armor_by_name(player, "陶瓷护甲"):
+                    candidates.append(("陶瓷护甲", "普通", 0))
+
+        elif loc == "魔法所":
+            learned = getattr(player, 'learned_spells', set())
+            # 魔法护盾：学习后变成魔法属性外甲，可消耗装填魔法子弹
+            if "魔法护盾" not in learned:
+                candidates.append(("魔法护盾", "魔法", 2))
+            # 魔法弹幕：魔法属性武器
+            if "魔法弹幕" not in learned:
+                candidates.append(("魔法弹幕", "魔法", 2))
+
+        elif loc == "医院":
+            if vouchers >= 1:
+                # 手术可以拿到不同属性的内甲
+                candidates.append(("晶化皮肤手术", "科技", 2))
+                candidates.append(("不老泉手术", "魔法", 2))
+                candidates.append(("额外心脏手术", "普通", 1))
+
+        elif loc == "军事基地":
+            if has_pass:
+                # 雷达是最佳选择：科技属性物品，不影响战斗力
+                if not getattr(player, 'has_detection', False):
+                    candidates.append(("雷达", "科技", 3))
+                # AT力场：科技属性，但也是修复材料
+                if horus_full and not self._has_armor_by_name(player, "AT力场"):
+                    candidates.append(("AT力场", "科技", 1))
+                # 高斯步枪/电磁步枪：融合后可以重新拿（如果没有的话）
+                if not player.has_weapon("高斯步枪"):
+                    candidates.append(("高斯步枪", "科技", 2))
+                if not player.has_weapon("电磁步枪"):
+                    candidates.append(("电磁步枪", "科技", 2))
+
+        if not candidates:
+            return None
+
+        # 优先选择当前弹药中没有的属性（属性多样化）
+        for name, attr, prio in sorted(candidates, key=lambda x: -x[2]):
+            if attr not in existing_attrs:
+                return name
+        # 都有了就选优先级最高的
+        candidates.sort(key=lambda x: -x[2])
+        return candidates[0][0]
+
+
+    def _hoshino_best_reload_destination(self, player, state) -> Optional[str]:
+        """选择最佳的移动目的地来获取装填消耗品。
+        考虑：当前弹药属性缺什么、各地点能提供什么。"""
+        talent = getattr(player, 'talent', None)
+        has_pass = getattr(player, 'has_military_pass', False)
+        vouchers = getattr(player, 'vouchers', 0)
+        ammo = getattr(talent, 'ammo', []) if talent else []
+        existing_attrs = set(b.get("attribute", "普通") for b in ammo)
+
+        # 各地点能提供的属性
+        # ⚠️ 迭代顺序即为优先级（免费无条件 > 有条件），勿随意调换
+        location_attrs = {
+            "home": {"普通"},           # 小刀
+            "商店": {"普通"} if vouchers >= 1 else set(),
+            "魔法所": {"魔法"},         # 魔法护盾/魔法弹幕
+            "军事基地": {"科技"} if has_pass else set(),
+            "医院": {"科技", "魔法", "普通"} if vouchers >= 1 else set(),
+        }
+
+        # 优先去能提供缺失属性的地点
+        for loc, attrs in location_attrs.items():
+            missing = attrs - existing_attrs
+            if missing:
+                return loc
+
+        # 都不缺就去最方便的（家最简单，免费无条件）
+        return "home"
+    def _hoshino_prefer_deploy_shield(self, player) -> bool:
+        """铁之荷鲁斯HP低于上限一半时偏好架盾"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        hp = getattr(talent, 'iron_horus_hp', 0)
+        max_hp = getattr(talent, 'iron_horus_max_hp', 3)
+        return 0 < hp < max_hp / 2
     # ════════════════════════════════════════════════════════
     #  战术宏模板生成
     # ════════════════════════════════════════════════════════
@@ -110,12 +221,19 @@ class HoshinoMixin(_Base):
         talent = getattr(player, 'talent', None)
         if not talent:
             return ["terminal"]
+        # 安全网：无弹药且无消耗品时不应进入宏（正常情况下 controller.py 已拦截）
+        if not talent.ammo and not self._hoshino_find_consumable_for_reload(player):
+            return ["terminal"]
+        # 铁之荷鲁斯破损时不应进入宏
+        if talent.iron_horus_hp <= 0:
+            return ["terminal"]
 
         queue = []
         cost = talent.cost
         shield_mode = talent.shield_mode  # "架盾"/"持盾"/None
         form = talent.form
         same_loc = self._hoshino_target_same_location(player, target)
+        target_loc = self._get_location_str(target)
         has_find = self._hoshino_is_engaged_with(player, target, state)
         has_ammo = bool(talent.ammo)
 
@@ -129,6 +247,10 @@ class HoshinoMixin(_Base):
 
         def can_afford(action):
             return used_cost + COST.get(action, 0) <= cost
+
+        # 在 COST 字典定义之后、阶段1之前添加
+        prefer_deploy = (talent.iron_horus_hp < talent.iron_horus_max_hp / 2
+                        and talent.iron_horus_hp > 0)  # HP低于上限一半且未破损 → 偏好架盾
 
         # ===== 阶段1：接近 + 控制前缀 =====
 
@@ -152,14 +274,32 @@ class HoshinoMixin(_Base):
                     queue.append("持盾")
                     used_cost += COST["持盾"]
                 if can_afford("冲刺"):
-                    queue.append(f"冲刺 {target.name}")
+                    queue.append(f"冲刺 {target_loc}")
                     used_cost += COST["冲刺"]
                 if can_afford("find"):
                     queue.append(f"find {target.name}")
                     used_cost += COST["find"]
 
         elif shield_mode == "持盾":
-            if same_loc and has_find:
+            if same_loc and has_find and prefer_deploy:
+                # 持盾中 + 同地点 + 已 find + HP低 → 取消持盾 → 架盾 → find（确保目标在正面）
+                queue.append("取消")  # cost 0
+                if can_afford("架盾"):
+                    queue.append("架盾")
+                    used_cost += COST["架盾"]
+                if can_afford("find"):
+                    queue.append(f"find {target.name}")
+                    used_cost += COST["find"]
+            elif same_loc and not has_find and prefer_deploy:
+                # 持盾中 + 同地点 + 没 find + HP低 → 取消持盾 → 架盾 → find
+                queue.append("取消")  # cost 0
+                if can_afford("架盾"):
+                    queue.append("架盾")
+                    used_cost += COST["架盾"]
+                if can_afford("find"):
+                    queue.append(f"find {target.name}")
+                    used_cost += COST["find"]
+            elif same_loc and has_find:
                 # 持盾 + 同地点 + 已 find → 直接射击
                 pass
             elif same_loc and not has_find:
@@ -170,20 +310,28 @@ class HoshinoMixin(_Base):
             elif not same_loc:
                 # 持盾 + 不同地点 → 冲刺 → find
                 if can_afford("冲刺"):
-                    queue.append(f"冲刺 {target.name}")
+                    queue.append(f"冲刺 {self._get_location_str(target)}")
                     used_cost += COST["冲刺"]
                 if can_afford("find"):
                     queue.append(f"find {target.name}")
                     used_cost += COST["find"]
 
         else:  # shield_mode is None
-            if same_loc and has_find:
-                # 无盾 + 同地点 + 已 find → 持盾然后射击
+            if same_loc and prefer_deploy:
+                # 同地点 + HP低 → 架盾 → find（确保目标在正面可射击）
+                if can_afford("架盾"):
+                    queue.append("架盾")
+                    used_cost += COST["架盾"]
+                if can_afford("find"):
+                    queue.append(f"find {target.name}")
+                    used_cost += COST["find"]
+            elif same_loc and has_find:
+                # 同地点 + 已 find + HP健康 → 持盾然后射击
                 if can_afford("持盾"):
                     queue.append("持盾")
                     used_cost += COST["持盾"]
             elif same_loc and not has_find:
-                # 无盾 + 同地点 + 没 find → 持盾 → find
+                # 同地点 + 没 find + HP健康 → 持盾 → find
                 if can_afford("持盾"):
                     queue.append("持盾")
                     used_cost += COST["持盾"]
@@ -191,17 +339,14 @@ class HoshinoMixin(_Base):
                     queue.append(f"find {target.name}")
                     used_cost += COST["find"]
             elif not same_loc:
-                # 无盾 + 不同地点 → 持盾 → 冲刺 → find
+                # 不同地点 → 必须持盾冲刺（架盾不能移动）
                 if can_afford("持盾"):
                     queue.append("持盾")
                     used_cost += COST["持盾"]
                 if can_afford("冲刺"):
-                    queue.append(f"冲刺 {target.name}")
+                    queue.append(f"冲刺 {self._get_location_str(target)}")
                     used_cost += COST["冲刺"]
-                # 临战-shielder 冲刺后自动冲击+架盾，不需要额外 find
-                if form == "临战-shielder":
-                    pass  # 冲刺自动处理
-                elif can_afford("find"):
+                if can_afford("find"):
                     queue.append(f"find {target.name}")
                     used_cost += COST["find"]
 

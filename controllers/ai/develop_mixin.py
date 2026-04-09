@@ -458,28 +458,23 @@ class DevelopMixin(_Base):
 
         # ===== 阶段2：战术已解锁 — 装填子弹 =====
         if tactical_unlocked and ammo_count == 0:
-            # 需要消耗品来装填。检查身上有没有可消耗的物品/武器
-            consumable = None
-            for w in player.weapons:
-                if w and w.name not in ("拳击",):
-                    consumable = w.name
-                    break
+            # 先检查身上有没有可消耗的物品/武器
+            consumable = self._hoshino_find_consumable_for_reload(player)
             if not consumable:
-                # 没有消耗品，去拿一把小刀来装填
+                # 没有消耗品 → 在当前地点就地取材
                 if "interact" in available:
-                    if loc == "home" or self._is_at_home(player):
-                        if not has_knife:
-                            commands.append("interact 小刀")
-                            return commands
-                    elif loc == "商店":
-                        if vouchers >= 1:
-                            commands.append("interact 小刀")
-                            return commands
-                if "move" in available and not commands:
-                    if not self._is_at_home(player):
-                        commands.append("move home")
+                    reload_item = self._hoshino_pick_reload_item_at_location(player, state, loc)
+                    if reload_item:
+                        commands.append(f"interact {reload_item}")
                         return commands
-            # 有消耗品但需要在战术宏里装填 → 发育完成，交给战斗逻辑
+                # 当前地点没有可拿的 → 移动到最佳地点
+                if "move" in available and not commands:
+                    best_loc = self._hoshino_best_reload_destination(player, state)
+                    if best_loc and best_loc != loc:
+                        commands.append(f"move {best_loc}")
+                        return commands
+
+        # 有消耗品但需要在战术宏里装填 → 发育完成，交给战斗逻辑
 
         # ===== 阶段3：修复铁之荷鲁斯（如果受损）=====
         if tactical_unlocked and iron_horus_hp < getattr(talent, 'iron_horus_max_hp', 3):
@@ -491,14 +486,20 @@ class DevelopMixin(_Base):
                 return commands
             # 没有修复材料，去拿
             if not has_repair_material and "interact" in available:
+                # 就地取材：家拿盾牌，军事基地拿AT力场
                 if loc == "home" or self._is_at_home(player):
-                    if not self._has_armor_by_name(player, "盾牌"):
-                        commands.append("interact 盾牌")
-                        return commands
+                    commands.append("interact 盾牌")
+                    return commands
                 elif loc == "军事基地" and has_pass:
-                    if not self._has_armor_by_name(player, "AT力场"):
-                        commands.append("interact AT力场")
-                        return commands
+                    commands.append("interact AT力场")
+                    return commands
+                # 其他地点 → 移动到最近的可拿修复材料的地点
+                elif "move" in available:
+                    if has_pass:
+                        commands.append("move 军事基地")
+                    else:
+                        commands.append("move home")
+                    return commands
 
         # ===== 阶段4：发育完成，寻找目标 =====
         if "move" in available and not commands:
