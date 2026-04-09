@@ -107,7 +107,7 @@ def execute(player, op_name, game_state):
     elif op_name == "Hoshino":
         if player.talent and hasattr(player.talent, '_execute_tactical_macro'):
             msg, consumes = player.talent._execute_tactical_macro(player)
-            return msg
+            return msg, consumes
         return "❌ 你没有战术指令能力"
     elif op_name.startswith("更衣"):
         form_name = op_name[2:].strip() if len(op_name) > 2 else ""

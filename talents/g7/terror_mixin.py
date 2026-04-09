@@ -41,40 +41,6 @@ class TerrorMixin:
         if killer_id == self.player_id:
             self.color += 2  # 自己击杀额外 +2
 
-    def _check_color_6_choice(self, player):
-        """
-        T0: 色彩≥6 → 提供选择是否进入自我怀疑。
-        返回 skip reason string 或 None。
-        """
-        if self.color_is_null or self.is_terror or self.self_doubt_pending:
-            return None
-        if self.color >= 6:
-            choice = player.controller.choose(
-                f"是因为你在，她才会死在沙漠里的。她的死都是你的错……你还在试图相信那个可笑的自己吗？",
-                ["是因为我……一切都是因为我……", "不，不是这样的……"],
-                context={"phase": "T0", "situation": "hoshino_self_doubt_choice"}
-            )
-            if choice == "是因为我……一切都是因为我……":
-                self.self_doubt_pending = True
-                msg = prompt_manager.get_prompt("talent", "g7hoshino.self_doubt_next_skip",
-                                              player_name=player.name)
-                display.show_info(msg)
-        return None
-
-    def _process_self_doubt(self, player):
-        """
-        T0: 自我怀疑 → 跳过回合 → 反转为 Terror。
-        返回 skip reason string 或 None。
-        """
-        if not self.self_doubt_pending:
-            return None
-        self.self_doubt_pending = False
-        msg = prompt_manager.get_prompt("talent", "g7hoshino.self_doubt_skip", player_name=player.name)
-        display.show_info(msg)
-        # 反转为 Terror
-        self._enter_terror(player)
-        return "self_doubt_terror"
-
     def _check_color_10_on_hp_damage(self, player, damage):
         """
         色彩≥10 且本体HP受伤未死 → 不眩晕 + 恢复所有破碎护甲 → 自我怀疑。

@@ -96,7 +96,11 @@ class ActionTurnManager:
                         remaining = player.talent.receive_damage_to_temp_hp(remaining)
                     if remaining > 0:
                         player.hp = round(max(0, player.hp - remaining), 2)
-                    display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
+                    absorbed = round(0.5 - remaining, 2)
+                    if absorbed > 0:
+                        display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害（临时HP吸收{absorbed}） → HP: {player.hp}")
+                    else:
+                        display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
                     # 死亡判定
                     if player.hp <= 0:
                         self.state.markers.on_player_death(player.player_id)
@@ -454,7 +458,13 @@ class ActionTurnManager:
 
         elif action == "special":
             op = parsed["operation"]
-            msg = special_op.execute(player, op, self.state)
+            ret = special_op.execute(player, op, self.state)
+            # special_op.execute 可能返回 (msg, consumes) 二元组或纯字符串
+            if isinstance(ret, tuple):
+                msg, consumes = ret
+                is_ok = not msg.startswith("❌")
+                return msg, "special", is_ok, consumes
+            msg = ret
             # 取消盾牌和肾上腺素：操作成功但不消耗行动回合
             if op in ("取消盾牌", "肾上腺素"):
                 is_ok = not msg.startswith("❌")
