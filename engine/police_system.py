@@ -214,9 +214,9 @@ class PoliceEngine:
         if not target or not target.is_alive():
             return "❌ 执法目标已不存在"
 
-        # [FIX] 所有不在目标位置的可行动警察单位立刻到达（被控单位无法响应指引）
+        # [FIX] 所有不在目标位置的可行动警察单位立刻到达（被控/致盲单位无法响应指引）
         guided_units = []
-        for unit in self.police.active_units():
+        for unit in self._non_blinded_units(self.police.active_units()):
             if unit.is_on_map() and unit.location != target.location:
                 unit.location = target.location
                 guided_units.append(unit.unit_id)
@@ -238,8 +238,8 @@ class PoliceEngine:
 
         target_loc = target.location
 
-        # 移动所有可行动的警察单位到目标位置（被控单位无法移动）
-        for unit in self.police.active_units():
+        # 移动所有可行动的警察单位到目标位置（被控/致盲单位无法移动）
+        for unit in self._non_blinded_units(self.police.active_units()):
             unit.location = target_loc
 
         self.police.report_phase = "dispatched"
