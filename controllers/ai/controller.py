@@ -190,8 +190,17 @@ class BasicAIController(
                 and self._hoshino_tactical_unlocked(player)
                 and not self._hoshino_is_terror(player)):
             # 前置检查：有弹药或可装填物品，且铁之荷鲁斯未破损
+            shield_mode = self._hoshino_shield_mode(player)
             can_shoot = self._hoshino_has_ammo(player) or bool(self._hoshino_find_consumable_for_reload(player))
             horus_ok = self._hoshino_iron_horus_hp(player) > 0
+
+            # 新增：持盾/架盾死锁检测 — 需要 interact 但被盾牌模式阻止
+            # 此时允许进入战术宏仅用于取消盾牌
+            if shield_mode and not can_shoot and "special" in available_actions:
+                debug_ai_basic(player.name, f"星野：{shield_mode}中无弹药，进入宏取消盾牌")
+                self._hoshino_macro_queue = ["取消", "terminal"]
+                return ["special Hoshino", "forfeit"]
+
             if can_shoot and horus_ok:
                 target = self._hoshino_find_target(player, state)
                 if target and "special" in available_actions:
