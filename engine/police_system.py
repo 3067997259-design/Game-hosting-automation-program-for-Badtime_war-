@@ -427,6 +427,15 @@ class PoliceEngine:
     #  警察保护
     # ============================================
 
+    def _is_unit_blinded(self, unit):
+        """检查警察单位是否处于致盲状态"""
+        return (getattr(unit, '_hoshino_blinded', False)
+                and getattr(unit, '_hoshino_blind_expire_round', 0) >= self.state.current_round)
+
+    def _non_blinded_units(self, units):
+        """过滤掉被致盲的警察单位（闪光弹效果）"""
+        return [u for u in units if not self._is_unit_blinded(u)]
+
     def is_protected_by_police(self, player_id):
         """
         检查玩家是否受警察保护。
@@ -466,12 +475,8 @@ class PoliceEngine:
             if self.police.reporter_id != player_id:
                 return False
 
-        # 检查同地点是否有未处于debuff的警察单位
-        active_at_loc = self.police.active_units_at(player.location)
-        # 过滤掉被致盲的警察（闪光弹效果）
-        active_at_loc = [u for u in active_at_loc
-                        if not (getattr(u, '_hoshino_blinded', False)
-                                and getattr(u, '_hoshino_blind_expire_round', 0) >= self.state.current_round)]
+        # 检查同地点是否有未处于debuff的警察单位（过滤致盲）
+        active_at_loc = self._non_blinded_units(self.police.active_units_at(player.location))
         return len(active_at_loc) > 0
 
     def get_protection_threshold(self, player_id):
@@ -479,11 +484,7 @@ class PoliceEngine:
         if not self.is_protected_by_police(player_id):
             return 0.0
         player = self.state.get_player(player_id)
-        active_at_loc = self.police.active_units_at(player.location)
-        # 过滤掉被致盲的警察（闪光弹效果），与 is_protected_by_police 保持一致
-        active_at_loc = [u for u in active_at_loc
-                        if not (getattr(u, '_hoshino_blinded', False)
-                                and getattr(u, '_hoshino_blind_expire_round', 0) >= self.state.current_round)]
+        active_at_loc = self._non_blinded_units(self.police.active_units_at(player.location))
         if not active_at_loc:
             return 0.0
         max_val = 0.0
@@ -688,6 +689,9 @@ class PoliceEngine:
 
         if unit.is_disabled():
             return f"❌ {police_id} 处于debuff状态，无法移动"
+        # 致盲的警察无法执行队长命令
+        if self._is_unit_blinded(unit):
+            return f"❌ {police_id} 被致盲，无法执行移动命令"
 
         if unit.location == location:
             return f"❌ {police_id} 已经在 {location}"
@@ -735,6 +739,9 @@ class PoliceEngine:
         unit = self.police.get_unit(police_id)
         if not unit or not unit.is_alive():
             return f"❌ 找不到存活的警察单位 {police_id}"
+        # 致盲的警察无法执行队长命令
+        if self._is_unit_blinded(unit):
+            return f"❌ {police_id} 被致盲，无法执行装备命令"
 
         # 检查警察单位是否在装备对应的获取地点
         required_locations = self.EQUIPMENT_LOCATION.get(equipment_name)
@@ -782,9 +789,8 @@ class PoliceEngine:
             return f"❌ 找不到存活的警察单位 {police_id}"
         if unit.is_disabled():
             return f"❌ {police_id} 处于行动阻碍状态，无法攻击"
-        # 致盲的警察无法执行命令
-        if (getattr(unit, '_hoshino_blinded', False)
-                and getattr(unit, '_hoshino_blind_expire_round', 0) >= self.state.current_round):
+        # 致盲的警察无法执行队长命令
+        if self._is_unit_blinded(unit):
             return f"❌ {police_id} 被致盲，无法执行攻击命令"
 
         target = self.state.get_player(target_id)
@@ -1156,7 +1162,7 @@ class PoliceEngine:
                 is_terror = (target.talent and hasattr(target.talent, 'is_terror')
                             and target.talent.is_terror)
                 if not is_terror:
-                    for unit in self.police.active_units():
+                    for unit in self._non_blinded_units(self.police.active_units()):
                         if unit.is_on_map() and unit.location != target.location:
                             # 方式B：自动赶到，标记为刚到达
                             unit.location = target.location
@@ -1191,12 +1197,11 @@ class PoliceEngine:
                                     unit_id=unit.unit_id))
                                 continue
                         # 致盲的警察不自动攻击
-                        if getattr(unit, '_hoshino_blinded', False):
-                            if getattr(unit, '_hoshino_blind_expire_round', 0) >= self.state.current_round:
-                                messages.append(prompt_manager.get_prompt(
-                                    "talent", "g7hoshino.blind_police_no_attack",
-                                    unit_id=unit.unit_id))
-                                continue
+                        if self._is_unit_blinded(unit):
+                            messages.append(prompt_manager.get_prompt(
+                                "talent", "g7hoshino.blind_police_no_attack",
+                                unit_id=unit.unit_id))
+                            continue
                         atk_msg = self._resolve_police_attack_on_target(unit, target)
                         messages.append(atk_msg)
 
