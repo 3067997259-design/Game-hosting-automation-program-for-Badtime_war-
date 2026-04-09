@@ -436,6 +436,13 @@ class CombatMixin(_Base):
             s += max(0, 5 - self._get_effective_hp(t)) * 10
             s -= self._count_outer_armor(t) * 15
             s -= self._count_inner_armor(t) * 10
+            # 架盾正面惩罚：从正面攻击架盾星野几乎无效
+            t_talent = getattr(t, 'talent', None)
+            if (t_talent and getattr(t_talent, 'shield_mode', None) == "架盾"
+                    and hasattr(t_talent, 'is_front')):
+                # 如果自己在星野正面，大幅降低优先级
+                if t_talent.is_front(player.player_id):
+                    s -= 100  # 正面攻击几乎无效，换目标
             # In _score_target or target evaluation:
             if t.talent and hasattr(t.talent, 'has_love_wish') and t.talent.has_love_wish(player.player_id):
                 s -= 10000  # Cannot attack this target due to 爱愿

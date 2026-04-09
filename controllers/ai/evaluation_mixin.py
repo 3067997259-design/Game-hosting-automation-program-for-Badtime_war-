@@ -407,6 +407,17 @@ class EvaluationMixin(_Base):
                     del self._threat_scores[target.name]
                 continue
             power = self._estimate_power(target)
+            # 星野特殊威胁调整：加在 power 上参与 EMA 衰减，避免无限累积
+            t_talent = getattr(target, 'talent', None)
+            if t_talent and getattr(t_talent, 'name', '') == "大叔我啊，剪短发了":
+                if getattr(t_talent, 'is_terror', False):
+                    power += 200  # Terror 最高优先级
+                elif getattr(t_talent, 'self_doubt_pending', False):
+                    power += 150  # 即将变 Terror
+                elif getattr(t_talent, 'tactical_unlocked', False) and len(getattr(t_talent, 'ammo', [])) > 0:
+                    power += 50  # 有弹药，爆发威胁
+                elif not getattr(t_talent, 'tactical_unlocked', False):
+                    power -= 20  # 未解锁，前期脆弱
             existing = self._threat_scores.get(target.name, 0)
             # 衰减历史威胁 + 新威胁
             self._threat_scores[target.name] = existing * 0.8 + power * 0.2
