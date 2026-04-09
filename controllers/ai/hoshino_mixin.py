@@ -251,6 +251,190 @@ class HoshinoMixin(_Base):
         hp = getattr(talent, 'iron_horus_hp', 0)
         max_hp = getattr(talent, 'iron_horus_max_hp', 3)
         return 0 < hp < max_hp / 2
+
+    def _hoshino_has_missing_halo(self, player) -> bool:
+        """是否有光环缺失"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        halos = getattr(talent, 'halos', [])
+        return any(not h.get('active', True) for h in halos)
+
+    def _hoshino_target_is_hard_to_kill(self, target) -> bool:
+        """目标是否难杀（护甲多/临时HP/火萤/救世主）"""
+        armor_count = self._count_outer_armor(target) + self._count_inner_armor(target)
+        if armor_count >= 2:
+            return True
+        t_talent = getattr(target, 'talent', None)
+        if t_talent:
+            # 救世主状态或高火种
+            if getattr(t_talent, 'is_savior', False):
+                return True
+            if hasattr(t_talent, 'divinity') and getattr(t_talent, 'divinity', 0) >= 6:
+                return True
+            # 火萤
+            if hasattr(t_talent, 'has_supernova'):
+                return True
+            # 临时HP
+            if hasattr(t_talent, 'temp_hp') and getattr(t_talent, 'temp_hp', 0) > 0:
+                return True
+        return False
+
+    def _hoshino_target_is_police_protected(self, target) -> bool:
+        """目标是否受警察单体保护"""
+        pe = getattr(self._game_state, 'police_engine', None) if self._game_state else None
+        if not pe:
+            return False
+        threshold = pe.get_protection_threshold(target.player_id)
+        return threshold > 0
+
+    def _hoshino_pick_throw_item(self, player, target) -> Optional[str]:
+        """根据目标状态选择最佳投掷道具。返回道具名或 None。"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return None
+        items = getattr(talent, 'tactical_items', [])
+        if not items:
+            return None
+
+        is_protected = self._hoshino_target_is_police_protected(target)
+        is_hard = self._hoshino_target_is_hard_to_kill(target)
+
+        # 目标受警察保护 → 闪光弹（禁用保护+攻击+命令）
+        if is_protected:
+            if "闪光弹" in items:
+                return "闪光弹"
+            if "烟雾弹" in items:
+                return "烟雾弹"
+
+        # 目标难杀 → 烟雾弹（控制+隐身+禁保护）
+        if is_hard:
+            if "烟雾弹" in items:
+                return "烟雾弹"
+            if "闪光弹" in items:
+                return "闪光弹"
+
+        # 其他 → 破片手雷（伤害+脆弱增加破甲率）
+        if "破片手雷" in items:
+            return "破片手雷"
+        if "震撼弹" in items:
+            return "震撼弹"
+
+        # 兜底：有什么用什么
+        return items[0] if items else None
+
+    def _hoshino_should_use_epo(self, player, cost, used_cost) -> bool:
+        """判断是否应该在宏内使用 EPO。
+        条件：持有 EPO + 当前剩余 cost 为奇数（+1 后能多打一发 cost=2 的射击）"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        medicines = getattr(talent, 'medicines', [])
+        if "EPO" not in medicines:
+            return False
+        remaining = cost - used_cost
+        # 剩余 cost 为奇数时，+1 能多打一发射击（射击 cost=2）
+        # 或者剩余 cost < 2 但 +1 后 >= 2（即剩余=1时）
+        return remaining % 2 == 1 and remaining >= 1
+
+    def _hoshino_should_use_chocolate(self, player) -> bool:
+        """判断是否应该在宏内使用海豚巧克力"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        medicines = getattr(talent, 'medicines', [])
+        if "海豚巧克力" not in medicines:
+            return False
+        return self._hoshino_has_missing_halo(player)
+
+    def _hoshino_has_enough_ammo_for_burst(self, player) -> bool:
+        """检查是否有足够弹药/消耗品支撑一轮爆发（至少能打2发）"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        ammo_count = len(getattr(talent, 'ammo', []))
+        # 已有子弹 >= 4 → 足够
+        if ammo_count >= 4:
+            return True
+        # 已有子弹 + 可装填的消耗品数量 >= 4
+        consumable_count = 0
+        for w in getattr(player, 'weapons', []):
+            if w and w.name not in ("拳击", "荷鲁斯之眼"):
+                consumable_count += 1
+        for item in getattr(player, 'items', []):
+            if item:
+                consumable_count += 1
+        # 每个消耗品装填4发
+        return ammo_count + consumable_count * 4 >= 4
+
+    def _hoshino_can_effectively_shoot(self, player, target) -> bool:
+        """检查当前弹药属性是否能有效打击目标护甲"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        ammo = getattr(talent, 'ammo', [])
+        ammo_attrs = set(b.get("attribute", "普通") for b in ammo)
+
+        # 检查目标外层护甲属性
+        armor_obj = getattr(target, 'armor', None)
+        if not armor_obj or not hasattr(armor_obj, 'get_all_active'):
+            return True  # 无护甲，任何子弹都有效
+
+        outer_armors = [a for a in armor_obj.get_all_active() if not a.is_broken and getattr(a, 'layer', 'outer') == 'outer']
+        if not outer_armors:
+            return True  # 无外层护甲
+
+        # 克制关系：普通克魔法，魔法克科技，科技克普通
+        counter_map = {"普通": "魔法", "魔法": "科技", "科技": "普通"}
+
+        for armor in outer_armors:
+            armor_attr = getattr(armor, 'attribute', '普通')
+            if isinstance(armor_attr, str):
+                attr_name = armor_attr
+            else:
+                attr_name = getattr(armor_attr, 'value', '普通')
+
+            # 检查是否有能克制这个护甲的子弹
+            needed_attr = counter_map.get(attr_name, attr_name)
+            if needed_attr in ammo_attrs or attr_name in ammo_attrs:
+                return True  # 有克制或同属性子弹
+
+        # 没有任何有效子弹
+        return False
+
+    def _hoshino_should_use_adrenaline(self, player, target) -> bool:
+        """判断是否应该在宏外使用肾上腺素。
+        条件：
+        1. 持有肾上腺素且未使用过
+        2. 目标难杀（受警察保护 / 护甲多 / 临时HP）
+        3. 有足够弹药/消耗品支撑爆发
+        4. 弹药属性能有效打击目标
+        """
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        if getattr(talent, 'adrenaline_used', True):
+            return False
+        if "肾上腺素" not in getattr(talent, 'medicines', []):
+            return False
+
+        # 条件1：目标值得用肾上腺素
+        is_protected = self._hoshino_target_is_police_protected(target)
+        is_hard = self._hoshino_target_is_hard_to_kill(target)
+        armor_count = self._count_outer_armor(target) + self._count_inner_armor(target)
+        target_worth_it = is_protected or is_hard or armor_count >= 2
+        if not target_worth_it:
+            return False
+
+        # 条件2：弹药充足
+        if not self._hoshino_has_enough_ammo_for_burst(player):
+            return False
+
+        # 条件3：属性克制
+        if not self._hoshino_can_effectively_shoot(player, target):
+            return False
+
+        return True
     # ════════════════════════════════════════════════════════
     #  顺手拿
     # ════════════════════════════════════════════════════════
@@ -314,6 +498,14 @@ class HoshinoMixin(_Base):
                         and talent.iron_horus_hp > 0)  # HP低于上限一半且未破损 → 偏好架盾
 
         # ===== 阶段1：接近 + 控制前缀 =====
+        # ===== 预投掷：冲刺前先投掷到目标位置（禁用警察保护等）=====
+        throw_item = self._hoshino_pick_throw_item(player, target)
+        pre_throw = False
+        if throw_item and not same_loc and can_afford("投掷"):
+            # 不同地点：先投掷到目标位置，再冲刺过去
+            queue.append(f"投掷 {throw_item} {target_loc}")
+            used_cost += COST["投掷"]
+            pre_throw = True
 
         if shield_mode == "架盾":
             if has_find and self._hoshino_is_in_front(player, target):
@@ -410,6 +602,20 @@ class HoshinoMixin(_Base):
                 if can_afford("find"):
                     queue.append(f"find {target.name}")
                     used_cost += COST["find"]
+
+        # ===== 同地点投掷（如果还没投掷过）=====
+        if not pre_throw and throw_item and same_loc and can_afford("投掷"):
+            queue.append(f"投掷 {throw_item} {target_loc}")
+            used_cost += COST["投掷"]
+
+        # ===== 服药：海豚巧克力（cost 0）=====
+        if self._hoshino_should_use_chocolate(player):
+            queue.append("服药 海豚巧克力")
+
+        # ===== 服药：EPO（cost 0，剩余 cost 为奇数时 +1 能多打一发）=====
+        if self._hoshino_should_use_epo(player, cost, used_cost):
+            queue.append("服药 EPO")
+            cost += 1  # EPO 立即生效
 
         # ===== 装填检查 =====
         if not has_ammo:

@@ -175,6 +175,14 @@ class BasicAIController(
             debug_ai_basic(player.name, "Terror 状态：全图攻击")
             return self._hoshino_terror_command(player, state, available_actions)
 
+        # ===== 星野肾上腺素（宏外使用，不消耗行动回合）=====
+        if (self._has_hoshino_talent(player)
+                and self._hoshino_tactical_unlocked(player)
+                and not self._hoshino_is_terror(player)
+                and "special" in available_actions):
+            if self._hoshino_should_use_adrenaline(player, state):
+                debug_ai_basic(player.name, "星野：注射肾上腺素，准备下轮爆发")
+                return ["special 肾上腺素"]
 
         # ===== 星野战术指令已解锁：优先使用 special Hoshino =====
         if (self._has_hoshino_talent(player)

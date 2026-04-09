@@ -80,11 +80,12 @@ class ChooseMixin(_Base):
             owned_items = getattr(talent, 'tactical_items', []) if talent else []
             owned_meds = getattr(talent, 'medicines', []) if talent else []
             # 优先拿没有的道具/药物
-            for opt in options:
-                if "破片" in opt and "破片手雷" not in owned_items:
-                    return opt
-                if "闪光" in opt and "闪光弹" not in owned_items:
-                    return opt
+            # 优先拿没有的道具/药物（闪光弹 > 烟雾弹 > 破片手雷 > 震撼弹）
+            priority_items = ["闪光弹", "烟雾弹", "破片手雷", "震撼弹"]
+            for item_name in priority_items:
+                for opt in options:
+                    if item_name in opt and item_name not in owned_items:
+                        return opt
             for opt in options:
                 if "肾上腺素" in opt and "肾上腺素" not in owned_meds:
                     return opt
@@ -102,10 +103,9 @@ class ChooseMixin(_Base):
                     return opt
             return options[0]
 
-        # ---- 星野投掷道具选择 ----
         if situation == "hoshino_throw_item":
-            # 优先闪光弹（致盲禁用警察保护）
-            priority = ["闪光弹", "破片手雷", "烟雾弹", "震撼弹"]
+            # 默认优先级：闪光弹 > 烟雾弹 > 破片手雷 > 震撼弹
+            priority = ["闪光弹", "烟雾弹", "破片手雷", "震撼弹", "燃烧瓶"]
             for item in priority:
                 if item in options:
                     return item
