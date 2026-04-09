@@ -13,6 +13,7 @@ from controllers.ai.constants import (
     debug_ai_combat_state, debug_ai_development_plan,
 )
 from controllers.ai.helpers_mixin import HelpersMixin
+from controllers.ai.hoshino_mixin import HoshinoMixin
 from controllers.ai.evaluation_mixin import EvaluationMixin
 from controllers.ai.choose_mixin import ChooseMixin
 from controllers.ai.combat_mixin import CombatMixin
@@ -23,6 +24,7 @@ from controllers.ai.events_mixin import EventsMixin
 
 
 class BasicAIController(
+    HoshinoMixin, # type: ignore
     HelpersMixin, # type: ignore
     EvaluationMixin, # type: ignore
     ChooseMixin, # type: ignore
@@ -94,6 +96,9 @@ class BasicAIController(
         # EMR蓄力标记（全息影像发动前）
         self._emr_needs_charge_before_hologram: bool = False
 
+        # 星野战术宏队列
+        self._hoshino_macro_queue: Optional[list] = None
+
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command (原 lines 282-308)
     # ════════════════════════════════════════════════════════
@@ -105,6 +110,11 @@ class BasicAIController(
         self.player_name = player.name
         self._my_id = player.player_id
         attempt = context.get("attempt", 1) if context else 1
+        situation = (context or {}).get("situation", "")
+
+        # 星野战术宏输入
+        if situation == "hoshino_tactical_input":
+            return self._hoshino_get_tactical_command(player, game_state, available_actions)
 
         if attempt == 1:
             self._candidates = self._generate_candidates(
@@ -159,6 +169,23 @@ class BasicAIController(
         # 未起床
         if not player.is_awake:
             return ["wake"]
+
+        # ===== 星野 Terror 状态 =====
+        if self._has_hoshino_talent(player) and self._hoshino_is_terror(player):
+            debug_ai_basic(player.name, "Terror 状态：全图攻击")
+            return self._hoshino_terror_command(player, state, available_actions)
+
+        # ===== 星野战术指令已解锁：优先使用 special Hoshino =====
+        if (self._has_hoshino_talent(player)
+                and self._hoshino_tactical_unlocked(player)
+                and not self._hoshino_is_terror(player)):
+            # 有目标时使用战术宏
+            target = self._hoshino_find_target(player, state)
+            if target and "special" in available_actions:
+                # 清空旧队列，下次 get_command 时会重新生成
+                self._hoshino_macro_queue = []
+                debug_ai_basic(player.name, f"星野战术宏：目标 {target.name}")
+                return ["special Hoshino", "forfeit"]
 
         # ===== 队长指挥 =====
         if getattr(player, 'is_captain', False) and "police_command" in available_actions:
@@ -356,6 +383,42 @@ class BasicAIController(
                     dest = random.choice(empty_locs)
                     candidates.insert(0, f"move {dest}")
                     # 不直接return，让后续逻辑也生成备选命令
+        # ===== 星野 Terror / 自我怀疑集火 =====
+        if not self._has_hoshino_talent(player):
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if not t or not t.is_alive():
+                    continue
+                t_talent = getattr(t, 'talent', None)
+                if not t_talent:
+                    continue
+                # Terror 存在 → 最高优先级集火
+                if getattr(t_talent, 'is_terror', False):
+                    debug_ai_basic(player.name, f"Terror 存在！集火 {t.name}")
+                    attack_cmds = self._cmd_attack(player, state, available_actions, t)
+                    if attack_cmds:
+                        candidates.extend(attack_cmds)
+                        candidates.append("forfeit")
+                        return candidates
+                # 自我怀疑 → 紧急集火（下回合变 Terror）
+                if getattr(t_talent, 'self_doubt_pending', False):
+                    debug_ai_basic(player.name, f"星野自我怀疑！紧急集火 {t.name}")
+                    attack_cmds = self._cmd_attack(player, state, available_actions, t)
+                    if attack_cmds:
+                        candidates.extend(attack_cmds)
+                        candidates.append("forfeit")
+                        return candidates
+
+        # ===== 星野发育路径（战术宏入口已在上方处理）=====
+        if self._has_hoshino_talent(player):
+            if not self._is_development_complete(player, state):
+                dev = self._cmd_develop_hoshino(player, state, available_actions)
+                if dev:
+                    candidates.extend(dev)
+                    candidates.append("forfeit")
+                    return candidates
 
         # ===== 战斗状态 =====                           # ★ 改动：删除 hologram pass-through
         if self._in_combat and self._combat_target:
@@ -568,7 +631,6 @@ class BasicAIController(
         if best_loc and best_count > 0:
             return best_loc
         return None  # 没有敌人，不浪费超新星
-
 
 # ════════════════════════════════════════════════════════════════
 #  工厂函数 (原 lines 4460-4502)

@@ -42,6 +42,119 @@ class ChooseMixin(_Base):
         if situation == "mythland_rps":
             return random.choice(options)  # 幻想乡猜拳仍然随机
 
+        # ---- 星野形态选择 ----
+        if situation == "hoshino_form_choice":
+            if self.personality == "aggressive":
+                priority = ["临战-Archer", "临战-shielder", "水着-shielder"]
+            elif self.personality == "defensive":
+                priority = ["水着-shielder", "临战-shielder", "临战-Archer"]
+            else:  # balance/builder/political
+                priority = ["水着-shielder", "临战-Archer", "临战-shielder"]
+            for form in priority:
+                if form in options:
+                    return form
+            return options[0]
+
+        # ---- 星野自我怀疑 ----
+        if situation == "hoshino_self_doubt":
+            # 场上人越少，选 Terror 概率越高
+            alive_count = 0
+            if self._game_state:
+                for pid in self._game_state.player_order:
+                    p = self._game_state.get_player(pid)
+                    if p and p.is_alive():
+                        alive_count += 1
+            # 2人或以下：选 Terror；3人以上：拒绝
+            if alive_count <= 2:
+                for opt in options:
+                    if "接受" in opt or "terror" in opt.lower():
+                        return opt
+            for opt in options:
+                if "拒绝" in opt or "抵抗" in opt:
+                    return opt
+            return options[-1]
+
+        # ---- 星野解锁配发选择 ----
+        if situation == "hoshino_tactical_equip":
+            talent = getattr(self._player, 'talent', None) if self._player else None
+            owned_items = getattr(talent, 'tactical_items', []) if talent else []
+            owned_meds = getattr(talent, 'medicines', []) if talent else []
+            # 优先拿没有的道具/药物
+            for opt in options:
+                if "破片" in opt and "破片手雷" not in owned_items:
+                    return opt
+                if "闪光" in opt and "闪光弹" not in owned_items:
+                    return opt
+            for opt in options:
+                if "肾上腺素" in opt and "肾上腺素" not in owned_meds:
+                    return opt
+            # 都有了就拿子弹
+            for opt in options:
+                if "子弹" in opt:
+                    return opt
+            return options[0]
+
+        # ---- 星野修复材料选择 ----
+        if situation == "hoshino_repair_material":
+            # 优先消耗盾牌（比 AT 力场便宜）
+            for opt in options:
+                if "盾牌" in opt:
+                    return opt
+            return options[0]
+
+        # ---- 星野投掷道具选择 ----
+        if situation == "hoshino_throw_item":
+            # 优先闪光弹（致盲禁用警察保护）
+            priority = ["闪光弹", "破片手雷", "烟雾弹", "震撼弹"]
+            for item in priority:
+                if item in options:
+                    return item
+            return options[0]
+
+        # ---- 星野服药选择 ----
+        if situation == "hoshino_medicine":
+            # 优先 EPO（cost+1），巧克力次之
+            for opt in options:
+                if "EPO" in opt:
+                    return opt
+            for opt in options:
+                if "巧克力" in opt:
+                    return opt
+            return options[0] if options else ""
+
+        # ---- 星野冲刺目标选择 ----
+        if situation == "hoshino_dash_target":
+            # 选威胁最高的目标所在地点
+            if not options:
+                return ""
+            return max(options, key=lambda name: self._threat_scores.get(name, 0))
+
+        # ---- 星野射击目标选择 ----
+        if situation == "hoshino_shoot_target":
+            if not options:
+                return ""
+            return max(options, key=lambda name: self._threat_scores.get(name, 0))
+
+        # ---- 星野 find 目标选择 ----
+        if situation == "hoshino_find_target":
+            if not options:
+                return ""
+            return max(options, key=lambda name: self._threat_scores.get(name, 0))
+
+        # ---- 守夜人之诗选择（被 G5 献诗时） ----
+        if situation == "poem_nightwatch_choice":
+            talent = getattr(self._player, 'talent', None) if self._player else None
+            if talent and getattr(talent, 'is_terror', False):
+                # Terror 状态下接受（解除 Terror）
+                for opt in options:
+                    if "接受" in opt:
+                        return opt
+            # 非 Terror：拒绝
+            for opt in options:
+                if "拒绝" in opt:
+                    return opt
+            return options[-1]
+
         # ---- 结界选目标 ----
         if situation == "mythland_pick_target":
             player_opts = [o for o in options if o != "不拉人"]
@@ -429,6 +542,48 @@ class ChooseMixin(_Base):
         # ---- 献予律法之诗：额外行动 ----
         if situation in ("poem_law_extra_action", "poem_law_police_action"):
             return options[0] if options else ""
+        # ---- 星野（神代天赋7）备用形态选择 ----
+        # 注意：hoshino_form 和 hoshino_form_choice 是不同的 situation key，
+        # 由游戏引擎在不同上下文中发出。hoshino_form_choice（上方）按精确形态名匹配，
+        # hoshino_form（此处）按模糊关键字匹配作为兜底。
+        if situation == "hoshino_form":
+            if self.personality in ("balanced", "defensive"):
+                for opt in options:
+                    if "水着" in opt:
+                        return opt
+            elif self.personality == "aggressive":
+                for opt in options:
+                    if "Archer" in opt:
+                        return opt
+            else:
+                for opt in options:
+                    if "临战-shielder" in opt or "shielder" in opt:
+                        return opt
+            return options[0]
+
+        if situation == "hoshino_self_doubt_choice":
+            # 场上存活人数 <= 2 时选择进入 Terror
+            alive_count = 0
+            if self._game_state:
+                for pid in self._game_state.player_order:
+                    p = self._game_state.get_player(pid)
+                    if p and p.is_alive():
+                        alive_count += 1
+            if alive_count <= 2:
+                return options[0]  # "是因为我……"（进入自我怀疑）
+            return options[1] if len(options) > 1 else options[0]  # "不，不是这样的"
+
+        if situation == "hoshino_throw_location":
+            # 选目标所在地点（如果有战斗目标）
+            if self._combat_target:
+                target_loc = self._get_location_str(self._combat_target)
+                if target_loc in options:
+                    return target_loc
+            return options[0]
+
+        if situation == "hoshino_reorder_ammo":
+            # 不排弹，返回当前顺序
+            return " ".join(str(i+1) for i in range(len(options)))
         # ---- 默认 ----
         return options[0]
 
@@ -938,6 +1093,10 @@ class ChooseMixin(_Base):
     def confirm(self, prompt: str, context: Optional[Dict] = None) -> bool:
         # 强买通行证：当prompt包含"强买通行证"且AI需要去军事基地时同意
         if "强买通行证" in prompt:
+            # 星野必须去军事基地
+            if self._player and self._has_hoshino_talent(self._player):
+                return True
+
             # 如果AI手上所有武器都是普通属性，需要去军事基地拿科技武器
             if self._player and not self._has_non_ordinary_weapon(self._player):
                 return True
