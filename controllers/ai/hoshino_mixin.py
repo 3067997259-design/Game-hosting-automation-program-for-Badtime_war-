@@ -65,13 +65,26 @@ class HoshinoMixin(_Base):
         return getattr(talent, 'iron_horus_hp', 0) if talent else 0
 
     def _hoshino_find_consumable_for_reload(self, player) -> Optional[str]:
-        """找到可消耗的物品用于装填子弹（小刀等非融合武器/物品）"""
+        """找到可消耗的物品用于装填子弹（小刀等非融合武器/物品）。
+        当铁之荷鲁斯受损时，盾牌和AT力场保留用于修复，不算作可消耗品。"""
+        talent = getattr(player, 'talent', None)
+        iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
+        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 3) if talent else 3
+        horus_damaged = iron_horus_hp < iron_horus_max
+
+        # 受损时需要保留的修复材料
+        repair_names = {"盾牌", "AT力场"} if horus_damaged else set()
+
         for w in getattr(player, 'weapons', []):
             if w and w.name not in ("拳击", "荷鲁斯之眼"):
                 return w.name
         for item in getattr(player, 'items', []):
-            if item:
+            if item and getattr(item, 'name', None) not in repair_names:
                 return getattr(item, 'name', None)
+        # 检查护甲（盾牌/AT力场等）—— 受损时跳过修复材料
+        for a in getattr(getattr(player, 'armor', None), 'get_all_active', lambda: [])():
+            if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
+                return a.name
         return None
 
     def _hoshino_find_target(self, player, state) -> Optional[Any]:
@@ -97,108 +110,139 @@ class HoshinoMixin(_Base):
             return False
         return talent.is_front(target.player_id)
 
-    def _hoshino_pick_reload_item_at_location(self, player, state, loc) -> Optional[str]:
-        """根据当前地点选择最佳的可消耗物品用于装填子弹。
-        优先选择能产出与当前弹药属性不同的物品（属性多样化）。"""
+    def _hoshino_pick_best_item(self, player, state, loc) -> Optional[dict]:
+        """按三层优先级选择当前地点最佳物品。
+        返回 {"name": str, "priority": int} 或 None。
+
+        层级1（priority 30）：护盾类
+        层级2（priority 20）：探测手段（如果还没有探测能力）
+        层级3（priority 10-15）：其他消耗品
+        同优先级内，能提供当前弹药中缺失属性的物品 +5。
+        """
         talent = getattr(player, 'talent', None)
         has_pass = getattr(player, 'has_military_pass', False)
         vouchers = getattr(player, 'vouchers', 0)
-        iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
-        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 3) if talent else 3
+        has_detection = getattr(player, 'has_detection', False)
+        tactical_unlocked = getattr(talent, 'tactical_unlocked', False) if talent else False
 
-        # 已有的子弹属性统计（用于属性多样化）
         ammo = getattr(talent, 'ammo', []) if talent else []
         existing_attrs = set(b.get("attribute", "普通") for b in ammo)
 
-        # 各地点可拿的消耗品及其属性
-        # 注意：盾牌和AT力场是修复材料，只有荷鲁斯满血时才用于装填
-        horus_full = iron_horus_hp >= iron_horus_max
+        candidates = []  # (item_name, attribute, base_priority)
 
-        candidates = []  # (item_name, attribute, priority)
+        is_home = (loc == "home" or loc.startswith("home_") or "家" in loc)
 
-        if loc == "home" or self._is_at_home(player):
-            if not player.has_weapon("小刀"):
-                candidates.append(("小刀", "普通", 1))
-            if horus_full and not self._has_armor_by_name(player, "盾牌"):
-                candidates.append(("盾牌", "普通", 0))  # 低优先级，修复材料
+        if is_home:
+            # 层级1：盾牌（护盾）
+            if not self._has_armor_by_name(player, "盾牌"):
+                candidates.append(("盾牌", "普通", 30))
+            # 层级3：小刀
+            if not any(w.name == "小刀" for w in getattr(player, 'weapons', []) if w):
+                candidates.append(("小刀", "普通", 10))
 
         elif loc == "商店":
-            if vouchers >= 1:
-                if not player.has_weapon("小刀"):
-                    candidates.append(("小刀", "普通", 1))
-                # 陶瓷护甲也是普通属性，但比小刀贵（需凭证）
-                if not self._has_armor_by_name(player, "陶瓷护甲"):
-                    candidates.append(("陶瓷护甲", "普通", 0))
+            # 层级1：陶瓷护甲
+            if vouchers >= 1 and not self._has_armor_by_name(player, "陶瓷护甲"):
+                candidates.append(("陶瓷护甲", "普通", 30))
+            # 层级2：热成像仪
+            if vouchers >= 1 and not has_detection:
+                candidates.append(("热成像仪", "科技", 20))
 
         elif loc == "魔法所":
             learned = getattr(player, 'learned_spells', set())
-            # 魔法护盾：学习后变成魔法属性外甲，可消耗装填魔法子弹
+            # 层级1：魔法护盾
             if "魔法护盾" not in learned:
-                candidates.append(("魔法护盾", "魔法", 2))
-            # 魔法弹幕：魔法属性武器
+                candidates.append(("魔法护盾", "魔法", 30))
+            # 层级2：探测魔法
+            if not has_detection and "探测魔法" not in learned:
+                candidates.append(("探测魔法", "魔法", 20))
+            # 层级3：魔法弹幕
             if "魔法弹幕" not in learned:
-                candidates.append(("魔法弹幕", "魔法", 2))
-
-        elif loc == "医院":
-            if vouchers >= 1:
-                # 手术可以拿到不同属性的内甲
-                candidates.append(("晶化皮肤手术", "科技", 2))
-                candidates.append(("不老泉手术", "魔法", 2))
-                candidates.append(("额外心脏手术", "普通", 1))
+                candidates.append(("魔法弹幕", "魔法", 10))
 
         elif loc == "军事基地":
             if has_pass:
-                # 雷达是最佳选择：科技属性物品，不影响战斗力
-                if not getattr(player, 'has_detection', False):
-                    candidates.append(("雷达", "科技", 3))
-                # AT力场：科技属性，但也是修复材料
-                if horus_full and not self._has_armor_by_name(player, "AT力场"):
-                    candidates.append(("AT力场", "科技", 1))
-                # 高斯步枪/电磁步枪：融合后可以重新拿（如果没有的话）
-                if not player.has_weapon("高斯步枪"):
-                    candidates.append(("高斯步枪", "科技", 2))
-                if not player.has_weapon("电磁步枪"):
-                    candidates.append(("电磁步枪", "科技", 2))
+                # 层级1：AT力场
+                if not self._has_armor_by_name(player, "AT力场"):
+                    candidates.append(("AT力场", "科技", 30))
+                # 层级2：雷达
+                if not has_detection:
+                    candidates.append(("雷达", "科技", 20))
+                # 层级3：枪
+                if not any(w.name == "高斯步枪" for w in getattr(player, 'weapons', []) if w):
+                    candidates.append(("高斯步枪", "科技", 10))
+                if not any(w.name == "电磁步枪" for w in getattr(player, 'weapons', []) if w):
+                    candidates.append(("电磁步枪", "科技", 10))
+
+        elif loc == "医院":
+            if tactical_unlocked:
+                # 层级3：药物（按优先级区分）— 需检查持有上限和使用限制
+                medicines = getattr(talent, 'medicines', []) if talent else []
+                held_names = set(medicines)
+                if len(medicines) < 2:
+                    if "肾上腺素" not in held_names and not getattr(talent, 'adrenaline_used', False):
+                        candidates.append(("肾上腺素", "科技", 15))
+                    if "EPO" not in held_names:
+                        candidates.append(("EPO", "科技", 12))
+                    if "海豚巧克力" not in held_names:
+                        candidates.append(("海豚巧克力", "普通", 10))
+            if vouchers >= 1:
+                # 层级3：手术
+                candidates.append(("晶化皮肤手术", "科技", 8))
+                candidates.append(("不老泉手术", "魔法", 8))
+                candidates.append(("额外心脏手术", "普通", 8))
 
         if not candidates:
             return None
 
-        # 优先选择当前弹药中没有的属性（属性多样化）
-        for name, attr, prio in sorted(candidates, key=lambda x: -x[2]):
-            if attr not in existing_attrs:
-                return name
-        # 都有了就选优先级最高的
-        candidates.sort(key=lambda x: -x[2])
-        return candidates[0][0]
+        # 属性多样化加分：弹药中缺失的属性 +5
+        scored = []
+        for name, attr, base_prio in candidates:
+            bonus = 5 if attr not in existing_attrs else 0
+            scored.append((name, attr, base_prio + bonus))
 
+        scored.sort(key=lambda x: -x[2])
+        best = scored[0]
+        return {"name": best[0], "priority": best[2]}
 
-    def _hoshino_best_reload_destination(self, player, state) -> Optional[str]:
-        """选择最佳的移动目的地来获取装填消耗品。
-        考虑：当前弹药属性缺什么、各地点能提供什么。"""
+    def _hoshino_best_item_destination(self, player, state) -> Optional[str]:
+        """选择最佳移动目的地：对每个可达地点模拟 _hoshino_pick_best_item，选 priority 最高的。
+        荷鲁斯受损时优先去能拿修复材料的地方。"""
         talent = getattr(player, 'talent', None)
         has_pass = getattr(player, 'has_military_pass', False)
-        vouchers = getattr(player, 'vouchers', 0)
-        ammo = getattr(talent, 'ammo', []) if talent else []
-        existing_attrs = set(b.get("attribute", "普通") for b in ammo)
+        iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
+        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 3) if talent else 3
+        loc = self._get_location_str(player)
 
-        # 各地点能提供的属性
-        # ⚠️ 迭代顺序即为优先级（免费无条件 > 有条件），勿随意调换
-        location_attrs = {
-            "home": {"普通"},           # 小刀
-            "商店": {"普通"} if vouchers >= 1 else set(),
-            "魔法所": {"魔法"},         # 魔法护盾/魔法弹幕
-            "军事基地": {"科技"} if has_pass else set(),
-            "医院": {"科技", "魔法", "普通"} if vouchers >= 1 else set(),
-        }
+        # 荷鲁斯受损时优先去能拿修复材料的地方
+        if iron_horus_hp < iron_horus_max:
+            # 军事基地拿AT力场（需要通行证）
+            if has_pass and not self._has_armor_by_name(player, "AT力场"):
+                if loc != "军事基地":
+                    return "军事基地"
+            # 家拿盾牌
+            if not self._has_armor_by_name(player, "盾牌"):
+                if not self._is_at_home(player):
+                    return "home"
 
-        # 优先去能提供缺失属性的地点
-        for loc, attrs in location_attrs.items():
-            missing = attrs - existing_attrs
-            if missing:
-                return loc
+        # 正常情况：对每个可达地点模拟，选 priority 最高的
+        all_locations = ["home", "商店", "魔法所", "军事基地", "医院"]
+        best_loc = None
+        best_prio = -1
 
-        # 都不缺就去最方便的（家最简单，免费无条件）
-        return "home"
+        for dest in all_locations:
+            # 跳过当前地点（用 _is_at_home 避免 home vs home_pN 不匹配）
+            if dest == loc:
+                continue
+            if dest == "home" and self._is_at_home(player):
+                continue
+
+            result = self._hoshino_pick_best_item(player, state, dest)
+            if result and result["priority"] > best_prio:
+                best_prio = result["priority"]
+                best_loc = dest
+
+        return best_loc
     def _hoshino_prefer_deploy_shield(self, player) -> bool:
         """铁之荷鲁斯HP低于上限一半时偏好架盾"""
         talent = getattr(player, 'talent', None)
@@ -207,6 +251,23 @@ class HoshinoMixin(_Base):
         hp = getattr(talent, 'iron_horus_hp', 0)
         max_hp = getattr(talent, 'iron_horus_max_hp', 3)
         return 0 < hp < max_hp / 2
+    # ════════════════════════════════════════════════════════
+    #  顺手拿
+    # ════════════════════════════════════════════════════════
+
+    def _hoshino_grab_while_here(self, player, state, available_actions) -> List[str]:
+        """当前地点有可拿物品时顺手拿一个。
+        条件：interact 可用、战术已解锁、当前地点有可拿物品。"""
+        if "interact" not in available_actions:
+            return []
+        if not self._hoshino_tactical_unlocked(player):
+            return []
+        loc = self._get_location_str(player)
+        result = self._hoshino_pick_best_item(player, state, loc)
+        if result:
+            return [f"interact {result['name']}"]
+        return []
+
     # ════════════════════════════════════════════════════════
     #  战术宏模板生成
     # ════════════════════════════════════════════════════════
