@@ -436,7 +436,7 @@ class CombatMixin(_Base):
             s += max(0, 5 - self._get_effective_hp(t)) * 10
             s -= self._count_outer_armor(t) * 15
             s -= self._count_inner_armor(t) * 10
-                # 架盾正面惩罚：从正面攻击架盾星野几乎无效
+            # 架盾正面惩罚：从正面攻击架盾星野几乎无效
             t_talent = getattr(t, 'talent', None)
             if (t_talent and getattr(t_talent, 'shield_mode', None) == "架盾"
                     and hasattr(t_talent, 'is_front')):
