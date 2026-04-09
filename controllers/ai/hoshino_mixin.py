@@ -198,6 +198,14 @@ class HoshinoMixin(_Base):
 
         # 都不缺就去最方便的（家最简单，免费无条件）
         return "home"
+    def _hoshino_prefer_deploy_shield(self, player) -> bool:
+        """铁之荷鲁斯HP低于上限一半时偏好架盾"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        hp = getattr(talent, 'iron_horus_hp', 0)
+        max_hp = getattr(talent, 'iron_horus_max_hp', 3)
+        return 0 < hp < max_hp / 2
     # ════════════════════════════════════════════════════════
     #  战术宏模板生成
     # ════════════════════════════════════════════════════════
@@ -239,6 +247,10 @@ class HoshinoMixin(_Base):
         def can_afford(action):
             return used_cost + COST.get(action, 0) <= cost
 
+        # 在 COST 字典定义之后、阶段1之前添加
+        prefer_deploy = (talent.iron_horus_hp < talent.iron_horus_max_hp / 2
+                        and talent.iron_horus_hp > 0)  # HP低于上限一半且未破损 → 偏好架盾
+
         # ===== 阶段1：接近 + 控制前缀 =====
 
         if shield_mode == "架盾":
@@ -268,7 +280,13 @@ class HoshinoMixin(_Base):
                     used_cost += COST["find"]
 
         elif shield_mode == "持盾":
-            if same_loc and has_find:
+            if same_loc and prefer_deploy:
+                # 持盾中 + 同地点 + HP低 → 取消持盾 → 架盾
+                queue.append("取消")  # cost 0
+                if can_afford("架盾"):
+                    queue.append("架盾")
+                    used_cost += COST["架盾"]
+            elif same_loc and has_find:
                 # 持盾 + 同地点 + 已 find → 直接射击
                 pass
             elif same_loc and not has_find:
@@ -279,20 +297,25 @@ class HoshinoMixin(_Base):
             elif not same_loc:
                 # 持盾 + 不同地点 → 冲刺 → find
                 if can_afford("冲刺"):
-                    queue.append(f"冲刺 {target_loc}")
+                    queue.append(f"冲刺 {self._get_location_str(target)}")
                     used_cost += COST["冲刺"]
                 if can_afford("find"):
                     queue.append(f"find {target.name}")
                     used_cost += COST["find"]
 
         else:  # shield_mode is None
-            if same_loc and has_find:
-                # 无盾 + 同地点 + 已 find → 持盾然后射击
+            if same_loc and prefer_deploy:
+                # 同地点 + HP低 → 架盾（不需要 find，直接射击正面）
+                if can_afford("架盾"):
+                    queue.append("架盾")
+                    used_cost += COST["架盾"]
+            elif same_loc and has_find:
+                # 同地点 + 已 find + HP健康 → 持盾然后射击
                 if can_afford("持盾"):
                     queue.append("持盾")
                     used_cost += COST["持盾"]
             elif same_loc and not has_find:
-                # 无盾 + 同地点 + 没 find → 持盾 → find
+                # 同地点 + 没 find + HP健康 → 持盾 → find
                 if can_afford("持盾"):
                     queue.append("持盾")
                     used_cost += COST["持盾"]
@@ -300,15 +323,13 @@ class HoshinoMixin(_Base):
                     queue.append(f"find {target.name}")
                     used_cost += COST["find"]
             elif not same_loc:
-                # 无盾 + 不同地点 → 持盾 → 冲刺 → find
+                # 不同地点 → 必须持盾冲刺（架盾不能移动）
                 if can_afford("持盾"):
                     queue.append("持盾")
                     used_cost += COST["持盾"]
                 if can_afford("冲刺"):
-                    queue.append(f"冲刺 {target_loc}")
+                    queue.append(f"冲刺 {self._get_location_str(target)}")
                     used_cost += COST["冲刺"]
-                # 所有形态都需要 find（临战-shielder 自动冲击仅在冲刺为宏最后指令时触发，
-                # 但 AI 的宏后面还有射击指令，所以不能依赖自动冲击）
                 if can_afford("find"):
                     queue.append(f"find {target.name}")
                     used_cost += COST["find"]
