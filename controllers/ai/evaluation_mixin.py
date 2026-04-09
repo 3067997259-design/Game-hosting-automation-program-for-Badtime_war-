@@ -410,6 +410,17 @@ class EvaluationMixin(_Base):
             existing = self._threat_scores.get(target.name, 0)
             # 衰减历史威胁 + 新威胁
             self._threat_scores[target.name] = existing * 0.8 + power * 0.2
+            # 星野特殊威胁调整
+            t_talent = getattr(target, 'talent', None)
+            if t_talent and getattr(t_talent, 'name', '') == "大叔我啊，剪短发了":
+                if getattr(t_talent, 'is_terror', False):
+                    self._threat_scores[target.name] += 200  # Terror 最高优先级
+                elif getattr(t_talent, 'self_doubt_pending', False):
+                    self._threat_scores[target.name] += 150  # 即将变 Terror
+                elif getattr(t_talent, 'tactical_unlocked', False) and len(getattr(t_talent, 'ammo', [])) > 0:
+                    self._threat_scores[target.name] += 50  # 有弹药，爆发威胁
+                elif not getattr(t_talent, 'tactical_unlocked', False):
+                    self._threat_scores[target.name] -= 20  # 未解锁，前期脆弱
         # 检测安静发育者：连续多轮处于最低威胁的玩家
         alive_threats = {
             name: score for name, score in self._threat_scores.items()

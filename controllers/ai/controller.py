@@ -112,7 +112,8 @@ class BasicAIController(
         attempt = context.get("attempt", 1) if context else 1
         situation = (context or {}).get("situation", "")
 
-        # 星野战术宏输入
+        # 星野战术宏输入：从预生成队列逐条弹出
+        situation = (context or {}).get("situation", "")
         if situation == "hoshino_tactical_input":
             return self._hoshino_get_tactical_command(player, game_state, available_actions)
 

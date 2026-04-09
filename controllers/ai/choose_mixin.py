@@ -581,6 +581,41 @@ class ChooseMixin(_Base):
                     return target_loc
             return options[0]
 
+        # ---- 星野战术配发选择 ----
+        if situation == "hoshino_tactical_equip":
+            # 优先级：闪光弹 > 烟雾弹 > EPO > 子弹
+            talent = getattr(self._player, 'talent', None) if self._player else None
+            owned_items = getattr(talent, 'tactical_items', []) if talent else []
+            owned_meds = getattr(talent, 'medicines', []) if talent else []
+            priority = ["闪光弹", "烟雾弹", "EPO", "子弹"]
+            for preferred in priority:
+                matching = [o for o in options if preferred in o]
+                if matching:
+                    return matching[0]
+            return options[0]
+
+        # ---- 星野投掷道具选择 ----
+        if situation == "hoshino_throw_item":
+            # 有闪光弹优先闪光弹（致盲+禁用警察）
+            for opt in options:
+                if "闪光弹" in opt:
+                    return opt
+            for opt in options:
+                if "烟雾弹" in opt:
+                    return opt
+            for opt in options:
+                if "震撼弹" in opt:
+                    return opt
+            return options[0]
+
+        # ---- 星野修复材料选择 ----
+        if situation == "hoshino_repair_material":
+            # 优先消耗盾牌（比AT力场便宜）
+            for opt in options:
+                if "盾牌" in opt:
+                    return opt
+            return options[0]
+
         if situation == "hoshino_reorder_ammo":
             # 不排弹，返回当前顺序
             return " ".join(str(i+1) for i in range(len(options)))
