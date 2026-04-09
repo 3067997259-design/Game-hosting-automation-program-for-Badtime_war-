@@ -130,7 +130,7 @@ class HoshinoMixin(_Base):
 
         candidates = []  # (item_name, attribute, base_priority)
 
-        is_home = (loc == "home" or self._is_at_home(player))
+        is_home = (loc == "home" or loc.startswith("home_") or "家" in loc)
 
         if is_home:
             # 层级1：盾牌（护盾）
