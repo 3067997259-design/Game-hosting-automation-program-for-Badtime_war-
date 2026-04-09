@@ -229,7 +229,7 @@ class HoshinoMixin(_Base):
 
     def _hoshino_get_tactical_command(self, player, state, available_actions) -> str:
         """从预生成的战术宏队列中逐条弹出指令"""
-        if not hasattr(self, '_hoshino_macro_queue') or not self._hoshino_macro_queue:
+        if not self._hoshino_macro_queue:
             # 队列为空，需要生成新的
             target = self._hoshino_find_target(player, state)
             if target:

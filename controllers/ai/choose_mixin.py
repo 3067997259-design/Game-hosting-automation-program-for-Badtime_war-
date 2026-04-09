@@ -113,21 +113,33 @@ class ChooseMixin(_Base):
 
         # ---- 星野服药选择 ----
         if situation == "hoshino_medicine":
-            # 第一版不在宏内用药（肾上腺素已禁宏内）
+            # 优先 EPO（cost+1），巧克力次之
+            for opt in options:
+                if "EPO" in opt:
+                    return opt
+            for opt in options:
+                if "巧克力" in opt:
+                    return opt
             return options[0] if options else ""
 
         # ---- 星野冲刺目标选择 ----
         if situation == "hoshino_dash_target":
             # 选威胁最高的目标所在地点
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            if not options:
+                return ""
+            return max(options, key=lambda name: self._threat_scores.get(name, 0))
 
         # ---- 星野射击目标选择 ----
         if situation == "hoshino_shoot_target":
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            if not options:
+                return ""
+            return max(options, key=lambda name: self._threat_scores.get(name, 0))
 
         # ---- 星野 find 目标选择 ----
         if situation == "hoshino_find_target":
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            if not options:
+                return ""
+            return max(options, key=lambda name: self._threat_scores.get(name, 0))
 
         # ---- 守夜人之诗选择（被 G5 献诗时） ----
         if situation == "poem_nightwatch_choice":
@@ -530,7 +542,10 @@ class ChooseMixin(_Base):
         # ---- 献予律法之诗：额外行动 ----
         if situation in ("poem_law_extra_action", "poem_law_police_action"):
             return options[0] if options else ""
-        # ---- 星野（神代天赋7）----
+        # ---- 星野（神代天赋7）备用形态选择 ----
+        # 注意：hoshino_form 和 hoshino_form_choice 是不同的 situation key，
+        # 由游戏引擎在不同上下文中发出。hoshino_form_choice（上方）按精确形态名匹配，
+        # hoshino_form（此处）按模糊关键字匹配作为兜底。
         if situation == "hoshino_form":
             if self.personality in ("balanced", "defensive"):
                 for opt in options:
@@ -558,35 +573,6 @@ class ChooseMixin(_Base):
                 return options[0]  # "是因为我……"（进入自我怀疑）
             return options[1] if len(options) > 1 else options[0]  # "不，不是这样的"
 
-        if situation == "hoshino_tactical_equip":
-            # 优先级：肾上腺素 > 闪光弹 > 烟雾弹 > EPO > 子弹
-            priority = ["肾上腺素", "闪光弹", "烟雾弹", "EPO", "子弹"]
-            for preferred in priority:
-                for opt in options:
-                    if preferred in opt:
-                        return opt
-            return options[0]
-
-        if situation == "hoshino_medicine":
-            # 优先 EPO（cost+1），巧克力次之
-            for opt in options:
-                if "EPO" in opt:
-                    return opt
-            for opt in options:
-                if "巧克力" in opt:
-                    return opt
-            return options[0]
-
-        if situation == "hoshino_throw_item":
-            # 有闪光弹优先闪光弹
-            for opt in options:
-                if "闪光弹" in opt:
-                    return opt
-            for opt in options:
-                if "烟雾弹" in opt:
-                    return opt
-            return options[0]
-
         if situation == "hoshino_throw_location":
             # 选目标所在地点（如果有战斗目标）
             if self._combat_target:
@@ -594,9 +580,6 @@ class ChooseMixin(_Base):
                 if target_loc in options:
                     return target_loc
             return options[0]
-
-        if situation == "hoshino_repair_material":
-            return options[0]  # 选第一个可用的
 
         if situation == "hoshino_reorder_ammo":
             # 不排弹，返回当前顺序

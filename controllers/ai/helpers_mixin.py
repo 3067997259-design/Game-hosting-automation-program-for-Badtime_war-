@@ -120,17 +120,10 @@ class HelpersMixin(_Base): # type: ignore
                     return True
         return False
 
-    def _has_hoshino_talent(self, player) -> bool:
-        talent = getattr(player, 'talent', None)
-        return bool(talent and hasattr(talent, 'name') and talent.name == "大叔我啊，剪短发了")
-
-    def _hoshino_tactical_unlocked(self, player) -> bool:
-        talent = getattr(player, 'talent', None)
-        return bool(talent and getattr(talent, 'tactical_unlocked', False))
-
-    def _hoshino_has_ammo(self, player) -> bool:
-        talent = getattr(player, 'talent', None)
-        return bool(talent and len(getattr(talent, 'ammo', [])) > 0)
+    # 星野辅助方法（仅保留 HoshinoMixin 中没有的）
+    # _has_hoshino_talent, _hoshino_is_terror, _hoshino_tactical_unlocked,
+    # _hoshino_has_ammo, _hoshino_get_cost, _hoshino_get_form
+    # 已统一定义在 hoshino_mixin.py 中
 
     def _hoshino_can_reload(self, player) -> bool:
         """检查星野是否有可消耗物品用于装填"""
@@ -145,21 +138,9 @@ class HelpersMixin(_Base): # type: ignore
         talent = getattr(player, 'talent', None)
         return getattr(talent, 'shield_mode', None) if talent else None
 
-    def _hoshino_is_terror(self, target) -> bool:
-        talent = getattr(target, 'talent', None)
-        return bool(talent and getattr(talent, 'is_terror', False))
-
     def _hoshino_is_self_doubt(self, target) -> bool:
         talent = getattr(target, 'talent', None)
         return bool(talent and getattr(talent, 'self_doubt_pending', False))
-
-    def _hoshino_get_cost(self, player) -> int:
-        talent = getattr(player, 'talent', None)
-        return getattr(talent, 'cost', 0) if talent else 0
-
-    def _hoshino_get_form(self, player):
-        talent = getattr(player, 'talent', None)
-        return getattr(talent, 'form', None) if talent else None
     # ════════════════════════════════════════════════════════
     #  装备查询：护甲
     # ════════════════════════════════════════════════════════
