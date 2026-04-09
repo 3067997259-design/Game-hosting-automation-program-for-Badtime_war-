@@ -192,9 +192,9 @@ class PoliceEngine:
         if not target or not target.is_alive():
             return False, "执法目标已不存在"
 
-        # 检查是否有可行动的警察单位不在目标位置（被控单位无法移动，不计入）
+        # 检查是否有可行动的警察单位不在目标位置（被控/致盲单位无法移动，不计入）
         units_needing_track = [
-            u for u in self.police.active_units()
+            u for u in self._non_blinded_units(self.police.active_units())
             if u.is_on_map() and u.location != target.location
         ]
         if not units_needing_track:
