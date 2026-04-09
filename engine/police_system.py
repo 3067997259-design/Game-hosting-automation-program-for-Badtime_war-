@@ -6,6 +6,7 @@ from combat.damage_resolver import resolve_damage
 from combat.damage_resolver import quantize_damage
 from models.equipment import make_weapon, make_armor, WeaponRange, ArmorLayer
 from utils.attribute import Attribute, is_effective
+from engine.prompt_manager import prompt_manager
 
 
 class PoliceEngine:
@@ -479,6 +480,10 @@ class PoliceEngine:
             return 0.0
         player = self.state.get_player(player_id)
         active_at_loc = self.police.active_units_at(player.location)
+        # 过滤掉被致盲的警察（闪光弹效果），与 is_protected_by_police 保持一致
+        active_at_loc = [u for u in active_at_loc
+                        if not (getattr(u, '_hoshino_blinded', False)
+                                and getattr(u, '_hoshino_blind_expire_round', 0) >= self.state.current_round)]
         if not active_at_loc:
             return 0.0
         max_val = 0.0
@@ -777,6 +782,10 @@ class PoliceEngine:
             return f"❌ 找不到存活的警察单位 {police_id}"
         if unit.is_disabled():
             return f"❌ {police_id} 处于行动阻碍状态，无法攻击"
+        # 致盲的警察无法执行命令
+        if (getattr(unit, '_hoshino_blinded', False)
+                and getattr(unit, '_hoshino_blind_expire_round', 0) >= self.state.current_round):
+            return f"❌ {police_id} 被致盲，无法执行攻击命令"
 
         target = self.state.get_player(target_id)
         if not target or not target.is_alive():
@@ -1177,12 +1186,16 @@ class PoliceEngine:
                             unit_loc = unit.location
                             expire = self.state._hoshino_smoke_zones.get(unit_loc)
                             if expire is not None and self.state.current_round <= expire:
-                                messages.append(f"🌫️ {unit.unit_id} 在烟雾中，无法执行执法攻击")
+                                messages.append(prompt_manager.get_prompt(
+                                    "talent", "g7hoshino.smoke_police_no_attack",
+                                    unit_id=unit.unit_id))
                                 continue
                         # 致盲的警察不自动攻击
                         if getattr(unit, '_hoshino_blinded', False):
                             if getattr(unit, '_hoshino_blind_expire_round', 0) >= self.state.current_round:
-                                messages.append(f"👁️ {unit.unit_id} 被致盲，无法执行执法攻击")
+                                messages.append(prompt_manager.get_prompt(
+                                    "talent", "g7hoshino.blind_police_no_attack",
+                                    unit_id=unit.unit_id))
                                 continue
                         atk_msg = self._resolve_police_attack_on_target(unit, target)
                         messages.append(atk_msg)

@@ -141,7 +141,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
 
         # 清理警察单位的致盲效果
         if hasattr(self.state, 'police') and self.state.police:
-            for unit in self.state.police.all_units():
+            for unit in self.state.police.units:
                 if hasattr(unit, '_hoshino_blind_expire_round'):
                     if round_num > unit._hoshino_blind_expire_round:
                         unit._hoshino_blinded = False
