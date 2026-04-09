@@ -176,10 +176,16 @@ class HoshinoMixin(_Base):
 
         elif loc == "医院":
             if tactical_unlocked:
-                # 层级3：药物（按优先级区分）
-                candidates.append(("肾上腺素", "科技", 15))
-                candidates.append(("EPO", "科技", 12))
-                candidates.append(("海豚巧克力", "普通", 10))
+                # 层级3：药物（按优先级区分）— 需检查持有上限和使用限制
+                medicines = getattr(talent, 'medicines', []) if talent else []
+                held_names = set(medicines)
+                if len(medicines) < 2:
+                    if "肾上腺素" not in held_names and not getattr(talent, 'adrenaline_used', False):
+                        candidates.append(("肾上腺素", "科技", 15))
+                    if "EPO" not in held_names:
+                        candidates.append(("EPO", "科技", 12))
+                    if "海豚巧克力" not in held_names:
+                        candidates.append(("海豚巧克力", "普通", 10))
             if vouchers >= 1:
                 # 层级3：手术
                 candidates.append(("晶化皮肤手术", "科技", 8))
