@@ -475,9 +475,16 @@ def validate_special(player, op_name, game_state):
     available = get_available_specials(player, game_state)
     available_names = [s["name"] for s in available]
     if op_name not in available_names:
-        if available_names:
-            return False, f"当前不可执行「{op_name}」。可用：{', '.join(available_names)}"
-        return False, f"当前没有可执行的特殊操作"
+        # 支持带参数的操作（蓄力XX、更衣XX、修复XX）：用 startswith 匹配
+        _PARAM_OPS = ("蓄力", "更衣", "修复")
+        matched = any(
+            op_name.startswith(prefix) and any(n.startswith(prefix) for n in available_names)
+            for prefix in _PARAM_OPS
+        )
+        if not matched:
+            if available_names:
+                return False, f"当前不可执行「{op_name}」。可用：{', '.join(available_names)}"
+            return False, f"当前没有可执行的特殊操作"
     return True, ""
 
 

@@ -84,36 +84,39 @@ def get_available_specials(player, game_state):
 
 
 def execute(player, op_name, game_state):
-    """执行特殊操作"""
+    """执行特殊操作。
+    统一返回 (msg, consumes_turn) 二元组。
+    consumes_turn=True 表示消耗行动回合，False 表示不消耗。
+    """
     if op_name == "磨刀":
-        return _do_sharpen(player, game_state)
+        return _do_sharpen(player, game_state), True
     elif op_name == "吟唱魔法护盾":
-        return _do_regen_magic_shield(player, game_state)
+        return _do_regen_magic_shield(player, game_state), True
     elif op_name == "展开AT力场":
-        return _do_regen_at_field(player, game_state)
+        return _do_regen_at_field(player, game_state), True
     elif op_name.startswith("蓄力"):
         weapon_name = op_name[2:]
-        return _do_charge(player, weapon_name, game_state)
+        return _do_charge(player, weapon_name, game_state), True
     elif op_name == "释放病毒":
-        return _do_release_virus(player, game_state)
+        return _do_release_virus(player, game_state), True
     elif op_name == "取消盾牌":
         if (player.talent and hasattr(player.talent, 'shield_mode')
                 and player.talent.shield_mode in ("架盾", "持盾")):
             old_mode = player.talent.shield_mode
             player.talent._end_shield_mode(player)
             game_state.log_event("cancel_shield", player=player.player_id, mode=old_mode)
-            return f"🛡️ {player.name} 取消了{old_mode}状态"
-        return "❌ 你没有处于架盾/持盾状态"
+            return f"🛡️ {player.name} 取消了{old_mode}状态", False
+        return "❌ 你没有处于架盾/持盾状态", False
     elif op_name == "Hoshino":
         if player.talent and hasattr(player.talent, '_execute_tactical_macro'):
             msg, consumes = player.talent._execute_tactical_macro(player)
-            return msg
-        return "❌ 你没有战术指令能力"
+            return msg, consumes
+        return "❌ 你没有战术指令能力", False
     elif op_name.startswith("更衣"):
         form_name = op_name[2:].strip() if len(op_name) > 2 else ""
         if player.talent and hasattr(player.talent, 'form'):
             if player.location != f"home_{player.player_id}":
-                return "❌ 需要在自己家中才能更衣"
+                return "❌ 需要在自己家中才能更衣", True
             valid_forms = {"水着-shielder", "临战-Archer", "临战-shielder"}
             if not form_name or form_name not in valid_forms:
                 # 让玩家选择
@@ -125,14 +128,14 @@ def execute(player, op_name, game_state):
             if form_name in valid_forms:
                 player.talent.form = form_name
                 game_state.log_event("change_form", player=player.player_id, form=form_name)
-                return f"👗 {player.name} 更换形态为「{form_name}」！"
-            return f"❌ 无效形态。可选：{', '.join(valid_forms)}"
-        return "❌ 你没有可更换的形态"
+                return f"👗 {player.name} 更换形态为「{form_name}」！", True
+            return f"❌ 无效形态。可选：{', '.join(valid_forms)}", True
+        return "❌ 你没有可更换的形态", True
     elif op_name.startswith("修复"):
         sacrifice = op_name[2:].strip() if len(op_name) > 2 else ""
         if player.talent and hasattr(player.talent, '_repair_horus'):
-            return player.talent._repair_horus(player, sacrifice)
-        return "❌ 你没有可修复的装备"
+            return player.talent._repair_horus(player, sacrifice), True
+        return "❌ 你没有可修复的装备", True
     elif op_name == "肾上腺素":
         if (player.talent and hasattr(player.talent, 'adrenaline_used')
                 and not player.talent.adrenaline_used
@@ -141,12 +144,13 @@ def execute(player, op_name, game_state):
             player.talent.medicines.remove("肾上腺素")
             player.talent._adrenaline_next_round = True  # 标记下回合生效
             game_state.log_event("adrenaline", player=player.player_id)
-            return prompt_manager.get_prompt("talent", "g7hoshino.adrenaline_injected",
+            msg = prompt_manager.get_prompt("talent", "g7hoshino.adrenaline_injected",
                 default="💉 {player_name} 注射了肾上腺素！下回合将获得额外 cost 和光环恢复").format(
                 player_name=player.name)
-        return "❌ 无法使用肾上腺素"
+            return msg, False  # 不消耗行动回合
+        return "❌ 无法使用肾上腺素", False
     else:
-        return f"❌ 未知的特殊操作：{op_name}"
+        return f"❌ 未知的特殊操作：{op_name}", True
 
 
 def _do_sharpen(player, game_state):

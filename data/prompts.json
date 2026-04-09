@@ -458,7 +458,7 @@
       "macro_empty": "❌ 战术指令宏为空，取消。",
       "macro_cost_insufficient_display": "❌ Cost 不足！需要 {total_cost}，当前 {current_cost}。战术指令宏不执行，返还回合。",
       "macro_cost_insufficient": "❌ Cost 不足（需要{total_cost}，当前{current_cost}），战术指令宏取消",
-      "macro_start": "⚔️ 战术指令宏开始执行（总 Cost: {total_cost}）",
+      "macro_start": "⚔️ 战术指令宏开始执行（当前 Cost: {current_cost}）",
       "macro_step": "  [{step}] {action_name}: {result} (剩余Cost: {remaining_cost})",
       "macro_shield_forced_end": "  ⚠️ 架盾/持盾状态被强制结束",
       "macro_done": "⚔️ 战术指令宏执行完毕。剩余 Cost: {cost}/{max_cost}",

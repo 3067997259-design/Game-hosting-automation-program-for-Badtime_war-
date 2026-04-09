@@ -200,11 +200,11 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         # 色彩≥6 时提供选择是否进入自我怀疑
         if not self.color_is_null and not self.is_terror and self.color >= 6:
             choice = player.controller.choose(
-                f"色彩值已达 {self.color}，是否进入「自我怀疑」状态？（下一回合将被跳过并反转为Terror）",
-                ["进入自我怀疑", "暂不"],
+                f"是因为你在，她才会死在沙漠里的。她的死都是你的错……你还在试图相信那个可笑的自己吗？",
+                ["是因为我……一切都是因为我……", "不，不是这样的……"],
                 context={"phase": "T0", "situation": "hoshino_self_doubt_choice"}
             )
-            if "进入" in choice:
+            if choice == "是因为我……一切都是因为我……":
                 self.self_doubt_pending = True
                 msg = prompt_manager.get_prompt("talent", "g7hoshino.self_doubt_enter",
                                              player_name=player.name)

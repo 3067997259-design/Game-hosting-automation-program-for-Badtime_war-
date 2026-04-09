@@ -89,17 +89,30 @@ class ActionTurnManager:
                 if choice.startswith("解除"):
                     self.state.markers.on_petrify_recover(player.player_id)
                     player.is_petrified = False
-                    player.hp = round(max(0, player.hp - 0.5), 2)
-                    display.show_info(
-                        f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
+                    remaining = 0.5
+                    # 让天赋的临时HP（光环、炽愿等）先吸收
+                    if (player.talent and hasattr(player.talent, 'receive_damage_to_temp_hp')
+                            and not getattr(player, '_mythland_talent_suppressed', False)):
+                        remaining = player.talent.receive_damage_to_temp_hp(remaining)
+                    if remaining > 0:
+                        player.hp = round(max(0, player.hp - remaining), 2)
+                    absorbed = round(0.5 - remaining, 2)
+                    actual = round(0.5 - absorbed, 2)
+                    if absorbed > 0:
+                        display.show_info(f"🗿→✨ {player.name} 解除石化！受{actual}伤害（临时HP吸收{absorbed}） → HP: {player.hp}")
+                    else:
+                        display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
+                    # 死亡判定
                     if player.hp <= 0:
                         self.state.markers.on_player_death(player.player_id)
                         display.show_death(player.name, "石化解除伤害")
                         return "petrify_death"
+                    # 眩晕判定
                     if player.hp <= 0.5 and not player.is_stunned:
                         player.is_stunned = True
                         self.state.markers.add(player.player_id, "STUNNED")
                         display.show_info(f"💫 {player.name} 进入眩晕！")
+                        return "petrify_stun"
                 else:
                     display.show_info(f"🗿 {player.name} 选择保持石化，跳过本回合。")
                     return "petrify_skip"
@@ -349,10 +362,18 @@ class ActionTurnManager:
                 continue
 
             # 执行
-            msg, action_type, success = self._execute_action(parsed, player)
+            result = self._execute_action(parsed, player)
+            msg, action_type, success = result[0], result[1], result[2]
+            consumes_turn = result[3] if len(result) > 3 else success
             display.show_result(msg)
             if not success:
                 display.show_info("⚠️ 行动执行失败，请重新选择行动。")
+                continue
+            if not consumes_turn:
+                attempts -= 1  # 不消耗回合的成功操作不计入重试次数
+                # 刷新可用行动列表（状态可能已变化，如取消盾牌后 move 解锁）
+                action_names, action_display = self._get_available_actions(player)
+                display.show_available_actions(action_display)
                 continue
             from utils.pacing import action_pause
             action_pause(self.state, label=f"{player.name} → {action_type}")
@@ -442,8 +463,9 @@ class ActionTurnManager:
 
         elif action == "special":
             op = parsed["operation"]
-            msg = special_op.execute(player, op, self.state)
-            return msg, "special", not msg.startswith("❌")   # CHANGED
+            msg, consumes = special_op.execute(player, op, self.state)
+            is_ok = not msg.startswith("❌")
+            return msg, "special", is_ok, consumes
 
         elif action == "report":
             target_id = resolve_player_target(parsed["target"], self.state)
