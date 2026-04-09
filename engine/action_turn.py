@@ -97,8 +97,9 @@ class ActionTurnManager:
                     if remaining > 0:
                         player.hp = round(max(0, player.hp - remaining), 2)
                     absorbed = round(0.5 - remaining, 2)
+                    actual = round(0.5 - absorbed, 2)
                     if absorbed > 0:
-                        display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害（临时HP吸收{absorbed}） → HP: {player.hp}")
+                        display.show_info(f"🗿→✨ {player.name} 解除石化！受{actual}伤害（临时HP吸收{absorbed}） → HP: {player.hp}")
                     else:
                         display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
                     # 死亡判定
@@ -370,6 +371,9 @@ class ActionTurnManager:
                 continue
             if not consumes_turn:
                 attempts -= 1  # 不消耗回合的成功操作不计入重试次数
+                # 刷新可用行动列表（状态可能已变化，如取消盾牌后 move 解锁）
+                action_names, action_display = self._get_available_actions(player)
+                display.show_available_actions(action_display)
                 continue
             from utils.pacing import action_pause
             action_pause(self.state, label=f"{player.name} → {action_type}")
@@ -459,18 +463,9 @@ class ActionTurnManager:
 
         elif action == "special":
             op = parsed["operation"]
-            ret = special_op.execute(player, op, self.state)
-            # special_op.execute 可能返回 (msg, consumes) 二元组或纯字符串
-            if isinstance(ret, tuple):
-                msg, consumes = ret
-                is_ok = not msg.startswith("❌")
-                return msg, "special", is_ok, consumes
-            msg = ret
-            # 取消盾牌和肾上腺素：操作成功但不消耗行动回合
-            if op in ("取消盾牌", "肾上腺素"):
-                is_ok = not msg.startswith("❌")
-                return msg, "special", is_ok, False  # success=is_ok, consumes_turn=False
-            return msg, "special", not msg.startswith("❌")
+            msg, consumes = special_op.execute(player, op, self.state)
+            is_ok = not msg.startswith("❌")
+            return msg, "special", is_ok, consumes
 
         elif action == "report":
             target_id = resolve_player_target(parsed["target"], self.state)

@@ -168,6 +168,7 @@ class TacticalMixin:
             default="⚔️ 战术指令宏开始执行（当前 Cost: {current_cost}）", current_cost=self.cost)
         lines = [start_msg]
         has_dashed = False  # 追踪本宏内是否执行过冲刺
+        any_executed = False  # 追踪是否有命令实际执行
         for i, (action_name, args) in enumerate(commands):
             cost = self.TACTICAL_COST[action_name]
             if cost > self.cost:
@@ -176,6 +177,7 @@ class TacticalMixin:
                     action_name=action_name, cost=cost, current_cost=self.cost))
                 break
             self.cost -= cost
+            any_executed = True
             is_last = (i == len(commands) - 1)
             result = self._dispatch_tactical(player, action_name, args, is_last, has_dashed=has_dashed)
             step_msg = prompt_manager.get_prompt("talent", "g7hoshino.macro_step",
@@ -192,7 +194,7 @@ class TacticalMixin:
         done_msg = prompt_manager.get_prompt("talent", "g7hoshino.macro_done",
                                           cost=self.cost, max_cost=self.max_cost)
         lines.append(done_msg)
-        return "\n".join(lines), True  # 消耗回合
+        return "\n".join(lines), any_executed  # 仅在有命令实际执行时消耗回合
 
     def _dispatch_tactical(self, player, action_name, args, is_last, has_dashed=False):
         """分发单个战术动作"""

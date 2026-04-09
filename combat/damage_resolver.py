@@ -290,8 +290,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
             absorbed = round(0.5 - petrify_remaining, 2)
+            actual = round(0.5 - absorbed, 2)
             if absorbed > 0:
-                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
+                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受{actual}伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
             else:
                 result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
             result["target_hp"] = target.hp
@@ -697,8 +698,9 @@ def resolve_damage(attacker, target, weapon, game_state,
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
             absorbed = round(0.5 - petrify_remaining, 2)
+            actual = round(0.5 - absorbed, 2)
             if absorbed > 0:
-                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
+                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受{actual}伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
             else:
                 result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
             result["target_hp"] = target.hp
@@ -1208,12 +1210,11 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
             absorbed = round(0.5 - petrify_remaining, 2)
+            actual = round(0.5 - absorbed, 2)
             if absorbed > 0:
-                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
+                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受{actual}伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
             else:
-                petrify_break = prompt_manager.get_prompt("talent", "g7hoshino.terror_petrify_break",
-                                                 target_name=target.name, hp=target.hp)
-                result["details"].append(petrify_break)
+                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
             result["target_hp"] = target.hp
 
     # ---- 死亡判定（自定义：无视死者苏生和g4人形态免死，不无视救世主免死） ----
