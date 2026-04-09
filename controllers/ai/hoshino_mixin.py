@@ -182,6 +182,7 @@ class HoshinoMixin(_Base):
         existing_attrs = set(b.get("attribute", "普通") for b in ammo)
 
         # 各地点能提供的属性
+        # ⚠️ 迭代顺序即为优先级（免费无条件 > 有条件），勿随意调换
         location_attrs = {
             "home": {"普通"},           # 小刀
             "商店": {"普通"} if vouchers >= 1 else set(),
