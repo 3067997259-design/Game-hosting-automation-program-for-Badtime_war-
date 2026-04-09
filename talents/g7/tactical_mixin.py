@@ -408,12 +408,13 @@ class TacticalMixin:
         if not target.is_alive():
             return prompt_manager.get_prompt("talent", "g7hoshino.shoot_pellet_dead")
         # 警察保护简化：若保护阈值 < 1.5（一发子弹总伤害），忽略保护
+        # 烟雾/致盲等效果已在 is_protected_by_police / get_protection_threshold 内部处理
         pe = getattr(self.state, 'police_engine', None)
         if pe:
             threshold = pe.get_protection_threshold(target.player_id)
             if threshold > 0 and threshold >= 1.5:
                 return prompt_manager.get_prompt("talent", "g7hoshino.shoot_pellet_police_filter",
-                                               threshold=threshold)
+                                            threshold=threshold)
 
         if getattr(target, '_hoshino_fragile', False):
             armor_break = random.random() < 0.2
@@ -654,6 +655,14 @@ class TacticalMixin:
                 lines.append(prompt_manager.get_prompt(
                     "talent", "g7hoshino.throw_blind",
                     target_name=t.name))
+            # 闪光弹也影响警察：致盲期间不攻击、不执行命令、不提供保护
+            pe = getattr(self.state, 'police_engine', None)
+            if pe and hasattr(self.state, 'police') and self.state.police:
+                for unit in self.state.police.units_at(location):
+                    if unit.is_alive():
+                        unit._hoshino_blinded = True
+                        unit._hoshino_blind_expire_round = self.state.current_round + 1
+                        lines.append(f"  → {unit.unit_id}: 👁️ 致盲")
 
         elif effect == "smoke":
             if not hasattr(self.state, '_hoshino_smoke_zones'):

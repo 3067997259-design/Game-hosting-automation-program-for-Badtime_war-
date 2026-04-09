@@ -139,6 +139,14 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                         del p._hoshino_blind_markers_relations
                     del p._hoshino_blind_expire_round
 
+        # 清理警察单位的致盲效果
+        if hasattr(self.state, 'police') and self.state.police:
+            for unit in self.state.police.units:
+                if hasattr(unit, '_hoshino_blind_expire_round'):
+                    if round_num > unit._hoshino_blind_expire_round:
+                        unit._hoshino_blinded = False
+                        del unit._hoshino_blind_expire_round
+
         me = self.state.get_player(self.player_id)
         if not me or not me.is_alive():
             return
