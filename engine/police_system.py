@@ -444,6 +444,13 @@ class PoliceEngine:
             if hasattr(barrier, 'is_in_barrier') and barrier.is_in_barrier(player_id):
                 return False
 
+        # 检查是否在烟雾区域 → 烟雾中不提供单体保护
+        if hasattr(self.state, '_hoshino_smoke_zones'):
+            player_loc = player.location
+            if player_loc in self.state._hoshino_smoke_zones:
+                if self.state.current_round <= self.state._hoshino_smoke_zones[player_loc]:
+                    return False
+
         # 确定受保护者
         if self.police.has_captain():
             # 有队长时：只有队长受保护
@@ -460,6 +467,10 @@ class PoliceEngine:
 
         # 检查同地点是否有未处于debuff的警察单位
         active_at_loc = self.police.active_units_at(player.location)
+        # 过滤掉被致盲的警察（闪光弹效果）
+        active_at_loc = [u for u in active_at_loc
+                        if not (getattr(u, '_hoshino_blinded', False)
+                                and getattr(u, '_hoshino_blind_expire_round', 0) >= self.state.current_round)]
         return len(active_at_loc) > 0
 
     def get_protection_threshold(self, player_id):
@@ -1161,6 +1172,18 @@ class PoliceEngine:
                         # [FIX] 方式B的单位本轮不攻击，用局部集合判断
                         if unit.unit_id in just_arrived_ids:
                             continue
+                        # 烟雾区域内警察不自动攻击
+                        if hasattr(self.state, '_hoshino_smoke_zones'):
+                            unit_loc = unit.location
+                            expire = self.state._hoshino_smoke_zones.get(unit_loc)
+                            if expire is not None and self.state.current_round <= expire:
+                                messages.append(f"🌫️ {unit.unit_id} 在烟雾中，无法执行执法攻击")
+                                continue
+                        # 致盲的警察不自动攻击
+                        if getattr(unit, '_hoshino_blinded', False):
+                            if getattr(unit, '_hoshino_blind_expire_round', 0) >= self.state.current_round:
+                                messages.append(f"👁️ {unit.unit_id} 被致盲，无法执行执法攻击")
+                                continue
                         atk_msg = self._resolve_police_attack_on_target(unit, target)
                         messages.append(atk_msg)
 

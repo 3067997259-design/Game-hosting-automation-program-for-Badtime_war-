@@ -549,7 +549,10 @@
       "med_adrenaline_macro_block": "❌ 用肾上腺素比较麻烦，现在没有时间",
       "adrenaline_injected": "💉 唔，好麻烦……好热……感觉在燃烧……不过也没办法了",
       "adrenaline_effect": "💉 就是现在，进攻！（Cost={cost}，光环已全部恢复）！",
-      "tactical_auto_equip": "  ✓ 获得：{choice}"
+      "tactical_auto_equip": "  ✓ 获得：{choice}",
+      "smoke_police_no_attack": "🌫️ {unit_id} 在烟雾中，无法执行执法攻击",
+      "blind_police_no_attack": "👁️ {unit_id} 被致盲，无法执行执法攻击"
+
 
     }
   },
