@@ -476,21 +476,30 @@ class DevelopMixin(_Base):
 
         # 有消耗品但需要在战术宏里装填 → 发育完成，交给战斗逻辑
 
-        if not has_repair_material and "interact" in available:
-            # 就地取材：家拿盾牌，军事基地拿AT力场
-            if loc == "home" or self._is_at_home(player):
-                commands.append("interact 盾牌")
+        # ===== 阶段3：修复铁之荷鲁斯（如果受损）=====
+        if tactical_unlocked and iron_horus_hp < getattr(talent, 'iron_horus_max_hp', 3):
+            # 需要盾牌或AT力场来修复
+            has_repair_material = (self._has_armor_by_name(player, "盾牌")
+                                or self._has_armor_by_name(player, "AT力场"))
+            if has_repair_material and "special" in available:
+                commands.append("special 修复")
                 return commands
-            elif loc == "军事基地" and has_pass:
-                commands.append("interact AT力场")
-                return commands
-            # 其他地点 → 移动到最近的可拿修复材料的地点
-            elif "move" in available:
-                if has_pass:
-                    commands.append("move 军事基地")
-                else:
-                    commands.append("move home")
-                return commands
+            # 没有修复材料，去拿
+            if not has_repair_material and "interact" in available:
+                # 就地取材：家拿盾牌，军事基地拿AT力场
+                if loc == "home" or self._is_at_home(player):
+                    commands.append("interact 盾牌")
+                    return commands
+                elif loc == "军事基地" and has_pass:
+                    commands.append("interact AT力场")
+                    return commands
+                # 其他地点 → 移动到最近的可拿修复材料的地点
+                elif "move" in available:
+                    if has_pass:
+                        commands.append("move 军事基地")
+                    else:
+                        commands.append("move home")
+                    return commands
 
         # ===== 阶段4：发育完成，寻找目标 =====
         if "move" in available and not commands:

@@ -176,8 +176,7 @@ class BasicAIController(
             return self._hoshino_terror_command(player, state, available_actions)
 
 
-        target = self._hoshino_find_target(player, state)
-            # ===== 星野战术指令已解锁：优先使用 special Hoshino =====
+        # ===== 星野战术指令已解锁：优先使用 special Hoshino =====
         if (self._has_hoshino_talent(player)
                 and self._hoshino_tactical_unlocked(player)
                 and not self._hoshino_is_terror(player)):
@@ -196,11 +195,6 @@ class BasicAIController(
                 if not horus_ok:
                     debug_ai_basic(player.name, "星野：铁之荷鲁斯已破损，跳过战术宏")
                 # fall through 到发育路径（去拿刀/修盾/拿装备）
-            if target and "special" in available_actions:
-                # 清空旧队列，下次 get_command 时会重新生成
-                self._hoshino_macro_queue = []
-                debug_ai_basic(player.name, f"星野战术宏：目标 {target.name}")
-                return ["special Hoshino", "forfeit"]
 
         # ===== 队长指挥 =====
         if getattr(player, 'is_captain', False) and "police_command" in available_actions:
