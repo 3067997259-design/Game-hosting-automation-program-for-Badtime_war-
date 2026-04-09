@@ -369,6 +369,7 @@ class ActionTurnManager:
                 display.show_info("⚠️ 行动执行失败，请重新选择行动。")
                 continue
             if not consumes_turn:
+                attempts -= 1  # 不消耗回合的成功操作不计入重试次数
                 continue
             from utils.pacing import action_pause
             action_pause(self.state, label=f"{player.name} → {action_type}")

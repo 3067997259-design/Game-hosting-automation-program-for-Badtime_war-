@@ -689,9 +689,18 @@ def resolve_damage(attacker, target, weapon, game_state,
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-            # 解除石化额外0.5伤害
-            target.hp = round(max(0, target.hp - 0.5), 2)
-            result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
+            # 解除石化额外0.5伤害（先让临时HP吸收）
+            petrify_remaining = 0.5
+            if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
+                    and not getattr(target, '_mythland_talent_suppressed', False)):
+                petrify_remaining = target.talent.receive_damage_to_temp_hp(petrify_remaining)
+            if petrify_remaining > 0:
+                target.hp = round(max(0, target.hp - petrify_remaining), 2)
+            absorbed = round(0.5 - petrify_remaining, 2)
+            if absorbed > 0:
+                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
+            else:
+                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
             result["target_hp"] = target.hp
 
     # ---- 第6步：眩晕/死亡判定 ----
@@ -1191,10 +1200,20 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-            target.hp = round(max(0, target.hp - 0.5), 2)
-            petrify_break = prompt_manager.get_prompt("talent", "g7hoshino.terror_petrify_break",
-                                             target_name=target.name, hp=target.hp)
-            result["details"].append(petrify_break)
+            # 解除石化额外0.5伤害（先让临时HP吸收）
+            petrify_remaining = 0.5
+            if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
+                    and not getattr(target, '_mythland_talent_suppressed', False)):
+                petrify_remaining = target.talent.receive_damage_to_temp_hp(petrify_remaining)
+            if petrify_remaining > 0:
+                target.hp = round(max(0, target.hp - petrify_remaining), 2)
+            absorbed = round(0.5 - petrify_remaining, 2)
+            if absorbed > 0:
+                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
+            else:
+                petrify_break = prompt_manager.get_prompt("talent", "g7hoshino.terror_petrify_break",
+                                                 target_name=target.name, hp=target.hp)
+                result["details"].append(petrify_break)
             result["target_hp"] = target.hp
 
     # ---- 死亡判定（自定义：无视死者苏生和g4人形态免死，不无视救世主免死） ----
