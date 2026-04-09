@@ -43,6 +43,12 @@ class DevelopMixin(_Base):
             )
             has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
             return has_sharpened_knife and has_gauss
+        # 星野（神代天赋7）
+        if self._has_hoshino_talent(player):
+            talent = player.talent
+            # 战术指令解锁 + 有子弹 = 发育完成
+            return (getattr(talent, 'tactical_unlocked', False)
+                    and len(getattr(talent, 'ammo', [])) > 0)
 
         # 全息影像（请一直注视着我）
         if (player.talent and hasattr(player.talent, 'name')
@@ -377,6 +383,130 @@ class DevelopMixin(_Base):
                 commands.append("move 军事基地")
 
         return commands
+
+    def _cmd_develop_hoshino(self, player, state, available: List[str]) -> List[str]:
+        """神代天赋7（星野）专用发育路径
+
+        路线：家拿刀 → 军事基地强买通行证 → 拿AT力场+盾牌(触发护盾融合)
+            → 拿电磁步枪+高斯步枪(触发武器融合) → 战术解锁 → 装填子弹 → 出击
+        """
+        commands = []
+        loc = self._get_location_str(player)
+        talent = player.talent
+        vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+
+        fusion_shield_done = getattr(talent, 'fusion_shield_done', False)
+        fusion_weapon_done = getattr(talent, 'fusion_weapon_done', False)
+        tactical_unlocked = getattr(talent, 'tactical_unlocked', False)
+        ammo_count = len(getattr(talent, 'ammo', []))
+        iron_horus_hp = getattr(talent, 'iron_horus_hp', 0)
+
+        # ===== 阶段0：家里拿刀（前期战斗力 + 后续装填子弹的消耗品）=====
+        has_knife = any(w.name == "小刀" for w in player.weapons if w)
+        if not has_knife and not tactical_unlocked:
+            if "interact" in available and (loc == "home" or self._is_at_home(player)):
+                commands.append("interact 小刀")
+                return commands
+            if "move" in available and loc != "home" and not self._is_at_home(player):
+                # 只在还没去过军事基地时回家拿刀
+                if not has_pass and not fusion_shield_done:
+                    commands.append("move home")
+                    return commands
+
+        # ===== 阶段1：军事基地 — 拿通行证 + 护盾材料 + 武器 =====
+        if not tactical_unlocked:
+            # 需要的物品：AT力场、盾牌（护盾融合）、电磁步枪、高斯步枪（武器融合）
+            has_at = self._has_armor_by_name(player, "AT力场")
+            has_shield = self._has_armor_by_name(player, "盾牌")
+            has_emr = any(w.name == "电磁步枪" for w in player.weapons if w)
+            has_gauss = any(w.name == "高斯步枪" for w in player.weapons if w)
+
+            if loc == "军事基地" or (loc == "home" and self._is_at_home(player) and has_knife):
+                if loc != "军事基地":
+                    if "move" in available:
+                        commands.append("move 军事基地")
+                        return commands
+
+                if "interact" in available:
+                    # 通行证优先
+                    if not has_pass:
+                        commands.append("interact 通行证")
+                        return commands
+                    # 护盾融合材料（AT力场 + 盾牌）
+                    if not fusion_shield_done:
+                        if not has_at:
+                            commands.append("interact AT力场")
+                        if not has_shield:
+                            commands.append("interact 盾牌")
+                        if commands:
+                            return commands
+                    # 武器融合材料（电磁步枪 + 高斯步枪）
+                    if not fusion_weapon_done:
+                        if not has_emr:
+                            commands.append("interact 电磁步枪")
+                        if not has_gauss:
+                            commands.append("interact 高斯步枪")
+                        if commands:
+                            return commands
+
+            # 不在军事基地 → 移动过去
+            if "move" in available and not commands:
+                if loc != "军事基地":
+                    commands.append("move 军事基地")
+                    return commands
+
+        # ===== 阶段2：战术已解锁 — 装填子弹 =====
+        if tactical_unlocked and ammo_count == 0:
+            # 需要消耗品来装填。检查身上有没有可消耗的物品/武器
+            consumable = None
+            for w in player.weapons:
+                if w and w.name not in ("拳击",):
+                    consumable = w.name
+                    break
+            if not consumable:
+                # 没有消耗品，去拿一把小刀来装填
+                if "interact" in available:
+                    if loc == "home" or self._is_at_home(player):
+                        if not has_knife:
+                            commands.append("interact 小刀")
+                            return commands
+                    elif loc == "商店":
+                        if vouchers >= 1:
+                            commands.append("interact 小刀")
+                            return commands
+                if "move" in available and not commands:
+                    if not self._is_at_home(player):
+                        commands.append("move home")
+                        return commands
+            # 有消耗品但需要在战术宏里装填 → 发育完成，交给战斗逻辑
+
+        # ===== 阶段3：修复铁之荷鲁斯（如果受损）=====
+        if tactical_unlocked and iron_horus_hp < getattr(talent, 'iron_horus_max_hp', 3):
+            # 需要盾牌或AT力场来修复
+            has_repair_material = (self._has_armor_by_name(player, "盾牌")
+                                or self._has_armor_by_name(player, "AT力场"))
+            if has_repair_material and "special" in available:
+                commands.append("special 修复")
+                return commands
+            # 没有修复材料，去拿
+            if not has_repair_material and "interact" in available:
+                if loc == "home" or self._is_at_home(player):
+                    if not self._has_armor_by_name(player, "盾牌"):
+                        commands.append("interact 盾牌")
+                        return commands
+                elif loc == "军事基地" and has_pass:
+                    if not self._has_armor_by_name(player, "AT力场"):
+                        commands.append("interact AT力场")
+                        return commands
+
+        # ===== 阶段4：发育完成，寻找目标 =====
+        if "move" in available and not commands:
+            enemy_loc = self._find_nearest_enemy_location(player, state)
+            if enemy_loc and enemy_loc != loc:
+                commands.append(f"move {enemy_loc}")
+
+        return commands
     # ════════════════════════════════════════════════════════
     #  通用发育命令
     # ════════════════════════════════════════════════════════
@@ -419,6 +549,9 @@ class DevelopMixin(_Base):
                 hologram_cmds = self._cmd_develop_hologram(player, state, available)
                 if hologram_cmds:
                     return hologram_cmds
+        # 星野（神代天赋7）
+        if self._has_hoshino_talent(player):
+            return self._cmd_develop_hoshino(player, state, available)
         # Fall through to general develop if hologram path returns empty
         # Political 特殊处理：基本需求满足后，跳过通用发育，直奔警察局
         if (self.personality == "political"

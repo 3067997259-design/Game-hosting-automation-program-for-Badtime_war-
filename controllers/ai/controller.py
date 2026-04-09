@@ -13,6 +13,7 @@ from controllers.ai.constants import (
     debug_ai_combat_state, debug_ai_development_plan,
 )
 from controllers.ai.helpers_mixin import HelpersMixin
+from controllers.ai.hoshino_mixin import HoshinoMixin
 from controllers.ai.evaluation_mixin import EvaluationMixin
 from controllers.ai.choose_mixin import ChooseMixin
 from controllers.ai.combat_mixin import CombatMixin
@@ -105,6 +106,11 @@ class BasicAIController(
         self.player_name = player.name
         self._my_id = player.player_id
         attempt = context.get("attempt", 1) if context else 1
+        situation = (context or {}).get("situation", "")
+
+        # 星野战术宏输入
+        if situation == "hoshino_tactical_input":
+            return self._hoshino_get_tactical_command(player, game_state, available_actions)
 
         if attempt == 1:
             self._candidates = self._generate_candidates(
@@ -159,6 +165,23 @@ class BasicAIController(
         # 未起床
         if not player.is_awake:
             return ["wake"]
+
+        # ===== 星野 Terror 状态 =====
+        if self._has_hoshino_talent(player) and self._hoshino_is_terror(player):
+            debug_ai_basic(player.name, "Terror 状态：全图攻击")
+            return self._hoshino_terror_command(player, state, available_actions)
+
+        # ===== 星野战术指令已解锁：优先使用 special Hoshino =====
+        if (self._has_hoshino_talent(player)
+                and self._hoshino_tactical_unlocked(player)
+                and not self._hoshino_is_terror(player)):
+            # 有目标时使用战术宏
+            target = self._hoshino_find_target(player, state)
+            if target and "special" in available_actions:
+                # 清空旧队列，下次 get_command 时会重新生成
+                self._hoshino_macro_queue = []
+                debug_ai_basic(player.name, f"星野战术宏：目标 {target.name}")
+                return ["special Hoshino", "forfeit"]
 
         # ===== 队长指挥 =====
         if getattr(player, 'is_captain', False) and "police_command" in available_actions:
@@ -356,6 +379,60 @@ class BasicAIController(
                     dest = random.choice(empty_locs)
                     candidates.insert(0, f"move {dest}")
                     # 不直接return，让后续逻辑也生成备选命令
+        # ===== 星野 Terror / 自我怀疑集火 =====
+        if not self._has_hoshino_talent(player):
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                t = state.get_player(pid)
+                if not t or not t.is_alive():
+                    continue
+                t_talent = getattr(t, 'talent', None)
+                if not t_talent:
+                    continue
+                # Terror 存在 → 最高优先级集火
+                if getattr(t_talent, 'is_terror', False):
+                    debug_ai_basic(player.name, f"Terror 存在！集火 {t.name}")
+                    attack_cmds = self._cmd_attack(player, state, available_actions, t)
+                    if attack_cmds:
+                        candidates.extend(attack_cmds)
+                        candidates.append("forfeit")
+                        return candidates
+                # 自我怀疑 → 紧急集火（下回合变 Terror）
+                if getattr(t_talent, 'self_doubt_pending', False):
+                    debug_ai_basic(player.name, f"星野自我怀疑！紧急集火 {t.name}")
+                    attack_cmds = self._cmd_attack(player, state, available_actions, t)
+                    if attack_cmds:
+                        candidates.extend(attack_cmds)
+                        candidates.append("forfeit")
+                        return candidates
+
+        # ===== 星野战术宏入口 =====
+        if self._has_hoshino_talent(player):
+            talent = player.talent
+            tactical_unlocked = getattr(talent, 'tactical_unlocked', False)
+            has_ammo_or_consumable = (
+                len(getattr(talent, 'ammo', [])) > 0
+                or any(w.name not in ("拳击",) for w in player.weapons if w)
+            )
+
+            if tactical_unlocked and has_ammo_or_consumable:
+                # 发育完成 → 使用 special Hoshino 发动战术宏
+                target = self._pick_target(player, state)
+                if target and "special" in available_actions:
+                    # 清空宏队列，下次 get_command 时重新生成
+                    self._hoshino_macro_queue = None
+                    candidates.insert(0, "special Hoshino")
+                    candidates.append("forfeit")
+                    return candidates
+
+            # 未解锁或无弹药 → 走发育路径
+            if not self._is_development_complete(player, state):
+                dev = self._cmd_develop_hoshino(player, state, available_actions)
+                if dev:
+                    candidates.extend(dev)
+                    candidates.append("forfeit")
+                    return candidates
 
         # ===== 战斗状态 =====                           # ★ 改动：删除 hologram pass-through
         if self._in_combat and self._combat_target:
@@ -568,6 +645,105 @@ class BasicAIController(
         if best_loc and best_count > 0:
             return best_loc
         return None  # 没有敌人，不浪费超新星
+
+    def _build_hoshino_macro(self, player, state) -> list:
+        """两阶段生成星野战术宏指令队列"""
+        queue = []
+        talent = player.talent
+        if not talent:
+            return ["terminal"]
+
+        cost = talent.cost
+        shield_mode = talent.shield_mode
+        form = talent.form
+        has_ammo = len(talent.ammo) > 0
+
+        # 找到最佳攻击目标
+        target = self._pick_target(player, state)
+        if not target:
+            return ["terminal"]  # 没有目标，不执行宏
+
+        target_loc = self._get_location_str(target)
+        my_loc = self._get_location_str(player)
+        same_loc = (my_loc == target_loc)
+
+        # 检查是否已 find 目标
+        markers = getattr(state, 'markers', None)
+        has_find = False
+        if markers and hasattr(markers, 'has_relation'):
+            has_find = markers.has_relation(player.player_id, "ENGAGED_WITH", target.player_id)
+
+        # ===== 阶段 1：状态前缀 =====
+        prefix_cost = 0
+
+        if shield_mode == "架盾":
+            if has_find:
+                # 架盾 + 已 find → 检查正面/背面
+                if hasattr(talent, 'is_front') and not talent.is_front(target.player_id):
+                    queue.append("转向")  # cost 0
+            elif same_loc:
+                queue.append(f"find {target.name}")
+                prefix_cost += 1
+            else:
+                # 架盾 + 目标不同地点 → 撤盾 → 持盾 → 冲刺
+                queue.append("取消")  # cost 0
+                queue.append("持盾")
+                prefix_cost += 1
+                queue.append(f"冲刺 {target_loc}")
+                prefix_cost += 1
+                queue.append(f"find {target.name}")
+                prefix_cost += 1
+        elif shield_mode == "持盾":
+            if has_find:
+                pass  # 持盾 + 已 find → 直接射击
+            elif same_loc:
+                queue.append(f"find {target.name}")
+                prefix_cost += 1
+            else:
+                queue.append(f"冲刺 {target_loc}")
+                prefix_cost += 1
+                queue.append(f"find {target.name}")
+                prefix_cost += 1
+        else:
+            # 无盾
+            queue.append("持盾")
+            prefix_cost += 1
+            if not same_loc:
+                queue.append(f"冲刺 {target_loc}")
+                prefix_cost += 1
+            if not has_find:
+                queue.append(f"find {target.name}")
+                prefix_cost += 1
+
+        # ===== 装填检查 =====
+        if not has_ammo:
+            # 尝试找可消耗物品装填
+            consumable = None
+            for w in player.weapons:
+                if w and w.name not in ("拳击",):
+                    # 不消耗融合后的荷鲁斯之眼（它不在 weapons 列表里）
+                    consumable = w.name
+                    break
+            if not consumable:
+                for item in getattr(player, 'items', []):
+                    if item:
+                        consumable = getattr(item, 'name', None)
+                        break
+            if consumable:
+                queue.append(f"重新装填 {consumable}")  # cost 0
+            else:
+                # 没有任何可消耗物品，无法射击
+                queue.append("terminal")
+                return queue
+
+        # ===== 阶段2：射击填充 =====
+        remaining_cost = cost - used_cost
+        while remaining_cost >= COST["射击"]:
+            queue.append(f"射击 {target.name}")
+            remaining_cost -= COST["射击"]
+
+        queue.append("terminal")
+        return queue
 
 
 # ════════════════════════════════════════════════════════════════
