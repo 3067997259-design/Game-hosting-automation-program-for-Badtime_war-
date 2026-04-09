@@ -180,9 +180,10 @@ class BasicAIController(
                 and self._hoshino_tactical_unlocked(player)
                 and not self._hoshino_is_terror(player)
                 and "special" in available_actions):
-            if self._hoshino_should_use_adrenaline(player, state):
-                debug_ai_basic(player.name, "星野：注射肾上腺素，准备下轮爆发")
-                return ["special 肾上腺素"]
+            adr_target = self._hoshino_find_target(player, state)
+            if adr_target and self._hoshino_should_use_adrenaline(player, adr_target):
+                debug_ai_basic(player.name, "星野：注射肾上腺素（宏外免费行动）")
+                candidates.insert(0, "special 肾上腺素")
 
         # ===== 星野战术指令已解锁：优先使用 special Hoshino =====
         if (self._has_hoshino_talent(player)

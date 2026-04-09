@@ -384,8 +384,10 @@ class HoshinoMixin(_Base):
         if not outer_armors:
             return True  # 无外层护甲
 
-        # 克制关系：普通克魔法，魔法克科技，科技克普通
-        counter_map = {"普通": "魔法", "魔法": "科技", "科技": "普通"}
+        # 克制关系（护甲属性 → 克制它的武器属性）
+        # 规则：普通→魔法有效，魔法→科技有效，科技→普通有效
+        # 所以：魔法护甲需要普通武器，科技护甲需要魔法武器，普通护甲需要科技武器
+        counter_map = {"普通": "科技", "魔法": "普通", "科技": "魔法"}
 
         for armor in outer_armors:
             armor_attr = getattr(armor, 'attribute', '普通')
