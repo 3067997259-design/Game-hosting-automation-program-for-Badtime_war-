@@ -89,17 +89,25 @@ class ActionTurnManager:
                 if choice.startswith("解除"):
                     self.state.markers.on_petrify_recover(player.player_id)
                     player.is_petrified = False
-                    player.hp = round(max(0, player.hp - 0.5), 2)
-                    display.show_info(
-                        f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
-                    if player.hp <= 0:
-                        self.state.markers.on_player_death(player.player_id)
-                        display.show_death(player.name, "石化解除伤害")
-                        return "petrify_death"
-                    if player.hp <= 0.5 and not player.is_stunned:
-                        player.is_stunned = True
-                        self.state.markers.add(player.player_id, "STUNNED")
-                        display.show_info(f"💫 {player.name} 进入眩晕！")
+                remaining = 0.5
+                # 让天赋的临时HP（光环、炽愿等）先吸收
+                if (player.talent and hasattr(player.talent, 'receive_damage_to_temp_hp')
+                        and not getattr(player, '_mythland_talent_suppressed', False)):
+                    remaining = player.talent.receive_damage_to_temp_hp(remaining)
+                if remaining > 0:
+                    player.hp = round(max(0, player.hp - remaining), 2)
+                display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
+                # 死亡判定
+                if player.hp <= 0:
+                    self.state.markers.on_player_death(player.player_id)
+                    display.show_death(player.name, "石化解除伤害")
+                    return "petrify_death"
+                # 眩晕判定
+                if player.hp <= 0.5 and not player.is_stunned:
+                    player.is_stunned = True
+                    self.state.markers.add(player.player_id, "STUNNED")
+                    display.show_info(f"💫 {player.name} 进入眩晕！")
+                    return "petrify_stun"  # Bug 2 修复：添加 return
                 else:
                     display.show_info(f"🗿 {player.name} 选择保持石化，跳过本回合。")
                     return "petrify_skip"

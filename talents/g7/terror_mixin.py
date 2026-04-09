@@ -50,11 +50,11 @@ class TerrorMixin:
             return None
         if self.color >= 6:
             choice = player.controller.choose(
-                f"色彩值已达 {self.color}。是否进入「自我怀疑」状态？",
-                ["进入自我怀疑", "暂不"],
+                f"是因为你在，她才会死在沙漠里的。她的死都是你的错……你还在试图相信那个可笑的自己吗？",
+                ["是因为我……一切都是因为我……", "不，不是这样的……"],
                 context={"phase": "T0", "situation": "hoshino_self_doubt_choice"}
             )
-            if choice == "进入自我怀疑":
+            if choice == "是因为我……一切都是因为我……":
                 self.self_doubt_pending = True
                 msg = prompt_manager.get_prompt("talent", "g7hoshino.self_doubt_next_skip",
                                               player_name=player.name)

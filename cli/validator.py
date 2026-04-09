@@ -475,10 +475,12 @@ def validate_special(player, op_name, game_state):
     available = get_available_specials(player, game_state)
     available_names = [s["name"] for s in available]
     if op_name not in available_names:
-        if available_names:
-            return False, f"当前不可执行「{op_name}」。可用：{', '.join(available_names)}"
-        return False, f"当前没有可执行的特殊操作"
-    return True, ""
+        # 带参数的操作：检查 op_name 的第一个词是否匹配
+        base_op = op_name.split()[0]
+        if base_op not in available_names:
+            if available_names:
+                return False, f"当前不可执行「{op_name}」。可用：{', '.join(available_names)}"
+            return False, f"当前没有可执行的特殊操作"
 
 
 # ============================================

@@ -115,6 +115,19 @@ class FusionMixin:
             return prompt_manager.get_prompt("talent", "g7hoshino.repair_no_horus")
         if self.iron_horus_hp >= self.iron_horus_max_hp:
             return prompt_manager.get_prompt("talent", "g7hoshino.repair_full")
+            # 空参数时自动检测可用材料
+        if not sacrifice_name:
+            valid = [a.name for a in player.armor.get_all_active()
+                    if a.name in ("盾牌", "AT力场")]
+            if not valid:
+                return prompt_manager.get_prompt("talent", "g7hoshino.repair_no_material",
+                                                sacrifice_name="盾牌/AT力场")
+            if len(valid) == 1:
+                sacrifice_name = valid[0]
+            else:
+                sacrifice_name = player.controller.choose(
+                    "选择消耗哪件护甲修复铁之荷鲁斯：", valid,
+                    context={"phase": "T1", "situation": "hoshino_repair_material"})
         # 找到要消耗的护甲
         target_armor = None
         for armor in player.armor.get_all_active():
