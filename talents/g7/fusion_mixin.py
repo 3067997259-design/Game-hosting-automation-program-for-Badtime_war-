@@ -115,7 +115,7 @@ class FusionMixin:
             return prompt_manager.get_prompt("talent", "g7hoshino.repair_no_horus")
         if self.iron_horus_hp >= self.iron_horus_max_hp:
             return prompt_manager.get_prompt("talent", "g7hoshino.repair_full")
-            # 空参数时自动检测可用材料
+        # 空参数时自动检测可用材料
         if not sacrifice_name:
             valid = [a.name for a in player.armor.get_all_active()
                     if a.name in ("盾牌", "AT力场")]

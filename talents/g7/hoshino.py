@@ -204,7 +204,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                 ["是因为我……一切都是因为我……", "不，不是这样的……"],
                 context={"phase": "T0", "situation": "hoshino_self_doubt_choice"}
             )
-            if "是因为我……一切都是因为我……" in choice:
+            if choice == "是因为我……一切都是因为我……":
                 self.self_doubt_pending = True
                 msg = prompt_manager.get_prompt("talent", "g7hoshino.self_doubt_enter",
                                              player_name=player.name)

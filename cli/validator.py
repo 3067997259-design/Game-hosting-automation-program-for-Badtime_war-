@@ -481,6 +481,7 @@ def validate_special(player, op_name, game_state):
             if available_names:
                 return False, f"当前不可执行「{op_name}」。可用：{', '.join(available_names)}"
             return False, f"当前没有可执行的特殊操作"
+    return True, ""
 
 
 # ============================================

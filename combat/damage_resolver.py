@@ -278,12 +278,19 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                     skip_auto_remove = True
                     break
 
-    petrify_remaining = 0.5
-    if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-            and not getattr(target, '_mythland_talent_suppressed', False)):
-        petrify_remaining = target.talent.receive_damage_to_temp_hp(petrify_remaining)
-    if petrify_remaining > 0:
-        target.hp = round(max(0, target.hp - petrify_remaining), 2)
+        if not skip_auto_remove:
+            target.is_petrified = False
+            if game_state:
+                game_state.markers.on_petrify_recover(target.player_id)
+            # 解除石化额外0.5伤害（先让临时HP吸收）
+            petrify_remaining = 0.5
+            if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
+                    and not getattr(target, '_mythland_talent_suppressed', False)):
+                petrify_remaining = target.talent.receive_damage_to_temp_hp(petrify_remaining)
+            if petrify_remaining > 0:
+                target.hp = round(max(0, target.hp - petrify_remaining), 2)
+            result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
+            result["target_hp"] = target.hp
 
     if target.hp <= 0:
         if getattr(target, '_mythland_talent_suppressed', False):

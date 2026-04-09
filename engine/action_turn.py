@@ -89,25 +89,25 @@ class ActionTurnManager:
                 if choice.startswith("解除"):
                     self.state.markers.on_petrify_recover(player.player_id)
                     player.is_petrified = False
-                remaining = 0.5
-                # 让天赋的临时HP（光环、炽愿等）先吸收
-                if (player.talent and hasattr(player.talent, 'receive_damage_to_temp_hp')
-                        and not getattr(player, '_mythland_talent_suppressed', False)):
-                    remaining = player.talent.receive_damage_to_temp_hp(remaining)
-                if remaining > 0:
-                    player.hp = round(max(0, player.hp - remaining), 2)
-                display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
-                # 死亡判定
-                if player.hp <= 0:
-                    self.state.markers.on_player_death(player.player_id)
-                    display.show_death(player.name, "石化解除伤害")
-                    return "petrify_death"
-                # 眩晕判定
-                if player.hp <= 0.5 and not player.is_stunned:
-                    player.is_stunned = True
-                    self.state.markers.add(player.player_id, "STUNNED")
-                    display.show_info(f"💫 {player.name} 进入眩晕！")
-                    return "petrify_stun"  # Bug 2 修复：添加 return
+                    remaining = 0.5
+                    # 让天赋的临时HP（光环、炽愿等）先吸收
+                    if (player.talent and hasattr(player.talent, 'receive_damage_to_temp_hp')
+                            and not getattr(player, '_mythland_talent_suppressed', False)):
+                        remaining = player.talent.receive_damage_to_temp_hp(remaining)
+                    if remaining > 0:
+                        player.hp = round(max(0, player.hp - remaining), 2)
+                    display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
+                    # 死亡判定
+                    if player.hp <= 0:
+                        self.state.markers.on_player_death(player.player_id)
+                        display.show_death(player.name, "石化解除伤害")
+                        return "petrify_death"
+                    # 眩晕判定
+                    if player.hp <= 0.5 and not player.is_stunned:
+                        player.is_stunned = True
+                        self.state.markers.add(player.player_id, "STUNNED")
+                        display.show_info(f"💫 {player.name} 进入眩晕！")
+                        return "petrify_stun"
                 else:
                     display.show_info(f"🗿 {player.name} 选择保持石化，跳过本回合。")
                     return "petrify_skip"
@@ -357,10 +357,14 @@ class ActionTurnManager:
                 continue
 
             # 执行
-            msg, action_type, success = self._execute_action(parsed, player)
+            result = self._execute_action(parsed, player)
+            msg, action_type, success = result[0], result[1], result[2]
+            consumes_turn = result[3] if len(result) > 3 else success
             display.show_result(msg)
             if not success:
                 display.show_info("⚠️ 行动执行失败，请重新选择行动。")
+                continue
+            if not consumes_turn:
                 continue
             from utils.pacing import action_pause
             action_pause(self.state, label=f"{player.name} → {action_type}")
@@ -451,9 +455,10 @@ class ActionTurnManager:
         elif action == "special":
             op = parsed["operation"]
             msg = special_op.execute(player, op, self.state)
-            # 取消盾牌和肾上腺素不消耗行动回合
+            # 取消盾牌和肾上腺素：操作成功但不消耗行动回合
             if op in ("取消盾牌", "肾上腺素"):
-                return msg, "special", False
+                is_ok = not msg.startswith("❌")
+                return msg, "special", is_ok, False  # success=is_ok, consumes_turn=False
             return msg, "special", not msg.startswith("❌")
 
         elif action == "report":
