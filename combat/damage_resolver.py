@@ -155,10 +155,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 game_state.markers.has_relation(target.player_id, "ENGAGED_WITH", attacker_id)
                 or game_state.markers.has_relation(target.player_id, "LOCKED_ON", attacker_id)
             )
-        # 变更1：爱与记忆之诗不再绕过持盾保护
-        # 变更2：持盾模式入射伤害降低50%
-        if (is_found_or_locked or is_love_poem) and talent.iron_horus_hp > 0:
-            # 持盾减伤：入射伤害先减半，再用减半后的值扣铁之荷鲁斯HP
+        # 持盾保护：所有入射伤害降低50%（包括范围攻击如天星）
+        if talent.iron_horus_hp > 0:
             raw = raw * 0.5
             absorbed = min(raw, talent.iron_horus_hp)
             talent.iron_horus_hp -= absorbed
@@ -189,7 +187,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
         # 无属性：所有伤害类型都有效，不做属性克制检查
-        # 像普通外层护甲一样吸收伤害，溢出转移到下一层
+        # 被动模式下吸收伤害，破碎时吸收所有溢出（与持盾一致）
         absorbed = min(raw, talent.iron_horus_hp)
         talent.iron_horus_hp -= absorbed
         raw -= absorbed
@@ -197,9 +195,11 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
                 absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
         if talent.iron_horus_hp <= 0:
+            # 破碎时吸收所有溢出伤害（与持盾一致）
+            raw = 0
             result["details"].append(
                 prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
-        # 被动模式下溢出正常转移到下一层护甲/生命（不像持盾那样破损吸收所有溢出）
+        # 被动模式下破碎时也吸收所有溢出伤害（与持盾行为一致）
         if raw <= 0:
             result["final_damage"] = 0
             result["success"] = False
@@ -582,7 +582,7 @@ def resolve_damage(attacker, target, weapon, game_state,
                 game_state.markers.has_relation(target.player_id, "ENGAGED_WITH", attacker_id)
                 or game_state.markers.has_relation(target.player_id, "LOCKED_ON", attacker_id)
             )
-        if (is_found_or_locked or is_love_poem) and talent.iron_horus_hp > 0:
+        if talent.iron_horus_hp > 0:
             raw = raw * 0.5  # 持盾减伤50%
             absorbed = min(raw, talent.iron_horus_hp)
             talent.iron_horus_hp -= absorbed
@@ -612,7 +612,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
         # 无属性：所有伤害类型都有效，不做属性克制检查
-        # 像普通外层护甲一样吸收伤害，溢出转移到下一层
+        # 被动模式下吸收伤害，破碎时吸收所有溢出（与持盾一致）
         absorbed = min(raw, talent.iron_horus_hp)
         talent.iron_horus_hp -= absorbed
         raw -= absorbed
@@ -620,9 +620,10 @@ def resolve_damage(attacker, target, weapon, game_state,
             prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
                 absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
         if talent.iron_horus_hp <= 0:
+            raw = 0  # 破碎时吸收所有溢出
             result["details"].append(
                 prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
-        # 被动模式下溢出正常转移到下一层护甲/生命（不像持盾那样破损吸收所有溢出）
+        # 被动模式下破碎时也吸收所有溢出伤害（与持盾行为一致）
         if raw <= 0:
             result["final_damage"] = 0
             result["success"] = False

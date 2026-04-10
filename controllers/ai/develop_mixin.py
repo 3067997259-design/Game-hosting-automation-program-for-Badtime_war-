@@ -493,21 +493,23 @@ class DevelopMixin(_Base):
             if has_repair_material and "special" in available:
                 commands.append("special 修复")
                 return commands
-            # 没有修复材料，去拿
+            # 没有修复材料，就地取材
             if not has_repair_material and "interact" in available:
-                # 就地取材：家拿盾牌，军事基地拿AT力场
                 if loc == "home" or self._is_at_home(player):
                     commands.append("interact 盾牌")
                     return commands
                 elif loc == "军事基地" and has_pass:
                     commands.append("interact AT力场")
                     return commands
-                # 其他地点 → 移动到最近的可拿修复材料的地点
-                elif "move" in available:
-                    if has_pass:
+            # 不在可拿修复材料的地点（或 interact 不可用）→ 移动过去
+            if not has_repair_material and "move" in available:
+                if has_pass:
+                    if loc != "军事基地":
                         commands.append("move 军事基地")
-                    else:
+                else:
+                    if loc != "home" and not self._is_at_home(player):
                         commands.append("move home")
+                if commands:
                     return commands
 
         # ===== 阶段4：发育完成，寻找目标 =====
