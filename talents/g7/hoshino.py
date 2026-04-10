@@ -62,7 +62,6 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         self.dash_free_shield_cost = False
 
         self._macro_used_this_round = False    # 本轮是否使用了战术宏
-        self._macro_fatigue_active = False     # 失却之痛是否生效中
 
     def on_register(self):
         """选择初始形态"""
@@ -185,13 +184,10 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             # 失却之痛：Cost-1
             if fatigue_pending:
                 self.cost = max(self.cost - 1, 1)  # 不低于 1
-                self._macro_fatigue_active = True
                 from cli import display
                 display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.macro_fatigue_trigger",
                     default="⚠️ {player_name} 承受着「失却之痛」的代价……本轮 Cost-1（当前Cost: {cost}）").format(
                     player_name=me.name, cost=self.cost))
-            else:
-                self._macro_fatigue_active = False
 
         # 光环恢复 tick
         self._halo_tick()
@@ -274,16 +270,16 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         return None
 
     def on_d4_bonus(self, player):
-            """肾上腺素 D4+3"""
-            bonus = 0
-            if player.player_id == self.player_id:
-                if getattr(self, '_adrenaline_d4_rounds', 0) > 0:
-                    bonus += 3
-            return bonus
+        """肾上腺素 D4+3"""
+        bonus = 0
+        if player.player_id == self.player_id:
+            if getattr(self, '_adrenaline_d4_rounds', 0) > 0:
+                bonus += 3
+        return bonus
 
     def on_d6_bonus(self, player):
-            """预留接口"""
-            return 0
+        """预留接口"""
+        return 0
 
     def describe_status(self):
         """状态描述"""

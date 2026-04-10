@@ -554,7 +554,7 @@
       "tactical_auto_equip": "  ✓ 获得：{choice}",
       "smoke_police_no_attack": "🌫️ {unit_id} 在烟雾中，无法执行执法攻击",
       "blind_police_no_attack": "👁️ {unit_id} 被致盲，无法执行执法攻击",
-      "macro_fatigue_set": "⚠️ 失却之痛，流溢成泉……（下轮 D4-1, D6-1）",
+      "macro_fatigue_set": "⚠️ 失却之痛，流溢成泉……（下轮 Cost-1）",
       "macro_fatigue_trigger": "⚠️ {player_name} ，请让星野缓一会…我…为什么在回忆…（本轮 Cost-1，当前Cost: {cost}）"
 
 

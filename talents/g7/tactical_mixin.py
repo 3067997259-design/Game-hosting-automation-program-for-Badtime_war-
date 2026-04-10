@@ -198,7 +198,7 @@ class TacticalMixin:
             self._macro_used_this_round = True
             from cli import display as _display
             _display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.macro_fatigue_set",
-                default="⚠️ 失却之痛，流溢成泉……（下轮 D4-1, D6-1）"))
+                default="⚠️ 失却之痛，流溢成泉……（下轮 Cost-1）"))
         return "\n".join(lines), any_executed  # 仅在有命令实际执行时消耗回合
 
     def _dispatch_tactical(self, player, action_name, args, is_last, has_dashed=False):
