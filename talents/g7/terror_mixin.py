@@ -171,7 +171,7 @@ class TerrorMixin:
                         self.state, t.player_id, killer_id=player.player_id)
 
             # 伤害结算后扣除额外HP（不同归于尽）
-            self.terror_extra_hp = round(max(0, self.terror_extra_hp - 1.5), 2)
+            self.terror_extra_hp = round(max(0, self.terror_extra_hp - 1), 2)
             extra_hp_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_extra_hp_status",
                                                  terror_extra_hp=self.terror_extra_hp)
             lines.append(extra_hp_msg)
