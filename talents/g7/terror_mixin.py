@@ -17,6 +17,7 @@ class TerrorMixin:
     is_terror: bool
     self_doubt_pending: bool
     terror_extra_hp: float
+    permanent_extra_hp: float
     broken_armors_history: set
     tactical_unlocked: bool
     tactical_items: list

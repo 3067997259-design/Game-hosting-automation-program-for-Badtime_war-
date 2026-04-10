@@ -851,7 +851,7 @@ class PoemMixin:
             permanent_extra -= deduct
 
             # 将永久额外HP存储到talent上（用于 receive_damage_to_temp_hp）
-            talent.terror_extra_hp = float(permanent_extra)
+            talent.permanent_extra_hp = float(permanent_extra)
 
             msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_terror_cancel",
                 default="sensei，我回来了。永久额外HP: {permanent_extra}"
@@ -867,7 +867,7 @@ class PoemMixin:
             # 恢复所有战术指令、药物和战术装备的可用性（需自己回去拿）
             if talent.fusion_weapon_done:
                 talent.tactical_unlocked = True
-            msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_tactical_restore",
-                default="战术指令、药物和战术装备可用性恢复"))
+                msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_tactical_restore",
+                    default="战术指令、药物和战术装备可用性恢复"))
 
         return "\n".join(msg_parts)
