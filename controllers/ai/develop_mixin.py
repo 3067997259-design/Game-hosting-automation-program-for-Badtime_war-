@@ -410,55 +410,63 @@ class DevelopMixin(_Base):
         # ===== 阶段0：家里拿刀（前期战斗力 + 后续装填子弹的消耗品）=====
         has_knife = any(w.name == "小刀" for w in player.weapons if w)
         if not has_knife and not tactical_unlocked:
-            if "interact" in available and (loc == "home" or self._is_at_home(player)):
+            if "interact" in available and is_home:
                 commands.append("interact 小刀")
                 return commands
-            if "move" in available and loc != "home" and not self._is_at_home(player):
-                # 只在还没去过军事基地时回家拿刀
-                if not has_pass and not fusion_shield_done:
-                    commands.append("move home")
-                    return commands
+            # 不单独为拿刀回家 — 拿刀会在路过家时顺手完成
+            # 如果需要回家拿盾牌，顺便拿刀
 
-        # ===== 阶段1：军事基地 — 拿通行证 + 护盾材料 + 武器 =====
+        # ===== 阶段1：融合材料获取（需求驱动）=====
         if not tactical_unlocked:
-            # 需要的物品：AT力场、盾牌（护盾融合）、电磁步枪、高斯步枪（武器融合）
             has_at = self._has_armor_by_name(player, "AT力场")
             has_shield = self._has_armor_by_name(player, "盾牌")
             has_emr = any(w.name == "电磁步枪" for w in player.weapons if w)
             has_gauss = any(w.name == "高斯步枪" for w in player.weapons if w)
 
-            if loc == "军事基地" or (loc == "home" and self._is_at_home(player) and has_knife):
-                if loc != "军事基地":
-                    if "move" in available:
-                        commands.append("move 军事基地")
+            # 构建需求列表：(物品名, 获取地点, 优先级)
+            # 优先级越高越先处理
+            needs = []
+            if not has_pass:
+                needs.append(("通行证", "军事基地", 100))  # 通行证最优先（其他军事基地物品都需要它）
+            if not fusion_shield_done:
+                if not has_at:
+                    needs.append(("AT力场", "军事基地", 80))
+                if not has_shield:
+                    needs.append(("盾牌", "home", 80))  # 盾牌在家拿！
+            if not fusion_weapon_done:
+                if not has_emr:
+                    needs.append(("电磁步枪", "军事基地", 60))
+                if not has_gauss:
+                    needs.append(("高斯步枪", "军事基地", 60))
+
+            needs.sort(key=lambda x: -x[2])  # 按优先级降序
+
+            is_home = (loc == "home" or self._is_at_home(player))
+
+            # 第一步：当前地点能拿到的东西，优先拿
+            if "interact" in available:
+                for item_name, item_loc, _ in needs:
+                    if item_loc == "军事基地" and loc == "军事基地" and has_pass:
+                        commands.append(f"interact {item_name}")
+                        return commands
+                    elif item_loc == "军事基地" and loc == "军事基地" and item_name == "通行证":
+                        commands.append(f"interact {item_name}")
+                        return commands
+                    elif item_loc == "home" and is_home:
+                        commands.append(f"interact {item_name}")
                         return commands
 
-                if "interact" in available:
-                    # 通行证优先
-                    if not has_pass:
-                        commands.append("interact 通行证")
-                        return commands
-                    # 护盾融合材料（AT力场 + 盾牌）
-                    if not fusion_shield_done:
-                        if not has_at:
-                            commands.append("interact AT力场")
-                        if not has_shield:
-                            commands.append("interact 盾牌")
-                        if commands:
-                            return commands
-                    # 武器融合材料（电磁步枪 + 高斯步枪）
-                    if not fusion_weapon_done:
-                        if not has_emr:
-                            commands.append("interact 电磁步枪")
-                        if not has_gauss:
-                            commands.append("interact 高斯步枪")
-                        if commands:
-                            return commands
-
-            # 不在军事基地 → 移动过去
-            if "move" in available and not commands:
-                if loc != "军事基地":
+            # 第二步：当前地点拿不到 → 移动到最高优先级需求的地点
+            if "move" in available and needs:
+                # 找到最高优先级的需求
+                target_item, target_loc, _ = needs[0]
+                # 通行证特殊处理：没有通行证时，军事基地的其他物品也拿不到
+                # 所以如果最高优先级是通行证，直接去军事基地
+                if target_loc == "军事基地" and loc != "军事基地":
                     commands.append("move 军事基地")
+                    return commands
+                elif target_loc == "home" and not is_home:
+                    commands.append("move home")
                     return commands
 
         # ===== 阶段2：战术已解锁 — 装填子弹 =====
