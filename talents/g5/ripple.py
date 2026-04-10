@@ -5,7 +5,7 @@ Ripple —— 神代天赋5「往世的涟漪」主类
 锚定逻辑在 AnchorMixin，献诗逻辑在 PoemMixin。
 
 V1.92+ 改动：
-  - 追忆积攒速度：行动了 +0.5，未行动 +1（原 +1/+2）
+  - 追忆积攒速度：未行动 +0.5，行动了 +1（原 +2/+1）
   - 无次数上限，首次发动需24层消耗12，之后12层消耗12
   - 爱与记忆之诗消耗递增：min(24, 12+3×已用次数)
   - 同一首诗可重复使用
@@ -165,11 +165,11 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         if round_num <= 1:
             return
 
-        # V1.92: 追忆积攒速度削弱（原 2/1 → 1/0.5）
+        # V1.92: 追忆积攒速度调整（未行动 +0.5，行动了 +1）
         if not self.acted_last_round or self.only_extra_turn:
-            gain = 0.5        # 原来是 2
+            gain = 0.5        # 未行动/仅额外行动 +0.5
         else:
-            gain = 1.0      # 原来是 1
+            gain = 1.0      # 行动了 +1
 
         old = self.reminiscence
         self.reminiscence = min(self.max_reminiscence, self.reminiscence + gain)
