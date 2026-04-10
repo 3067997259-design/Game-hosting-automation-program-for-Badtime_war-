@@ -119,13 +119,18 @@ class TerrorMixin:
                 armor_extra += 1.0
             player.armor.remove_piece(armor)
 
-        self.terror_extra_hp = horus_extra + halo_extra + armor_extra
+        raw_total = horus_extra + halo_extra + armor_extra
+        # 保底4额外生命值
+        TERROR_HP_FLOOR = 4.0
+        self.terror_extra_hp = max(raw_total, TERROR_HP_FLOOR)
         hp_calc = prompt_manager.get_prompt("talent", "g7hoshino.terror_hp_calc",
                                          original_horus_hp=original_horus_hp,
                                          horus_extra=horus_extra,
                                          halo_extra=halo_extra,
                                          armor_extra=armor_extra)
         display.show_info(hp_calc)
+        if raw_total < TERROR_HP_FLOOR:
+            display.show_info(f"  保底补正：{raw_total} → {TERROR_HP_FLOOR}")
         extra_hp_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_extra_hp",
                                               terror_extra_hp=self.terror_extra_hp)
         display.show_info(extra_hp_msg)
@@ -171,7 +176,7 @@ class TerrorMixin:
                         self.state, t.player_id, killer_id=player.player_id)
 
             # 伤害结算后扣除额外HP（不同归于尽）
-            self.terror_extra_hp = round(max(0, self.terror_extra_hp - 1.5), 2)
+            self.terror_extra_hp = round(max(0, self.terror_extra_hp - 1), 2)
             extra_hp_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_extra_hp_status",
                                                  terror_extra_hp=self.terror_extra_hp)
             lines.append(extra_hp_msg)
