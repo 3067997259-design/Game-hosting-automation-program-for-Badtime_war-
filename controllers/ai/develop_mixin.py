@@ -504,10 +504,13 @@ class DevelopMixin(_Base):
             # 不在可拿修复材料的地点（或 interact 不可用）→ 移动过去
             if not has_repair_material and "move" in available:
                 if has_pass:
-                    commands.append("move 军事基地")
+                    if loc != "军事基地":
+                        commands.append("move 军事基地")
                 else:
-                    commands.append("move home")
-                return commands
+                    if loc != "home" and not self._is_at_home(player):
+                        commands.append("move home")
+                if commands:
+                    return commands
 
         # ===== 阶段4：发育完成，寻找目标 =====
         # 顺手拿：当前地点有可拿物品
