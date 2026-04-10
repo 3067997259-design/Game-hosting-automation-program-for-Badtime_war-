@@ -39,6 +39,10 @@ class VirusSystem:
 
     def _is_immune(self, player):
         """检查玩家是否免疫病毒"""
+        # Terror 状态：免疫病毒（boss 级实体，且无法 interact 获取面具）
+        if (player.talent and hasattr(player.talent, 'is_terror')
+                and player.talent.is_terror):
+            return True
         # 封闭法术
         if player.has_seal:
             return True

@@ -404,6 +404,28 @@ class HoshinoMixin(_Base):
         # 没有任何有效子弹
         return False
 
+    def _hoshino_find_finishable_target(self, player, state) -> Optional[Any]:
+        """找到同地点可一发击杀的残血目标（非主目标）"""
+        for pid in state.player_order:
+            if pid == player.player_id:
+                continue
+            t = state.get_player(pid)
+            if not t or not t.is_alive():
+                continue
+            if not self._same_location(player, t):
+                continue
+            # 无外甲 + effective HP <= 1.0（一次射击 = 2发×0.5 = 1.0 伤害）
+            if self._count_outer_armor(t) > 0:
+                continue
+            if self._get_effective_hp(t) > 1.0:
+                continue
+            # 爱愿检查：如果目标是 G5 持有者且自己有爱愿，跳过
+            t_talent = getattr(t, 'talent', None)
+            if t_talent and hasattr(t_talent, 'has_love_wish') and t_talent.has_love_wish(player.player_id):
+                continue
+            return t
+        return None
+
     def _hoshino_should_use_adrenaline(self, player, target) -> bool:
         """判断是否应该在宏外使用肾上腺素。
         条件：
@@ -437,6 +459,77 @@ class HoshinoMixin(_Base):
             return False
 
         return True
+
+    def _hoshino_build_finish_and_switch_macro(self, player, state, finish_target, switch_target) -> List[str]:
+        """补刀残血目标 + 转火到第二目标的战术宏模板。
+
+        结构（同地点残血 + 不同地点第二目标）：
+        find A(1) → 射击 A(2) → 冲刺 B位置(1) → find B(1) = 5 cost
+
+        结构（同地点残血 + 同地点第二目标）：
+        find A(1) → 射击 A(2) → find B(1) → 射击 B(2) = 6 cost（需EPO或肾上腺素）
+        或 find A(1) → 射击 A(2) → find B(1) → terminal = 4 cost（保守）
+        """
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return ["terminal"]
+
+        cost = getattr(talent, 'cost', 5)
+        used_cost = 0
+        queue = []
+
+        COST = {"find": 1, "射击": 2, "冲刺": 1, "持盾": 1, "架盾": 2, "取消": 0,
+                "投掷": 1, "服药": 0, "重新装填": 0, "转向": 0}
+
+        def can_afford(action):
+            return (cost - used_cost) >= COST.get(action, 0)
+
+        # 如果当前在架盾/持盾状态，先取消（补刀不需要盾）
+        shield_mode = getattr(talent, 'shield_mode', None)
+        if shield_mode:
+            queue.append("取消")
+
+        # 阶段1：补刀残血目标
+        # 检查是否需要装填
+        ammo = getattr(talent, 'ammo', [])
+        if len(ammo) < 2 and can_afford("重新装填"):
+            consumable = self._hoshino_find_consumable_for_reload(player)
+            if consumable:
+                queue.append(f"重新装填 {consumable}")
+
+        # find 残血目标
+        if can_afford("find"):
+            queue.append(f"find {finish_target.name}")
+            used_cost += COST["find"]
+
+        # 射击残血目标（一发就够）
+        if can_afford("射击"):
+            queue.append(f"射击 {finish_target.name}")
+            used_cost += COST["射击"]
+
+        # 阶段2：转火到第二目标
+        switch_same_loc = self._same_location(player, switch_target)
+
+        if not switch_same_loc:
+            # 不同地点：冲刺过去 + find
+            switch_loc = self._get_location_str(switch_target)
+            if can_afford("冲刺"):
+                queue.append(f"冲刺 {switch_loc}")
+                used_cost += COST["冲刺"]
+            if can_afford("find"):
+                queue.append(f"find {switch_target.name}")
+                used_cost += COST["find"]
+        else:
+            # 同地点：直接 find + 如果还有 cost 就射击
+            if can_afford("find"):
+                queue.append(f"find {switch_target.name}")
+                used_cost += COST["find"]
+            if can_afford("射击"):
+                queue.append(f"射击 {switch_target.name}")
+                used_cost += COST["射击"]
+
+        queue.append("terminal")
+        return queue
     # ════════════════════════════════════════════════════════
     #  顺手拿
     # ════════════════════════════════════════════════════════

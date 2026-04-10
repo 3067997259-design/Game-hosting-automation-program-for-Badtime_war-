@@ -58,6 +58,9 @@ class EvaluationMixin(_Base):
         # 火萤IV型：自定义危险判定
         if self._has_firefly_talent(player):
             return self._is_critical_firefly(player, state)
+        # 星野（G7）：铁之荷鲁斯替代常规护甲
+        if self._has_hoshino_talent(player):
+            return self._is_critical_hoshino(player, state)
         if player.hp <= 0.5:
                 return True
         if player.hp <= 1.0 and self._count_outer_armor(player) == 0:
@@ -365,6 +368,12 @@ class EvaluationMixin(_Base):
             power += 10
         if getattr(player, 'has_detection', False):
             power += 5
+        # 星野铁之荷鲁斯额外战力
+        t_talent = getattr(player, 'talent', None)
+        if t_talent and hasattr(t_talent, 'iron_horus_hp'):
+            iron_hp = getattr(t_talent, 'iron_horus_hp', 0)
+            if iron_hp > 0:
+                power += iron_hp * 15  # 每点荷鲁斯HP约等于1层护甲
         return power
     # ════════════════════════════════════════════════════════
     #  威胁评估
@@ -455,8 +464,15 @@ class EvaluationMixin(_Base):
         # 火萤 debuff 生效后不要求护甲来解除危险
         if self._has_firefly_talent(player) and self._firefly_debuff_active(player):
             return True
+        # 星野：铁之荷鲁斯 HP > 0 视为有足够护甲
+        if self._has_hoshino_talent(player):
+            talent = getattr(player, 'talent', None)
+            iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
+            if iron_horus_hp > 0:
+                return True  # 铁之荷鲁斯未破损 = 危险解除
         total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
         return total_armor >= 2
+
     def _cmd_danger_develop(self, player, state, available: List[str]) -> List[str]:
         """危险模式下的发育：在当前地点拿护甲，然后移动到远离当前位置的安全地点"""
         commands = []
@@ -540,3 +556,41 @@ class EvaluationMixin(_Base):
             scored.append((dest, enemies))
         scored.sort(key=lambda x: x[1])
         return scored[0][0]
+
+    def _is_critical_hoshino(self, player, state) -> bool:
+        """星野的危险判定：铁之荷鲁斯视为护甲"""
+        if player.hp <= 0.5:
+            return True
+        # 铁之荷鲁斯 HP > 0 视为有护甲保护
+        talent = getattr(player, 'talent', None)
+        iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
+        has_horus_protection = iron_horus_hp > 0
+        # 常规护甲 + 铁之荷鲁斯
+        regular_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
+        effective_armor = regular_armor + (2 if has_horus_protection else 0)  # 铁之荷鲁斯等效2层护甲
+
+        if player.hp <= 1.0 and effective_armor == 0:
+            return True
+        # 被警察围攻
+        pc = self._police_cache or {}
+        if pc.get("report_target") == player.player_id:
+            phase = pc.get("report_phase", "idle")
+            if phase == "dispatched":
+                return True
+        # 被锁定且护甲不足
+        locked_count = self._count_locked_by(player, state)
+        if locked_count >= 1 and effective_armor <= 1:
+            return True
+        # 被锚定
+        if self._is_anchored(player, state):
+            return True
+        # 被灼烧且护甲不足
+        for pid in state.player_order:
+            p = state.get_player(pid)
+            if (p and p.is_alive() and p.talent
+                    and hasattr(p.talent, 'burn_targets')
+                    and player.player_id in p.talent.burn_targets):
+                if effective_armor <= 1:
+                    return True
+                break
+        return False
