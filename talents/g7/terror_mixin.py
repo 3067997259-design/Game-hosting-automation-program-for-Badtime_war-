@@ -17,12 +17,13 @@ class TerrorMixin:
     is_terror: bool
     self_doubt_pending: bool
     terror_extra_hp: float
+    permanent_extra_hp: float
     broken_armors_history: set
     tactical_unlocked: bool
     tactical_items: list
     medicines: list
-    iron_horus_hp: int
-    iron_horus_max_hp: int
+    iron_horus_hp: float
+    iron_horus_max_hp: float
     fusion_shield_done: bool
     halos: list
     shield_mode: str | None
@@ -215,52 +216,3 @@ class TerrorMixin:
             # 无视任何条件死亡
             return None
         return None
-
-    def _poem_nightwatch_effect(self, caster, target):
-        """
-        献予「守夜人」之诗效果（由 g5/poem_mixin.py 调用）。
-        需承受者选择是否接受。
-        """
-        player = target
-        talent = target.talent
-        if not hasattr(talent, 'color_is_null'):
-            return prompt_manager.get_prompt("talent", "g7hoshino.target_not_hoshino")
-
-        # 需承受者选择是否接受
-        choice = player.controller.choose(
-            "「向走向过去的少女说出你的愿望吧，她的未来，就是你的过去」\n是否接受献予「守夜人」之诗？",
-            ["接受", "拒绝"],
-            context={"phase": "T0", "situation": "poem_nightwatch_choice"}
-        )
-        if choice == "拒绝":
-            return prompt_manager.get_prompt("talent", "g7hoshino.poem_reject")
-
-        # 色彩值永久赋为null
-        talent.color_is_null = True
-        talent.color = 0
-
-        msg_parts = [prompt_manager.get_prompt("talent", "g7hoshino.poem_accept")]
-
-        if talent.is_terror:
-            # Terror 解除
-            talent.is_terror = False
-            # 强制锁定ID解除（恢复原名需要外部记录，这里用通用方式）
-            # 每1.5点剩余额外生命值转化为1点永久额外生命值（向下取整）
-            permanent_extra = math.floor(talent.terror_extra_hp / 1.5)
-            talent.terror_extra_hp = 0
-            # 额外扣除3点（不致死，不足的话有多少扣多少）
-            deduct = min(permanent_extra, 3) if permanent_extra >= 2 else permanent_extra
-            permanent_extra -= deduct
-            # 恢复铁之荷鲁斯（护甲值3）
-            talent.iron_horus_hp = 3
-            talent.iron_horus_max_hp = 3
-            talent.fusion_shield_done = True
-            # 恢复战术可用性
-            talent.tactical_unlocked = True
-            terror_cancel = prompt_manager.get_prompt("talent", "g7hoshino.poem_terror_cancel",
-                                                 permanent_extra=permanent_extra)
-            msg_parts.append(terror_cancel)
-            msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_horus_restore"))
-            msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_tactical_restore"))
-
-        return "\n".join(msg_parts)

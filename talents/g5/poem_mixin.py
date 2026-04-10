@@ -804,13 +804,14 @@ class PoemMixin:
         若选择接受：
         - 色彩值永久赋为null
         - 若已在Terror：解除Terror，每1.5点额外生命值转化为1点永久额外生命值（向下取整），
-          额外扣除3点（不致死，不足的话有多少扣多少），恢复护甲值为3的铁之荷鲁斯，
+          额外扣除2点（不致死，不足的话有多少扣多少），恢复护甲值为2的铁之荷鲁斯，
           恢复所有战术指令/药物/战术装备的可用性（需自己回去拿）
         """
         import math
         talent = target.talent
         if not talent or not hasattr(talent, 'color_is_null'):
-            return "❌ 目标天赋不是「大叔我啊，剪短发了」"
+            return prompt_manager.get_prompt("talent", "g7hoshino.target_not_hoshino",
+                default="❌ 目标不是星野")
 
         # 需承受者选择是否接受
         choice = target.controller.choose(
@@ -822,14 +823,15 @@ class PoemMixin:
         )
 
         if "拒绝" in choice:
-            return "🌙 守夜人拒绝了涟漪的馈赠。"
+            return prompt_manager.get_prompt("talent", "g7hoshino.poem_reject",
+                default="这是……我应得的。我，逃不掉。你也一样……")
 
-        msg_parts = ["🌙 献予「守夜人」之诗生效！"]
+        msg_parts = [prompt_manager.get_prompt("talent", "g7hoshino.poem_accept",
+            default="昔涟接过了星野的愿望。献予「守夜人」之诗生效！色彩值永久赋值为null")]
 
         # 色彩值永久赋为null
         talent.color_is_null = True
         talent.color = 0
-        msg_parts.append("   色彩值永久归null")
 
         if talent.is_terror:
             # Terror 解除
@@ -839,30 +841,33 @@ class PoemMixin:
             # 注意：原名可能已丢失，用 player_id 作为 fallback
             if target.name == "星野-Terror":
                 target.name = f"星野_{target.player_id}"
-            msg_parts.append(f"   Terror 状态解除！ID恢复为 {target.name}")
 
             # 每1.5点剩余额外生命值转化为1点永久额外生命值（向下取整）
             permanent_extra = math.floor(talent.terror_extra_hp / 1.5)
             talent.terror_extra_hp = 0
-            msg_parts.append(f"   额外生命值转化：{permanent_extra}点永久额外HP")
 
-            # 额外扣除3点（不致死，不足3点的话有多少扣多少）
-            deduct = min(permanent_extra, 3)
+            # 额外扣除2点（不致死，不足2点的话有多少扣多少）
+            deduct = min(permanent_extra, 2)
             permanent_extra -= deduct
-            msg_parts.append(f"   扣除{deduct}点 → 剩余{permanent_extra}点永久额外HP")
 
             # 将永久额外HP存储到talent上（用于 receive_damage_to_temp_hp）
-            talent.terror_extra_hp = float(permanent_extra)
+            talent.permanent_extra_hp = float(permanent_extra)
 
-            # 恢复护甲值为3的铁之荷鲁斯
-            talent.iron_horus_hp = 3
-            talent.iron_horus_max_hp = 3
+            msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_terror_cancel",
+                default="sensei，我回来了。永久额外HP: {permanent_extra}"
+            ).format(permanent_extra=permanent_extra))
+
+            # 恢复护甲值为2的铁之荷鲁斯
+            talent.iron_horus_hp = 2
+            talent.iron_horus_max_hp = 2
             talent.fusion_shield_done = True
-            msg_parts.append("   铁之荷鲁斯恢复（护甲值: 3）")
+            msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_horus_restore",
+                default="铁之荷鲁斯恢复（护甲值2）"))
 
             # 恢复所有战术指令、药物和战术装备的可用性（需自己回去拿）
             if talent.fusion_weapon_done:
                 talent.tactical_unlocked = True
-            msg_parts.append("   战术指令可用性恢复（道具/药物需自行获取）")
+                msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_tactical_restore",
+                    default="战术指令、药物和战术装备可用性恢复"))
 
         return "\n".join(msg_parts)

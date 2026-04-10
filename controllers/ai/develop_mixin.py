@@ -486,7 +486,7 @@ class DevelopMixin(_Base):
         # 有消耗品但需要在战术宏里装填 → 发育完成，交给战斗逻辑
 
         # ===== 阶段3：修复铁之荷鲁斯（如果受损）=====
-        if tactical_unlocked and iron_horus_hp < getattr(talent, 'iron_horus_max_hp', 3):
+        if tactical_unlocked and iron_horus_hp < getattr(talent, 'iron_horus_max_hp', 2):
             # 需要盾牌或AT力场来修复
             has_repair_material = (self._has_armor_by_name(player, "盾牌")
                                 or self._has_armor_by_name(player, "AT力场"))

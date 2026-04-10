@@ -29,8 +29,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         # 融合装备
         self.iron_horus = None       # 铁之荷鲁斯 ArmorPiece 引用
         self.eye_of_horus = None     # 荷鲁斯之眼 特殊武器引用
-        self.iron_horus_hp = 3       # 铁之荷鲁斯当前护甲值
-        self.iron_horus_max_hp = 3
+        self.iron_horus_hp = 2       # 铁之荷鲁斯当前护甲值
+        self.iron_horus_max_hp = 2
         self.fusion_shield_done = False
         self.fusion_weapon_done = False
         self.tactical_unlocked = False
@@ -56,6 +56,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         self.is_terror = False
         self.self_doubt_pending = False
         self.terror_extra_hp = 0.0
+        self.permanent_extra_hp = 0.0  # 守夜人之诗转化的永久额外生命值
         self.broken_armors_history = set()  # 穿戴过的已破碎护甲名（去重）
         # 临战-shielder 冲刺免cost标记
         self.dash_free_shield_cost = False
@@ -230,7 +231,14 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             self.terror_extra_hp -= absorbed
             remaining -= absorbed
             return remaining
-        # 正常模式：光环额外HP
+        # 正常模式：先用永久额外HP（守夜人之诗转化），再用光环
+        if self.permanent_extra_hp > 0:
+            absorbed = min(remaining, self.permanent_extra_hp)
+            self.permanent_extra_hp -= absorbed
+            remaining -= absorbed
+            if remaining <= 0:
+                return 0
+        # 光环额外HP
         while remaining > 0 and any(h['active'] for h in self.halos):
             # 每层光环吸收0.5
             absorb = min(remaining, 0.5)
@@ -262,6 +270,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             parts.append(f"Cost:{self.cost}/{self.max_cost}")
             active_halos = sum(1 for h in self.halos if h['active'])
             parts.append(f"光环:{active_halos}/3")
+            if self.permanent_extra_hp > 0:
+                parts.append(f"永久额外HP:{self.permanent_extra_hp}")
             if self.shield_mode:
                 parts.append(f"盾:{self.shield_mode}")
             if self.tactical_unlocked:

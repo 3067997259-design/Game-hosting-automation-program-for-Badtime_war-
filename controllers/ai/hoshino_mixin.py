@@ -69,7 +69,7 @@ class HoshinoMixin(_Base):
         当铁之荷鲁斯受损时，盾牌和AT力场保留用于修复，不算作可消耗品。"""
         talent = getattr(player, 'talent', None)
         iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
-        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 3) if talent else 3
+        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 2) if talent else 2
         horus_damaged = iron_horus_hp < iron_horus_max
 
         # 受损时需要保留的修复材料
@@ -211,7 +211,7 @@ class HoshinoMixin(_Base):
         talent = getattr(player, 'talent', None)
         has_pass = getattr(player, 'has_military_pass', False)
         iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
-        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 3) if talent else 3
+        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 2) if talent else 2
         loc = self._get_location_str(player)
 
         # 荷鲁斯受损时优先去能拿修复材料的地方
@@ -249,8 +249,8 @@ class HoshinoMixin(_Base):
         if not talent:
             return False
         hp = getattr(talent, 'iron_horus_hp', 0)
-        max_hp = getattr(talent, 'iron_horus_max_hp', 3)
-        return 0 < hp < max_hp / 2
+        max_hp = getattr(talent, 'iron_horus_max_hp', 2)
+        return 0 < hp <= max_hp / 2
 
     def _hoshino_has_missing_halo(self, player) -> bool:
         """是否有光环缺失"""
@@ -594,7 +594,7 @@ class HoshinoMixin(_Base):
             return used_cost + COST.get(action, 0) <= cost
 
         # 在 COST 字典定义之后、阶段1之前添加
-        prefer_deploy = (talent.iron_horus_hp < talent.iron_horus_max_hp / 2
+        prefer_deploy = (talent.iron_horus_hp <= talent.iron_horus_max_hp / 2
                         and talent.iron_horus_hp > 0)  # HP低于上限一半且未破损 → 偏好架盾
 
         # ===== 阶段1：接近 + 控制前缀 =====
