@@ -29,8 +29,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         # 融合装备
         self.iron_horus = None       # 铁之荷鲁斯 ArmorPiece 引用
         self.eye_of_horus = None     # 荷鲁斯之眼 特殊武器引用
-        self.iron_horus_hp = 3       # 铁之荷鲁斯当前护甲值
-        self.iron_horus_max_hp = 3
+        self.iron_horus_hp = 2       # 铁之荷鲁斯当前护甲值
+        self.iron_horus_max_hp = 2
         self.fusion_shield_done = False
         self.fusion_weapon_done = False
         self.tactical_unlocked = False

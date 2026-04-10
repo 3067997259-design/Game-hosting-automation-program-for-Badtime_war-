@@ -143,21 +143,23 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                             prompt_manager.get_prompt("talent", "g7hoshino.shield_horus_zero"))
                     return result
 
-    # ---- 星野持盾：铁之荷鲁斯伤害减免 ----
+    # ---- 星野持盾：铁之荷鲁斯伤害减免（增强版） ----
     if (target.talent and hasattr(target.talent, 'shield_mode')
         and target.talent.shield_mode == "持盾"
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
         attacker_id = attacker.player_id if attacker else None
-        # 只吸收 find 或 lock 的玩家造成的伤害
         is_found_or_locked = False
         if attacker_id and game_state:
             is_found_or_locked = (
                 game_state.markers.has_relation(target.player_id, "ENGAGED_WITH", attacker_id)
                 or game_state.markers.has_relation(target.player_id, "LOCKED_ON", attacker_id)
             )
-        if is_found_or_locked and talent.iron_horus_hp > 0:
-            # 铁之荷鲁斯作为 priority=100 最外层护甲吸收伤害
+        # 变更1：爱与记忆之诗不再绕过持盾保护
+        # 变更2：持盾模式入射伤害降低50%
+        if (is_found_or_locked or is_love_poem) and talent.iron_horus_hp > 0:
+            # 持盾减伤：入射伤害先减半，再用减半后的值扣铁之荷鲁斯HP
+            raw = raw * 0.5
             absorbed = min(raw, talent.iron_horus_hp)
             talent.iron_horus_hp -= absorbed
             raw -= absorbed
@@ -178,6 +180,34 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 result["success"] = False
                 result["reason"] = "持盾伤害减免"
                 return result
+
+    # ---- 星野被动保护：非持盾/架盾时，铁之荷鲁斯作为无属性外层护甲 ----
+    if (target.talent and hasattr(target.talent, 'iron_horus_hp')
+        and getattr(target.talent, 'shield_mode', None) is None  # 非持盾/架盾
+        and target.talent.iron_horus_hp > 0
+        and getattr(target.talent, 'fusion_shield_done', False)  # 已完成融合
+        and not getattr(target, '_mythland_talent_suppressed', False)):
+        talent = target.talent
+        # 无属性：所有伤害类型都有效，不做属性克制检查
+        # 像普通外层护甲一样吸收伤害，溢出转移到下一层
+        absorbed = min(raw, talent.iron_horus_hp)
+        talent.iron_horus_hp -= absorbed
+        raw -= absorbed
+        result["details"].append(
+            prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
+                default="🛡️ 铁之荷鲁斯被动保护：吸收 {absorbed} 伤害（剩余护甲值: {remaining_hp}）"
+            ).format(absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
+        if talent.iron_horus_hp <= 0:
+            result["details"].append(
+                prompt_manager.get_prompt("talent", "g7hoshino.passive_broken",
+                    default="⚠️ 铁之荷鲁斯进入破损状态！"))
+        # 被动模式下溢出正常转移到下一层护甲/生命（不像持盾那样破损吸收所有溢出）
+        if raw <= 0:
+            result["final_damage"] = 0
+            result["success"] = False
+            result["reason"] = "铁之荷鲁斯被动保护"
+            return result
+        # raw > 0 时继续走后续的天赋减伤和护甲结算
 
     # ---- 天赋受伤减免（如火萤IV型 -50%）----
     if (target.talent and hasattr(target.talent, 'modify_incoming_damage')
@@ -542,7 +572,7 @@ def resolve_damage(attacker, target, weapon, game_state,
                 raw -= absorbed
                 result["details"].append(f"🚔 警察保护：吸收 {absorbed}，剩余 {raw}")
 
-    # ---- 星野持盾：铁之荷鲁斯伤害减免 ----
+    # ---- 星野持盾：铁之荷鲁斯伤害减免（增强版） ----
     if (target.talent and hasattr(target.talent, 'shield_mode')
         and target.talent.shield_mode == "持盾"
         and not getattr(target, '_mythland_talent_suppressed', False)):
@@ -554,7 +584,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                 game_state.markers.has_relation(target.player_id, "ENGAGED_WITH", attacker_id)
                 or game_state.markers.has_relation(target.player_id, "LOCKED_ON", attacker_id)
             )
-        if is_found_or_locked and talent.iron_horus_hp > 0:
+        if (is_found_or_locked or is_love_poem) and talent.iron_horus_hp > 0:
+            raw = raw * 0.5  # 持盾减伤50%
             absorbed = min(raw, talent.iron_horus_hp)
             talent.iron_horus_hp -= absorbed
             raw -= absorbed
@@ -574,6 +605,34 @@ def resolve_damage(attacker, target, weapon, game_state,
                 result["success"] = False
                 result["reason"] = "持盾伤害减免"
                 return result
+
+    # ---- 星野被动保护：非持盾/架盾时，铁之荷鲁斯作为无属性外层护甲 ----
+    if (target.talent and hasattr(target.talent, 'iron_horus_hp')
+        and getattr(target.talent, 'shield_mode', None) is None  # 非持盾/架盾
+        and target.talent.iron_horus_hp > 0
+        and getattr(target.talent, 'fusion_shield_done', False)  # 已完成融合
+        and not getattr(target, '_mythland_talent_suppressed', False)):
+        talent = target.talent
+        # 无属性：所有伤害类型都有效，不做属性克制检查
+        # 像普通外层护甲一样吸收伤害，溢出转移到下一层
+        absorbed = min(raw, talent.iron_horus_hp)
+        talent.iron_horus_hp -= absorbed
+        raw -= absorbed
+        result["details"].append(
+            prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
+                default="🛡️ 铁之荷鲁斯被动保护：吸收 {absorbed} 伤害（剩余护甲值: {remaining_hp}）"
+            ).format(absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
+        if talent.iron_horus_hp <= 0:
+            result["details"].append(
+                prompt_manager.get_prompt("talent", "g7hoshino.passive_broken",
+                    default="⚠️ 铁之荷鲁斯进入破损状态！"))
+        # 被动模式下溢出正常转移到下一层护甲/生命（不像持盾那样破损吸收所有溢出）
+        if raw <= 0:
+            result["final_damage"] = 0
+            result["success"] = False
+            result["reason"] = "铁之荷鲁斯被动保护"
+            return result
+        # raw > 0 时继续走后续的天赋减伤和护甲结算
 
     # ---- 萤火受伤减免 ----
     if (target.talent and hasattr(target.talent, 'modify_incoming_damage')

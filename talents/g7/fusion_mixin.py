@@ -37,8 +37,8 @@ class FusionMixin:
             if armor.name in ("盾牌", "AT力场"):
                 player.armor.remove_piece(armor)
         # 铁之荷鲁斯：无属性特殊护盾，初始护甲值3，手提箱形态（不提供保护直到架盾/持盾）
-        self.iron_horus_hp = 3
-        self.iron_horus_max_hp = 3
+        self.iron_horus_hp = 2
+        self.iron_horus_max_hp = 2
         self.fusion_shield_done = True
         from cli import display
         msg = prompt_manager.get_prompt("talent", "g7hoshino.fuse_iron_horus",

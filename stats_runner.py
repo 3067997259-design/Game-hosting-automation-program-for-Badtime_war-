@@ -134,7 +134,7 @@ class PersonalityStats:
 
 # ── Column widths (display-width units) ──
 COL_NUM = 6        # 编号
-COL_NAME = 24      # 天赋名（最长的神代天赋名约22个显示宽度）
+COL_NAME = 30      # 天赋名（最长的神代天赋名约22个显示宽度）
 COL_PICKS = 8      # Pick数
 COL_RATE = 9       # Pick率 / 胜率
 COL_WINS = 7       # 胜场
@@ -560,8 +560,8 @@ def _calc_adjusted_winrate(
 
 def main():
     parser = argparse.ArgumentParser(description="起闯战争 自动胜率统计")
-    parser.add_argument("--players", type=int, default=4, help="每局玩家人数 (2-6)")
-    parser.add_argument("--games", type=int, default=100, help="总局数")
+    parser.add_argument("--players", type=int, default=6, help="每局玩家人数 (2-6)")
+    parser.add_argument("--games", type=int, default=5000, help="总局数")
     args = parser.parse_args()
 
     if not 2 <= args.players <= 6:

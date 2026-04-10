@@ -249,11 +249,11 @@ class TerrorMixin:
             permanent_extra = math.floor(talent.terror_extra_hp / 1.5)
             talent.terror_extra_hp = 0
             # 额外扣除3点（不致死，不足的话有多少扣多少）
-            deduct = min(permanent_extra, 3) if permanent_extra >= 2 else permanent_extra
+            deduct = min(permanent_extra, 2) if permanent_extra >= 2 else permanent_extra
             permanent_extra -= deduct
-            # 恢复铁之荷鲁斯（护甲值3）
-            talent.iron_horus_hp = 3
-            talent.iron_horus_max_hp = 3
+            # 恢复铁之荷鲁斯（护甲值2）
+            talent.iron_horus_hp = 2
+            talent.iron_horus_max_hp = 2
             talent.fusion_shield_done = True
             # 恢复战术可用性
             talent.tactical_unlocked = True

@@ -855,8 +855,8 @@ class PoemMixin:
             talent.terror_extra_hp = float(permanent_extra)
 
             # 恢复护甲值为3的铁之荷鲁斯
-            talent.iron_horus_hp = 3
-            talent.iron_horus_max_hp = 3
+            talent.iron_horus_hp = 2
+            talent.iron_horus_max_hp = 2
             talent.fusion_shield_done = True
             msg_parts.append("   铁之荷鲁斯恢复（护甲值: 3）")
 
