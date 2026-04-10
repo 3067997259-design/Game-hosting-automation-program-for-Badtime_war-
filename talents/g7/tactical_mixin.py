@@ -16,8 +16,8 @@ class TacticalMixin:
     player_id: str
     tactical_unlocked: bool
     is_terror: bool
-    iron_horus_hp: int
-    iron_horus_max_hp: int
+    iron_horus_hp: float
+    iron_horus_max_hp: float
     eye_of_horus: Any
     cost: int
     max_cost: int

@@ -195,12 +195,10 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         raw -= absorbed
         result["details"].append(
             prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
-                default="🛡️ 铁之荷鲁斯被动保护：吸收 {absorbed} 伤害（剩余护甲值: {remaining_hp}）"
-            ).format(absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
+                absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
         if talent.iron_horus_hp <= 0:
             result["details"].append(
-                prompt_manager.get_prompt("talent", "g7hoshino.passive_broken",
-                    default="⚠️ 铁之荷鲁斯进入破损状态！"))
+                prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
         # 被动模式下溢出正常转移到下一层护甲/生命（不像持盾那样破损吸收所有溢出）
         if raw <= 0:
             result["final_damage"] = 0
@@ -620,12 +618,10 @@ def resolve_damage(attacker, target, weapon, game_state,
         raw -= absorbed
         result["details"].append(
             prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
-                default="🛡️ 铁之荷鲁斯被动保护：吸收 {absorbed} 伤害（剩余护甲值: {remaining_hp}）"
-            ).format(absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
+                absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
         if talent.iron_horus_hp <= 0:
             result["details"].append(
-                prompt_manager.get_prompt("talent", "g7hoshino.passive_broken",
-                    default="⚠️ 铁之荷鲁斯进入破损状态！"))
+                prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
         # 被动模式下溢出正常转移到下一层护甲/生命（不像持盾那样破损吸收所有溢出）
         if raw <= 0:
             result["final_damage"] = 0

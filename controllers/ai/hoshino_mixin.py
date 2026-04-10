@@ -250,7 +250,7 @@ class HoshinoMixin(_Base):
             return False
         hp = getattr(talent, 'iron_horus_hp', 0)
         max_hp = getattr(talent, 'iron_horus_max_hp', 2)
-        return 0 < hp < max_hp / 2
+        return 0 < hp <= max_hp / 2
 
     def _hoshino_has_missing_halo(self, player) -> bool:
         """是否有光环缺失"""
@@ -594,7 +594,7 @@ class HoshinoMixin(_Base):
             return used_cost + COST.get(action, 0) <= cost
 
         # 在 COST 字典定义之后、阶段1之前添加
-        prefer_deploy = (talent.iron_horus_hp < talent.iron_horus_max_hp / 2
+        prefer_deploy = (talent.iron_horus_hp <= talent.iron_horus_max_hp / 2
                         and talent.iron_horus_hp > 0)  # HP低于上限一半且未破损 → 偏好架盾
 
         # ===== 阶段1：接近 + 控制前缀 =====

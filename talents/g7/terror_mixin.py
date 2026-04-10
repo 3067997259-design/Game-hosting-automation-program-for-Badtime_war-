@@ -21,8 +21,8 @@ class TerrorMixin:
     tactical_unlocked: bool
     tactical_items: list
     medicines: list
-    iron_horus_hp: int
-    iron_horus_max_hp: int
+    iron_horus_hp: float
+    iron_horus_max_hp: float
     fusion_shield_done: bool
     halos: list
     shield_mode: str | None

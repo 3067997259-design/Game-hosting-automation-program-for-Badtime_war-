@@ -523,6 +523,8 @@
       "shield_horus_zero": "⚠️ 铁之荷鲁斯护甲归零，架盾状态结束",
       "hold_absorb": "🛡️ 持盾：铁之荷鲁斯吸收 {absorbed} 伤害（剩余护甲值: {remaining_hp}）",
       "hold_broken_absorb": "⚠️ 铁之荷鲁斯进入破损状态！吸收所有溢出伤害",
+      "passive_absorb": "🛡️ 铁之荷鲁斯被动保护：吸收 {absorbed} 伤害（剩余护甲值: {remaining_hp}）",
+      "passive_broken": "⚠️ 铁之荷鲁斯进入破损状态！",
       "terror_damage_detail": "⚠️ Terror 伤害：{damage}（无视属性克制，不享受加成和减伤）",
       "terror_gold_body_immune": "☯️ 「元亨利贞」免疫了 Terror 的侵蚀！",
       "terror_hp_damage": "生命受到 {damage} 伤害 → HP: {current_hp}/{max_hp}",
