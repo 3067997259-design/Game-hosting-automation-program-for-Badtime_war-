@@ -181,6 +181,13 @@ class Player:
             bonus += getattr(self, '_anchor_d4_bonus_amount', 0)
         return bonus
 
+    def get_d6_bonus(self):
+        bonus = 0
+        if self.talent:
+            talent_bonus = self.talent.on_d6_bonus(self) if hasattr(self.talent, 'on_d6_bonus') else 0
+            bonus += talent_bonus
+        return bonus
+
     def has_weapon(self, weapon_name):
         return any(getattr(w, 'name', None) == weapon_name for w in self.weapons)
 

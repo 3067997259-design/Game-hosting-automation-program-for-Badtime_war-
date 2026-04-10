@@ -65,6 +65,9 @@ class BaseTalent:
         """
         return "未实现", False
 
+    def on_d6_bonus(self, player):
+        return 0
+
     # ---- 战斗钩子 ----
 
     def modify_outgoing_damage(self, attacker, target, weapon, base_damage):
