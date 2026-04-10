@@ -291,6 +291,10 @@ class HelpersMixin(_Base): # type: ignore
             name = getattr(item, 'name', '')
             if name == "防毒面具":
                 return True
+        # Terror 状态免疫病毒
+        talent = getattr(player, 'talent', None)
+        if talent and getattr(talent, 'is_terror', False):
+            return True
         # 检查已学法术
         learned = getattr(player, 'learned_spells', set())
         if "封闭" in learned:

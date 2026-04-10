@@ -175,6 +175,15 @@ class BasicAIController(
             debug_ai_basic(player.name, "Terror 状态：全图攻击")
             return self._hoshino_terror_command(player, state, available_actions)
 
+        # ===== 病毒应急（最高优先级，优先于terror以外所有战术决策）=====
+        if self._needs_virus_cure(player, state):
+            debug_ai_basic(player.name, "进入病毒应急模式（优先于战术宏）")
+            virus_cmds = self._cmd_virus(player, state, available_actions)
+            if virus_cmds:
+                candidates.extend(virus_cmds)
+                candidates.append("forfeit")
+                return candidates
+
         # ===== 星野肾上腺素（宏外使用，不消耗行动回合）=====
         if (self._has_hoshino_talent(player)
                 and self._hoshino_tactical_unlocked(player)
@@ -190,14 +199,34 @@ class BasicAIController(
                 and self._hoshino_tactical_unlocked(player)
                 and not self._hoshino_is_terror(player)):
             # 前置检查：有弹药或可装填物品，且铁之荷鲁斯未破损
+            shield_mode = self._hoshino_shield_mode(player)
             can_shoot = self._hoshino_has_ammo(player) or bool(self._hoshino_find_consumable_for_reload(player))
             horus_ok = self._hoshino_iron_horus_hp(player) > 0
+
+            # 新增：持盾/架盾死锁检测 — 需要 interact 但被盾牌模式阻止
+            # 此时允许进入战术宏仅用于取消盾牌
+            if shield_mode and not can_shoot and "special" in available_actions:
+                debug_ai_basic(player.name, f"星野：{shield_mode}中无弹药，进入宏取消盾牌")
+                self._hoshino_macro_queue = ["取消", "terminal"]
+                return ["special Hoshino", "forfeit"]
+
             if can_shoot and horus_ok:
                 target = self._hoshino_find_target(player, state)
                 if target and "special" in available_actions:
-                    self._hoshino_macro_queue = []
-                    debug_ai_basic(player.name, f"星野战术宏：目标 {target.name}")
-                    return ["special Hoshino", "forfeit"]
+                    # 检查是否有同地点残血目标可以补刀
+                    finish_target = self._hoshino_find_finishable_target(player, state)
+                    if finish_target and finish_target.player_id != target.player_id:
+                        # 有残血目标且不是主目标 → 使用补刀+转火模板
+                        self._hoshino_macro_queue = self._hoshino_build_finish_and_switch_macro(
+                            player, state, finish_target, target)
+                        debug_ai_basic(player.name,
+                            f"星野补刀+转火宏：补刀 {finish_target.name} → 转火 {target.name}")
+                        return ["special Hoshino", "forfeit"]
+                    else:
+                        # 正常单目标宏
+                        self._hoshino_macro_queue = []
+                        debug_ai_basic(player.name, f"星野战术宏：目标 {target.name}")
+                        return ["special Hoshino", "forfeit"]
                 elif target is None:
                     # 没有攻击目标：先尝试顺手拿，再移动到敌人位置
                     grab = self._hoshino_grab_while_here(player, state, available_actions)
@@ -228,13 +257,7 @@ class BasicAIController(
             if captain_cmds:
                 candidates.append(captain_cmds[0])
 
-        # ===== 病毒应急 =====                          # ★ 改动：病毒应急提前到全息影像之前
-        if self._needs_virus_cure(player, state):
-            debug_ai_basic(player.name, "进入病毒应急模式")
-            candidates.extend(self._cmd_virus(player, state, available_actions))
-            if candidates:
-                candidates.append("forfeit")
-                return candidates
+        # （病毒应急已在上方最高优先级处理，此处不再重复）
 
         # ===== G2 EMR蓄力准备：即将发动全息影像但EMR未蓄力 =====
         if (getattr(self, '_emr_needs_charge_before_hologram', False)
