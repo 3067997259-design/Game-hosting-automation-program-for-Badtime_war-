@@ -400,6 +400,7 @@ class DevelopMixin(_Base):
         talent = player.talent
         vouchers = getattr(player, 'vouchers', 0)
         has_pass = getattr(player, 'has_military_pass', False)
+        is_home = (loc == "home" or self._is_at_home(player))
 
         fusion_shield_done = getattr(talent, 'fusion_shield_done', False)
         fusion_weapon_done = getattr(talent, 'fusion_weapon_done', False)
@@ -440,8 +441,6 @@ class DevelopMixin(_Base):
                     needs.append(("高斯步枪", "军事基地", 60))
 
             needs.sort(key=lambda x: -x[2])  # 按优先级降序
-
-            is_home = (loc == "home" or self._is_at_home(player))
 
             # 第一步：当前地点能拿到的东西，优先拿
             if "interact" in available:
