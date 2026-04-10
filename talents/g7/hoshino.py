@@ -277,6 +277,14 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                 bonus -= 1
         return bonus
 
+    def on_d6_bonus(self, player):
+        """失却之痛 D6-1"""
+        bonus = 0
+        if player.player_id == self.player_id:
+            if getattr(self, '_macro_fatigue_active', False):
+                bonus -= 1
+        return bonus
+
     def describe_status(self):
         """状态描述"""
         parts = []
