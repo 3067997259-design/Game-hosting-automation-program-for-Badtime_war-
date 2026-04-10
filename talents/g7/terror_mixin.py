@@ -248,7 +248,7 @@ class TerrorMixin:
             # 每1.5点剩余额外生命值转化为1点永久额外生命值（向下取整）
             permanent_extra = math.floor(talent.terror_extra_hp / 1.5)
             talent.terror_extra_hp = 0
-            # 额外扣除3点（不致死，不足的话有多少扣多少）
+            # 额外扣除2点（不致死，不足的话有多少扣多少）
             deduct = min(permanent_extra, 2) if permanent_extra >= 2 else permanent_extra
             permanent_extra -= deduct
             # 恢复铁之荷鲁斯（护甲值2）

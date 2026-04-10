@@ -36,7 +36,7 @@ class FusionMixin:
         for armor in player.armor.get_all_active():
             if armor.name in ("盾牌", "AT力场"):
                 player.armor.remove_piece(armor)
-        # 铁之荷鲁斯：无属性特殊护盾，初始护甲值3，手提箱形态（不提供保护直到架盾/持盾）
+        # 铁之荷鲁斯：无属性特殊护盾，初始护甲值2，手提箱形态（不提供保护直到架盾/持盾）
         self.iron_horus_hp = 2
         self.iron_horus_max_hp = 2
         self.fusion_shield_done = True

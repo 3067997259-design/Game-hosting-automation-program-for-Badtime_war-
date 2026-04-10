@@ -804,7 +804,7 @@ class PoemMixin:
         若选择接受：
         - 色彩值永久赋为null
         - 若已在Terror：解除Terror，每1.5点额外生命值转化为1点永久额外生命值（向下取整），
-          额外扣除3点（不致死，不足的话有多少扣多少），恢复护甲值为3的铁之荷鲁斯，
+          额外扣除2点（不致死，不足的话有多少扣多少），恢复护甲值为2的铁之荷鲁斯，
           恢复所有战术指令/药物/战术装备的可用性（需自己回去拿）
         """
         import math
@@ -846,8 +846,8 @@ class PoemMixin:
             talent.terror_extra_hp = 0
             msg_parts.append(f"   额外生命值转化：{permanent_extra}点永久额外HP")
 
-            # 额外扣除3点（不致死，不足3点的话有多少扣多少）
-            deduct = min(permanent_extra, 3)
+            # 额外扣除2点（不致死，不足2点的话有多少扣多少）
+            deduct = min(permanent_extra, 2)
             permanent_extra -= deduct
             msg_parts.append(f"   扣除{deduct}点 → 剩余{permanent_extra}点永久额外HP")
 
@@ -858,7 +858,7 @@ class PoemMixin:
             talent.iron_horus_hp = 2
             talent.iron_horus_max_hp = 2
             talent.fusion_shield_done = True
-            msg_parts.append("   铁之荷鲁斯恢复（护甲值: 3）")
+            msg_parts.append("   铁之荷鲁斯恢复（护甲值: 2）")
 
             # 恢复所有战术指令、药物和战术装备的可用性（需自己回去拿）
             if talent.fusion_weapon_done:
