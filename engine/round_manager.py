@@ -123,10 +123,15 @@ class RoundManager:
             display.show_phase("⚔️ 先后手判定（D6）")
             rolls = {}
             for pid in conflict:
-                r = roll_d6()
-                rolls[pid] = r
                 p = self.state.get_player(pid)
-                display.show_info(f"  {p.name}: D6 = {r}")
+                base_roll = roll_d6()
+                bonus = p.get_d6_bonus()
+                r = max(base_roll + bonus, 1)
+                rolls[pid] = r
+                if bonus != 0:
+                    display.show_info(f"  {p.name}: D6 = {base_roll} {'+' if bonus >= 0 else ''}{bonus} → {r}")
+                else:
+                    display.show_info(f"  {p.name}: D6 = {r}")
             sorted_conflict = sorted(conflict, key=lambda x: rolls[x], reverse=True)
             non_conflict = [w for w in self.state.round_winners if w not in conflict]
             self.state.round_winners = sorted_conflict + non_conflict

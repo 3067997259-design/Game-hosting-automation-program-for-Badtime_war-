@@ -61,6 +61,9 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         # 临战-shielder 冲刺免cost标记
         self.dash_free_shield_cost = False
 
+        self._macro_used_this_round = False    # 本轮是否使用了战术宏
+        self._macro_fatigue_active = False     # 失却之痛是否生效中
+
     def on_register(self):
         """选择初始形态"""
         me = self.state.get_player(self.player_id)
@@ -151,6 +154,17 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         me = self.state.get_player(self.player_id)
         if not me or not me.is_alive():
             return
+
+        # 失却之痛：上一轮使用了战术宏 → 本轮 D4-1, D6-1
+        if self._macro_used_this_round:
+            self._macro_fatigue_active = True
+            self._macro_used_this_round = False
+            from cli import display
+            display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.macro_fatigue_trigger",
+                default="⚠️ {player_name} 承受着「失却之痛」的代价……本轮 D4-1, D6-1").format(
+                player_name=me.name))
+        else:
+            self._macro_fatigue_active = False
 
         # 肾上腺素 D4+3 递减（在 cost 重置之前）
         if getattr(self, '_adrenaline_d4_rounds', 0) > 0:
@@ -254,11 +268,22 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         return None
 
     def on_d4_bonus(self, player):
-        """肾上腺素注射后，下一轮 D4+3"""
+        """肾上腺素 D4+4 / 失却之痛 D4-1"""# 故意改动，确保肾上腺素能覆盖掉失却之痛的效果，确保下一回合一定能动
+        bonus = 0
         if player.player_id == self.player_id:
             if getattr(self, '_adrenaline_d4_rounds', 0) > 0:
-                return 3
-        return 0
+                bonus += 4
+            if getattr(self, '_macro_fatigue_active', False):
+                bonus -= 1
+        return bonus
+
+    def on_d6_bonus(self, player):
+        """失却之痛 D6-1"""
+        bonus = 0
+        if player.player_id == self.player_id:
+            if getattr(self, '_macro_fatigue_active', False):
+                bonus -= 1
+        return bonus
 
     def describe_status(self):
         """状态描述"""
