@@ -496,14 +496,14 @@ class DevelopMixin(_Base):
             # 检查是否有至少2个战术道具（闪光弹、烟雾弹、震撼弹、破片手雷、燃烧瓶）
             throwables = self._hoshino_count_throwables(player)  # 新方法
             if throwables < 2:
-                # 去军事基地拿战术道具
-                if loc == "军事基地" and "interact" in available:
+                # 去军事基地拿战术道具（需要通行证）
+                if loc == "军事基地" and has_pass and "interact" in available:
                     # 优先拿闪光弹 > 烟雾弹 > 震撼弹 > 破片手雷 > 燃烧瓶
                     for item in ["闪光弹", "烟雾弹", "震撼弹", "破片手雷", "燃烧瓶"]:
                         if not any(i.name == item for i in player.items):
                             commands.append(f"interact {item}")
                             return commands
-                elif "move" in available:
+                elif has_pass and loc != "军事基地" and "move" in available:
                     commands.append("move 军事基地")
                     return commands
             # 有足够道具后，继续正常发育（修盾等）
@@ -518,6 +518,14 @@ class DevelopMixin(_Base):
                 commands.append("special 修复")
                 return commands
             # 没有修复材料，就地取材
+            if not has_repair_material and "interact" in available:
+                if loc == "home" or self._is_at_home(player):
+                    commands.append("interact 盾牌")
+                    return commands
+                elif loc == "军事基地" and has_pass:
+                    commands.append("interact AT力场")
+                    return commands
+            # 不在可拿修复材料的地点（或 interact 不可用）→ 移动过去
             if not has_repair_material and "move" in available:
                 if self._is_pursued_by_police(player, state):
                     safe_loc = self._hoshino_find_safe_repair_location(player, state)

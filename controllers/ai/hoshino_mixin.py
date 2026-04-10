@@ -110,6 +110,15 @@ class HoshinoMixin(_Base):
             return False
         return len(getattr(talent, 'tactical_items', [])) >= 2
 
+    def _hoshino_count_throwables(self, player) -> int:
+        """统计玩家持有的投掷类战术道具数量"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return 0
+        items = getattr(talent, 'tactical_items', [])
+        throwable_names = {"闪光弹", "烟雾弹", "震撼弹", "破片手雷", "燃烧瓶"}
+        return sum(1 for item in items if item in throwable_names)
+
     def _hoshino_find_safe_repair_location(self, player, state) -> Optional[str]:
         """找到没有警察的修复材料地点。
         优先军事基地（有通行证时），其次家。
@@ -872,9 +881,10 @@ class HoshinoMixin(_Base):
                 used_cost += COST["find"]
 
             # 填充射击
-            while can_afford("射击") and talent.ammo:
+            remaining_cost = cost - used_cost
+            while remaining_cost >= COST["射击"]:
                 queue.append(f"射击 {captain.name}")
-                used_cost += COST["射击"]
+                remaining_cost -= COST["射击"]
 
         queue.append("terminal")
         return queue
@@ -926,9 +936,10 @@ class HoshinoMixin(_Base):
                 used_cost += COST["find"]
 
             # 填充射击
-            while can_afford("射击") and talent.ammo:
+            remaining_cost = cost - used_cost
+            while remaining_cost >= COST["射击"]:
                 queue.append(f"射击 {captain.name}")
-                used_cost += COST["射击"]
+                remaining_cost -= COST["射击"]
 
         queue.append("terminal")
         return queue

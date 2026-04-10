@@ -547,15 +547,9 @@ class CombatMixin(_Base):
             # ===== 星野专用：警察体系目标评分 =====
             if self._has_hoshino_talent(player):
                 pc = self._police_cache or {}
-                # 检查自己是否有犯罪记录（大概率有，星野打法激进）
-                police_data = getattr(state, 'police', None)
-                is_criminal = False
-                if police_data and hasattr(police_data, 'is_criminal'):
-                    is_criminal = police_data.is_criminal(player.player_id)
-
-                if is_criminal or pc.get("report_target") == player.player_id:
-                    # 自己是犯罪者或被举报 → 警察体系对自己有威胁
-
+                # 有非自己的队长存在 → 警察体系对自己有威胁
+                captain_id = pc.get("captain_id")
+                if captain_id and captain_id != player.player_id:
                     # 队长加分
                     if getattr(t, 'is_captain', False):
                         s += 120  # 队长是高价值目标：击杀 → 威信归零 → 体系瓦解

@@ -262,7 +262,7 @@ class PoliceMixin(_Base):
         if captain_id and captain_id != player.player_id:
             loc = self._get_location_str(player)
             for unit in pc.get("units", []):
-                if unit.get("is_active") and unit.get("location") == loc:
+                if unit.get("is_active") and unit.get("is_alive") and unit.get("location") == loc:
                     return True
         return False
 

@@ -202,10 +202,15 @@ class BasicAIController(
             can_shoot = self._hoshino_has_ammo(player) or bool(self._hoshino_find_consumable_for_reload(player))
             if can_shoot:
                 # 搏命：放弃修盾，直接冲队长或警察
-                target = self._hoshino_find_police_target(player, state)  # 新方法
+                target = self._hoshino_find_target(player, state)
                 if target and "special" in available_actions:
-                    self._hoshino_macro_queue = self._hoshino_build_anti_police_macro(
-                        player, state, target)
+                    horus_ok = self._hoshino_iron_horus_hp(player) > 0
+                    if horus_ok:
+                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_shielded_macro(
+                            player, state, target)
+                    else:
+                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_unshielded_macro(
+                            player, state, target)
                     debug_ai_basic(player.name, f"星野搏命反警察：冲 {target.name}")
                     return ["special Hoshino", "forfeit"]
             # 没有弹药 → 直接 move 到队长位置
@@ -243,7 +248,7 @@ class BasicAIController(
             if can_shoot and horus_ok:
                 target = self._hoshino_find_target(player, state)
                 if target and "special" in available_actions:
-                            # 新增：反队长战术宏
+                    # 新增：反队长战术宏
                     pc = self._police_cache or {}
                     captain_id = pc.get("captain_id")
                     is_anti_captain = (
