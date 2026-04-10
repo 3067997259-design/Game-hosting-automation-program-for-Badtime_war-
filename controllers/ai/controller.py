@@ -257,13 +257,7 @@ class BasicAIController(
             if captain_cmds:
                 candidates.append(captain_cmds[0])
 
-        # ===== 病毒应急 =====                          # ★ 改动：病毒应急提前到全息影像之前
-        if self._needs_virus_cure(player, state):
-            debug_ai_basic(player.name, "进入病毒应急模式")
-            candidates.extend(self._cmd_virus(player, state, available_actions))
-            if candidates:
-                candidates.append("forfeit")
-                return candidates
+        # （病毒应急已在上方最高优先级处理，此处不再重复）
 
         # ===== G2 EMR蓄力准备：即将发动全息影像但EMR未蓄力 =====
         if (getattr(self, '_emr_needs_charge_before_hologram', False)

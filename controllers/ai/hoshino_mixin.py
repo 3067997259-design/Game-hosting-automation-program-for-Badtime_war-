@@ -414,10 +414,15 @@ class HoshinoMixin(_Base):
                 continue
             if not self._same_location(player, t):
                 continue
-            # 无外甲 + effective HP <= 1.0（一次射击 = 2发×0.5 = 1.0 伤害）
+            # 无外甲 + 无内甲 + effective HP <= 1.0（一次射击 = 2发×0.5 = 1.0 伤害）
+            # 或 无外甲 + 有内甲 + effective HP <= 0.5（最后内甲吸收所有溢出）
             if self._count_outer_armor(t) > 0:
                 continue
-            if self._get_effective_hp(t) > 1.0:
+            inner_count = self._count_inner_armor(t)
+            eff_hp = self._get_effective_hp(t)
+            if inner_count == 0 and eff_hp > 1.0:
+                continue
+            if inner_count > 0 and eff_hp > 0.5:
                 continue
             # 爱愿检查：如果目标是 G5 持有者且自己有爱愿，跳过
             t_talent = getattr(t, 'talent', None)

@@ -257,6 +257,12 @@ class EvaluationMixin(_Base):
         # 所有非火萤人格统一：护甲归零 + 无额外生命值时撤退
         # （火萤已在上方 lines 237-241 单独处理）
         total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
+        # 星野：铁之荷鲁斯未破损视为等效2层护甲
+        if self._has_hoshino_talent(player):
+            t_talent = getattr(player, 'talent', None)
+            iron_hp = getattr(t_talent, 'iron_horus_hp', 0) if t_talent else 0
+            if iron_hp > 0:
+                total_armor += 2
         if total_armor == 0:
             effective_hp = self._get_effective_hp(player)
             if effective_hp <= 1.0:
