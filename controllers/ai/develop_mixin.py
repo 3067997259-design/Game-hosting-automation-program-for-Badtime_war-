@@ -491,6 +491,24 @@ class DevelopMixin(_Base):
                             return commands
 
         # 有消耗品但需要在战术宏里装填 → 发育完成，交给战斗逻辑
+        # ===== 反警察准备：有队长但还没被追击 → 优先囤战术道具 =====
+        if self._has_active_captain(player, state) and not self._is_pursued_by_police_extended(player, state):
+            # 检查是否有至少2个战术道具（闪光弹、烟雾弹、震撼弹、破片手雷、燃烧瓶）
+            throwables = self._hoshino_count_throwables(player)  # 新方法
+            if throwables < 2:
+                # 去军事基地拿战术道具（需要通行证）
+                if loc == "军事基地" and has_pass and "interact" in available:
+                    # 优先拿闪光弹 > 烟雾弹 > 震撼弹 > 破片手雷 > 燃烧瓶
+                    tactical_items = getattr(talent, 'tactical_items', [])
+                    for item in ["闪光弹", "烟雾弹", "震撼弹", "破片手雷", "燃烧瓶"]:
+                        if item not in tactical_items:
+                            commands.append(f"interact {item}")
+                            return commands
+                elif has_pass and loc != "军事基地" and "move" in available:
+                    commands.append("move 军事基地")
+                    return commands
+            # 有足够道具后，继续正常发育（修盾等）
+
 
         # ===== 阶段3：修复铁之荷鲁斯（如果受损）=====
         if tactical_unlocked and iron_horus_hp < getattr(talent, 'iron_horus_max_hp', 2):
@@ -510,12 +528,21 @@ class DevelopMixin(_Base):
                     return commands
             # 不在可拿修复材料的地点（或 interact 不可用）→ 移动过去
             if not has_repair_material and "move" in available:
-                if has_pass:
-                    if loc != "军事基地":
-                        commands.append("move 军事基地")
+                if self._is_pursued_by_police_extended(player, state):
+                    safe_loc = self._hoshino_find_safe_repair_location(player, state)
+                    if safe_loc and safe_loc != loc:
+                        if safe_loc == "home" and self._is_at_home(player):
+                            pass  # 已在家
+                        else:
+                            commands.append(f"move {safe_loc}")
                 else:
-                    if loc != "home" and not self._is_at_home(player):
-                        commands.append("move home")
+                    # 原有逻辑
+                    if has_pass:
+                        if loc != "军事基地":
+                            commands.append("move 军事基地")
+                    else:
+                        if loc != "home" and not self._is_at_home(player):
+                            commands.append("move home")
                 if commands:
                     return commands
 

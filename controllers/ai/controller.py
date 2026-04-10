@@ -194,6 +194,44 @@ class BasicAIController(
                 debug_ai_basic(player.name, "星野：注射肾上腺素（宏外免费行动）")
                 candidates.insert(0, "special 肾上腺素")
 
+        # ===== 星野反警察：搏命模式（被追击时）=====
+        if (self._has_hoshino_talent(player)
+                and self._hoshino_tactical_unlocked(player)
+                and not self._hoshino_is_terror(player)
+                and self._is_pursued_by_police_extended(player, state)):
+            can_shoot = self._hoshino_has_ammo(player) or bool(self._hoshino_find_consumable_for_reload(player))
+            if can_shoot:
+                # 搏命：放弃修盾，直接冲队长或警察
+                target = self._hoshino_find_target(player, state)
+                if target and "special" in available_actions:
+                    horus_ok = self._hoshino_iron_horus_hp(player) > 0
+                    if horus_ok:
+                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_shielded_macro(
+                            player, state, target)
+                        debug_ai_basic(player.name, f"星野搏命反警察：冲 {target.name}")
+                        return ["special Hoshino", "forfeit"]
+                    else:
+                        # 无盾版：必须先确认同地点才能进入宏
+                        target_loc = self._get_location_str(target)
+                        my_loc = self._get_location_str(player)
+                        if target_loc == my_loc:
+                            self._hoshino_macro_queue = self._hoshino_build_anti_captain_unshielded_macro(
+                                player, state, target)
+                            debug_ai_basic(player.name, f"星野搏命反警察（无盾）：冲 {target.name}")
+                            return ["special Hoshino", "forfeit"]
+                        elif "move" in available_actions:
+                            debug_ai_basic(player.name, f"星野搏命反警察（无盾）：移动到 {target_loc}")
+                            return [f"move {target_loc}", "forfeit"]
+            # 没有弹药 → 直接 move 到队长位置
+            pc = self._police_cache or {}
+            captain_id = pc.get("captain_id")
+            if captain_id:
+                captain = state.get_player(captain_id)
+                if captain and captain.is_alive():
+                    captain_loc = self._get_location_str(captain)
+                    if captain_loc != self._get_location_str(player) and "move" in available_actions:
+                        return [f"move {captain_loc}", "forfeit"]
+
         # ===== 星野战术指令已解锁：优先使用 special Hoshino =====
         if (self._has_hoshino_talent(player)
                 and self._hoshino_tactical_unlocked(player)
@@ -219,6 +257,31 @@ class BasicAIController(
             if can_shoot and horus_ok:
                 target = self._hoshino_find_target(player, state)
                 if target and "special" in available_actions:
+                    # 新增：反队长战术宏
+                    pc = self._police_cache or {}
+                    captain_id = pc.get("captain_id")
+                    is_anti_captain = (
+                        getattr(target, 'is_captain', False)
+                        and self._hoshino_captain_has_police_protection(state)
+                        and self._hoshino_has_enough_tactical_items(player)
+                    )
+
+                    if is_anti_captain:
+                        # 队长有警察保护 + 有足够战术道具 → 反队长宏
+                        # 检查肾上腺素：如果有且下一轮生效更好，先用肾上腺素
+                        talent = getattr(player, 'talent', None)
+                        if (talent and "肾上腺素" in getattr(talent, 'medicines', [])
+                                and not getattr(talent, 'adrenaline_used', False)
+                                and talent.cost <= 5):  # 非肾上腺素回合
+                            # 宏外用肾上腺素，下一轮再执行反队长宏
+                            self._hoshino_macro_queue = ["服药 肾上腺素", "terminal"]
+                            debug_ai_basic(player.name, "星野：反队长准备——先注射肾上腺素")
+                            return ["special Hoshino", "forfeit"]
+
+                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_shielded_macro(
+                            player, state, target)
+                        debug_ai_basic(player.name, f"星野反队长宏（有盾）：目标 {target.name}")
+                        return ["special Hoshino", "forfeit"]
                     # 检查是否有同地点残血目标可以补刀
                     finish_target = self._hoshino_find_finishable_target(player, state)
                     if finish_target and finish_target.player_id != target.player_id:
@@ -250,6 +313,26 @@ class BasicAIController(
                             return [f"move {enemy_loc}", "forfeit"]
                     # 都不行 → fall through
             else:
+                # 新增：铁之荷鲁斯破损但被警察追击 → 放弃修盾，直接冲队长
+                if (not horus_ok and can_shoot
+                        and self._is_pursued_by_police_extended(player, state)):
+                    pc = self._police_cache or {}
+                    captain_id = pc.get("captain_id")
+                    if captain_id:
+                        captain = state.get_player(captain_id)
+                        if captain and captain.is_alive():
+                            captain_loc = self._get_location_str(captain)
+                            loc = self._get_location_str(player)
+                            if captain_loc == loc:
+                                # 同地点：直接进入无盾反队长宏
+                                self._hoshino_macro_queue = self._hoshino_build_anti_captain_unshielded_macro(
+                                    player, state, captain)
+                                debug_ai_basic(player.name, f"星野反队长宏（无盾）：目标 {captain.name}")
+                                return ["special Hoshino", "forfeit"]
+                            elif "move" in available_actions:
+                                # 不同地点：先 move 过去
+                                debug_ai_basic(player.name, f"星野：无盾反队长，移动到 {captain_loc}")
+                                return [f"move {captain_loc}", "forfeit"]
                 if not can_shoot:
                     debug_ai_basic(player.name, "星野：无弹药且无可装填物品，跳过战术宏")
                 if not horus_ok:

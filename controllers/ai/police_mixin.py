@@ -250,13 +250,38 @@ class PoliceMixin(_Base):
     # ════════════════════════════════════════════════════════
 
     def _is_pursued_by_police(self, player, state) -> bool:
-        """检查是否正在被警察追击"""
+        """检查是否正在被警察追击（仅举报体系）"""
         pc = self._police_cache or {}
         if pc.get("report_target") == player.player_id:
             phase = pc.get("report_phase", "idle")
             if phase in ("reported", "dispatched"):
                 return True
         return False
+
+    def _is_pursued_by_police_extended(self, player, state) -> bool:
+        """检查是否正在被警察追击（举报体系 + 队长体系）——星野专用
+
+        情况1：举报体系（同 _is_pursued_by_police）
+        情况2：队长体系——有队长（不是自己）且有active警察在自己同地点
+        """
+        if self._is_pursued_by_police(player, state):
+            return True
+        # 情况2：队长体系
+        pc = self._police_cache or {}
+        captain_id = pc.get("captain_id")
+        if captain_id and captain_id != player.player_id:
+            loc = self._get_location_str(player)
+            for unit in pc.get("units", []):
+                if unit.get("is_active") and unit.get("is_alive") and unit.get("location") == loc:
+                    return True
+        return False
+
+    def _has_active_captain(self, player, state) -> bool:
+        """检查是否存在非自己的活跃队长"""
+        pc = self._police_cache or {}
+        captain_id = pc.get("captain_id")
+        return captain_id is not None and captain_id != player.player_id
+
     def _can_fight_police(self, player, state) -> bool:
         """判断是否有能力反击警察：内甲+外甲>=2，或有克制警察武器的护甲"""
         outer = self._count_outer_armor(player)
