@@ -147,7 +147,7 @@ class HoshinoMixin(_Base):
     def _hoshino_find_target(self, player, state) -> Optional[Any]:
         """找到最佳攻击目标（复用 _pick_target 或按威胁分排序）"""
         # 被警察追击时优先攻击队长
-        if self._is_pursued_by_police(player, state):
+        if self._is_pursued_by_police_extended(player, state):
             pc = self._police_cache or {}
             captain_id = pc.get("captain_id")
             if captain_id:

@@ -198,7 +198,7 @@ class BasicAIController(
         if (self._has_hoshino_talent(player)
                 and self._hoshino_tactical_unlocked(player)
                 and not self._hoshino_is_terror(player)
-                and self._is_pursued_by_police(player, state)):
+                and self._is_pursued_by_police_extended(player, state)):
             can_shoot = self._hoshino_has_ammo(player) or bool(self._hoshino_find_consumable_for_reload(player))
             if can_shoot:
                 # 搏命：放弃修盾，直接冲队长或警察
@@ -315,7 +315,7 @@ class BasicAIController(
             else:
                 # 新增：铁之荷鲁斯破损但被警察追击 → 放弃修盾，直接冲队长
                 if (not horus_ok and can_shoot
-                        and self._is_pursued_by_police(player, state)):
+                        and self._is_pursued_by_police_extended(player, state)):
                     pc = self._police_cache or {}
                     captain_id = pc.get("captain_id")
                     if captain_id:

@@ -492,7 +492,7 @@ class DevelopMixin(_Base):
 
         # 有消耗品但需要在战术宏里装填 → 发育完成，交给战斗逻辑
         # ===== 反警察准备：有队长但还没被追击 → 优先囤战术道具 =====
-        if self._has_active_captain(player, state) and not self._is_pursued_by_police(player, state):
+        if self._has_active_captain(player, state) and not self._is_pursued_by_police_extended(player, state):
             # 检查是否有至少2个战术道具（闪光弹、烟雾弹、震撼弹、破片手雷、燃烧瓶）
             throwables = self._hoshino_count_throwables(player)  # 新方法
             if throwables < 2:
@@ -528,7 +528,7 @@ class DevelopMixin(_Base):
                     return commands
             # 不在可拿修复材料的地点（或 interact 不可用）→ 移动过去
             if not has_repair_material and "move" in available:
-                if self._is_pursued_by_police(player, state):
+                if self._is_pursued_by_police_extended(player, state):
                     safe_loc = self._hoshino_find_safe_repair_location(player, state)
                     if safe_loc and safe_loc != loc:
                         if safe_loc == "home" and self._is_at_home(player):

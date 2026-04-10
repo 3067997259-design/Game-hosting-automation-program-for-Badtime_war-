@@ -250,14 +250,24 @@ class PoliceMixin(_Base):
     # ════════════════════════════════════════════════════════
 
     def _is_pursued_by_police(self, player, state) -> bool:
-        """检查是否正在被警察追击（举报体系 + 队长体系）"""
+        """检查是否正在被警察追击（仅举报体系）"""
         pc = self._police_cache or {}
-        # 情况1：举报体系
         if pc.get("report_target") == player.player_id:
             phase = pc.get("report_phase", "idle")
             if phase in ("reported", "dispatched"):
                 return True
-        # 情况2：队长体系——有队长（不是自己）且有active警察在自己同地点
+        return False
+
+    def _is_pursued_by_police_extended(self, player, state) -> bool:
+        """检查是否正在被警察追击（举报体系 + 队长体系）——星野专用
+
+        情况1：举报体系（同 _is_pursued_by_police）
+        情况2：队长体系——有队长（不是自己）且有active警察在自己同地点
+        """
+        if self._is_pursued_by_police(player, state):
+            return True
+        # 情况2：队长体系
+        pc = self._police_cache or {}
         captain_id = pc.get("captain_id")
         if captain_id and captain_id != player.player_id:
             loc = self._get_location_str(player)
