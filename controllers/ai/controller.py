@@ -208,11 +208,20 @@ class BasicAIController(
                     if horus_ok:
                         self._hoshino_macro_queue = self._hoshino_build_anti_captain_shielded_macro(
                             player, state, target)
+                        debug_ai_basic(player.name, f"星野搏命反警察：冲 {target.name}")
+                        return ["special Hoshino", "forfeit"]
                     else:
-                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_unshielded_macro(
-                            player, state, target)
-                    debug_ai_basic(player.name, f"星野搏命反警察：冲 {target.name}")
-                    return ["special Hoshino", "forfeit"]
+                        # 无盾版：必须先确认同地点才能进入宏
+                        target_loc = self._get_location_str(target)
+                        my_loc = self._get_location_str(player)
+                        if target_loc == my_loc:
+                            self._hoshino_macro_queue = self._hoshino_build_anti_captain_unshielded_macro(
+                                player, state, target)
+                            debug_ai_basic(player.name, f"星野搏命反警察（无盾）：冲 {target.name}")
+                            return ["special Hoshino", "forfeit"]
+                        elif "move" in available_actions:
+                            debug_ai_basic(player.name, f"星野搏命反警察（无盾）：移动到 {target_loc}")
+                            return [f"move {target_loc}", "forfeit"]
             # 没有弹药 → 直接 move 到队长位置
             pc = self._police_cache or {}
             captain_id = pc.get("captain_id")

@@ -499,8 +499,9 @@ class DevelopMixin(_Base):
                 # 去军事基地拿战术道具（需要通行证）
                 if loc == "军事基地" and has_pass and "interact" in available:
                     # 优先拿闪光弹 > 烟雾弹 > 震撼弹 > 破片手雷 > 燃烧瓶
+                    tactical_items = getattr(talent, 'tactical_items', [])
                     for item in ["闪光弹", "烟雾弹", "震撼弹", "破片手雷", "燃烧瓶"]:
-                        if not any(i.name == item for i in player.items):
+                        if item not in tactical_items:
                             commands.append(f"interact {item}")
                             return commands
                 elif has_pass and loc != "军事基地" and "move" in available:

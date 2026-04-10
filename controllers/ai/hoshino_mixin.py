@@ -880,6 +880,16 @@ class HoshinoMixin(_Base):
                 queue.append(f"find {captain.name}")
                 used_cost += COST["find"]
 
+            # 装填检查（射击前确保有弹药）
+            has_ammo = bool(getattr(talent, 'ammo', []))
+            if not has_ammo:
+                consumable = self._hoshino_find_consumable_for_reload(player)
+                if consumable:
+                    queue.append(f"重新装填 {consumable}")  # cost 0
+                else:
+                    queue.append("terminal")
+                    return queue
+
             # 填充射击
             remaining_cost = cost - used_cost
             while remaining_cost >= COST["射击"]:
@@ -934,6 +944,16 @@ class HoshinoMixin(_Base):
             if can_afford("find"):
                 queue.append(f"find {captain.name}")
                 used_cost += COST["find"]
+
+            # 装填检查（射击前确保有弹药）
+            has_ammo = bool(getattr(talent, 'ammo', []))
+            if not has_ammo:
+                consumable = self._hoshino_find_consumable_for_reload(player)
+                if consumable:
+                    queue.append(f"重新装填 {consumable}")  # cost 0
+                else:
+                    queue.append("terminal")
+                    return queue
 
             # 填充射击
             remaining_cost = cost - used_cost
