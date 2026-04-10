@@ -87,8 +87,64 @@ class HoshinoMixin(_Base):
                 return a.name
         return None
 
+    def _hoshino_captain_has_police_protection(self, state) -> bool:
+        """队长所在地点是否有 active 状态的警察单位"""
+        pc = self._police_cache or {}
+        captain_id = pc.get("captain_id")
+        if not captain_id:
+            return False
+        captain = state.get_player(captain_id)
+        if not captain or not captain.is_alive():
+            return False
+        captain_loc = self._get_location_str(captain)
+        for unit in pc.get("units", []):
+            if (unit.get("is_active") and unit.get("is_alive")
+                    and unit.get("location") == captain_loc):
+                return True
+        return False
+
+    def _hoshino_has_enough_tactical_items(self, player) -> bool:
+        """是否有至少2个战术道具"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        return len(getattr(talent, 'tactical_items', [])) >= 2
+
+    def _hoshino_find_safe_repair_location(self, player, state) -> Optional[str]:
+        """找到没有警察的修复材料地点。
+        优先军事基地（有通行证时），其次家。
+        都有警察时返回家（因为队长AI写死了去军事基地发育的逻辑）。
+        """
+        pc = self._police_cache or {}
+        has_pass = getattr(player, 'has_military_pass', False)
+
+        def has_police_at(location):
+            for unit in pc.get("units", []):
+                if unit.get("is_alive") and unit.get("location") == location:
+                    return True
+            return False
+
+        if has_pass and not has_police_at("军事基地"):
+            return "军事基地"
+
+        # 获取玩家的家的实际位置名
+        home_loc = f"home_{player.player_id}" if hasattr(player, 'player_id') else "home"
+        if not has_police_at(home_loc):
+            return "home"
+
+        # 都有警察 → 返回家（队长AI倾向去军事基地，家相对安全）
+        return "home"
+
     def _hoshino_find_target(self, player, state) -> Optional[Any]:
         """找到最佳攻击目标（复用 _pick_target 或按威胁分排序）"""
+        # 被警察追击时优先攻击队长
+        if self._is_pursued_by_police(player, state):
+            pc = self._police_cache or {}
+            captain_id = pc.get("captain_id")
+            if captain_id:
+                captain = state.get_player(captain_id)
+                if captain and captain.is_alive():
+                    return captain
         target = self._pick_target(player, state)
         return target
 
@@ -732,6 +788,147 @@ class HoshinoMixin(_Base):
         while remaining_cost >= COST["射击"]:
             queue.append(f"射击 {target.name}")
             remaining_cost -= COST["射击"]
+
+        queue.append("terminal")
+        return queue
+
+    def _hoshino_build_anti_captain_shielded_macro(self, player, state, captain) -> List[str]:
+        """反队长宏（有盾版）：投掷 → 持盾 → dash → 架盾
+
+        设计意图：
+        - 投掷道具到队长位置（闪光弹/烟雾弹禁用警察）
+        - 持盾冲刺过去
+        - 到达后立刻架盾（警察强制正面，造伤≤1，架盾大概率挡住）
+        - 下一个宏再全力射击
+        """
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return ["terminal"]
+
+        queue = []
+        cost = talent.cost
+        used_cost = 0
+        COST = {
+            "架盾": 2, "射击": 2, "重新装填": 0, "持盾": 1,
+            "投掷": 1, "服药": 0, "冲刺": 1, "取消": 0,
+            "find": 1, "lock": 1, "转向": 0, "排弹": 0,
+        }
+
+        def can_afford(action):
+            return used_cost + COST.get(action, 0) <= cost
+
+        captain_loc = self._get_location_str(captain)
+        same_loc = self._hoshino_target_same_location(player, captain)
+        shield_mode = talent.shield_mode
+        items = getattr(talent, 'tactical_items', [])
+
+        # 选择投掷道具（优先闪光弹 > 烟雾弹 > 震撼弹 > 破片手雷 > 燃烧瓶）
+        anti_police_priority = ["闪光弹", "烟雾弹", "震撼弹", "破片手雷", "燃烧瓶"]
+        throw_item = None
+        for item in anti_police_priority:
+            if item in items:
+                throw_item = item
+                break
+
+        if not same_loc:
+            # 不同地点：投掷 → 持盾（如果没持盾）→ dash → 架盾
+            if throw_item and can_afford("投掷"):
+                queue.append(f"投掷 {throw_item} {captain_loc}")
+                used_cost += COST["投掷"]
+
+            if shield_mode == "架盾":
+                queue.append("取消")  # cost 0
+                shield_mode = None
+
+            if shield_mode != "持盾" and can_afford("持盾"):
+                queue.append("持盾")
+                used_cost += COST["持盾"]
+
+            if can_afford("冲刺"):
+                queue.append(f"冲刺 {captain_loc}")
+                used_cost += COST["冲刺"]
+
+            # 到达后架盾（警察强制正面，架盾挡住）
+            if can_afford("架盾"):
+                queue.append("架盾")
+                used_cost += COST["架盾"]
+        else:
+            # 同地点：投掷（原地）→ 架盾（如果没架盾）→ find → 射击
+            if shield_mode == "持盾":
+                # 已持盾 → 取消 → 投掷 → 架盾
+                queue.append("取消")
+                shield_mode = None
+
+            if throw_item and can_afford("投掷"):
+                queue.append(f"投掷 {throw_item} {captain_loc}")
+                used_cost += COST["投掷"]
+
+            if shield_mode != "架盾" and can_afford("架盾"):
+                queue.append("架盾")
+                used_cost += COST["架盾"]
+
+            if can_afford("find"):
+                queue.append(f"find {captain.name}")
+                used_cost += COST["find"]
+
+            # 填充射击
+            while can_afford("射击") and talent.ammo:
+                queue.append(f"射击 {captain.name}")
+                used_cost += COST["射击"]
+
+        queue.append("terminal")
+        return queue
+
+    def _hoshino_build_anti_captain_unshielded_macro(self, player, state, captain) -> List[str]:
+        """反队长宏（无盾版）：move到队长位置 → 投掷 → find → 射击
+
+        铁之荷鲁斯破损，没有盾可用。直接冲过去最大化输出。
+        """
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return ["terminal"]
+
+        queue = []
+        cost = talent.cost
+        used_cost = 0
+        COST = {
+            "架盾": 2, "射击": 2, "重新装填": 0, "持盾": 1,
+            "投掷": 1, "服药": 0, "冲刺": 1, "取消": 0,
+            "find": 1, "lock": 1, "转向": 0, "排弹": 0,
+        }
+
+        def can_afford(action):
+            return used_cost + COST.get(action, 0) <= cost
+
+        captain_loc = self._get_location_str(captain)
+        same_loc = self._hoshino_target_same_location(player, captain)
+        items = getattr(talent, 'tactical_items', [])
+
+        anti_police_priority = ["闪光弹", "烟雾弹", "震撼弹", "破片手雷", "燃烧瓶"]
+        throw_item = None
+        for item in anti_police_priority:
+            if item in items:
+                throw_item = item
+                break
+
+        # 注意：无盾版不能用冲刺（冲刺需要持盾），只能用 move（在宏外执行）
+        # 所以这个方法返回的不是宏队列，而是普通命令
+        # 如果不在同地点，controller 层应该先 move 过去
+
+        if same_loc:
+            # 同地点：投掷 → find → 射击（尽可能多）
+            if throw_item and can_afford("投掷"):
+                queue.append(f"投掷 {throw_item} {captain_loc}")
+                used_cost += COST["投掷"]
+
+            if can_afford("find"):
+                queue.append(f"find {captain.name}")
+                used_cost += COST["find"]
+
+            # 填充射击
+            while can_afford("射击") and talent.ammo:
+                queue.append(f"射击 {captain.name}")
+                used_cost += COST["射击"]
 
         queue.append("terminal")
         return queue

@@ -544,6 +544,36 @@ class CombatMixin(_Base):
                     s -= 300  # Has AOE but can't counter armor
                 else:
                     s -= 500  # No way to deal damage
+            # ===== 星野专用：警察体系目标评分 =====
+            if self._has_hoshino_talent(player):
+                pc = self._police_cache or {}
+                # 检查自己是否有犯罪记录（大概率有，星野打法激进）
+                police_data = getattr(state, 'police', None)
+                is_criminal = False
+                if police_data and hasattr(police_data, 'is_criminal'):
+                    is_criminal = police_data.is_criminal(player.player_id)
+
+                if is_criminal or pc.get("report_target") == player.player_id:
+                    # 自己是犯罪者或被举报 → 警察体系对自己有威胁
+
+                    # 队长加分
+                    if getattr(t, 'is_captain', False):
+                        s += 120  # 队长是高价值目标：击杀 → 威信归零 → 体系瓦解
+
+                        # 队长所在地点没有 active 状态的警察 → 更高加分（不冲白不冲）
+                        captain_loc = self._get_location_str(t)
+                        has_active_police_at_captain = False
+                        for unit in pc.get("units", []):
+                            if (unit.get("is_active") and unit.get("is_alive")
+                                    and unit.get("location") == captain_loc):
+                                has_active_police_at_captain = True
+                                break
+                        if not has_active_police_at_captain:
+                            s += 80  # 队长无保护，冲就完了
+
+                    # 普通警察成员（非队长但加入了警察的玩家）也加一点分
+                    elif getattr(t, 'is_police', False):
+                        s += 40  # 警察成员也是潜在威胁
             # 全场最强玩家额外加分
             if self._estimate_power(t) >= max_power:
                 s += 40
