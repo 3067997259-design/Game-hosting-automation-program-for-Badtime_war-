@@ -47,6 +47,7 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         # === 追忆 ===
         self.reminiscence = 0
         self.max_reminiscence = 24       # V1.92: 首次24，之后降为12
+        self.activation_threshold = 24   # 发动门槛（首次24，之后降为12）
         self.acted_last_round = False
         self.only_extra_turn = False
 
@@ -94,10 +95,9 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         """消耗一次发动机会 + 指定层追忆"""
         self.total_uses += 1
         self.reminiscence = max(0, self.reminiscence - cost)
-        # After first activation, threshold drops to 12
-        # (but 爱与记忆 may override this via get_destiny_cost)
+        # 首次发动后，发动门槛降为12（但积累上限保持24）
         if self.total_uses == 1:
-            self.max_reminiscence = 12
+            self.activation_threshold = 12  # 原来是 self.max_reminiscence = 12
 
     def _can_activate(self):
         """检查是否还能发动（无次数上限）"""
@@ -167,9 +167,9 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
 
         # V1.92: 追忆积攒速度削弱（原 2/1 → 1/0.5）
         if not self.acted_last_round or self.only_extra_turn:
-            gain = 1        # 原来是 2
+            gain = 0.5        # 原来是 2
         else:
-            gain = 0.5      # 原来是 1
+            gain = 1.0      # 原来是 1
 
         old = self.reminiscence
         self.reminiscence = min(self.max_reminiscence, self.reminiscence + gain)
@@ -187,7 +187,7 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
             )
         )
 
-        if self.reminiscence >= self.max_reminiscence:
+        if self.reminiscence >= self.activation_threshold:
             display.show_info(
                 prompt_manager.get_prompt(
                     "talent", "g5ripple.reminiscence_full",
@@ -244,13 +244,13 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
             return None
         if self.anchor_active:
             return None
-        if self.reminiscence < self.max_reminiscence:
+        if self.reminiscence < self.activation_threshold:
             return None
 
         return {
             "name": "往世的涟漪",
             "description": (
-                f"追忆已满（{self.reminiscence}/{self.max_reminiscence}）\n"
+                f"追忆已满（{self.reminiscence}/{self.activation_threshold}）\n"
                 f"  已发动 {self.total_uses} 次\n"
                 f"  方式一：锚定命运（不消耗行动回合）\n"
                 f"  方式二：献诗增强（消耗行动回合）"),
@@ -298,9 +298,9 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
             parts.append(
                 f"破坏{self.anchor_destructive_count}/{self.anchor_variance}")
         else:
-            parts.append(f"追忆：{self.reminiscence}/{self.max_reminiscence}")
+            parts.append(f"追忆：{self.reminiscence}/{self.activation_threshold}（上限{self.max_reminiscence}）")
             parts.append(f"已发动{self.total_uses}次")
-            if self.reminiscence >= self.max_reminiscence:
+            if self.reminiscence >= self.activation_threshold:
                 parts.append("✨可发动")
         if self.love_wish:
             parts.append(f"💝爱愿：{len(self.love_wish)}人")
@@ -309,13 +309,11 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
     def describe(self):
         return (
             f"【{self.name}】"
-            f"\n  追忆：{self.reminiscence}/{self.max_reminiscence}"
-            f"（R0每轮+0.5或+1）"
-            f"\n  首次发动需24层，之后12层（爱与记忆递增）"
-            f"\n  释放消耗12层追忆（爱与记忆递增）"
-            f"\n  无次数限制（已发动{self.total_uses}次）"
-            f"\n    方式一：锚定命运（不消耗行动回合）"
-            f"\n    方式二：献诗增强（消耗行动回合）")
+            f"\n  追忆：{self.reminiscence}/{self.activation_threshold}（积累上限{self.max_reminiscence}）"
+            f"（R0每轮+1或+0.5）"
+            f"\n  首次发动需24层，之后{self.activation_threshold}层"
+            f"\n  释放消耗12层追忆（爱与记忆递增：当前{self.get_destiny_cost()}层）"
+            f"\n  无次数限制（已发动{self.total_uses}次，爱与记忆{self.destiny_use_count}次）")
 
     # ================================================================
     #  V1.92: 锚定D4加成（「一页永恒的善见天」）
