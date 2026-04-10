@@ -187,7 +187,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
         # 无属性：所有伤害类型都有效，不做属性克制检查
-        # 像普通外层护甲一样吸收伤害，溢出转移到下一层
+        # 被动模式下吸收伤害，破碎时吸收所有溢出（与持盾一致）
         absorbed = min(raw, talent.iron_horus_hp)
         talent.iron_horus_hp -= absorbed
         raw -= absorbed
@@ -199,7 +199,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             raw = 0
             result["details"].append(
                 prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
-        # 被动模式下溢出正常转移到下一层护甲/生命（不像持盾那样破损吸收所有溢出）
+        # 被动模式下破碎时也吸收所有溢出伤害（与持盾行为一致）
         if raw <= 0:
             result["final_damage"] = 0
             result["success"] = False
@@ -612,7 +612,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
         # 无属性：所有伤害类型都有效，不做属性克制检查
-        # 像普通外层护甲一样吸收伤害，溢出转移到下一层
+        # 被动模式下吸收伤害，破碎时吸收所有溢出（与持盾一致）
         absorbed = min(raw, talent.iron_horus_hp)
         talent.iron_horus_hp -= absorbed
         raw -= absorbed
@@ -623,7 +623,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             raw = 0  # 破碎时吸收所有溢出
             result["details"].append(
                 prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
-        # 被动模式下溢出正常转移到下一层护甲/生命（不像持盾那样破损吸收所有溢出）
+        # 被动模式下破碎时也吸收所有溢出伤害（与持盾行为一致）
         if raw <= 0:
             result["final_damage"] = 0
             result["success"] = False
