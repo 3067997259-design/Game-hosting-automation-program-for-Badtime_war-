@@ -470,12 +470,17 @@ class EvaluationMixin(_Base):
         # 火萤 debuff 生效后不要求护甲来解除危险
         if self._has_firefly_talent(player) and self._firefly_debuff_active(player):
             return True
-        # 星野：铁之荷鲁斯 HP > 0 视为有足够护甲
+        # 星野：始终让星野发育路径处理修复，不让危险模式劫持
         if self._has_hoshino_talent(player):
             talent = getattr(player, 'talent', None)
             iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
             if iron_horus_hp > 0:
                 return True  # 铁之荷鲁斯未破损 = 危险解除
+            # 铁之荷鲁斯破损：也解除危险模式，交给星野发育路径 Phase 3 处理修复
+            # 危险模式的 _cmd_danger_develop 不了解星野修复路径，会导致反复横跳
+            tactical_unlocked = getattr(talent, 'tactical_unlocked', False) if talent else False
+            if tactical_unlocked:
+                return True  # 战术已解锁 = 星野发育路径能处理修复
         total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
         return total_armor >= 2
 

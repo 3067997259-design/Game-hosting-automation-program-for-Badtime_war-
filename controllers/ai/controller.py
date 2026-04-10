@@ -205,8 +205,9 @@ class BasicAIController(
 
             # 新增：持盾/架盾死锁检测 — 需要 interact 但被盾牌模式阻止
             # 此时允许进入战术宏仅用于取消盾牌
-            if shield_mode and not can_shoot and "special" in available_actions:
-                debug_ai_basic(player.name, f"星野：{shield_mode}中无弹药，进入宏取消盾牌")
+            if shield_mode and (not can_shoot or not horus_ok) and "special" in available_actions:
+                reason = "无弹药" if not can_shoot else "铁之荷鲁斯破损"
+                debug_ai_basic(player.name, f"星野：{shield_mode}中{reason}，进入宏取消盾牌")
                 self._hoshino_macro_queue = ["取消", "terminal"]
                 return ["special Hoshino", "forfeit"]
 
