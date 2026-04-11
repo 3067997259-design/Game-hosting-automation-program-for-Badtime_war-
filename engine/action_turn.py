@@ -630,26 +630,38 @@ class ActionTurnManager:
         # ---- 执行 interact ----
         # 多回合学习：直接设置进度为完成状态
         from locations.magic_institute import LEARN_TURNS
+        old_progress = None
+        progress_key = None
         if item_name in LEARN_TURNS:
             required = LEARN_TURNS[item_name]
             if required > 1:
                 progress_key = f"learn_{item_name}"
+                old_progress = player.progress.get(progress_key)
                 player.progress[progress_key] = required - 1  # do_interact 会 +1 达到 required
 
-        from actions import interact as interact_mod
-        msg = interact_mod.execute(player, item_name, self.state)
-        display.show_result(msg)
+        success = False
+        try:
+            from actions import interact as interact_mod
+            msg = interact_mod.execute(player, item_name, self.state)
+            display.show_result(msg)
 
-        success = not msg.startswith("❌")
+            success = not msg.startswith("❌")
+        finally:
+            # ---- 清理 ----
+            # 恢复位置
+            player.location = original_location
 
-        # ---- 清理 ----
-        # 恢复位置
-        player.location = original_location
+            # 清理注入的前置法术（只移除注入的，不移除本次学到的）
+            # 本次学到的法术保留在 player.learned_spells 中
+            newly_learned = player.learned_spells - original_spells - injected_prereqs
+            player.learned_spells = original_spells | newly_learned
 
-        # 清理注入的前置法术（只移除注入的，不移除本次学到的）
-        # 本次学到的法术保留在 player.learned_spells 中
-        newly_learned = player.learned_spells - original_spells - injected_prereqs
-        player.learned_spells = original_spells | newly_learned
+            # 失败时恢复人为设置的 progress
+            if not success and progress_key is not None:
+                if old_progress is None:
+                    player.progress.pop(progress_key, None)
+                else:
+                    player.progress[progress_key] = old_progress
 
         if not success:
             display.show_info("⚠️ 行动执行失败，请重新选择。")
@@ -963,9 +975,11 @@ class ActionTurnManager:
         # 执行释放病毒（全局效果，用 G6 执行，临时设置位置）
         original_location = player.location
         player.location = "医院"
-        msg, consumes = special_op.execute(player, "释放病毒", self.state)
-        player.location = original_location
-        display.show_result(msg)
+        try:
+            msg, consumes = special_op.execute(player, "释放病毒", self.state)
+            display.show_result(msg)
+        finally:
+            player.location = original_location
 
         if msg.startswith("❌"):
             display.show_info("⚠️ 行动执行失败，请重新选择。")
@@ -975,8 +989,15 @@ class ActionTurnManager:
 
     # ================================================================
     #  插入式笑话：police 系列
-    #  策略：用来源玩家校验，临时借用来源玩家状态让 G6 执行，成果归 G6
+    #  策略：
+    #    - report/assemble/track_guide 依赖 player_id 身份检查
+    #      （reporter_id / event_log），直接用来源玩家执行，成果归 G6
+    #    - 其他（recruit/election/designate/study/police_command）
+    #      临时借用来源玩家状态让 G6 执行
     # ================================================================
+    # 需要以来源玩家身份执行的行动（内部用 player_id 做身份匹配）
+    _POLICE_IDENTITY_ACTIONS = {"report", "assemble", "track_guide"}
+
     def _cutaway_police(self, player, parsed, action, source_pids):
         from cli.validator import validate
 
@@ -996,7 +1017,19 @@ class ActionTurnManager:
             display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
             return None
 
-        # 临时借用来源玩家的警察相关状态
+        # ---- 身份依赖行动：直接用来源玩家执行 ----
+        if action in self._POLICE_IDENTITY_ACTIONS:
+            result = self._execute_action(parsed, source_player)
+            msg, action_type, success = result[0], result[1], result[2]
+            display.show_result(msg)
+
+            if not success:
+                display.show_info("⚠️ 行动执行失败，请重新选择。")
+                return None
+
+            return action_type
+
+        # ---- 其他警察行动：临时借用来源玩家的警察相关状态 ----
         orig_location = player.location
         orig_is_police = player.is_police
         orig_is_captain = player.is_captain
@@ -1344,15 +1377,15 @@ class ActionTurnManager:
                 old_hp = unit.hp
                 atk_result = pe._resolve_attack_on_police(weapon, unit, attacker=player)
                 lines.append(f"\n   → 对 警察{unit.unit_id}: {atk_result}")
-                unit.last_attacker_id = player.player_id
+                unit.last_attacker_id = killer.player_id
                 if old_hp > 0 and unit.hp <= 0:
                     killed_any_police = True
             if police_at_loc:
-                # 攻击警察视为犯法
-                pe.check_and_record_crime(player.player_id, "攻击警察")
+                # 攻击警察视为犯法（犯罪记录归 killer，插入式笑话中归 G6）
+                pe.check_and_record_crime(killer.player_id, "攻击警察")
                 if killed_any_police and not self.state.police.has_captain():
-                    self.state.police.clear_crimes(player.player_id)
-                    player.is_criminal = False
+                    self.state.police.clear_crimes(killer.player_id)
+                    killer.is_criminal = False
                     lines.append(f"   💪 击杀警察！犯罪记录已清除")
                 self.state.police.check_all_dead()
 
