@@ -22,6 +22,7 @@ from talents.g1_firefly import G1MythFire
 from talents.g2_hologram import Hologram
 from talents.g3_mythland import Mythland
 from talents.g5_ripple import Ripple
+from talents.g6_cutaway import CutawayJoke
 from talents.g7_hoshino import Hoshino
 
 import random
@@ -87,8 +88,10 @@ TALENT_TABLE = [
      "背负世界，然后拯救世界，也拯救你自己"),
     (12, "神代天赋-往世的涟漪", Ripple,
      "追忆满后发动：锚定命运或献诗增强。无次数限制，爱与记忆逐次成长"),
-     (13, "神代天赋-大叔我啊，剪短发了", Hoshino,
-     "光环+装备融合+战术指令宏+色彩反转→Terror"),
+    (13, "神代天赋-要有笑声！", CutawayJoke,
+     "被动积攒笑点，满后触发「插入式笑话」：借用其他玩家的合法行动"),
+    (14, "神代天赋-大叔我啊，剪短发了", Hoshino,
+     "光环+装备融合+战术指令宏+色彩反转→Terror")
 ]
 
 AI_DISABLED_TALENTS: set = _resolve_disabled_talents(
@@ -103,12 +106,12 @@ if AI_DISABLED_TALENTS:
 # ════════════════════════════════════════════════════════
 
 AI_TALENT_PREFERENCE = {
-    "aggressive": [8, 1, 10, 13, 3, 9, 4, 12],
-    "defensive":  [11, 7, 13, 3, 10, 4, 9, 12],
-    "political":  [6, 7, 11, 2, 4, 3, 9],
+    "aggressive": [8, 1, 10, 14, 3, 9, 4, 12],
+    "defensive":  [11, 7, 14, 3, 10, 4, 9, 12],
+    "political":  [6, 7, 11, 2, 13, 3, 9],
     "assassin":   [5, 1, 10, 8, 9, 2, 4],
-    "builder":    [12, 7, 11, 13, 4, 3, 2, 9],
-    "balanced":   [4, 9, 13, 5, 3, 2, 11, 12],
+    "builder":    [12, 7, 11, 14, 13, 3, 2, 9],
+    "balanced":   [4, 9, 14, 13, 5, 3, 2, 11, 12],
 }
 
 AI_PERSONALITIES = ["balanced", "aggressive", "defensive",

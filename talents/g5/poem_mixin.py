@@ -773,11 +773,13 @@ class PoemMixin:
         if not talent or talent.name != "要有笑声！":
             return "❌ 目标天赋不是「要有笑声！」"
 
-        # 立刻获得1次插入式笑话
+        # 立刻获得1次插入式笑话（附带 D4/D6 保证）
         if hasattr(talent, 'cutaway_charges'):
             talent.cutaway_charges = getattr(talent, 'cutaway_charges', 0) + 1
         else:
             talent.cutaway_charges = 1
+        talent._d4_force = True
+        talent._d6_force = True
 
         # forfeit需求减少2
         if hasattr(talent, 'forfeit_threshold'):

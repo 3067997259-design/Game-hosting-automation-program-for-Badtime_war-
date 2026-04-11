@@ -97,7 +97,9 @@ def execute(player, destination, game_state):
                 if (player.talent and hasattr(player.talent, 'has_supernova')
                         and player.talent.has_supernova):
                     is_exempt = True
-                # 插入式笑话豁免（神代6，暂未实现）
+                # 插入式笑话豁免（神代6）
+                if getattr(player, '_in_cutaway_joke', False):
+                    is_exempt = True
                 # 原初天赋4强制移动豁免（六爻放逐）
                 if getattr(player, '_hexagram_forced_move', False):
                     is_exempt = True

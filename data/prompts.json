@@ -406,6 +406,29 @@
       ],
       "activate": "「废案天赋：所以我放弃了死亡」{player_name}拒绝死亡！"
     },
+    "g6cutaway": {
+      "lore": [
+        "「满足条件后自动触发——最多发动1次。」",
+        "「笑点，特殊道具，无其他作用。」",
+        "「插入式笑话——在这个行动中，你可以进行任意一个当前场上存在的合法行动。」"
+      ],
+      "activate": "「神代天赋6：要有笑声！」{player_name}的笑点溢出了！",
+      "laugh_point_gain": "🎭 {player_name} 获得1个笑点（当前：{current}/{threshold}）",
+      "laugh_point_gain_forfeit": "🎭 {player_name} 选择了放弃行动，获得1个笑点（当前：{current}/{threshold}）",
+      "laugh_point_gain_no_turn": "🎭 {player_name} 本轮未获得行动权，获得1个笑点（当前：{current}/{threshold}）",
+      "cutaway_ready": "🎭✨ {player_name} 的笑点已满！下一轮将触发「插入式笑话」！（D4=4, D6=6）",
+      "cutaway_trigger": "🎭 ═══════════════════════════════════════════════════\n   {player_name} 的「插入式笑话」发动！\n   可执行其他玩家当前可用的任意合法行动！\n   ═══════════════════════════════════════════════════",
+      "cutaway_action_header": "🎭 ═══ 插入式笑话：可选行动 ═══",
+      "cutaway_action_item": "  {index}. [{source_name}] {action_display}",
+      "cutaway_no_actions": "🎭 插入式笑话：没有可用的行动！自动放弃。",
+      "cutaway_execute": "🎭 {player_name} 通过「插入式笑话」执行了 [{source_name}] 的行动！",
+      "cutaway_forfeit": "🎭 {player_name} 在「插入式笑话」中选择了放弃。",
+      "cutaway_consumed": "🎭 「插入式笑话」已消耗（剩余充能：{remaining}）",
+      "cutaway_retry_exhausted": "🎭 [{player_name}] 插入式笑话重试耗尽，自动放弃。",
+      "status_laugh_points": "笑点: {current}/{threshold}",
+      "status_charges": "插入式笑话充能: {charges}",
+      "poem_joy_enhanced": "🎭 {target_name} 的「要有笑声！」增强！\n   立刻获得1次「插入式笑话」（当前: {charges}次）\n   后续「插入式笑话」所需forfeit数减少2"
+    },
     "g7hoshino": {
       "lore": [
         "「呜啊……这里可真是……乱成一锅粥了啊……明明只是去午睡了……看来大叔我不得不出面了。」",

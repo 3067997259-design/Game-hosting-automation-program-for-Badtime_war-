@@ -955,5 +955,8 @@ class TacticalMixin:
             # 超新星过载
             if hasattr(mover.talent, 'has_supernova') and mover.talent.has_supernova:
                 return 0
+        # 插入式笑话豁免
+        if getattr(mover, '_in_cutaway_joke', False):
+            return 0
         return 1  # 需要多花费1回合
 
