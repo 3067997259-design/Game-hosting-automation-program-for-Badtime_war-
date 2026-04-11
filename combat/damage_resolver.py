@@ -349,7 +349,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             result["details"].append(killed_text.format(
                 target_name=target.name
             ))
-            if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
+            if (attacker and attacker.talent and hasattr(attacker.talent, 'on_kill')
+                    and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
                 attacker.talent.on_kill(attacker, target)
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
                 target.talent.on_player_death_check(target)
@@ -386,7 +387,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, None, is_limited)
 
-    if attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish'):
+    # 插入式笑话中借用来源玩家执行时跳过（不应破除来源玩家的爱愿）
+    if (attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish')
+            and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
         attacker.talent.break_love_wish(target.player_id)
 
     return result
@@ -786,7 +789,8 @@ def resolve_damage(attacker, target, weapon, game_state,
             result["details"].append(killed_text.format(
                 target_name=target.name
             ))
-            if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
+            if (attacker and attacker.talent and hasattr(attacker.talent, 'on_kill')
+                    and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
                 attacker.talent.on_kill(attacker, target)
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
                 target.talent.on_player_death_check(target)
@@ -858,7 +862,9 @@ def resolve_damage(attacker, target, weapon, game_state,
 
     # ---- 近战攻击造成伤害后：隐身临时失效（README 9.3.3） ----
     # 面对面关系解除前隐身失效，解除后恢复
+    # 插入式笑话中借用来源玩家执行时跳过（不应暴露来源玩家）
     if (attacker and game_state
+            and not getattr(attacker, '_cutaway_skip_stealth_suppress', False)
             and weapon.weapon_range == WeaponRange.MELEE
             and result["success"] and result.get("final_damage", 0) > 0
             and game_state.markers.has(attacker.player_id, "INVISIBLE")
@@ -874,7 +880,9 @@ def resolve_damage(attacker, target, weapon, game_state,
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, weapon, is_limited)
 
-    if attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish'):
+    # 插入式笑话中借用来源玩家执行时跳过（不应破除来源玩家的爱愿）
+    if (attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish')
+            and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
         attacker.talent.break_love_wish(target.player_id)
 
     return result

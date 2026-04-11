@@ -401,17 +401,15 @@ class ActionTurnManager:
     #  T1（插入式笑话）：收集其他玩家的层次1行动并执行
     # ================================================================
     def _phase_t1_cutaway(self, player):
-        """插入式笑话专用 T1：收集所有其他存活玩家的层次1标准行动，让 G6 玩家选择一个执行。"""
+        """插入式笑话专用 T1：收集所有其他存活玩家的层次1标准行动，
+        按行动类型分别校验执行。"""
 
-        # ---- 天赋绑定的 special 黑名单（不可复制） ----
-        TALENT_SPECIAL_BLACKLIST = {
-            "Hoshino", "取消盾牌", "修复", "肾上腺素",
-        }
-        # 以"更衣"开头的也排除
+        # ---- 只允许复制的 special 白名单 ----
+        CUTAWAY_ALLOWED_SPECIALS = {"释放病毒"}
 
         # ---- 收集所有其他玩家的可用行动 ----
-        collected_actions = []  # list of (display_str, usage_cmd, source_player)
-        seen_keys = set()       # 去重用（按 (name, source_pid) 去重）
+        collected_actions = []
+        seen_keys = set()
 
         for pid in self.state.player_order:
             if pid == player.player_id:
@@ -423,18 +421,15 @@ class ActionTurnManager:
             actions = action_registry.get_available_actions(other, self.state)
             for a in actions:
                 name = a["name"]
-                # 跳过无意义的行动
                 if name in ("放弃", "起床"):
                     continue
 
-                # 特殊操作：逐项过滤天赋绑定的
+                # 特殊操作：只保留白名单内的
                 if name == "特殊操作":
                     specials = special_op.get_available_specials(other, self.state)
                     for s in specials:
                         sname = s["name"]
-                        if sname in TALENT_SPECIAL_BLACKLIST:
-                            continue
-                        if sname.startswith("更衣"):
+                        if sname not in CUTAWAY_ALLOWED_SPECIALS:
                             continue
                         key = (f"special_{sname}", other.player_id)
                         if key not in seen_keys:
@@ -446,7 +441,6 @@ class ActionTurnManager:
                             })
                     continue
 
-                # 其他标准行动：按 (name, source_pid) 去重，保留不同来源
                 key = (name, other.player_id)
                 if key not in seen_keys:
                     seen_keys.add(key)
@@ -471,14 +465,12 @@ class ActionTurnManager:
             display.show_info(f"  {i}. [{source_name}] {ca['display']}")
 
         # ---- 构建给 controller 的可用行动列表 ----
-        # 提取所有行动类型名给 AI 的 available_actions
         action_names = []
         for ca in collected_actions:
-            # 从 usage 中提取行动类型（第一个词）
             action_type = ca["usage"].split()[0]
             if action_type not in action_names:
                 action_names.append(action_type)
-        action_names.append("forfeit")  # 始终可以放弃
+        action_names.append("forfeit")
 
         # 构建 source_pid 查找表：action_type -> [pid1, pid2, ...]
         source_lookup = {}
@@ -508,7 +500,7 @@ class ActionTurnManager:
                     "phase": "T1",
                     "round": self.state.current_round,
                     "attempt": attempts,
-                    "cutaway_joke": True,  # 标记给 AI 识别
+                    "cutaway_joke": True,
                 }
             )
 
@@ -543,105 +535,40 @@ class ActionTurnManager:
                 action_pause(self.state, label=f"{player.name} → forfeit (插入式笑话)")
                 return "forfeit"
 
-            # 找到对应的来源玩家（遍历所有来源，找第一个通过校验的）
+            # 找到对应的来源玩家列表
             source_pids = source_lookup.get(action, [])
             if not source_pids:
                 display.show_info(f"⚠️ 插入式笑话中不可用的行动类型: {action}")
                 continue
 
-            from cli.validator import validate
-            source_player = None
-            last_reason = ""
-            for sp_id in source_pids:
-                sp = self.state.get_player(sp_id)
-                if not sp:
-                    continue
-                valid, reason = validate(parsed, sp, self.state)
-                if valid:
-                    source_player = sp
-                    break
-                last_reason = reason
-
-            if not source_player:
-                display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
+            # ---- 按行动类型分发校验和执行 ----
+            result = None
+            if action == "interact":
+                result = self._cutaway_interact(player, parsed, source_pids)
+            elif action == "move":
+                result = self._cutaway_move(player, parsed)
+            elif action == "find":
+                result = self._cutaway_find(player, parsed, source_pids)
+            elif action == "lock":
+                result = self._cutaway_lock(player, parsed, source_pids)
+            elif action == "attack":
+                result = self._cutaway_attack(player, parsed, source_pids)
+            elif action == "special":
+                result = self._cutaway_special(player, parsed, source_pids)
+            elif action in ("report", "assemble", "track_guide", "recruit",
+                            "election", "designate", "study", "police_command"):
+                result = self._cutaway_police(player, parsed, action, source_pids)
+            else:
+                display.show_info(f"⚠️ 插入式笑话中不支持的行动类型: {action}")
                 continue
 
-            # ---- 用 G6 玩家执行（临时替换位置和装备引用） ----
-            # 保存原始状态
-            original_location = player.location
-            original_weapons = player.weapons
-            original_items = player.items
-            original_learned_spells = player.learned_spells
-            original_is_police = player.is_police
-            original_is_captain = player.is_captain
-            original_has_military_pass = player.has_military_pass
+            if result is None:
+                # 校验/执行失败，重试
+                continue
 
-            # 临时替换为来源玩家的状态（深拷贝，避免对象属性修改污染来源玩家）
-            player.location = source_player.location
-            player.weapons = copy.deepcopy(source_player.weapons)
-            player.items = copy.deepcopy(source_player.items)
-            player.learned_spells = set(source_player.learned_spells)
-            player.is_police = source_player.is_police
-            player.is_captain = source_player.is_captain
-            player.has_military_pass = source_player.has_military_pass
-
-            # 保存借来的快照，用于成功后计算增量
-            borrowed_weapons = list(player.weapons)
-            borrowed_items = list(player.items)
-            borrowed_spells = set(player.learned_spells)
-
-            try:
-                result = self._execute_action(parsed, player)
-                msg, action_type, success = result[0], result[1], result[2]
-                consumes_turn = result[3] if len(result) > 3 else success
-                display.show_result(msg)
-
-                if not success:
-                    display.show_info("⚠️ 行动执行失败，请重新选择。")
-                    continue
-                if not consumes_turn:
-                    attempts -= 1  # 不消耗回合的成功操作不计入重试次数
-                    continue
-
-                # 行动成功且消耗回合：只保留行动的直接效果（增量），
-                # 不保留临时借来的来源玩家基础状态。
-
-                # location：move 行动的直接效果，保留新位置
-                original_location = player.location
-
-                # weapons/items/learned_spells：计算增量（执行中新增的），
-                # 追加到 G6 的真实装备上，而不是整体替换。
-                # 注意：borrowed_* 是执行前的深拷贝快照
-                new_weapons = [w for w in player.weapons
-                               if w not in borrowed_weapons]
-                for w in new_weapons:
-                    original_weapons.append(w)
-
-                new_items = [it for it in player.items
-                             if it not in borrowed_items]
-                for it in new_items:
-                    original_items.append(it)
-
-                new_spells = set(player.learned_spells) - borrowed_spells
-                for sp in new_spells:
-                    original_learned_spells.add(sp)
-
-                # is_police/is_captain/has_military_pass：身份标记始终恢复，
-                # 不因借用他人行动而改变自身身份。
-                # （original_is_police 等保持不变，finally 会恢复）
-
-                from utils.pacing import action_pause
-                action_pause(self.state, label=f"{player.name} → {action_type} (插入式笑话)")
-                return action_type
-            finally:
-                # ---- 恢复 G6 玩家的原始状态 ----
-                player.location = original_location
-                player.weapons = original_weapons
-                player.items = original_items
-                player.learned_spells = original_learned_spells
-                player.is_police = original_is_police
-                player.is_captain = original_is_captain
-                player.has_military_pass = original_has_military_pass
+            from utils.pacing import action_pause
+            action_pause(self.state, label=f"{player.name} → {result} (插入式笑话)")
+            return result
 
         # 重试耗尽
         display.show_info(f"[{player.name}] 插入式笑话重试耗尽，自动放弃。")
@@ -649,6 +576,529 @@ class ActionTurnManager:
         msg = forfeit_mod.execute(player, self.state)
         display.show_result(msg)
         return "forfeit"
+
+    # ================================================================
+    #  插入式笑话：interact
+    #  策略：G6 玩家 + 临时替换 location 为来源玩家的位置
+    #  个人状态（凭证、物品、武器等）保留 G6 自己的
+    #  前置法术：临时注入，学完后移除注入的部分
+    #  多回合学习：直接完成（跳过进度系统）
+    # ================================================================
+    def _cutaway_interact(self, player, parsed, source_pids):
+        from cli.validator import validate
+        item_name = parsed.get("item")
+
+        original_location = player.location
+        original_spells = set(player.learned_spells)
+
+        source_player = None
+        last_reason = ""
+
+        for sp_id in source_pids:
+            sp = self.state.get_player(sp_id)
+            if not sp:
+                continue
+
+            # 临时替换位置
+            player.location = sp.location
+
+            # 注入前置法术（如果需要）
+            injected_prereqs = set()
+            from locations.magic_institute import PREREQUISITES
+            if item_name in PREREQUISITES:
+                prereq = PREREQUISITES[item_name]
+                if prereq not in player.learned_spells:
+                    player.learned_spells.add(prereq)
+                    injected_prereqs.add(prereq)
+
+            valid, reason = validate(parsed, player, self.state)
+
+            if valid:
+                source_player = sp
+                break
+
+            # 校验失败，清理注入的前置
+            player.learned_spells -= injected_prereqs
+            last_reason = reason
+
+        if not source_player:
+            player.location = original_location
+            player.learned_spells = original_spells
+            display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
+            return None
+
+        # ---- 执行 interact ----
+        # 多回合学习：直接设置进度为完成状态
+        from locations.magic_institute import LEARN_TURNS
+        old_progress = None
+        progress_key = None
+        if item_name in LEARN_TURNS:
+            required = LEARN_TURNS[item_name]
+            if required > 1:
+                progress_key = f"learn_{item_name}"
+                old_progress = player.progress.get(progress_key)
+                player.progress[progress_key] = required - 1  # do_interact 会 +1 达到 required
+
+        success = False
+        try:
+            from actions import interact as interact_mod
+            msg = interact_mod.execute(player, item_name, self.state)
+            display.show_result(msg)
+
+            success = not msg.startswith("❌")
+        finally:
+            # ---- 清理 ----
+            # 恢复位置
+            player.location = original_location
+
+            # 清理注入的前置法术（只移除注入的，不移除本次学到的）
+            # 本次学到的法术保留在 player.learned_spells 中
+            newly_learned = player.learned_spells - original_spells - injected_prereqs
+            player.learned_spells = original_spells | newly_learned
+
+            # 失败时恢复人为设置的 progress
+            if not success and progress_key is not None:
+                if old_progress is None:
+                    player.progress.pop(progress_key, None)
+                else:
+                    player.progress[progress_key] = old_progress
+
+        if not success:
+            display.show_info("⚠️ 行动执行失败，请重新选择。")
+            return None
+
+        return "interact"
+
+    # ================================================================
+    #  插入式笑话：move
+    #  策略：直接用 G6 自己校验和执行，不需要来源玩家的状态
+    #  G6 从自己的实际位置移动到目标位置
+    # ================================================================
+    def _cutaway_move(self, player, parsed):
+        from cli.validator import validate
+        valid, reason = validate(parsed, player, self.state)
+        if not valid:
+            display.show_info(f"⚠️ 指令不合法: {reason}")
+            return None
+
+        result = self._execute_action(parsed, player)
+        msg, action_type, success = result[0], result[1], result[2]
+        display.show_result(msg)
+
+        if not success:
+            display.show_info("⚠️ 行动执行失败，请重新选择。")
+            return None
+
+        return "move"
+
+    # ================================================================
+    #  插入式笑话：find
+    #  策略：只要某个来源玩家能 find 目标，就把 G6 传送过去执行 find
+    #  自定义校验：不能 find 来源玩家自己
+    # ================================================================
+    def _cutaway_find(self, player, parsed, source_pids):
+        from cli.parser import resolve_player_target
+        from cli.validator import _check_not_disabled
+
+        target_str = parsed.get("target")
+        if not target_str:
+            display.show_info("⚠️ 请指定目标。")
+            return None
+
+        # G6 自身 debuff 检查
+        ok, reason = _check_not_disabled(player, self.state)
+        if not ok:
+            display.show_info(f"⚠️ {reason}")
+            return None
+
+        target_id = resolve_player_target(target_str, self.state)
+        if not target_id:
+            display.show_info(f"⚠️ 找不到玩家「{target_str}」")
+            return None
+        target = self.state.get_player(target_id)
+        if not target or not target.is_alive():
+            display.show_info(f"⚠️ {target_str} 已死亡")
+            return None
+        if target_id == player.player_id:
+            display.show_info("⚠️ 不能对自己使用找到")
+            return None
+
+        # 检查 G6 是否已经和目标面对面
+        already = self.state.markers.has_relation(
+            player.player_id, "ENGAGED_WITH", target_id)
+        if already:
+            display.show_info(f"⚠️ 你已经和 {target.name} 面对面了")
+            return None
+
+        # 全息影像禁止检查（用 G6 的 player_id）
+        from cli.validator import _check_hologram_lock_find
+        hologram_block = _check_hologram_lock_find(player, self.state)
+        if hologram_block:
+            display.show_info(f"⚠️ {hologram_block}")
+            return None
+
+        # 遍历来源玩家，找一个能 find 目标的
+        found_source = None
+        last_reason = ""
+        for sp_id in source_pids:
+            sp = self.state.get_player(sp_id)
+            if not sp:
+                continue
+            # 不能通过来源玩家 find 来源玩家自己
+            if target_id == sp_id:
+                last_reason = f"不能通过 {sp.name} 找到 {sp.name} 自己"
+                continue
+            # 来源玩家必须和目标同地点
+            if sp.location != target.location:
+                last_reason = f"{target.name} 不在 {sp.name} 的位置"
+                continue
+            # 来源玩家必须能看到目标
+            visible = self.state.markers.is_visible_to(
+                target_id, sp.player_id, sp.has_detection)
+            if not visible:
+                last_reason = f"{target.name} 对 {sp.name} 不可见"
+                continue
+            # 烟雾检查（用来源玩家的位置）
+            from cli.validator import _is_smoke_active, _is_hoshino_player
+            if _is_smoke_active(self.state, sp.location):
+                if not _is_hoshino_player(sp):
+                    last_reason = "烟雾中无法执行 find"
+                    continue
+            found_source = sp
+            break
+
+        if not found_source:
+            display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
+            return None
+
+        # ---- 执行：传送 G6 到目标位置，然后 find ----
+        original_location = player.location
+        player.location = target.location
+
+        from actions import find_target
+        msg = find_target.execute(player, target_id, self.state)
+        display.show_result(msg)
+
+        if msg.startswith("❌"):
+            player.location = original_location
+            display.show_info("⚠️ 行动执行失败，请重新选择。")
+            return None
+
+        # 位置保持在目标位置（传送效果）
+        # 不恢复 original_location
+        return "find"
+
+    # ================================================================
+    #  插入式笑话：lock
+    #  策略：来源玩家能看到目标 + G6 自己有远程武器 → 允许 lock
+    # ================================================================
+    def _cutaway_lock(self, player, parsed, source_pids):
+        from cli.parser import resolve_player_target
+        from cli.validator import _check_not_disabled
+        from models.equipment import WeaponRange
+
+        target_str = parsed.get("target")
+        if not target_str:
+            display.show_info("⚠️ 请指定锁定目标。")
+            return None
+
+        # G6 自身 debuff 检查
+        ok, reason = _check_not_disabled(player, self.state)
+        if not ok:
+            display.show_info(f"⚠️ {reason}")
+            return None
+
+        target_id = resolve_player_target(target_str, self.state)
+        if not target_id:
+            display.show_info(f"⚠️ 找不到玩家「{target_str}」")
+            return None
+        target = self.state.get_player(target_id)
+        if not target or not target.is_alive():
+            display.show_info(f"⚠️ {target_str} 已死亡或不存在")
+            return None
+        if not target.is_on_map():
+            display.show_info(f"⚠️ {target.name} 不在地图上")
+            return None
+        if target_id == player.player_id:
+            display.show_info("⚠️ 不能锁定自己")
+            return None
+
+        # G6 必须持有远程武器
+        has_ranged = any(
+            getattr(w, 'weapon_range', None) == WeaponRange.RANGED
+            for w in (player.weapons or []) if w
+        )
+        if not has_ranged:
+            display.show_info("⚠️ 锁定是远程攻击前置，你没有远程武器")
+            return None
+
+        # G6 是否已经锁定了目标
+        already = self.state.markers.has_relation(
+            target_id, "LOCKED_BY", player.player_id)
+        if already:
+            display.show_info(f"⚠️ 你已经锁定了 {target.name}")
+            return None
+
+        # 全息影像禁止检查（用 G6 的 player_id）
+        from cli.validator import _check_hologram_lock_find
+        hologram_block = _check_hologram_lock_find(player, self.state)
+        if hologram_block:
+            display.show_info(f"⚠️ {hologram_block}")
+            return None
+
+        # 遍历来源玩家，找一个能看到目标的
+        found_source = None
+        last_reason = ""
+        for sp_id in source_pids:
+            sp = self.state.get_player(sp_id)
+            if not sp:
+                continue
+            # 烟雾检查（用来源玩家看目标的位置）
+            from cli.validator import _is_smoke_active, _is_hoshino_player
+            target_loc = target.location
+            if _is_smoke_active(self.state, target_loc):
+                if not _is_hoshino_player(sp):
+                    last_reason = "目标在烟雾区域中，无法锁定"
+                    continue
+            # 来源玩家必须能看到目标
+            visible = self.state.markers.is_visible_to(
+                target_id, sp.player_id, sp.has_detection)
+            if not visible:
+                last_reason = f"{target.name} 对 {sp.name} 不可见"
+                continue
+            found_source = sp
+            break
+
+        if not found_source:
+            display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
+            return None
+
+        # ---- 执行：用 G6 的 player_id 建立锁定标记 ----
+        from actions import lock_target
+        msg = lock_target.execute(player, target_id, self.state)
+        display.show_result(msg)
+        if msg.startswith("❌"):
+            display.show_info("⚠️ 行动执行失败，请重新选择。")
+            return None
+        return "lock"
+
+    # ================================================================
+    #  插入式笑话：attack
+    #  策略：直接用来源玩家校验和执行，击杀计数归 G6
+    #  补检爱愿（用 G6 的 player_id）
+    # ================================================================
+    def _cutaway_attack(self, player, parsed, source_pids):
+        from cli.validator import validate, _check_love_wish_block
+        from cli.parser import resolve_player_target
+
+        # 补检爱愿（用 G6 的 player_id）
+        target_str = parsed.get("target")
+        if target_str and not target_str.lower().startswith("police"):
+            target_id = resolve_player_target(target_str, self.state)
+            if target_id and _check_love_wish_block(
+                    player.player_id, target_id, self.state):
+                target_p = self.state.get_player(target_id)
+                tname = target_p.name if target_p else target_str
+                display.show_info(f"⚠️ 💝「爱愿」生效中：你无法攻击 {tname}")
+                return None
+
+        # 遍历来源玩家，找第一个通过校验的
+        source_player = None
+        last_reason = ""
+        for sp_id in source_pids:
+            sp = self.state.get_player(sp_id)
+            if not sp:
+                continue
+            valid, reason = validate(parsed, sp, self.state)
+            if valid:
+                source_player = sp
+                break
+            last_reason = reason
+
+        if not source_player:
+            display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
+            return None
+
+        # ---- 执行：用来源玩家执行攻击，击杀归属 G6 ----
+        # 快照来源玩家的蓄力/导弹状态，执行后恢复
+        weapon_name = parsed.get("weapon")
+        src_weapon = source_player.get_weapon(weapon_name) if weapon_name else None
+        src_charged_before = src_weapon.is_charged if (src_weapon and src_weapon.requires_charge) else None
+        src_had_missile_ctrl = self.state.markers.has(source_player.player_id, "MISSILE_CTRL")
+
+        # 临时禁用隐身暴露和攻击者天赋钩子（on_kill/break_love_wish）
+        source_player._cutaway_skip_stealth_suppress = True
+        source_player._cutaway_suppress_attacker_hooks = True
+
+        try:
+            result = self._execute_attack(parsed, source_player, override_killer=player)
+        finally:
+            # 恢复临时标记
+            if hasattr(source_player, '_cutaway_skip_stealth_suppress'):
+                del source_player._cutaway_skip_stealth_suppress
+            if hasattr(source_player, '_cutaway_suppress_attacker_hooks'):
+                del source_player._cutaway_suppress_attacker_hooks
+
+            # 恢复蓄力状态
+            if src_charged_before is not None and src_weapon:
+                src_weapon.is_charged = src_charged_before
+
+            # 恢复导弹控制权标记
+            if src_had_missile_ctrl and not self.state.markers.has(
+                    source_player.player_id, "MISSILE_CTRL"):
+                self.state.markers.add(source_player.player_id, "MISSILE_CTRL")
+
+        msg, action_type, success = result[0], result[1], result[2]
+        display.show_result(msg)
+
+        if not success:
+            display.show_info("⚠️ 行动执行失败，请重新选择。")
+            return None
+
+        return "attack"
+
+    # ================================================================
+    #  插入式笑话：special（仅释放病毒）
+    #  策略：用来源玩家的位置校验，G6 执行
+    # ================================================================
+    def _cutaway_special(self, player, parsed, source_pids):
+        op_name = parsed.get("operation")
+        if op_name != "释放病毒":
+            display.show_info(f"⚠️ 插入式笑话中只能执行「释放病毒」，不能执行「{op_name}」")
+            return None
+
+        # 找一个在医院的来源玩家
+        source_player = None
+        for sp_id in source_pids:
+            sp = self.state.get_player(sp_id)
+            if sp and sp.location == "医院":
+                source_player = sp
+                break
+
+        if not source_player:
+            display.show_info("⚠️ 没有来源玩家在医院，无法释放病毒")
+            return None
+
+        if self.state.virus.is_active:
+            display.show_info("⚠️ 病毒已经在活跃状态了")
+            return None
+
+        # 执行释放病毒（全局效果，用 G6 执行，临时设置位置）
+        original_location = player.location
+        player.location = "医院"
+        try:
+            msg, consumes = special_op.execute(player, "释放病毒", self.state)
+            display.show_result(msg)
+        finally:
+            player.location = original_location
+
+        if msg.startswith("❌"):
+            display.show_info("⚠️ 行动执行失败，请重新选择。")
+            return None
+
+        return "special"
+
+    # ================================================================
+    #  插入式笑话：police 系列
+    #  策略：
+    #    - report/assemble/track_guide 依赖 player_id 身份检查
+    #      （reporter_id / event_log），直接用来源玩家执行，成果归 G6
+    #    - 其他（recruit/election/designate/study/police_command）
+    #      临时借用来源玩家状态让 G6 执行
+    # ================================================================
+    # 需要以来源玩家身份执行的行动（内部用 player_id 做身份匹配）
+    _POLICE_IDENTITY_ACTIONS = {"report", "assemble", "track_guide"}
+
+    def _cutaway_police(self, player, parsed, action, source_pids):
+        from cli.validator import validate
+
+        source_player = None
+        last_reason = ""
+        for sp_id in source_pids:
+            sp = self.state.get_player(sp_id)
+            if not sp:
+                continue
+            valid, reason = validate(parsed, sp, self.state)
+            if valid:
+                source_player = sp
+                break
+            last_reason = reason
+
+        if not source_player:
+            display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
+            return None
+
+        # ---- 身份依赖行动：直接用来源玩家执行，成功后转移归属到 G6 ----
+        if action in self._POLICE_IDENTITY_ACTIONS:
+            result = self._execute_action(parsed, source_player)
+            msg, action_type, success = result[0], result[1], result[2]
+            display.show_result(msg)
+
+            if not success:
+                display.show_info("⚠️ 行动执行失败，请重新选择。")
+                return None
+
+            # 转移归属：将 reporter_id 从来源玩家改为 G6
+            # 使后续 assemble/track_guide 的身份检查指向 G6
+            pe = self.state.police_engine
+            if pe and hasattr(self.state, 'police') and self.state.police:
+                if action == "report":
+                    self.state.police.reporter_id = player.player_id
+                elif action == "assemble":
+                    # 警察保护从来源玩家转移到 G6
+                    self.state.police.reporter_id = player.player_id
+                    if getattr(source_player, 'has_police_protection', False):
+                        source_player.has_police_protection = False
+                        self.state.markers.remove(source_player.player_id, "POLICE_PROTECT")
+                        player.has_police_protection = True
+                        self.state.markers.add(player.player_id, "POLICE_PROTECT")
+                elif action == "track_guide":
+                    self.state.police.reporter_id = player.player_id
+
+            return action_type
+
+        # ---- 其他警察行动：临时借用来源玩家的警察相关状态 ----
+        orig_location = player.location
+        orig_is_police = player.is_police
+        orig_is_captain = player.is_captain
+        orig_is_criminal = player.is_criminal
+
+        player.location = source_player.location
+        player.is_police = source_player.is_police
+        player.is_captain = source_player.is_captain
+        player.is_criminal = source_player.is_criminal
+
+        result = None
+        try:
+            result = self._execute_action(parsed, player)
+        finally:
+            # 恢复位置和犯罪状态（不因借用而改变）
+            player.location = orig_location
+            player.is_criminal = orig_is_criminal
+            # is_police / is_captain：始终先恢复为原值，
+            # 再根据操作是否真正改变了身份来重新设置。
+            # 仅凭 result[2] 判断会误判（如 election 递增进度也算成功）。
+            post_is_police = player.is_police
+            post_is_captain = player.is_captain
+            player.is_police = orig_is_police
+            player.is_captain = orig_is_captain
+
+            if result is not None and result[2]:
+                # recruit 成功：do_recruit 会设 player.is_police = True
+                if action == "recruit" and post_is_police:
+                    player.is_police = True
+                # election 完成（成为队长）：_make_captain 会设 is_captain = True
+                if action == "election" and post_is_captain and not orig_is_captain:
+                    player.is_captain = True
+
+        msg, action_type, success = result[0], result[1], result[2]
+        display.show_result(msg)
+
+        if not success:
+            display.show_info("⚠️ 行动执行失败，请重新选择。")
+            return None
+
+        return action_type
 
     # ================================================================
     #  T2：回合结束触发
@@ -842,7 +1292,10 @@ class ActionTurnManager:
     # ================================================================
     #  攻击执行
     # ================================================================
-    def _execute_attack(self, parsed, player):
+    def _execute_attack(self, parsed, player, override_killer=None):
+        """override_killer: 插入式笑话中传入 G6 玩家，
+        使击杀归属、死亡显示、天赋通知都用 G6 的身份。"""
+        killer = override_killer or player
         target_id = resolve_player_target(parsed["target"], self.state)
         weapon_name = parsed["weapon"]
         layer_str = parsed.get("layer")
@@ -851,7 +1304,7 @@ class ActionTurnManager:
 
         from models.equipment import WeaponRange
         if weapon.weapon_range == WeaponRange.AREA:
-            return self._execute_area_attack(player, weapon)
+            return self._execute_area_attack(player, weapon, override_killer=override_killer)
 
         msg, result = attack.execute(
             player, target_id, weapon_name, self.state,
@@ -873,22 +1326,23 @@ class ActionTurnManager:
 
             target = self.state.get_player(target_id)
             if result.get("killed") and target:
-                player.kill_count += 1
+                killer.kill_count += 1
                 self.state.markers.on_player_death(target_id)
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target_id)
-                display.show_death(target.name, f"被 {player.name} 的 {weapon_name} 击杀")
+                display.show_death(target.name, f"被 {killer.name} 的 {weapon_name} 击杀")
                 # 新增：通知所有天赋（星野色彩计数等）
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
-                    self.state, target_id, killer_id=player.player_id)
+                    self.state, target_id, killer_id=killer.player_id)
 
         return msg, "attack", not is_failure                   # CHANGED
 
     # ================================================================
     #  范围攻击执行
     # ================================================================
-    def _execute_area_attack(self, player, weapon):
+    def _execute_area_attack(self, player, weapon, override_killer=None):
+        killer = override_killer or player
         from combat.damage_resolver import resolve_area_damage
 
         results = resolve_area_damage(
@@ -908,7 +1362,7 @@ class ActionTurnManager:
                 lines.append(f"   可选震荡目标（最多2个）：{', '.join(names)}")
 
                 # ══ CONTROLLER 改动：震荡目标选择走 controller ══
-                selected = player.controller.choose_multi(
+                selected = killer.controller.choose_multi(
                     "选择震荡目标（最多2个）：",
                     names,
                     max_count=min(2, len(alive_hit)),
@@ -928,7 +1382,7 @@ class ActionTurnManager:
             if t.name in shock_targets:
                 # 爱愿检查
                 if (t.talent and hasattr(t.talent, 'has_love_wish')
-                        and t.talent.has_love_wish(player.player_id)):
+                        and t.talent.has_love_wish(killer.player_id)):
                     lines.append(f"      💝 「爱愿」保护 {t.name} 免受震荡！")
                 # 六爻·元亨利贞：免疫震荡
                 elif t.talent and hasattr(t.talent, 'is_immune_to_debuff') and t.talent.is_immune_to_debuff("shock"):
@@ -940,15 +1394,15 @@ class ActionTurnManager:
                     lines.append(f"      ⚡ {t.name} 进入震荡状态！")
 
             if res.get("killed"):
-                player.kill_count += 1
+                killer.kill_count += 1
                 self.state.markers.on_player_death(t.player_id)
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(t.player_id)
-                display.show_death(t.name, f"被 {player.name} 的 {weapon.name} 击杀")
+                display.show_death(t.name, f"被 {killer.name} 的 {weapon.name} 击杀")
                 # 通知所有天赋（星野色彩计数等）
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
-                    self.state, t.player_id, killer_id=player.player_id)
+                    self.state, t.player_id, killer_id=killer.player_id)
 
         # ---- 范围攻击同时波及同地点警察 ----
         pe = self.state.police_engine
@@ -961,15 +1415,15 @@ class ActionTurnManager:
                 old_hp = unit.hp
                 atk_result = pe._resolve_attack_on_police(weapon, unit, attacker=player)
                 lines.append(f"\n   → 对 警察{unit.unit_id}: {atk_result}")
-                unit.last_attacker_id = player.player_id
+                unit.last_attacker_id = killer.player_id
                 if old_hp > 0 and unit.hp <= 0:
                     killed_any_police = True
             if police_at_loc:
-                # 攻击警察视为犯法
-                pe.check_and_record_crime(player.player_id, "攻击警察")
+                # 攻击警察视为犯法（犯罪记录归 killer，插入式笑话中归 G6）
+                pe.check_and_record_crime(killer.player_id, "攻击警察")
                 if killed_any_police and not self.state.police.has_captain():
-                    self.state.police.clear_crimes(player.player_id)
-                    player.is_criminal = False
+                    self.state.police.clear_crimes(killer.player_id)
+                    killer.is_criminal = False
                     lines.append(f"   💪 击杀警察！犯罪记录已清除")
                 self.state.police.check_all_dead()
 

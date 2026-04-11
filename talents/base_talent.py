@@ -65,6 +65,9 @@ class BaseTalent:
         """
         return "未实现", False
 
+    def on_d4_bonus(self, player):
+        return 0
+
     def on_d6_bonus(self, player):
         return 0
 
