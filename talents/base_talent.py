@@ -147,6 +147,7 @@ class BaseTalent:
             "Mythland": "g3mythland",
             "Savior": "g4savior",
             "Ripple": "g5ripple",
+            "CutawayJoke": "g6cutaway",
             "Hoshino": "g7hoshino",
         }
 

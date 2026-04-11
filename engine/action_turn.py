@@ -290,6 +290,9 @@ class ActionTurnManager:
         """
         T1：从 controller 获取命令 → parse → validate → execute。
         """
+        # ---- 插入式笑话检测 ----
+        if getattr(player, '_in_cutaway_joke', False):
+            return self._phase_t1_cutaway(player)
         result = self._get_available_actions(player)
         action_names = result[0]
         action_display = result[1]
@@ -382,6 +385,227 @@ class ActionTurnManager:
         # 重试耗尽 → 强制 forfeit
         display.show_info(f"[{player.name}] 重试次数耗尽，自动放弃行动。")
         msg = forfeit.execute(player, self.state)
+        display.show_result(msg)
+        return "forfeit"
+
+    # ================================================================
+    #  T1（插入式笑话）：收集其他玩家的层次1行动并执行
+    # ================================================================
+    def _phase_t1_cutaway(self, player):
+        """插入式笑话专用 T1：收集所有其他存活玩家的层次1标准行动，让 G6 玩家选择一个执行。"""
+
+        # ---- 天赋绑定的 special 黑名单（不可复制） ----
+        TALENT_SPECIAL_BLACKLIST = {
+            "Hoshino", "取消盾牌", "修复", "肾上腺素",
+        }
+        # 以"更衣"开头的也排除
+
+        # ---- 收集所有其他玩家的可用行动 ----
+        collected_actions = []  # list of (display_str, usage_cmd, source_player)
+        seen_keys = set()       # 去重用
+
+        for pid in self.state.player_order:
+            if pid == player.player_id:
+                continue
+            other = self.state.get_player(pid)
+            if not other or not other.is_alive() or not other.is_awake:
+                continue
+
+            actions = action_registry.get_available_actions(other, self.state)
+            for a in actions:
+                name = a["name"]
+                # 跳过无意义的行动
+                if name in ("放弃", "起床"):
+                    continue
+
+                # 特殊操作：逐项过滤天赋绑定的
+                if name == "特殊操作":
+                    specials = special_op.get_available_specials(other, self.state)
+                    for s in specials:
+                        sname = s["name"]
+                        if sname in TALENT_SPECIAL_BLACKLIST:
+                            continue
+                        if sname.startswith("更衣"):
+                            continue
+                        key = f"special_{sname}"
+                        if key not in seen_keys:
+                            seen_keys.add(key)
+                            collected_actions.append({
+                                "display": f"特殊操作: {sname} — {s['description']}",
+                                "usage": f"special {sname}",
+                                "source_pid": other.player_id,
+                            })
+                    continue
+
+                # 其他标准行动：用 name 去重
+                key = name
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    collected_actions.append({
+                        "display": f"{name} — {a.get('description', '')}",
+                        "usage": a.get("usage", name),
+                        "source_pid": other.player_id,
+                    })
+
+        if not collected_actions:
+            display.show_info("🎭 插入式笑话：没有可用的行动！自动放弃。")
+            from actions import forfeit
+            msg = forfeit.execute(player, self.state)
+            display.show_result(msg)
+            return "forfeit"
+
+        # ---- 展示可用行动 ----
+        display.show_info("🎭 ═══ 插入式笑话：可选行动 ═══")
+        for i, ca in enumerate(collected_actions, 1):
+            source = self.state.get_player(ca["source_pid"])
+            source_name = source.name if source else "?"
+            display.show_info(f"  {i}. [{source_name}] {ca['display']}")
+
+        # ---- 构建给 controller 的可用行动列表 ----
+        # 提取所有行动类型名给 AI 的 available_actions
+        action_names = []
+        for ca in collected_actions:
+            # 从 usage 中提取行动类型（第一个词）
+            action_type = ca["usage"].split()[0]
+            if action_type not in action_names:
+                action_names.append(action_type)
+        action_names.append("forfeit")  # 始终可以放弃
+
+        # 构建 source_pid 查找表：action_type -> source_pid
+        # 对于需要具体参数的行动（如 attack），需要更精细的匹配
+        source_lookup = {}
+        for ca in collected_actions:
+            action_type = ca["usage"].split()[0]
+            if action_type not in source_lookup:
+                source_lookup[action_type] = ca["source_pid"]
+
+        # ---- 获取玩家/AI 输入并执行 ----
+        max_retries = 10
+        attempts = 0
+
+        from engine.filtered_state import FilteredGameState
+        is_blinded = getattr(player, '_hoshino_blinded', False)
+        observable = (FilteredGameState(self.state, player.player_id)
+                      if is_blinded else self.state)
+
+        while attempts < max_retries:
+            attempts += 1
+
+            raw = player.controller.get_command(
+                player=player,
+                game_state=observable,
+                available_actions=action_names,
+                context={
+                    "phase": "T1",
+                    "round": self.state.current_round,
+                    "attempt": attempts,
+                    "cutaway_joke": True,  # 标记给 AI 识别
+                }
+            )
+
+            # 查看类指令
+            raw_lower = raw.strip().lower()
+            if raw_lower in ("help", "status", "allstatus", "police"):
+                if raw_lower == "help":
+                    display.show_help()
+                elif raw_lower == "status":
+                    display.show_player_status(player, observable)
+                elif raw_lower == "allstatus":
+                    display.show_all_players_status(observable)
+                elif raw_lower == "police":
+                    display.show_police_status(self.state)
+                continue
+
+            # 解析
+            from cli.parser import parse
+            parsed = parse(raw, player.player_id)
+            if parsed is None:
+                display.show_info(f"⚠️ 无法解析指令: {raw}")
+                continue
+
+            action = parsed.get("action")
+
+            # forfeit 直接执行
+            if action == "forfeit":
+                from actions import forfeit
+                msg = forfeit.execute(player, self.state)
+                display.show_result(msg)
+                from utils.pacing import action_pause
+                action_pause(self.state, label=f"{player.name} → forfeit (插入式笑话)")
+                return "forfeit"
+
+            # 找到对应的来源玩家
+            source_pid = source_lookup.get(action)
+            if not source_pid:
+                # 尝试从 collected_actions 中精确匹配
+                for ca in collected_actions:
+                    if ca["usage"].split()[0] == action:
+                        source_pid = ca["source_pid"]
+                        break
+            if not source_pid:
+                display.show_info(f"⚠️ 插入式笑话中不可用的行动类型: {action}")
+                continue
+
+            source_player = self.state.get_player(source_pid)
+            if not source_player:
+                display.show_info(f"⚠️ 来源玩家不存在")
+                continue
+
+            # ---- 用来源玩家做校验 ----
+            from cli.validator import validate
+            valid, reason = validate(parsed, source_player, self.state)
+            if not valid:
+                display.show_info(f"⚠️ 指令不合法（来源校验）: {reason}")
+                continue
+
+            # ---- 用 G6 玩家执行（临时替换位置和装备引用） ----
+            # 保存原始状态
+            original_location = player.location
+            original_weapons = player.weapons
+            original_items = player.items
+            original_learned_spells = player.learned_spells
+            original_is_police = player.is_police
+            original_is_captain = player.is_captain
+            original_has_military_pass = player.has_military_pass
+
+            # 临时替换为来源玩家的状态
+            player.location = source_player.location
+            player.weapons = source_player.weapons
+            player.items = source_player.items
+            player.learned_spells = source_player.learned_spells
+            player.is_police = source_player.is_police
+            player.is_captain = source_player.is_captain
+            player.has_military_pass = source_player.has_military_pass
+
+            try:
+                result = self._execute_action(parsed, player)
+                msg, action_type, success = result[0], result[1], result[2]
+                consumes_turn = result[3] if len(result) > 3 else success
+                display.show_result(msg)
+
+                if not success:
+                    display.show_info("⚠️ 行动执行失败，请重新选择。")
+                    continue
+                if not consumes_turn:
+                    continue
+
+                from utils.pacing import action_pause
+                action_pause(self.state, label=f"{player.name} → {action_type} (插入式笑话)")
+                return action_type
+            finally:
+                # ---- 恢复 G6 玩家的原始状态 ----
+                player.location = original_location
+                player.weapons = original_weapons
+                player.items = original_items
+                player.learned_spells = original_learned_spells
+                player.is_police = original_is_police
+                player.is_captain = original_is_captain
+                player.has_military_pass = original_has_military_pass
+
+        # 重试耗尽
+        display.show_info(f"[{player.name}] 插入式笑话重试耗尽，自动放弃。")
+        from actions import forfeit as forfeit_mod
+        msg = forfeit_mod.execute(player, self.state)
         display.show_result(msg)
         return "forfeit"
 
