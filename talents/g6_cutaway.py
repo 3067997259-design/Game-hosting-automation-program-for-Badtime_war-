@@ -79,16 +79,12 @@ class CutawayJoke(BaseTalent):
     # ---- 行动回合钩子 ----
 
     def on_turn_start(self, player):
-        """T0：如果有插入式笑话充能，标记本回合为插入式笑话"""
+        """T0：仅做提示，不设置标记（标记由 _phase_t1 在确认进入 T1 后设置）"""
         if player.player_id != self.player_id:
             return None
         if self.cutaway_charges > 0:
-            player._in_cutaway_joke = True
-            # 清除 D4/D6 强制标记（已在 R1 生效过了）
-            self._d4_force = False
-            self._d6_force = False
             from cli import display
-            display.show_info(f"🎭 {player.name} 的「插入式笑话」发动！可执行其他玩家的合法行动！")
+            display.show_info(f"🎭 {player.name} 的「插入式笑话」即将发动！")
         return None  # 不消耗回合，继续进入 T1
 
     def on_turn_end(self, player, action_type):

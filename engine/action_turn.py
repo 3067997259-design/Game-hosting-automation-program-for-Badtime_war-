@@ -292,6 +292,14 @@ class ActionTurnManager:
         T1：从 controller 获取命令 → parse → validate → execute。
         """
         # ---- 插入式笑话检测 ----
+        # 标记设置从 on_turn_start 移到此处，确保只在 T0 正常完成后才生效
+        if (player.talent and hasattr(player.talent, 'cutaway_charges')
+                and player.talent.cutaway_charges > 0
+                and not getattr(player, '_in_cutaway_joke', False)):
+            player._in_cutaway_joke = True
+            player.talent._d4_force = False
+            player.talent._d6_force = False
+            display.show_info(f"🎭 {player.name} 的「插入式笑话」发动！可执行其他玩家的合法行动！")
         if getattr(player, '_in_cutaway_joke', False):
             return self._phase_t1_cutaway(player)
         result = self._get_available_actions(player)
@@ -592,6 +600,7 @@ class ActionTurnManager:
                     display.show_info("⚠️ 行动执行失败，请重新选择。")
                     continue
                 if not consumes_turn:
+                    attempts -= 1  # 不消耗回合的成功操作不计入重试次数
                     continue
 
                 # 行动成功且消耗回合：只保留行动的直接效果（增量），
