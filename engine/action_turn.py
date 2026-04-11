@@ -589,6 +589,10 @@ class ActionTurnManager:
                 if not consumes_turn:
                     continue
 
+                # move 成功时保留执行后的位置（真正移动过去）
+                if action_type == "move":
+                    original_location = player.location
+
                 from utils.pacing import action_pause
                 action_pause(self.state, label=f"{player.name} → {action_type} (插入式笑话)")
                 return action_type
