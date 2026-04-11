@@ -779,6 +779,11 @@ class ActionTurnManager:
         msg = find_target.execute(player, target_id, self.state)
         display.show_result(msg)
 
+        if msg.startswith("❌"):
+            player.location = original_location
+            display.show_info("⚠️ 行动执行失败，请重新选择。")
+            return None
+
         # 位置保持在目标位置（传送效果）
         # 不恢复 original_location
         return "find"
@@ -918,15 +923,18 @@ class ActionTurnManager:
         src_charged_before = src_weapon.is_charged if (src_weapon and src_weapon.requires_charge) else None
         src_had_missile_ctrl = self.state.markers.has(source_player.player_id, "MISSILE_CTRL")
 
-        # 临时禁用隐身暴露：标记来源玩家，让 damage_resolver 跳过
+        # 临时禁用隐身暴露和攻击者天赋钩子（on_kill/break_love_wish）
         source_player._cutaway_skip_stealth_suppress = True
+        source_player._cutaway_suppress_attacker_hooks = True
 
         try:
             result = self._execute_attack(parsed, source_player, override_killer=player)
         finally:
-            # 恢复隐身暴露标记
+            # 恢复临时标记
             if hasattr(source_player, '_cutaway_skip_stealth_suppress'):
                 del source_player._cutaway_skip_stealth_suppress
+            if hasattr(source_player, '_cutaway_suppress_attacker_hooks'):
+                del source_player._cutaway_suppress_attacker_hooks
 
             # 恢复蓄力状态
             if src_charged_before is not None and src_weapon:
@@ -1017,7 +1025,7 @@ class ActionTurnManager:
             display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
             return None
 
-        # ---- 身份依赖行动：直接用来源玩家执行 ----
+        # ---- 身份依赖行动：直接用来源玩家执行，成功后转移归属到 G6 ----
         if action in self._POLICE_IDENTITY_ACTIONS:
             result = self._execute_action(parsed, source_player)
             msg, action_type, success = result[0], result[1], result[2]
@@ -1026,6 +1034,23 @@ class ActionTurnManager:
             if not success:
                 display.show_info("⚠️ 行动执行失败，请重新选择。")
                 return None
+
+            # 转移归属：将 reporter_id 从来源玩家改为 G6
+            # 使后续 assemble/track_guide 的身份检查指向 G6
+            pe = self.state.police_engine
+            if pe and hasattr(self.state, 'police') and self.state.police:
+                if action == "report":
+                    self.state.police.reporter_id = player.player_id
+                elif action == "assemble":
+                    # 警察保护从来源玩家转移到 G6
+                    self.state.police.reporter_id = player.player_id
+                    if getattr(source_player, 'has_police_protection', False):
+                        source_player.has_police_protection = False
+                        self.state.markers.remove(source_player.player_id, "POLICE_PROTECT")
+                        player.has_police_protection = True
+                        self.state.markers.add(player.player_id, "POLICE_PROTECT")
+                elif action == "track_guide":
+                    self.state.police.reporter_id = player.player_id
 
             return action_type
 

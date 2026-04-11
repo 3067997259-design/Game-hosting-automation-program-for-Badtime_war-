@@ -349,7 +349,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             result["details"].append(killed_text.format(
                 target_name=target.name
             ))
-            if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
+            if (attacker and attacker.talent and hasattr(attacker.talent, 'on_kill')
+                    and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
                 attacker.talent.on_kill(attacker, target)
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
                 target.talent.on_player_death_check(target)
@@ -386,7 +387,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, None, is_limited)
 
-    if attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish'):
+    # 插入式笑话中借用来源玩家执行时跳过（不应破除来源玩家的爱愿）
+    if (attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish')
+            and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
         attacker.talent.break_love_wish(target.player_id)
 
     return result
@@ -786,7 +789,8 @@ def resolve_damage(attacker, target, weapon, game_state,
             result["details"].append(killed_text.format(
                 target_name=target.name
             ))
-            if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
+            if (attacker and attacker.talent and hasattr(attacker.talent, 'on_kill')
+                    and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
                 attacker.talent.on_kill(attacker, target)
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
                 target.talent.on_player_death_check(target)
@@ -876,7 +880,9 @@ def resolve_damage(attacker, target, weapon, game_state,
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, weapon, is_limited)
 
-    if attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish'):
+    # 插入式笑话中借用来源玩家执行时跳过（不应破除来源玩家的爱愿）
+    if (attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish')
+            and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
         attacker.talent.break_love_wish(target.player_id)
 
     return result
