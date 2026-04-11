@@ -877,6 +877,9 @@ class ActionTurnManager:
         from actions import lock_target
         msg = lock_target.execute(player, target_id, self.state)
         display.show_result(msg)
+        if msg.startswith("❌"):
+            display.show_info("⚠️ 行动执行失败，请重新选择。")
+            return None
         return "lock"
 
     # ================================================================
@@ -1072,11 +1075,21 @@ class ActionTurnManager:
             # 恢复位置和犯罪状态（不因借用而改变）
             player.location = orig_location
             player.is_criminal = orig_is_criminal
-            # is_police / is_captain：如果被操作改变了（如 recruit/election），保留新值
-            # 只在操作失败或异常时恢复为原值
-            if result is None or result[2] is False:
-                player.is_police = orig_is_police
-                player.is_captain = orig_is_captain
+            # is_police / is_captain：始终先恢复为原值，
+            # 再根据操作是否真正改变了身份来重新设置。
+            # 仅凭 result[2] 判断会误判（如 election 递增进度也算成功）。
+            post_is_police = player.is_police
+            post_is_captain = player.is_captain
+            player.is_police = orig_is_police
+            player.is_captain = orig_is_captain
+
+            if result is not None and result[2]:
+                # recruit 成功：do_recruit 会设 player.is_police = True
+                if action == "recruit" and post_is_police:
+                    player.is_police = True
+                # election 完成（成为队长）：_make_captain 会设 is_captain = True
+                if action == "election" and post_is_captain and not orig_is_captain:
+                    player.is_captain = True
 
         msg, action_type, success = result[0], result[1], result[2]
         display.show_result(msg)
