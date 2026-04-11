@@ -116,6 +116,28 @@ class BasicAIController(
         if situation == "hoshino_tactical_input":
             return self._hoshino_get_tactical_command(player, game_state, available_actions)
 
+        # 插入式笑话：使用专用候选生成器
+        if (context or {}).get("cutaway_joke"):
+            if attempt == 1:
+                self._candidates = self._generate_cutaway_candidates(
+                    player, game_state, available_actions, context
+                )
+                self._attempt_index = 0
+                debug_ai_candidate_commands(self._pname(),
+                    [f"插入式笑话候选命令（共{len(self._candidates)}条）"])
+                for i, cmd in enumerate(self._candidates, 1):
+                    debug_ai_detailed(player.name, f"   {i}. {cmd}")
+            else:
+                self._attempt_index += 1
+
+            if self._attempt_index < len(self._candidates):
+                cmd = self._candidates[self._attempt_index]
+                debug_ai_basic(player.name, f"插入式笑话尝试第{attempt}条：{cmd}")
+            else:
+                cmd = "forfeit"
+                debug_ai_basic(player.name, "插入式笑话候选耗尽，兜底forfeit")
+            return cmd
+
         if attempt == 1:
             self._candidates = self._generate_candidates(
                 player, game_state, available_actions
@@ -135,6 +157,294 @@ class BasicAIController(
             cmd = "forfeit"
             debug_ai_basic(player.name, "候选耗尽，兜底forfeit")
         return cmd
+
+    # ════════════════════════════════════════════════════════
+    #  插入式笑话专用：候选命令生成
+    # ════════════════════════════════════════════════════════
+
+    def _generate_cutaway_candidates(self, player, state, available_actions, context):
+        """G6 插入式笑话专用候选生成器。
+
+        优先级：
+        1. 借用队长的警察指令（移动警察/指定执法目标）
+        2. 借用来源玩家的攻击打高威胁目标
+        3. 借用来源玩家的 interact 发育（拿自己需要但当前位置没有的东西）
+        """
+        self._my_id = player.player_id
+        self.player_name = player.name
+        self._player = player
+        self._game_state = state
+
+        self._update_threat_scores(player, state)
+        self._read_police_state(state)
+        self._cleanup_dead_players(state)
+
+        source_lookup = context.get("source_lookup", {})
+        collected_actions = context.get("collected_actions", [])
+        candidates = []
+
+        # ===== 优先级 1：借用队长的警察指令 =====
+        captain_cmds = self._cutaway_captain_commands(player, state, source_lookup)
+        if captain_cmds:
+            candidates.extend(captain_cmds)
+
+        # ===== 优先级 2：借用攻击（不处于危险状态时）=====
+        if not self._is_critical(player, state):
+            attack_cmds = self._cutaway_attack_commands(
+                player, state, source_lookup, collected_actions)
+            if attack_cmds:
+                candidates.extend(attack_cmds)
+
+        # ===== 优先级 3：借用 interact 发育 =====
+        develop_cmds = self._cutaway_develop_commands(
+            player, state, source_lookup, collected_actions)
+        if develop_cmds:
+            for cmd in develop_cmds:
+                if cmd not in candidates:
+                    candidates.append(cmd)
+
+        candidates.append("forfeit")
+
+        # 去重
+        seen = set()
+        deduped = []
+        for cmd in candidates:
+            if cmd not in seen:
+                seen.add(cmd)
+                deduped.append(cmd)
+        return deduped
+
+    # ---- 插入式笑话：队长指令 ----
+    def _cutaway_captain_commands(self, player, state, source_lookup):
+        """如果有队长在来源玩家中，生成警察指令"""
+        commands = []
+        pc = self._police_cache or {}
+        captain_id = pc.get("captain_id")
+        if not captain_id or captain_id == player.player_id:
+            return commands
+
+        # 检查队长是否在来源玩家中（police_command 可用）
+        police_sources = source_lookup.get("police_command", [])
+        if captain_id not in police_sources:
+            return commands
+
+        captain = state.get_player(captain_id)
+        if not captain or not captain.is_alive():
+            return commands
+
+        units = pc.get("units", [])
+        alive_units = [u for u in units if u.get("is_alive")]
+        active_units = [u for u in units if u.get("is_alive") and u.get("is_active", True)]
+        if not alive_units:
+            return commands
+
+        # 指定执法目标：选威胁最高的非队长玩家
+        designate_sources = source_lookup.get("designate", [])
+        if captain_id in designate_sources:
+            best_target = None
+            best_score = -1
+            for pid in state.player_order:
+                if pid == player.player_id or pid == captain_id:
+                    continue
+                t = state.get_player(pid)
+                if not t or not t.is_alive():
+                    continue
+                # 不指定队长（会被拦截）
+                if getattr(t, 'is_captain', False):
+                    continue
+                score = self._threat_scores.get(t.name, 0)
+                if getattr(t, 'is_criminal', False):
+                    score += 100
+                if score > best_score:
+                    best_score = score
+                    best_target = t
+            if best_target:
+                commands.append(f"designate {best_target.name}")
+
+        # 移动警察到高威胁目标位置 / 攻击犯罪者
+        if active_units:
+            criminal_target = self._find_criminal_target(player, state)
+            if criminal_target:
+                target_loc = self._get_location_str(criminal_target)
+                # 找一个不在目标位置的警察移过去
+                for unit in active_units:
+                    uid = unit["id"]
+                    if unit.get("location") != target_loc:
+                        commands.append(f"police move {uid} {target_loc}")
+                        break
+                # 找一个在目标位置的警察攻击
+                for unit in active_units:
+                    uid = unit["id"]
+                    if unit.get("location") == target_loc:
+                        commands.append(
+                            f"police attack {uid} {criminal_target.player_id}")
+                        break
+
+        return commands
+
+    # ---- 插入式笑话：借用攻击 ----
+    def _cutaway_attack_commands(self, player, state, source_lookup, collected_actions):
+        """遍历来源玩家，找最佳 (来源, 目标, 武器) 组合"""
+        commands = []
+        attack_sources = source_lookup.get("attack", [])
+        if not attack_sources:
+            return commands
+
+        # 收集所有可能的 (来源, 目标, 武器, 评分) 组合
+        options = []
+        for sp_id in attack_sources:
+            sp = state.get_player(sp_id)
+            if not sp or not sp.is_alive():
+                continue
+            sp_weapons = [w for w in getattr(sp, 'weapons', [])
+                          if w and not getattr(w, '_hexagram_disabled', False)]
+            if not sp_weapons:
+                continue
+
+            for pid in state.player_order:
+                if pid == player.player_id or pid == sp_id:
+                    continue
+                target = state.get_player(pid)
+                if not target or not target.is_alive():
+                    continue
+
+                # 基础威胁评分
+                score = self._threat_scores.get(target.name, 0) * 2
+                if target.name in self._been_attacked_by:
+                    score += 50
+                # 低 HP 加分
+                score += max(0, 5 - self._get_effective_hp(target)) * 10
+                # 救世主集火
+                if self._is_in_savior_state(target):
+                    score += 200
+                # Terror 集火
+                t_talent = getattr(target, 'talent', None)
+                if t_talent and getattr(t_talent, 'is_terror', False):
+                    score += 500
+
+                # 选最佳武器
+                best_weapon = None
+                best_w_score = -999
+                for w in sp_weapons:
+                    if (getattr(w, 'requires_charge', False)
+                            and getattr(w, 'charge_mandatory', True)
+                            and not getattr(w, 'is_charged', False)):
+                        continue  # 未蓄力，跳过
+                    w_range = self._get_weapon_range(w)
+                    w_score = self._get_weapon_damage(w) * 10
+                    # 射程适配
+                    if w_range == "melee":
+                        # 近战需要来源和目标同地点 + ENGAGED_WITH
+                        if sp.location != target.location:
+                            continue
+                        markers = getattr(state, 'markers', None)
+                        if markers and not markers.has_relation(
+                                sp.player_id, "ENGAGED_WITH", target.player_id):
+                            continue  # 没有面对面关系，近战打不了
+                    elif w_range == "ranged":
+                        # 远程需要 LOCKED_BY
+                        markers = getattr(state, 'markers', None)
+                        if markers and not markers.has_relation(
+                                target.player_id, "LOCKED_BY", sp.player_id):
+                            continue  # 没有锁定关系
+                    elif w_range == "area":
+                        if sp.location != target.location:
+                            continue  # AOE 需要同地点
+                    if w_score > best_w_score:
+                        best_w_score = w_score
+                        best_weapon = w
+
+                if best_weapon:
+                    options.append((score + best_w_score, target, best_weapon))
+
+        if not options:
+            return commands
+
+        # 按评分排序，取最高的
+        options.sort(key=lambda x: x[0], reverse=True)
+        for _, target, weapon in options[:3]:  # 最多生成 3 个候选
+            cmd = f"attack {target.name} {weapon.name}"
+            if cmd not in commands:
+                commands.append(cmd)
+
+        return commands
+
+    # ---- 插入式笑话：借用 interact 发育 ----
+    def _cutaway_develop_commands(self, player, state, source_lookup, collected_actions):
+        """检查 G6 需要什么，从来源玩家的位置获取"""
+        commands = []
+        interact_sources = source_lookup.get("interact", [])
+        if not interact_sources:
+            return commands
+
+        my_loc = self._get_location_str(player)
+        outer = self._count_outer_armor(player)
+        inner = self._count_inner_armor(player)
+        real_weapons = [w for w in player.weapons
+                        if w and getattr(w, 'name', '') != "拳击"]
+        vouchers = getattr(player, 'vouchers', 0)
+        learned = self._get_learned_spells(player)
+
+        # 构建需求列表：(物品名, 所在地点, 优先级)
+        needs = []
+
+        # 武器需求
+        if len(real_weapons) < 1:
+            needs.append(("小刀", "home", 60))
+            needs.append(("小刀", "商店", 55))
+            needs.append(("魔法弹幕", "魔法所", 50))
+            needs.append(("高斯步枪", "军事基地", 45))
+
+        # 外甲需求
+        if outer < 2:
+            if not self._has_armor_by_name(player, "盾牌"):
+                needs.append(("盾牌", "home", 70))
+            if not self._has_armor_by_name(player, "陶瓷护甲"):
+                needs.append(("陶瓷护甲", "商店", 65))
+            if not self._has_armor_by_name(player, "魔法护盾"):
+                needs.append(("魔法护盾", "魔法所", 60))
+            if not self._has_armor_by_name(player, "AT力场"):
+                needs.append(("AT力场", "军事基地", 55))
+
+        # 内甲需求
+        if inner < 1:
+            needs.append(("晶化皮肤手术", "医院", 50))
+            needs.append(("额外心脏手术", "医院", 45))
+
+        # 凭证需求
+        if vouchers < 1:
+            needs.append(("打工", "商店", 40))
+            needs.append(("打工", "医院", 40))
+
+        # 过滤：只保留当前位置没有的（插入式笑话的价值在于拿到自己位置拿不到的东西）
+        from controllers.ai.constants import LOCATION_ITEMS
+        my_items = LOCATION_ITEMS.get(my_loc, [])
+        needs = [(item, loc, pri) for item, loc, pri in needs if item not in my_items]
+
+        # 按优先级排序
+        needs.sort(key=lambda x: -x[2])
+
+        # 为每个需求找到对应的来源玩家
+        for item_name, item_loc, _ in needs:
+            for sp_id in interact_sources:
+                sp = state.get_player(sp_id)
+                if not sp:
+                    continue
+                sp_loc = self._get_location_str(sp)
+                # home 特殊处理
+                if item_loc == "home":
+                    if sp_loc.startswith("home"):
+                        cmd = f"interact {item_name}"
+                        if cmd not in commands:
+                            commands.append(cmd)
+                        break
+                elif sp_loc == item_loc:
+                    cmd = f"interact {item_name}"
+                    if cmd not in commands:
+                        commands.append(cmd)
+                    break
+
+        return commands[:3]  # 最多 3 个发育候选
 
     # ════════════════════════════════════════════════════════
     #  核心：候选命令生成 (原 lines 858-1154)

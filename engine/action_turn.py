@@ -501,6 +501,8 @@ class ActionTurnManager:
                     "round": self.state.current_round,
                     "attempt": attempts,
                     "cutaway_joke": True,
+                    "collected_actions": collected_actions,
+                    "source_lookup": source_lookup,
                 }
             )
 
