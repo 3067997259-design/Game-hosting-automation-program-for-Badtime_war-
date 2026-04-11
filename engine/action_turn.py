@@ -1324,7 +1324,7 @@ class ActionTurnManager:
                 lines.append(f"   可选震荡目标（最多2个）：{', '.join(names)}")
 
                 # ══ CONTROLLER 改动：震荡目标选择走 controller ══
-                selected = player.controller.choose_multi(
+                selected = killer.controller.choose_multi(
                     "选择震荡目标（最多2个）：",
                     names,
                     max_count=min(2, len(alive_hit)),
@@ -1344,7 +1344,7 @@ class ActionTurnManager:
             if t.name in shock_targets:
                 # 爱愿检查
                 if (t.talent and hasattr(t.talent, 'has_love_wish')
-                        and t.talent.has_love_wish(player.player_id)):
+                        and t.talent.has_love_wish(killer.player_id)):
                     lines.append(f"      💝 「爱愿」保护 {t.name} 免受震荡！")
                 # 六爻·元亨利贞：免疫震荡
                 elif t.talent and hasattr(t.talent, 'is_immune_to_debuff') and t.talent.is_immune_to_debuff("shock"):
