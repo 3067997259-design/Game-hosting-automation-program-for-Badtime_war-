@@ -589,9 +589,14 @@ class ActionTurnManager:
                 if not consumes_turn:
                     continue
 
-                # move 成功时保留执行后的位置（真正移动过去）
-                if action_type == "move":
-                    original_location = player.location
+                # 行动成功且消耗回合：保留执行后的状态（不被 finally 撤销）
+                original_location = player.location
+                original_weapons = player.weapons
+                original_items = player.items
+                original_learned_spells = player.learned_spells
+                original_is_police = player.is_police
+                original_is_captain = player.is_captain
+                original_has_military_pass = player.has_military_pass
 
                 from utils.pacing import action_pause
                 action_pause(self.state, label=f"{player.name} → {action_type} (插入式笑话)")
