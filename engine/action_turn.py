@@ -397,7 +397,7 @@ class ActionTurnManager:
         display.show_result(msg)
         return "forfeit"
 
-# ================================================================
+    # ================================================================
     #  T1（插入式笑话）：收集其他玩家的层次1行动并执行
     # ================================================================
     def _phase_t1_cutaway(self, player):
@@ -902,7 +902,31 @@ class ActionTurnManager:
         # ---- 执行：用来源玩家执行攻击 ----
         source_kills_before = getattr(source_player, 'kill_count', 0)
 
-        result = self._execute_action(parsed, source_player)
+        # 快照来源玩家的蓄力/导弹状态，执行后恢复
+        weapon_name = parsed.get("weapon")
+        src_weapon = source_player.get_weapon(weapon_name) if weapon_name else None
+        src_charged_before = src_weapon.is_charged if (src_weapon and src_weapon.requires_charge) else None
+        src_had_missile_ctrl = self.state.markers.has(source_player.player_id, "MISSILE_CTRL")
+
+        # 临时禁用隐身暴露：标记来源玩家，让 damage_resolver 跳过
+        source_player._cutaway_skip_stealth_suppress = True
+
+        try:
+            result = self._execute_action(parsed, source_player)
+        finally:
+            # 恢复隐身暴露标记
+            if hasattr(source_player, '_cutaway_skip_stealth_suppress'):
+                del source_player._cutaway_skip_stealth_suppress
+
+            # 恢复蓄力状态
+            if src_charged_before is not None and src_weapon:
+                src_weapon.is_charged = src_charged_before
+
+            # 恢复导弹控制权标记
+            if src_had_missile_ctrl and not self.state.markers.has(
+                    source_player.player_id, "MISSILE_CTRL"):
+                self.state.markers.add(source_player.player_id, "MISSILE_CTRL")
+
         msg, action_type, success = result[0], result[1], result[2]
         display.show_result(msg)
 
@@ -945,8 +969,11 @@ class ActionTurnManager:
             display.show_info("⚠️ 病毒已经在活跃状态了")
             return None
 
-        # 执行释放病毒（全局效果，用 G6 执行）
+        # 执行释放病毒（全局效果，用 G6 执行，临时设置位置）
+        original_location = player.location
+        player.location = "医院"
         msg, consumes = special_op.execute(player, "释放病毒", self.state)
+        player.location = original_location
         display.show_result(msg)
 
         if msg.startswith("❌"):

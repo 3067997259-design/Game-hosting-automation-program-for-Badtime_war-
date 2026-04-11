@@ -858,7 +858,9 @@ def resolve_damage(attacker, target, weapon, game_state,
 
     # ---- 近战攻击造成伤害后：隐身临时失效（README 9.3.3） ----
     # 面对面关系解除前隐身失效，解除后恢复
+    # 插入式笑话中借用来源玩家执行时跳过（不应暴露来源玩家）
     if (attacker and game_state
+            and not getattr(attacker, '_cutaway_skip_stealth_suppress', False)
             and weapon.weapon_range == WeaponRange.MELEE
             and result["success"] and result.get("final_damage", 0) > 0
             and game_state.markers.has(attacker.player_id, "INVISIBLE")
