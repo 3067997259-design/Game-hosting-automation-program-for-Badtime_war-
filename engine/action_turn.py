@@ -1007,7 +1007,7 @@ class ActionTurnManager:
     #      临时借用来源玩家状态让 G6 执行
     # ================================================================
     # 需要以来源玩家身份执行的行动（内部用 player_id 做身份匹配）
-    _POLICE_IDENTITY_ACTIONS = {"report", "assemble", "track_guide"}
+    _POLICE_IDENTITY_ACTIONS = {"report", "assemble", "track_guide", "police_command", "designate", "study"}
 
     def _cutaway_police(self, player, parsed, action, source_pids):
         from cli.validator import validate
