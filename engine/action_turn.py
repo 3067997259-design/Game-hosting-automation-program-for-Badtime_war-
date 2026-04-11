@@ -572,10 +572,15 @@ class ActionTurnManager:
             player.location = source_player.location
             player.weapons = copy.deepcopy(source_player.weapons)
             player.items = copy.deepcopy(source_player.items)
-            player.learned_spells = list(source_player.learned_spells)
+            player.learned_spells = set(source_player.learned_spells)
             player.is_police = source_player.is_police
             player.is_captain = source_player.is_captain
             player.has_military_pass = source_player.has_military_pass
+
+            # 保存借来的快照，用于成功后计算增量
+            borrowed_weapons = list(player.weapons)
+            borrowed_items = list(player.items)
+            borrowed_spells = set(player.learned_spells)
 
             try:
                 result = self._execute_action(parsed, player)
@@ -589,14 +594,32 @@ class ActionTurnManager:
                 if not consumes_turn:
                     continue
 
-                # 行动成功且消耗回合：保留执行后的状态（不被 finally 撤销）
+                # 行动成功且消耗回合：只保留行动的直接效果（增量），
+                # 不保留临时借来的来源玩家基础状态。
+
+                # location：move 行动的直接效果，保留新位置
                 original_location = player.location
-                original_weapons = player.weapons
-                original_items = player.items
-                original_learned_spells = player.learned_spells
-                original_is_police = player.is_police
-                original_is_captain = player.is_captain
-                original_has_military_pass = player.has_military_pass
+
+                # weapons/items/learned_spells：计算增量（执行中新增的），
+                # 追加到 G6 的真实装备上，而不是整体替换。
+                # 注意：borrowed_* 是执行前的深拷贝快照
+                new_weapons = [w for w in player.weapons
+                               if w not in borrowed_weapons]
+                for w in new_weapons:
+                    original_weapons.append(w)
+
+                new_items = [it for it in player.items
+                             if it not in borrowed_items]
+                for it in new_items:
+                    original_items.append(it)
+
+                new_spells = set(player.learned_spells) - borrowed_spells
+                for sp in new_spells:
+                    original_learned_spells.add(sp)
+
+                # is_police/is_captain/has_military_pass：身份标记始终恢复，
+                # 不因借用他人行动而改变自身身份。
+                # （original_is_police 等保持不变，finally 会恢复）
 
                 from utils.pacing import action_pause
                 action_pause(self.state, label=f"{player.name} → {action_type} (插入式笑话)")
