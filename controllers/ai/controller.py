@@ -223,9 +223,13 @@ class BasicAIController(
         if not captain_id or captain_id == player.player_id:
             return commands
 
-        # 检查队长是否在来源玩家中（police_command 可用）
-        police_sources = source_lookup.get("police_command", [])
-        if captain_id not in police_sources:
+        # 检查队长是否在来源玩家中
+        captain_in_sources = (
+            captain_id in source_lookup.get("police_command", [])
+            or captain_id in source_lookup.get("designate", [])
+            or captain_id in source_lookup.get("study", [])
+        )
+        if not captain_in_sources:
             return commands
 
         captain = state.get_player(captain_id)
@@ -392,7 +396,8 @@ class BasicAIController(
         if len(real_weapons) < 1:
             needs.append(("小刀", "home", 60))
             needs.append(("小刀", "商店", 55))
-            needs.append(("魔法弹幕", "魔法所", 50))
+            if "魔法弹幕" not in learned:
+                needs.append(("魔法弹幕", "魔法所", 50))
             needs.append(("高斯步枪", "军事基地", 45))
 
         # 外甲需求
@@ -401,7 +406,7 @@ class BasicAIController(
                 needs.append(("盾牌", "home", 70))
             if not self._has_armor_by_name(player, "陶瓷护甲"):
                 needs.append(("陶瓷护甲", "商店", 65))
-            if not self._has_armor_by_name(player, "魔法护盾"):
+            if not self._has_armor_by_name(player, "魔法护盾") and "魔法护盾" not in learned:
                 needs.append(("魔法护盾", "魔法所", 60))
             if not self._has_armor_by_name(player, "AT力场"):
                 needs.append(("AT力场", "军事基地", 55))
@@ -418,7 +423,8 @@ class BasicAIController(
 
         # 过滤：只保留当前位置没有的（插入式笑话的价值在于拿到自己位置拿不到的东西）
         from controllers.ai.constants import LOCATION_ITEMS
-        my_items = LOCATION_ITEMS.get(my_loc, [])
+        normalized_loc = "home" if my_loc.startswith("home") else my_loc
+        my_items = LOCATION_ITEMS.get(normalized_loc, [])
         needs = [(item, loc, pri) for item, loc, pri in needs if item not in my_items]
 
         # 按优先级排序
