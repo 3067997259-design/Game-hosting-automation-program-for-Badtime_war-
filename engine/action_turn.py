@@ -899,9 +899,7 @@ class ActionTurnManager:
             display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
             return None
 
-        # ---- 执行：用来源玩家执行攻击 ----
-        source_kills_before = getattr(source_player, 'kill_count', 0)
-
+        # ---- 执行：用来源玩家执行攻击，击杀归属 G6 ----
         # 快照来源玩家的蓄力/导弹状态，执行后恢复
         weapon_name = parsed.get("weapon")
         src_weapon = source_player.get_weapon(weapon_name) if weapon_name else None
@@ -912,7 +910,7 @@ class ActionTurnManager:
         source_player._cutaway_skip_stealth_suppress = True
 
         try:
-            result = self._execute_action(parsed, source_player)
+            result = self._execute_attack(parsed, source_player, override_killer=player)
         finally:
             # 恢复隐身暴露标记
             if hasattr(source_player, '_cutaway_skip_stealth_suppress'):
@@ -933,13 +931,6 @@ class ActionTurnManager:
         if not success:
             display.show_info("⚠️ 行动执行失败，请重新选择。")
             return None
-
-        # 击杀计数转移：来源 → G6
-        source_kills_after = getattr(source_player, 'kill_count', 0)
-        kill_delta = source_kills_after - source_kills_before
-        if kill_delta > 0:
-            source_player.kill_count -= kill_delta
-            player.kill_count = getattr(player, 'kill_count', 0) + kill_delta
 
         return "attack"
 
@@ -984,7 +975,7 @@ class ActionTurnManager:
 
     # ================================================================
     #  插入式笑话：police 系列
-    #  策略：直接用来源玩家校验和执行
+    #  策略：用来源玩家校验，临时借用来源玩家状态让 G6 执行，成果归 G6
     # ================================================================
     def _cutaway_police(self, player, parsed, action, source_pids):
         from cli.validator import validate
@@ -1005,7 +996,30 @@ class ActionTurnManager:
             display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
             return None
 
-        result = self._execute_action(parsed, source_player)
+        # 临时借用来源玩家的警察相关状态
+        orig_location = player.location
+        orig_is_police = player.is_police
+        orig_is_captain = player.is_captain
+        orig_is_criminal = player.is_criminal
+
+        player.location = source_player.location
+        player.is_police = source_player.is_police
+        player.is_captain = source_player.is_captain
+        player.is_criminal = source_player.is_criminal
+
+        result = None
+        try:
+            result = self._execute_action(parsed, player)
+        finally:
+            # 恢复位置和犯罪状态（不因借用而改变）
+            player.location = orig_location
+            player.is_criminal = orig_is_criminal
+            # is_police / is_captain：如果被操作改变了（如 recruit/election），保留新值
+            # 只在操作失败或异常时恢复为原值
+            if result is None or result[2] is False:
+                player.is_police = orig_is_police
+                player.is_captain = orig_is_captain
+
         msg, action_type, success = result[0], result[1], result[2]
         display.show_result(msg)
 
@@ -1207,7 +1221,10 @@ class ActionTurnManager:
     # ================================================================
     #  攻击执行
     # ================================================================
-    def _execute_attack(self, parsed, player):
+    def _execute_attack(self, parsed, player, override_killer=None):
+        """override_killer: 插入式笑话中传入 G6 玩家，
+        使击杀归属、死亡显示、天赋通知都用 G6 的身份。"""
+        killer = override_killer or player
         target_id = resolve_player_target(parsed["target"], self.state)
         weapon_name = parsed["weapon"]
         layer_str = parsed.get("layer")
@@ -1216,7 +1233,7 @@ class ActionTurnManager:
 
         from models.equipment import WeaponRange
         if weapon.weapon_range == WeaponRange.AREA:
-            return self._execute_area_attack(player, weapon)
+            return self._execute_area_attack(player, weapon, override_killer=override_killer)
 
         msg, result = attack.execute(
             player, target_id, weapon_name, self.state,
@@ -1238,22 +1255,23 @@ class ActionTurnManager:
 
             target = self.state.get_player(target_id)
             if result.get("killed") and target:
-                player.kill_count += 1
+                killer.kill_count += 1
                 self.state.markers.on_player_death(target_id)
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target_id)
-                display.show_death(target.name, f"被 {player.name} 的 {weapon_name} 击杀")
+                display.show_death(target.name, f"被 {killer.name} 的 {weapon_name} 击杀")
                 # 新增：通知所有天赋（星野色彩计数等）
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
-                    self.state, target_id, killer_id=player.player_id)
+                    self.state, target_id, killer_id=killer.player_id)
 
         return msg, "attack", not is_failure                   # CHANGED
 
     # ================================================================
     #  范围攻击执行
     # ================================================================
-    def _execute_area_attack(self, player, weapon):
+    def _execute_area_attack(self, player, weapon, override_killer=None):
+        killer = override_killer or player
         from combat.damage_resolver import resolve_area_damage
 
         results = resolve_area_damage(
@@ -1305,15 +1323,15 @@ class ActionTurnManager:
                     lines.append(f"      ⚡ {t.name} 进入震荡状态！")
 
             if res.get("killed"):
-                player.kill_count += 1
+                killer.kill_count += 1
                 self.state.markers.on_player_death(t.player_id)
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(t.player_id)
-                display.show_death(t.name, f"被 {player.name} 的 {weapon.name} 击杀")
+                display.show_death(t.name, f"被 {killer.name} 的 {weapon.name} 击杀")
                 # 通知所有天赋（星野色彩计数等）
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
-                    self.state, t.player_id, killer_id=player.player_id)
+                    self.state, t.player_id, killer_id=killer.player_id)
 
         # ---- 范围攻击同时波及同地点警察 ----
         pe = self.state.police_engine
