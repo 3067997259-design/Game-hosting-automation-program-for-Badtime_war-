@@ -568,11 +568,11 @@ class ActionTurnManager:
             original_is_captain = player.is_captain
             original_has_military_pass = player.has_military_pass
 
-            # 临时替换为来源玩家的状态
+            # 临时替换为来源玩家的状态（列表用浅拷贝，避免原地修改污染来源玩家）
             player.location = source_player.location
-            player.weapons = source_player.weapons
-            player.items = source_player.items
-            player.learned_spells = source_player.learned_spells
+            player.weapons = list(source_player.weapons)
+            player.items = list(source_player.items)
+            player.learned_spells = list(source_player.learned_spells)
             player.is_police = source_player.is_police
             player.is_captain = source_player.is_captain
             player.has_military_pass = source_player.has_military_pass
