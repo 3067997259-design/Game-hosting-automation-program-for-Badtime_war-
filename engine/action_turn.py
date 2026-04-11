@@ -1,5 +1,6 @@
 """行动回合调度器（Phase 4 完整版 + Controller 接入）：T0天赋+石化+完整行动分发"""
 
+import copy
 from cli import display
 from cli.parser import parse, resolve_player_target
 from cli.validator import validate
@@ -402,7 +403,7 @@ class ActionTurnManager:
 
         # ---- 收集所有其他玩家的可用行动 ----
         collected_actions = []  # list of (display_str, usage_cmd, source_player)
-        seen_keys = set()       # 去重用
+        seen_keys = set()       # 去重用（按 (name, source_pid) 去重）
 
         for pid in self.state.player_order:
             if pid == player.player_id:
@@ -427,7 +428,7 @@ class ActionTurnManager:
                             continue
                         if sname.startswith("更衣"):
                             continue
-                        key = f"special_{sname}"
+                        key = (f"special_{sname}", other.player_id)
                         if key not in seen_keys:
                             seen_keys.add(key)
                             collected_actions.append({
@@ -437,8 +438,8 @@ class ActionTurnManager:
                             })
                     continue
 
-                # 其他标准行动：用 name 去重
-                key = name
+                # 其他标准行动：按 (name, source_pid) 去重，保留不同来源
+                key = (name, other.player_id)
                 if key not in seen_keys:
                     seen_keys.add(key)
                     collected_actions.append({
@@ -471,13 +472,13 @@ class ActionTurnManager:
                 action_names.append(action_type)
         action_names.append("forfeit")  # 始终可以放弃
 
-        # 构建 source_pid 查找表：action_type -> source_pid
-        # 对于需要具体参数的行动（如 attack），需要更精细的匹配
+        # 构建 source_pid 查找表：action_type -> [pid1, pid2, ...]
         source_lookup = {}
         for ca in collected_actions:
             action_type = ca["usage"].split()[0]
-            if action_type not in source_lookup:
-                source_lookup[action_type] = ca["source_pid"]
+            source_lookup.setdefault(action_type, [])
+            if ca["source_pid"] not in source_lookup[action_type]:
+                source_lookup[action_type].append(ca["source_pid"])
 
         # ---- 获取玩家/AI 输入并执行 ----
         max_retries = 10
@@ -534,28 +535,27 @@ class ActionTurnManager:
                 action_pause(self.state, label=f"{player.name} → forfeit (插入式笑话)")
                 return "forfeit"
 
-            # 找到对应的来源玩家
-            source_pid = source_lookup.get(action)
-            if not source_pid:
-                # 尝试从 collected_actions 中精确匹配
-                for ca in collected_actions:
-                    if ca["usage"].split()[0] == action:
-                        source_pid = ca["source_pid"]
-                        break
-            if not source_pid:
+            # 找到对应的来源玩家（遍历所有来源，找第一个通过校验的）
+            source_pids = source_lookup.get(action, [])
+            if not source_pids:
                 display.show_info(f"⚠️ 插入式笑话中不可用的行动类型: {action}")
                 continue
 
-            source_player = self.state.get_player(source_pid)
-            if not source_player:
-                display.show_info(f"⚠️ 来源玩家不存在")
-                continue
-
-            # ---- 用来源玩家做校验 ----
             from cli.validator import validate
-            valid, reason = validate(parsed, source_player, self.state)
-            if not valid:
-                display.show_info(f"⚠️ 指令不合法（来源校验）: {reason}")
+            source_player = None
+            last_reason = ""
+            for sp_id in source_pids:
+                sp = self.state.get_player(sp_id)
+                if not sp:
+                    continue
+                valid, reason = validate(parsed, sp, self.state)
+                if valid:
+                    source_player = sp
+                    break
+                last_reason = reason
+
+            if not source_player:
+                display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
                 continue
 
             # ---- 用 G6 玩家执行（临时替换位置和装备引用） ----
@@ -568,10 +568,10 @@ class ActionTurnManager:
             original_is_captain = player.is_captain
             original_has_military_pass = player.has_military_pass
 
-            # 临时替换为来源玩家的状态（列表用浅拷贝，避免原地修改污染来源玩家）
+            # 临时替换为来源玩家的状态（深拷贝，避免对象属性修改污染来源玩家）
             player.location = source_player.location
-            player.weapons = list(source_player.weapons)
-            player.items = list(source_player.items)
+            player.weapons = copy.deepcopy(source_player.weapons)
+            player.items = copy.deepcopy(source_player.items)
             player.learned_spells = list(source_player.learned_spells)
             player.is_police = source_player.is_police
             player.is_captain = source_player.is_captain
