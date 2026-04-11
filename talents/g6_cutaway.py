@@ -19,7 +19,7 @@ class CutawayJoke(BaseTalent):
 
         # 笑点系统
         self.laugh_points = 0           # 当前笑点
-        self.laugh_threshold = 12       # 触发阈值（可被献诗减少）
+        self.laugh_threshold = 6       # 触发阈值（可被献诗减少）
         self.forfeit_reduction = 0      # 献诗累计减少量（供 poem_mixin._poem_joy 使用）
 
         # 插入式笑话充能

@@ -371,7 +371,7 @@ class PoemMixin:
                     raw_cmd = target.controller.get_command(
                         player=target,
                         game_state=self.state,
-                        available_actions=["police move", "police equip", "police attack"],
+                        available_actions=["police_command"],
                         context={
                             "phase": "T0",
                             "situation": "poem_law_police_action",
@@ -844,8 +844,8 @@ class PoemMixin:
             if target.name == "星野-Terror":
                 target.name = f"星野_{target.player_id}"
 
-            # 每1.5点剩余额外生命值转化为1点永久额外生命值（向下取整）
-            permanent_extra = math.floor(talent.terror_extra_hp / 1.5)
+            # 每1点剩余额外生命值转化为1点永久额外生命值
+            permanent_extra = math.floor(talent.terror_extra_hp / 1)
             talent.terror_extra_hp = 0
 
             # 额外扣除2点（不致死，不足2点的话有多少扣多少）
