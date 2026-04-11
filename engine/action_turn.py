@@ -450,6 +450,23 @@ class ActionTurnManager:
                         "source_pid": other.player_id,
                     })
 
+        # ---- 补充队长的 police_command（action_registry 不产出此条目） ----
+        for pid in self.state.player_order:
+            if pid == player.player_id:
+                continue
+            other = self.state.get_player(pid)
+            if not other or not other.is_alive() or not other.is_awake:
+                continue
+            if getattr(other, 'is_captain', False):
+                key = ("police_command", other.player_id)
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    collected_actions.append({
+                        "display": "队长操控警察 — 移动/装备/攻击",
+                        "usage": "police_command",
+                        "source_pid": other.player_id,
+                    })
+
         if not collected_actions:
             display.show_info("🎭 插入式笑话：没有可用的行动！自动放弃。")
             from actions import forfeit
@@ -501,6 +518,8 @@ class ActionTurnManager:
                     "round": self.state.current_round,
                     "attempt": attempts,
                     "cutaway_joke": True,
+                    "collected_actions": collected_actions,
+                    "source_lookup": source_lookup,
                 }
             )
 
