@@ -46,7 +46,7 @@ class G1MythFire(BaseTalent):
         # debuff
         self.debuff_started = False
         self.debuff_start_round = None
-        self.initial_player_count = 0
+        self.initial_player_count = 0  # on_register中设为实际玩家人数
         self.debuff_settle_toggle = False  # True = 本轮结算，False = 跳过
 
         # 后续延迟：每3轮窗口追踪
@@ -74,6 +74,8 @@ class G1MythFire(BaseTalent):
     def on_register(self):
         """记录开局玩家数"""
         self.initial_player_count = len(self.state.player_order)
+        # 开局赠送1层炽愿（等效享受50%减伤的0.5额外生命值）
+        self.ardent_wish_charges = 1
 
     # ============================================
     #  R0：debuff判定 + 0.5血自愈

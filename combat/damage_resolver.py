@@ -646,18 +646,6 @@ def resolve_damage(attacker, target, weapon, game_state,
             )
             result["details"].append(damage_reduced_text.format(damage=raw))
 
-    # ---- 全息影像：目标在影像内额外+hologram_bonus ----
-    hologram_bonus = _get_hologram_bonus(target, game_state)
-    if hologram_bonus > 0:
-        raw += hologram_bonus
-        hologram_text = prompt_manager.get_prompt(
-            "combat", "hologram_vulnerability",
-            default="✨全息影像易伤：+{hologram_bonus}"
-        )
-        result["details"].append(hologram_text.format(
-            hologram_bonus=hologram_bonus
-        ))
-
     # ---- 第2步：选择攻击目标层和属性 ----
     armor_piece = _select_armor_target(target, target_layer, target_armor_attr)
 
@@ -705,6 +693,27 @@ def resolve_damage(attacker, target, weapon, game_state,
             ignore_last_inner_absorb, result,
             None if (ignore_counter or ignore_element) else weapon.attribute
         )
+
+    # ---- 全息影像：额外无视属性克制伤害（护甲结算后独立施加） ----
+    hologram_bonus = _get_hologram_bonus(target, game_state)
+    if hologram_bonus > 0:
+        hologram_text = prompt_manager.get_prompt(
+            "combat", "hologram_vulnerability",
+            default="✨全息影像额外伤害：+{hologram_bonus}（无视属性克制）"
+        )
+        result["details"].append(hologram_text.format(
+            hologram_bonus=hologram_bonus
+        ))
+        # 无视属性克制：直接对最外层护甲造成伤害
+        hologram_remaining = hologram_bonus
+        hologram_armor = _select_armor_target(target, None, None)
+        if hologram_armor is not None:
+            hologram_remaining = _apply_damage_to_armor(
+                target, hologram_armor, hologram_remaining,
+                False, result,
+                None  # weapon_attribute=None → 无视属性克制
+            )
+        remaining += hologram_remaining  # 溢出伤害加到总剩余中
 
     if remaining > 0:
         if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
