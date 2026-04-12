@@ -866,7 +866,11 @@ def resolve_damage(attacker, target, weapon, game_state,
     # 面对面关系解除前隐身失效，解除后恢复
     # 插入式笑话中借用来源玩家执行时跳过（不应暴露来源玩家）
     if (attacker and game_state
-            and not getattr(attacker, '_cutaway_skip_stealth_suppress', False)
+                and not getattr(attacker, '_cutaway_skip_stealth_suppress', False)
+                and not (attacker.talent
+                        and hasattr(attacker.talent, 'stealth_on_zero_kills')
+                        and attacker.talent.stealth_on_zero_kills
+                        and getattr(attacker, 'kill_count', 0) == 0)
             and weapon.weapon_range == WeaponRange.MELEE
             and result["success"] and result.get("final_damage", 0) > 0
             and game_state.markers.has(attacker.player_id, "INVISIBLE")
@@ -886,6 +890,28 @@ def resolve_damage(attacker, target, weapon, game_state,
     if (attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish')
             and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
         attacker.talent.break_love_wish(target.player_id)
+
+    # ---- 剪刀手一突：攻击回盾（每2次攻击，第2次若对护甲造成伤害则回盾） 不在无武器路径加是因为这个天赋应该没有造成无武器伤害的路径----
+    if (attacker and attacker.talent
+            and hasattr(attacker.talent, 'on_attack_shield_recovery')
+            and not getattr(attacker, '_mythland_talent_suppressed', False)
+            and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)
+            and result["success"]
+            and result.get("armor_hit")):
+        # armor_hit 存在说明攻击命中了护甲
+        armor_name = result["armor_hit"]
+        armor_broken = result.get("armor_broken", False)
+        # 找到被命中的护甲对象以获取属性信息
+        hit_piece = None
+        for layer in [ArmorLayer.OUTER, ArmorLayer.INNER]:
+            for piece in target.armor._get_layer_list(layer):
+                if piece.name == armor_name:
+                    hit_piece = piece
+                    break
+            if hit_piece:
+                break
+        if hit_piece:
+            attacker.talent.on_attack_shield_recovery(attacker, hit_piece)
 
     return result
 

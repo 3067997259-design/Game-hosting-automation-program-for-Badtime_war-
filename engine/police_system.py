@@ -1101,6 +1101,10 @@ class PoliceEngine:
             weapon = make_weapon("警棍")
         if weapon is None:
             return f"❌ {unit.unit_id} 无法创建武器，攻击取消"
+        # === 剪刀手一突献诗效果：免疫下一次警察伤害 ===
+        if getattr(target, '_immune_next_police_damage', False):
+            target._immune_next_police_damage = False
+            return f"🛡️✂️ {target.name} 免疫了 {unit.unit_id} 的执法攻击！（献诗效果消耗）"
 
         # 使用 resolve_damage 进行伤害结算
         result = resolve_damage(
