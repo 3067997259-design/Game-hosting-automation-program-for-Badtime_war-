@@ -265,8 +265,7 @@
       "poem_law_election_progress": "👮 {target_name} 竞选进度+2！（配合朝阳好市民减1轮=立刻上任）",
       "poem_law_election_manual": "👮 DM请手动为 {target_name} 竞选进度+2。",
       "poem_law_default": "效果已生效。",
-      "poem_trick_immediate_action": "🃏 {target_name} 获得一次立刻行动！",
-      "poem_trick_completion": "🃏 {target_name} 完成立刻行动！\n 「不良少年」天赋累计触发已重置。",
+
       "poem_yinyang": "☯️ {target_name} 的「六爻」增强！\n 充能+1（当前{charges}）\n 下{free_choices}次发动可指定效果",
       "poem_shore": "💀✨ {target_name} 的「死者苏生」增强！\n 复活后可获得{count}件全游戏任意物品或法术\n （不含扩展/天赋物品，不含抽象权能）",
       "poem_strife_immediate_action": "🔥 {target_name} 获得一次立刻行动！",
@@ -295,6 +294,8 @@
         "剪刀vs布→获得2个连续额外行动回合",
         "石头vs布→清除锁定/探测+隐身"
       ],
+      "poem_rhythm_immediate_action": "🔥 {target_name} 获得一次奖励行动！（+1HP/+1ATK）",
+      "poem_rhythm_completion": "🔥 {target_name} 完成奖励行动！\n{effects}",
       "cancel_activation": "取消发动。",
       "anchor_not_established": "锚定未成立，追忆已返还。",
       "unknown_anchor_type": "❌ 未知锚定类型：{anchor_type}",
@@ -385,14 +386,15 @@
       "invalid_in_barrier": "🔮 石头vs布→结界内解除锁定/发现被屏蔽，隐身被结界破除。\n 效果完全无效。",
       "lock_clear_invisible": "🔮 石头vs布→🫥 {player_name} 清除所有锁定与探测，进入隐身！"
     },
-    "t5delinquent": {
+    "t5combo": {
       "lore": [
-        "「恶人，只有恶人才能制裁」",
-        "「所以，制裁你的人，是我」",
-        "「DO YOU UNDERSTAND?」"
+        "「锁屏可打」",
+        "「已退出锁屏可打大队」",
+        "「好耶！感谢奥托普雷先生帮我又拿下一首FC」"
       ],
-      "activate": "「原初天赋5：不良少年」{player_name}试图加入意大利不知名黑帮&……！",
-      "crime_trigger": "🔥 不良少年：首次触发犯罪「{crime_type}」→ 获得额外行动回合！"
+      "activate": "🔥 Combo！{player_name} 连续行动达成！",
+      "bonus_round": "🔥 Combo！{player_name} 本轮获得 +1 HP 和 +1 攻击力！",
+      "streak_trigger": "🔥 {player_name} 连续行动{threshold}轮！下一轮 D4 必为 4，D6 必为 6！"
     },
     "t6goodcitizen": {
       "lore": [

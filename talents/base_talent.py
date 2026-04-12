@@ -141,7 +141,7 @@ class BaseTalent:
             "ScissorRush": "t2scissorrush",
             "Star": "t3star",
             "Hexagram": "t4hexagram",
-            "Delinquent": "t5delinquent",
+            "Combo": "t5combo",
             "GoodCitizen": "t6goodcitizen",
             "Resurrection": "t7resurrection",
             # 神代天赋
