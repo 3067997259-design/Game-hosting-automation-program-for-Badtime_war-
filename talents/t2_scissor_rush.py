@@ -156,16 +156,12 @@ class ScissorRush(BaseTalent):
     #  攻击回盾
     # ================================================================
     def on_attack_shield_recovery(self, attacker, hit_piece):
-        """攻击结算后触发（由 damage_resolver 调用）
+        """偶数次攻击且命中护甲时触发（由 damage_resolver 调用）。
+        attack_count 的递增和偶数判定已由 damage_resolver 完成，
+        本方法只负责回盾效果。
         hit_piece: 被命中的护甲 ArmorPiece 对象
         """
         if attacker.player_id != self.player_id:
-            return
-
-        self.attack_count += 1
-
-        # 每2次攻击，第2次触发
-        if self.attack_count % 2 != 0:
             return
 
         # 排除铁之荷鲁斯等特殊护甲
