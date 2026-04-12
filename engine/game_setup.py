@@ -14,7 +14,7 @@ from talents.t1_one_slash import OneSlash
 from talents.t2_scissor_rush import ScissorRush
 from talents.t3_star import Star
 from talents.t4_hexagram import Hexagram
-from talents.t5_delinquent import Delinquent
+from talents.t5_combo import Combo
 from talents.t6_good_citizen import GoodCitizen
 from talents.t7_resurrection import Resurrection
 from talents.g4_savior import Savior
@@ -72,8 +72,8 @@ TALENT_TABLE = [
      "主动1次：同地点全体1伤害(无视克制)+石化"),
     (4, "六爻", Hexagram,
      "每4轮充能(上限2)：猜拳，6种效果"),
-    (5, "不良少年", Delinquent,
-     "常驻：热那亚之刃(攻击不犯罪)+每种新犯罪+1行动"),
+    (5, "combo", Combo,
+     "常驻被动：连续行动3轮→下轮必定行动+1HP+1ATK"),
     (6, "朝阳好市民", GoodCitizen,
      "常驻：远程举报+扩展犯罪名单+竞选-1回合"),
     (7, "死者苏生", Resurrection,

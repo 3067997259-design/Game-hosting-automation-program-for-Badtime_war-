@@ -144,8 +144,8 @@ class PoemMixin:
             msg = self._poem_stars(target)
         elif poem_type == "律法":
             msg = self._poem_law(target)
-        elif poem_type == "诡计":
-            msg = self._poem_trick(caster, target)
+        elif poem_type == "旋律":
+            msg = self._poem_rhythm(caster, target)
         elif poem_type == "阴阳":
             msg = self._poem_yinyang(target)
         elif poem_type == "彼岸":
@@ -407,26 +407,43 @@ class PoemMixin:
         return "\n".join(lines) if lines else prompt_manager.get_prompt(
             "talent", "g5ripple.poem_law_default", default="效果已生效。")
 
-    def _poem_trick(self, caster, target):
+    def _poem_rhythm(self, caster, target):
+        """
+        献予「旋律」之诗：Combo 增强
+        效果：
+        1. 立刻给予一个享受奖励的额外行动（+1HP/+1ATK）
+        2. 下一次天赋触发只需要连续2次获得行动权
+        """
+        lines = []
+        talent = target.talent
+
+        # 1. 激活奖励状态
+        if hasattr(talent, 'activate_poem_bonus'):
+            talent.activate_poem_bonus(target)
+
+        # 2. 立刻行动
         display.show_info(prompt_manager.get_prompt(
-            "talent", "g5ripple.poem_trick_immediate_action",
-            default="🃏 {target_name} 获得一次立刻行动！"
+            "talent", "g5ripple.poem_rhythm_immediate_action",
+            default="🔥 {target_name} 获得一次奖励行动！（+1HP/+1ATK）"
         ).format(target_name=target.name))
 
         from engine.action_turn import ActionTurnManager
         atm = ActionTurnManager(self.state)
         atm.execute_single_action(target)
 
-        talent = target.talent
-        if hasattr(talent, 'trigger_count'):
-            talent.trigger_count = 0
-        if hasattr(talent, 'used_this_round'):
-            talent.used_this_round = False
+        # 3. 移除奖励状态
+        if hasattr(talent, 'deactivate_poem_bonus'):
+            talent.deactivate_poem_bonus(target)
+
+        # 4. 下一次触发阈值降为2
+        if hasattr(talent, 'trigger_threshold'):
+            talent.trigger_threshold = 2
+        lines.append("   下一次 Combo 触发只需连续行动 2 轮")
 
         return prompt_manager.get_prompt(
-            "talent", "g5ripple.poem_trick_completion",
-            default="🃏 {target_name} 完成立刻行动！\n   「不良少年」天赋累计触发已重置。"
-        ).format(target_name=target.name)
+            "talent", "g5ripple.poem_rhythm_completion",
+            default="🔥 {target_name} 完成奖励行动！\n{effects}"
+        ).format(target_name=target.name, effects="\n".join(lines))
 
     def _poem_scissor(self, caster, target):
         """
