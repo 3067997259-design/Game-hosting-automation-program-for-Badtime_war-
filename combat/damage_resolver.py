@@ -695,7 +695,15 @@ def resolve_damage(attacker, target, weapon, game_state,
         )
 
     # ---- 全息影像：额外无视属性克制伤害（护甲结算后独立施加） ----
+    hologram_bonus = _get_hologram_bonus(target, game_state)
     if hologram_bonus > 0:
+        hologram_text = prompt_manager.get_prompt(
+            "combat", "hologram_vulnerability",
+            default="✨全息影像额外伤害：+{hologram_bonus}（无视属性克制）"
+        )
+        result["details"].append(hologram_text.format(
+            hologram_bonus=hologram_bonus
+        ))
         # 无视属性克制：直接对最外层护甲造成伤害
         hologram_remaining = hologram_bonus
         hologram_armor = _select_armor_target(target, None, None)

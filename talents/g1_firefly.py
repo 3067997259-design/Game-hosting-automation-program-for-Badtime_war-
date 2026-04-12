@@ -46,7 +46,7 @@ class G1MythFire(BaseTalent):
         # debuff
         self.debuff_started = False
         self.debuff_start_round = None
-        self.initial_player_count = 0 # 初始化为0，on_register中设为1
+        self.initial_player_count = 0  # on_register中设为实际玩家人数
         self.debuff_settle_toggle = False  # True = 本轮结算，False = 跳过
 
         # 后续延迟：每3轮窗口追踪
