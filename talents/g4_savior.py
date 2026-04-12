@@ -171,8 +171,8 @@ class Savior(BaseTalent):
 
         self.is_savior = True
         self.savior_duration = consumed
-        self.temp_hp = float(consumed) * 0.5
-        self.temp_hp_max = float(consumed) * 0.5
+        self.temp_hp = float(consumed) * 1.0
+        self.temp_hp_max = float(consumed) * 1.0
         self.temp_attack_bonus = consumed * 0.5
         self.aoe_bonus = 0.5 if consumed <= 6 else 1.0
 
