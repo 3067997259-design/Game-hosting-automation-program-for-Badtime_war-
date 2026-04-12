@@ -108,7 +108,7 @@ if AI_DISABLED_TALENTS:
 AI_TALENT_PREFERENCE = {
     "aggressive": [8, 1, 10, 14, 3, 9, 4, 12],
     "defensive":  [11, 7, 14, 3, 10, 4, 9, 12],
-    "political":  [6, 7, 11, 2, 13, 3, 9],
+    "political":  [6, 7, 11, 13, 3, 9],
     "assassin":   [2, 5, 1, 10, 8, 9, 4],
     "builder":    [12, 7, 11, 14, 13, 3, 2, 9],
     "balanced":   [4, 13, 9, 14, 2, 5, 3, 11, 12],

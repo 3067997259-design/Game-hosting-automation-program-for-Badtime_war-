@@ -901,20 +901,21 @@ def resolve_damage(attacker, target, weapon, game_state,
             and result["success"]):
         # 每次成功攻击都递增计数器
         attacker.talent.attack_count += 1
-        # 偶数次攻击且命中护甲时，触发回盾
-        if attacker.talent.attack_count % 2 == 0 and result.get("armor_hit"):
-            armor_name = result["armor_hit"]
-            # 找到被命中的护甲对象以获取属性信息
-            hit_piece = None
-            for layer in [ArmorLayer.OUTER, ArmorLayer.INNER]:
-                for piece in target.armor._get_layer_list(layer):
-                    if piece.name == armor_name:
-                        hit_piece = piece
+        # 偶数次攻击时检查是否命中护甲，命中则触发回盾
+        if attacker.talent.attack_count % 2 == 0:
+            if result.get("armor_hit"):
+                armor_name = result["armor_hit"]
+                # 找到被命中的护甲对象以获取属性信息
+                hit_piece = None
+                for layer in [ArmorLayer.OUTER, ArmorLayer.INNER]:
+                    for piece in target.armor._get_layer_list(layer):
+                        if piece.name == armor_name:
+                            hit_piece = piece
+                            break
+                    if hit_piece:
                         break
                 if hit_piece:
-                    break
-            if hit_piece:
-                attacker.talent.on_attack_shield_recovery(attacker, hit_piece)
+                    attacker.talent.on_attack_shield_recovery(attacker, hit_piece)
 
     return result
 

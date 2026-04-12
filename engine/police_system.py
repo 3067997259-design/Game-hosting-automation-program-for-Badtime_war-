@@ -322,6 +322,16 @@ class PoliceEngine:
             unit.last_attacker_id = attacker_id
 
 
+        # 天赋犯罪检查（剪刀手一突等）
+        attacker_player = self.state.get_player(attacker_id)
+        if attacker_player and attacker_player.talent and hasattr(attacker_player.talent, 'on_crime_check'):
+            crime_result = attacker_player.talent.on_crime_check(attacker_id, "攻击警察")
+            if crime_result and crime_result.get("extra_turn"):
+                msg = crime_result.get("message", "")
+                if msg:
+                    from cli import display
+                    display.show_info(msg)
+                attacker_player.crime_extra_turn = True
         # 攻击警察视为犯法
         self.check_and_record_crime(attacker_id, "攻击警察")
         # 新增：无队长时，击杀警察单位清除自身所有犯罪记录

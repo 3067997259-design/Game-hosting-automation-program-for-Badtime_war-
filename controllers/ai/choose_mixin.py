@@ -1110,7 +1110,7 @@ class ChooseMixin(_Base):
         if situation == "response_window":
             talent_name = context.get("talent_name", "")
             action_type = context.get("action_type", "")
-            if talent_name == "你给路打油" and action_type in ("attack", "special"):
+            if talent_name in ("你给路打油", "剪刀手一突") and action_type in ("attack", "special"):
                 if self._player:
                     hp = self._player.hp
                     outer = self._count_outer_armor(self._player)
