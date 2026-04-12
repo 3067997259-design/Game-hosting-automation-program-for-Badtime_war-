@@ -49,8 +49,7 @@ class ScissorRush(BaseTalent):
         self.attack_count = 0            # 攻击计数器
         self.stealth_on_zero_kills = True  # 隐身盘活标记（供 damage_resolver 检查）
 
-        # ---- 献诗增强标记 ----
-        self._immune_next_police_damage = False
+
 
     # ================================================================
     #  被动：伤人免罪 + 犯罪再动
@@ -156,11 +155,11 @@ class ScissorRush(BaseTalent):
     # ================================================================
     #  攻击回盾
     # ================================================================
-    def on_attack_resolved(self, attacker, target, result, game_state):
-        """攻击结算后触发（由 damage_resolver 调用）"""
+    def on_attack_shield_recovery(self, attacker, hit_piece):
+        """攻击结算后触发（由 damage_resolver 调用）
+        hit_piece: 被命中的护甲 ArmorPiece 对象
+        """
         if attacker.player_id != self.player_id:
-            return
-        if not result.get("success"):
             return
 
         self.attack_count += 1
@@ -169,33 +168,28 @@ class ScissorRush(BaseTalent):
         if self.attack_count % 2 != 0:
             return
 
-        # 检查是否对护甲造成了伤害
-        armor_ref = result.get("_armor_hit_ref")
-        if armor_ref is None:
-            return
-
         # 排除铁之荷鲁斯等特殊护甲
         EXCLUDED_ARMORS = {"铁之荷鲁斯"}
-        if armor_ref.name in EXCLUDED_ARMORS:
+        if hit_piece.name in EXCLUDED_ARMORS:
             return
 
         # 计算回盾量：被命中护甲 max_hp 的 50%，量化
-        raw_recovery = armor_ref.max_hp * 0.5
+        raw_recovery = hit_piece.max_hp * 0.5
         recovery = self._quantize_shield(raw_recovery)
         if recovery <= 0:
             return
 
         # 检查自己是否已有同名护甲
         existing = None
-        for piece in attacker.armor.get_active(armor_ref.layer):
-            if piece.name == armor_ref.name and not piece.is_broken:
+        for piece in attacker.armor.get_active(hit_piece.layer):
+            if piece.name == hit_piece.name and not piece.is_broken:
                 existing = piece
                 break
         # 也检查已破碎的同名护甲（可以修复）
         if existing is None:
             all_pieces = getattr(attacker.armor, '_outer', []) + getattr(attacker.armor, '_inner', [])
             for piece in all_pieces:
-                if piece.name == armor_ref.name and piece.is_broken:
+                if piece.name == hit_piece.name and piece.is_broken:
                     existing = piece
                     break
 
@@ -219,11 +213,11 @@ class ScissorRush(BaseTalent):
         else:
             # 没有同名护甲 → 创建新护甲
             new_piece = ArmorPiece(
-                name=armor_ref.name,
-                attribute=armor_ref.attribute,
-                layer=armor_ref.layer,
+                name=hit_piece.name,
+                attribute=hit_piece.attribute,
+                layer=hit_piece.layer,
                 max_hp=recovery,
-                priority=armor_ref.priority,
+                priority=hit_piece.priority,
             )
             new_piece.current_hp = recovery
             success, msg = attacker.add_armor(new_piece)
@@ -233,11 +227,11 @@ class ScissorRush(BaseTalent):
                     default="🛡️ 攻击回盾：{player_name} 获得「{armor_name}」（{recovery} HP）！"
                 ).format(
                     player_name=attacker.name,
-                    armor_name=armor_ref.name,
+                    armor_name=hit_piece.name,
                     recovery=recovery
                 ))
             else:
-                display.show_info(f"🛡️ 攻击回盾：无法装备「{armor_ref.name}」（{msg}）")
+                display.show_info(f"🛡️ 攻击回盾：无法装备「{hit_piece.name}」（{msg}）")
 
     @staticmethod
     def _quantize_shield(value):
