@@ -265,8 +265,7 @@
       "poem_law_election_progress": "👮 {target_name} 竞选进度+2！（配合朝阳好市民减1轮=立刻上任）",
       "poem_law_election_manual": "👮 DM请手动为 {target_name} 竞选进度+2。",
       "poem_law_default": "效果已生效。",
-      "poem_trick_immediate_action": "🃏 {target_name} 获得一次立刻行动！",
-      "poem_trick_completion": "🃏 {target_name} 完成立刻行动！\n 「不良少年」天赋累计触发已重置。",
+
       "poem_yinyang": "☯️ {target_name} 的「六爻」增强！\n 充能+1（当前{charges}）\n 下{free_choices}次发动可指定效果",
       "poem_shore": "💀✨ {target_name} 的「死者苏生」增强！\n 复活后可获得{count}件全游戏任意物品或法术\n （不含扩展/天赋物品，不含抽象权能）",
       "poem_strife_immediate_action": "🔥 {target_name} 获得一次立刻行动！",
