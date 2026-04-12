@@ -187,7 +187,7 @@ class ScissorRush(BaseTalent):
                 break
         # 也检查已破碎的同名护甲（可以修复）
         if existing is None:
-            all_pieces = getattr(attacker.armor, '_outer', []) + getattr(attacker.armor, '_inner', [])
+            all_pieces = getattr(attacker.armor, 'outer', []) + getattr(attacker.armor, 'inner', [])
             for piece in all_pieces:
                 if piece.name == hit_piece.name and piece.is_broken:
                     existing = piece
@@ -201,7 +201,7 @@ class ScissorRush(BaseTalent):
             else:
                 existing.current_hp = min(existing.max_hp, existing.current_hp + recovery)
             display.show_info(prompt_manager.get_prompt(
-                "talent", "t2scissorrush.shield_restore",
+                "talent", "t2scissorrush.shield_recovery_restore",
                 default="🛡️ 攻击回盾：{player_name} 的「{armor_name}」恢复 {recovery} HP！（当前 {current}/{max}）"
             ).format(
                 player_name=attacker.name,
@@ -223,7 +223,7 @@ class ScissorRush(BaseTalent):
             success, msg = attacker.add_armor(new_piece)
             if success:
                 display.show_info(prompt_manager.get_prompt(
-                    "talent", "t2scissorrush.shield_gain",
+                    "talent", "t2scissorrush.shield_recovery",
                     default="🛡️ 攻击回盾：{player_name} 获得「{armor_name}」（{recovery} HP）！"
                 ).format(
                     player_name=attacker.name,
