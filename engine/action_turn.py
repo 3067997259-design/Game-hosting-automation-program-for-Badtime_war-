@@ -295,7 +295,8 @@ class ActionTurnManager:
         # 标记设置从 on_turn_start 移到此处，确保只在 T0 正常完成后才生效
         if (player.talent and hasattr(player.talent, 'cutaway_charges')
                 and player.talent.cutaway_charges > 0
-                and not getattr(player, '_in_cutaway_joke', False)):
+                and not getattr(player, '_in_cutaway_joke', False)
+                and not getattr(player, '_mythland_talent_suppressed', False)):  # 幻想乡会压制插入式笑话
             player._in_cutaway_joke = True
             player.talent._d4_force = False
             player.talent._d6_force = False

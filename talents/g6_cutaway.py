@@ -82,7 +82,7 @@ class CutawayJoke(BaseTalent):
         """T0：仅做提示，不设置标记（标记由 _phase_t1 在确认进入 T1 后设置）"""
         if player.player_id != self.player_id:
             return None
-        if self.cutaway_charges > 0:
+        if self.cutaway_charges > 0 and not getattr(player, '_mythland_talent_suppressed', False):
             from cli import display
             display.show_info(f"🎭 {player.name} 的「插入式笑话」即将发动！")
         return None  # 不消耗回合，继续进入 T1
