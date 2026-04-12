@@ -138,7 +138,7 @@ class BaseTalent:
         CLASS_TO_PROMPT_KEY = {
             # 原初天赋
             "OneSlash": "t1oneslash",
-            "OilTheRoad": "t2oiltheroad",
+            "ScissorRush": "t2scissorrush",
             "Star": "t3star",
             "Hexagram": "t4hexagram",
             "Delinquent": "t5delinquent",

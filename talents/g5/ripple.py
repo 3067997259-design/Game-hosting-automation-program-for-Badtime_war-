@@ -26,7 +26,7 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
 
     POEM_MAP = {
         "一刀缭断": "游侠",
-        "你给路打油": "隐者",
+        "剪刀手一突": "地火",
         "神话之外": "永恒",
         "天星": "群星",
         "朝阳好市民": "律法",

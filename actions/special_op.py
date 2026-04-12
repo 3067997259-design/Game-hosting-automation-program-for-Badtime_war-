@@ -219,6 +219,15 @@ def _do_release_virus(player, game_state):
     # 犯罪检查（基础局不违法，朝阳好市民扩展时违法）
     if "释放病毒" in game_state.crime_types:
         if game_state.police_engine:
+            # 天赋犯罪检查（剪刀手一突等）
+            if player.talent and hasattr(player.talent, 'on_crime_check'):
+                crime_result = player.talent.on_crime_check(player.player_id, "释放病毒")
+                if crime_result and crime_result.get("extra_turn"):
+                    msg = crime_result.get("message", "")
+                    if msg:
+                        from cli import display
+                        display.show_info(msg)
+                    player.crime_extra_turn = True
             game_state.police_engine.check_and_record_crime(player.player_id, "释放病毒")
 
     game_state.log_event("release_virus", player=player.player_id)

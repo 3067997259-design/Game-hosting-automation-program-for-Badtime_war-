@@ -136,8 +136,8 @@ class PoemMixin:
 
         if poem_type == "游侠":
             msg = self._poem_ranger(target)
-        elif poem_type == "隐者":
-            msg = self._poem_hermit(target)
+        elif poem_type == "地火":
+            msg = self._poem_scissor(caster, target)
         elif poem_type == "永恒":
             msg = self._poem_eternity(target)
         elif poem_type == "群星":
@@ -197,18 +197,6 @@ class PoemMixin:
             "talent", "g5ripple.poem_ranger_default",
             default="效果已生效。"
         )
-
-    def _poem_hermit(self, target):
-        """献予「隐者」之诗：你给路打油增强"""
-        talent = target.talent
-        if hasattr(talent, 'reset_all_triggers'):
-            talent.reset_all_triggers()
-        if hasattr(talent, 'max_global_triggers'):
-            talent.max_global_triggers += 2
-        return prompt_manager.get_prompt(
-            "talent", "g5ripple.poem_ranger_oiltheroad",
-            default="🛤️ {target_name} 的「你给路打油」所有地点触发重置，全局上限+2！"
-        ).format(target_name=target.name)
 
     def _poem_eternity(self, target):
         """献予「永恒」之诗：神话之外增强——发动次数+1，被拉入者第一次行动只能是forfeit"""
@@ -439,6 +427,51 @@ class PoemMixin:
             "talent", "g5ripple.poem_trick_completion",
             default="🃏 {target_name} 完成立刻行动！\n   「不良少年」天赋累计触发已重置。"
         ).format(target_name=target.name)
+
+    def _poem_scissor(self, caster, target):
+        """
+        献予「地火」之诗：剪刀手一突增强
+        效果：
+        1. 立刻行动1次
+        2. 警觉效果重置（find_triggered + found_triggered）
+        3. 犯罪再动重置（triggered_crime_types 清空）
+        4. 免疫下一次警察伤害
+        """
+        lines = []
+
+        # 1. 立刻行动
+        display.show_info(prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_scissor_immediate_action",
+            default="✂️ {target_name} 获得一次立刻行动！"
+        ).format(target_name=target.name))
+
+        from engine.action_turn import ActionTurnManager
+        atm = ActionTurnManager(self.state)
+        atm.execute_single_action(target)
+
+        # 2. 警觉重置
+        talent = target.talent
+        if hasattr(talent, 'find_triggered'):
+            talent.find_triggered = False
+        if hasattr(talent, 'found_triggered'):
+            talent.found_triggered = False
+        if hasattr(talent, 'vigilance_uses'):
+            talent.vigilance_uses = 2
+        lines.append("   警觉效果已重置")
+
+        # 3. 犯罪再动重置
+        if hasattr(talent, 'triggered_crime_types'):
+            talent.triggered_crime_types.clear()
+        lines.append("   犯罪再动计数已重置")
+
+        # 4. 免疫下一次警察伤害
+        target._immune_next_police_damage = True
+        lines.append("   🛡️ 获得：免疫下一次警察伤害")
+
+        return prompt_manager.get_prompt(
+            "talent", "g5ripple.poem_scissor_completion",
+            default="✂️ {target_name} 完成立刻行动！\n{effects}"
+        ).format(target_name=target.name, effects="\n".join(lines))
 
     def _poem_yinyang(self, target):
         talent = target.talent

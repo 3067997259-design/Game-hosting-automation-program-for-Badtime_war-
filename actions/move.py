@@ -7,6 +7,18 @@ ALL_LOCATIONS = [
 ]
 
 
+def _talent_crime_hook(player, crime_type):
+    """非攻击类犯罪的天赋钩子（犯罪再动等）"""
+    if player.talent and hasattr(player.talent, 'on_crime_check'):
+        crime_result = player.talent.on_crime_check(player.player_id, crime_type)
+        if crime_result and crime_result.get("extra_turn"):
+            msg = crime_result.get("message", "")
+            if msg:
+                from cli import display
+                display.show_info(msg)
+            player.crime_extra_turn = True
+
+
 def get_all_valid_locations(game_state):
     """获取所有合法地点名称列表（包含各玩家的家）"""
     locations = list(ALL_LOCATIONS)
@@ -204,10 +216,14 @@ def execute(player, destination, game_state):
         # 进入他人家
         if "进入他人家" in game_state.crime_types:
             if destination.startswith("home_") and destination != f"home_{player.player_id}":
+                # 天赋犯罪检查（剪刀手一突等）
+                _talent_crime_hook(player, "进入他人家")
                 game_state.police_engine.check_and_record_crime(player.player_id, "进入他人家")
         # 进入军事基地
         if "进入军事基地" in game_state.crime_types:
             if destination == "军事基地":
+                # 天赋犯罪检查（剪刀手一突等）
+                _talent_crime_hook(player, "进入军事基地")
                 game_state.police_engine.check_and_record_crime(player.player_id, "进入军事基地")
 
     # Terror 进入时：该地区警察单位逃离到队长所在地点

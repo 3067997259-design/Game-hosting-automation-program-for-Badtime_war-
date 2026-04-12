@@ -321,6 +321,22 @@
       "activate": "「原初天赋2：你给路打油」{player_name}准备开溜！",
       "response": "🛢️ {player_name} 使用「你给路打油」！\n 获得1个额外行动回合！（剩余{remaining}次）"
     },
+    "t2scissorrush": {
+      "lore" : [
+          "「海的那边是什么样？我不知道，小时候没上过学，字都不识几个」",
+          "「但如果你又是一楼锁小美，然后十枪空十一枪；又是进点不给屏障还往心夏枪口底下冲，甚至点个小绘精灵都不知道给盾」",
+          "「我下把就排在你对面把你打成筛子……靠，没文化骂人也不利索」"
+      ],
+      "crime_immune_injury": " 剪刀手一突：{player_name} 的攻击未造成击杀，不视为犯罪",
+      "crime_trigger": " 剪刀手一突：首次触发犯罪「{crime_type}」→ 获得额外行动回合！",
+      "response": " {player_name} 使用「紧急战斗策略」！\n    获得1个额外行动回合！（剩余{remaining}次）",
+      "vigilance_found": " 警觉触发：{player_name} 首次被找到 → 获得额外行动回合！",
+      "vigilance_find": " 警觉触发：{player_name} 首次找到他人 → 获得额外行动回合！",
+      "shield_recovery": " 攻击回盾：{player_name} 获得「{armor_name}」（{recovery} HP）！",
+      "shield_recovery_restore": " 攻击回盾：{player_name} 的「{armor_name}」恢复 {recovery} HP（{current}/{max}）",
+      "shield_recovery_cooldown": " 攻击回盾：攻击计数 {count}（下次攻击触发）",
+      "stealth_active": " 隐身强化：{player_name} 击杀数为0，攻击不解除隐身"
+    },
     "t3star": {
       "lore": [
         "「天理尝蛆」",

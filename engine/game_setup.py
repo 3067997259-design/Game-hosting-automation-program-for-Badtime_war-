@@ -11,7 +11,7 @@ from controllers.human import HumanController
 from controllers.ai_basic import BasicAIController
 
 from talents.t1_one_slash import OneSlash
-from talents.t2_oil_the_road import OilTheRoad
+from talents.t2_scissor_rush import ScissorRush
 from talents.t3_star import Star
 from talents.t4_hexagram import Hexagram
 from talents.t5_delinquent import Delinquent
@@ -66,8 +66,8 @@ def _resolve_disabled_talents(raw_list, talent_table) -> set:
 TALENT_TABLE = [
     (1, "一刀缭断", OneSlash,
      "主动2次：近战攻击伤害×2+无视克制"),
-    (2, "你给路打油", OilTheRoad,
-     "反应2次：R3期间声明获得额外行动回合"),
+    (2, "剪刀手一突", ScissorRush,
+     "常驻：伤人免罪+犯罪再动+紧急战斗+警觉+攻击回盾+隐身增强"),
     (3, "天星", Star,
      "主动1次：同地点全体1伤害(无视克制)+石化"),
     (4, "六爻", Hexagram,
@@ -108,10 +108,10 @@ if AI_DISABLED_TALENTS:
 AI_TALENT_PREFERENCE = {
     "aggressive": [8, 1, 10, 14, 3, 9, 4, 12],
     "defensive":  [11, 7, 14, 3, 10, 4, 9, 12],
-    "political":  [6, 7, 11, 2, 13, 3, 9],
-    "assassin":   [5, 1, 10, 8, 9, 2, 4],
+    "political":  [6, 7, 11, 13, 3, 9],
+    "assassin":   [2, 5, 1, 10, 8, 9, 4],
     "builder":    [12, 7, 11, 14, 13, 3, 2, 9],
-    "balanced":   [13, 9, 14, 4, 5, 3, 2, 11, 12],
+    "balanced":   [4, 13, 9, 14, 2, 5, 3, 11, 12],
 }
 
 AI_PERSONALITIES = ["balanced", "aggressive", "defensive",

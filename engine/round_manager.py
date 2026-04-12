@@ -224,6 +224,15 @@ class RoundManager:
                 display.show_info(
                     f"📌 {actor.name} 的额外行动回合已插入！（临战-Archer起床加成）")
 
+            # === 剪刀手一突·警觉额外回合（扫描所有玩家，支持被动方即时插入）===
+            for pid in self.state.player_order:
+                p = self.state.get_player(pid)
+                if p and p.is_alive() and getattr(p, 'vigilance_extra_turn', False):
+                    p.vigilance_extra_turn = False
+                    action_queue.insert(i + 1, p.player_id)
+                    display.show_info(
+                        f"📌 {p.name} 的额外行动回合已插入！（警觉）")
+
             # 检查胜利
             if self.state.check_victory():
                 return
