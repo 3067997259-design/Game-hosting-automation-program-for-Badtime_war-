@@ -350,7 +350,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 target_name=target.name
             ))
             if (attacker and attacker.talent and hasattr(attacker.talent, 'on_kill')
-                    and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
+                    and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)
+                    and not getattr(attacker, '_mythland_talent_suppressed', False)):
                 attacker.talent.on_kill(attacker, target)
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
                 target.talent.on_player_death_check(target)
@@ -790,7 +791,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                 target_name=target.name
             ))
             if (attacker and attacker.talent and hasattr(attacker.talent, 'on_kill')
-                    and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
+                    and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)
+                    and not getattr(attacker, '_mythland_talent_suppressed', False)):
                 attacker.talent.on_kill(attacker, target)
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
                 target.talent.on_player_death_check(target)
@@ -1322,7 +1324,8 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             terror_kill = prompt_manager.get_prompt("talent", "g7hoshino.terror_kill",
                                           target_name=target.name)
             result["details"].append(terror_kill)
-            if attacker and attacker.talent and hasattr(attacker.talent, 'on_kill'):
+            if (attacker and attacker.talent and hasattr(attacker.talent, 'on_kill')
+                and not getattr(attacker, '_mythland_talent_suppressed', False)):
                 attacker.talent.on_kill(attacker, target)
 
     elif target.hp <= 0.5 and not target.is_stunned and not color_10_triggered:
