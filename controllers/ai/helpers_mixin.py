@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS, LOCATIONS,
-    debug_ai_basic
+    PROTECTED_ITEMS, debug_ai_basic
 )
 
 if TYPE_CHECKING:
@@ -124,16 +124,6 @@ class HelpersMixin(_Base): # type: ignore
     # _has_hoshino_talent, _hoshino_is_terror, _hoshino_tactical_unlocked,
     # _hoshino_has_ammo, _hoshino_get_cost, _hoshino_get_form
     # 已统一定义在 hoshino_mixin.py 中
-
-    def _hoshino_can_reload(self, player) -> bool:
-        """检查星野是否有可消耗物品用于装填"""
-        weapons = getattr(player, 'weapons', [])
-        items = getattr(player, 'items', [])
-        # 拳击以外的武器或物品都可以消耗装填
-        consumable = [w for w in weapons if w and w.name not in ("拳击",) and not getattr(w, '_is_fused', False)]
-        PROTECTED_ITEMS = {"防毒面具", "隐身衣", "热成像仪", "隐形涂层", "雷达", "探测魔法"}
-        consumable += [i for i in items if i and getattr(i, 'name', '') not in PROTECTED_ITEMS]
-        return len(consumable) > 0
 
     def _hoshino_shield_mode(self, player):
         talent = getattr(player, 'talent', None)
