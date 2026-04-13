@@ -61,7 +61,7 @@ class Hexagram(BaseTalent):
         """每5轮充能+1；清理过期的金身和武器禁用"""
         # 充能
         self.round_counter += 1
-        if self.round_counter >= 5:
+        if self.round_counter >= 6:
             self.round_counter = 0
             if self.charges < self.max_charges:
                 self.charges += 1

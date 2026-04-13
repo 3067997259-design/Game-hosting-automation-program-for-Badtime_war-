@@ -169,7 +169,7 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         if not self.acted_last_round or self.only_extra_turn:
             gain = 0.5        # 未行动/仅额外行动 +0.5
         else:
-            gain = 1.0      # 行动了 +1
+            gain = 0.5      # 行动了 +1
 
         old = self.reminiscence
         self.reminiscence = min(self.max_reminiscence, self.reminiscence + gain)

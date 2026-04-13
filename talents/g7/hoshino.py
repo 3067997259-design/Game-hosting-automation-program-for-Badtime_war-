@@ -304,7 +304,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         if self.is_terror:
             return None  # Terror 形态下无视任何条件死亡
         # 战斗续行：一次性免死
-        if getattr(self, '_combat_continuation_immunity', False):
+        # if getattr(self, '_combat_continuation_immunity', False):
             self._combat_continuation_immunity = False
             display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.combat_continuation_trigger",
                 default="✨ 「战斗续行」发动！星野免疫了这次死亡！"))
