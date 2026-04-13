@@ -182,7 +182,6 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                     h['active'] = True
                     h['recovering'] = False
                     h['cooldown_remaining'] = 0
-                from cli import display
                 display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.adrenaline_effect",
                     default="💉 肾上腺素生效！Cost={cost}，光环全恢复！").format(cost=self.cost))
                 # 肾上腺素覆盖失却之痛
@@ -191,7 +190,6 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             # 失却之痛：Cost-1
             if fatigue_pending:
                 self.cost = max(self.cost - 1, 1)  # 不低于 1
-                from cli import display
                 display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.macro_fatigue_trigger",
                     default="⚠️ {player_name} 承受着「失却之痛」的代价……本轮 Cost-1（当前Cost: {cost}）").format(
                     player_name=me.name, cost=self.cost))
