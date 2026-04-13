@@ -1,7 +1,7 @@
 """HoshinoMixin —— 神代天赋7 AI 专属逻辑"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any
-from controllers.ai.constants import debug_ai_basic
+from controllers.ai.constants import PROTECTED_ITEMS, debug_ai_basic
 
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController
@@ -79,8 +79,9 @@ class HoshinoMixin(_Base):
             if w and w.name not in ("拳击", "荷鲁斯之眼"):
                 return w.name
         for item in getattr(player, 'items', []):
-            if item and getattr(item, 'name', None) not in repair_names:
-                return getattr(item, 'name', None)
+            item_name = getattr(item, 'name', None)
+            if item and item_name not in repair_names and item_name not in PROTECTED_ITEMS:
+                return item_name
         # 检查护甲（盾牌/AT力场等）—— 受损时跳过修复材料
         for a in getattr(getattr(player, 'armor', None), 'get_all_active', lambda: [])():
             if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
@@ -421,13 +422,22 @@ class HoshinoMixin(_Base):
         # 已有子弹 >= 4 → 足够
         if ammo_count >= 4:
             return True
+        # 荷鲁斯受损时保留修复材料，不算作可消耗品
+        iron_horus_hp = getattr(talent, 'iron_horus_hp', 0)
+        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 2)
+        repair_names = {"盾牌", "AT力场"} if iron_horus_hp < iron_horus_max else set()
         # 已有子弹 + 可装填的消耗品数量 >= 4
         consumable_count = 0
         for w in getattr(player, 'weapons', []):
             if w and w.name not in ("拳击", "荷鲁斯之眼"):
                 consumable_count += 1
         for item in getattr(player, 'items', []):
-            if item:
+            item_name = getattr(item, 'name', None)
+            if item and item_name not in PROTECTED_ITEMS and item_name not in repair_names:
+                consumable_count += 1
+        # 检查护甲（盾牌/AT力场等）—— 受损时跳过修复材料
+        for a in getattr(getattr(player, 'armor', None), 'get_all_active', lambda: [])():
+            if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
                 consumable_count += 1
         # 每个消耗品装填4发
         return ammo_count + consumable_count * 4 >= 4

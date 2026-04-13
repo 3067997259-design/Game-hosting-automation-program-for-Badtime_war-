@@ -125,15 +125,6 @@ class HelpersMixin(_Base): # type: ignore
     # _hoshino_has_ammo, _hoshino_get_cost, _hoshino_get_form
     # 已统一定义在 hoshino_mixin.py 中
 
-    def _hoshino_can_reload(self, player) -> bool:
-        """检查星野是否有可消耗物品用于装填"""
-        weapons = getattr(player, 'weapons', [])
-        items = getattr(player, 'items', [])
-        # 拳击以外的武器或物品都可以消耗装填
-        consumable = [w for w in weapons if w and w.name not in ("拳击",) and not getattr(w, '_is_fused', False)]
-        consumable += [i for i in items if i]
-        return len(consumable) > 0
-
     def _hoshino_shield_mode(self, player):
         talent = getattr(player, 'talent', None)
         return getattr(talent, 'shield_mode', None) if talent else None

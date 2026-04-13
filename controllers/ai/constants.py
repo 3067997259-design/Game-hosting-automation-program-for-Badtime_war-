@@ -81,6 +81,9 @@ NEED_PROVIDERS = {
         ("军事基地", "通行证", "free"),
     ],
 }
+# 不可消耗的被动物品（消耗后会失去关键能力）
+PROTECTED_ITEMS = {"防毒面具", "隐身衣", "热成像仪", "隐形涂层", "雷达", "探测魔法"}
+
 # 属性克制：attacker_attr → 能有效打的 armor_attr 集合
 EFFECTIVE_AGAINST = {
     Attribute.ORDINARY: {Attribute.ORDINARY, Attribute.MAGIC},

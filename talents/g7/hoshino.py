@@ -25,7 +25,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         self.cost = 5
         self.max_cost = 5
         # 光环（3层）
-        self.halos = [{"active": True, "cooldown_remaining": 0, "recovering": False} for _ in range(3)]
+        self.halos = [{"active": False, "cooldown_remaining": 0, "recovering": False} for _ in range(3)]
         # 融合装备
         self.iron_horus = None       # 铁之荷鲁斯 ArmorPiece 引用
         self.eye_of_horus = None     # 荷鲁斯之眼 特殊武器引用
@@ -62,6 +62,13 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         self.dash_free_shield_cost = False
 
         self._macro_used_this_round = False    # 本轮是否使用了战术宏
+
+        # 战斗续行：一次性免死（三层光环首次全部点亮时获得）
+        self._combat_continuation_immunity = False
+        self._all_halos_first_lit = False  # 是否已经触发过"首次全亮"
+
+        # 铁之荷鲁斯被动自修复
+        self._horus_repair_cooldown = -1  # 自修复冷却计数器（-1 = 未激活）
 
     def on_register(self):
         """选择初始形态"""
@@ -175,7 +182,6 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                     h['active'] = True
                     h['recovering'] = False
                     h['cooldown_remaining'] = 0
-                from cli import display
                 display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.adrenaline_effect",
                     default="💉 肾上腺素生效！Cost={cost}，光环全恢复！").format(cost=self.cost))
                 # 肾上腺素覆盖失却之痛
@@ -184,13 +190,42 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             # 失却之痛：Cost-1
             if fatigue_pending:
                 self.cost = max(self.cost - 1, 1)  # 不低于 1
-                from cli import display
                 display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.macro_fatigue_trigger",
                     default="⚠️ {player_name} 承受着「失却之痛」的代价……本轮 Cost-1（当前Cost: {cost}）").format(
                     player_name=me.name, cost=self.cost))
 
+        # 首次轮次：启动光环依次恢复（如果还没有任何光环在恢复中）
+        if not self.is_terror and not any(h['active'] or h['recovering'] for h in self.halos):
+            alive_count = len([pid for pid in self.state.player_order
+                            if self.state.get_player(pid) and self.state.get_player(pid).is_alive()])
+            cooldown_time = self._halo_cooldown_time(alive_count)
+            self.halos[0]['recovering'] = True
+            self.halos[0]['cooldown_remaining'] = cooldown_time
+
         # 光环恢复 tick
-        self._halo_tick()
+        if not self.is_terror:
+            self._halo_tick()
+
+        # 铁之荷鲁斯被动自修复（受损但未破碎时）
+        if (self.fusion_shield_done
+                and self.iron_horus_hp > 0
+                and self.iron_horus_hp < self.iron_horus_max_hp):
+            alive_count = len([pid for pid in self.state.player_order
+                            if self.state.get_player(pid) and self.state.get_player(pid).is_alive()])
+            repair_cd = max((self._halo_cooldown_time(alive_count) + 1) // 2, 2)
+            # 首次受损：从未激活（-1）切换为正常冷却
+            if self._horus_repair_cooldown < 0:
+                self._horus_repair_cooldown = repair_cd
+            self._horus_repair_cooldown -= 1
+            if self._horus_repair_cooldown <= 0:
+                self.iron_horus_hp = min(self.iron_horus_hp + 0.5, self.iron_horus_max_hp)
+                self._horus_repair_cooldown = repair_cd
+                display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.horus_self_repair",
+                    default="🔧 铁之荷鲁斯自修复 +0.5（护甲值: {hp}/{max_hp}）").format(
+                    hp=self.iron_horus_hp, max_hp=self.iron_horus_max_hp))
+        else:
+            # 不满足自修复条件时重置为未激活
+            self._horus_repair_cooldown = -1
 
         # 装备融合检查
         self._check_fusion(me)
@@ -263,10 +298,17 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         return remaining
 
     def on_death_check(self, player, damage_source):
-        """Terror下无视复活，无视任何条件死亡"""
+        """战斗续行免死 / Terror无条件死亡"""
+        if player.player_id != self.player_id:
+            return None
         if self.is_terror:
-            # Terror 形态下 HP 归零 → 无视任何条件死亡
-            return None  # 不阻止死亡
+            return None  # Terror 形态下无视任何条件死亡
+        # 战斗续行：一次性免死
+        # if getattr(self, '_combat_continuation_immunity', False):
+            self._combat_continuation_immunity = False
+            display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.combat_continuation_trigger",
+                default="✨ 「战斗续行」发动！星野免疫了这次死亡！"))
+            return {"prevent_death": True, "new_hp": 1.0}
         return None
 
     def on_d4_bonus(self, player):
@@ -301,6 +343,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             parts.append(f"色彩:{self.color}")
             if self.form:
                 parts.append(f"形态:{self.form}")
+            if getattr(self, '_combat_continuation_immunity', False):
+                parts.append("✨战斗续行")
         return " | ".join(parts)
 
     def describe(self):
