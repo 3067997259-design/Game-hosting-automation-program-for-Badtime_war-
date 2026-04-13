@@ -581,15 +581,6 @@ class ChooseMixin(_Base):
                     return target_loc
             return options[0]
 
-        if situation == "hoshino_reorder_ammo":
-            # 智能排弹：根据当前战斗目标的护甲属性优化弹匣顺序
-            target = self._combat_target
-            if target and hasattr(self, '_hoshino_compute_optimal_ammo_order'):
-                optimal = self._hoshino_compute_optimal_ammo_order(self._player, target)
-                if optimal and len(optimal) == len(options):
-                    return " ".join(str(i) for i in optimal)
-            # 兜底：返回当前顺序
-            return " ".join(str(i+1) for i in range(len(options)))
         # ---- 默认 ----
         return options[0]
 

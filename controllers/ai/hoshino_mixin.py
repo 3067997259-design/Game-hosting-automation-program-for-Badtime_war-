@@ -158,16 +158,17 @@ class HoshinoMixin(_Base):
 
         # 新增：有队长 + 战术已解锁 + 有足够道具 → 主动选队长
         # 这绕过了 _pick_target 对受警察保护目标的 -500 惩罚
+        # 条件与 controller.py 中 is_anti_captain 一致：队长受警察保护 + ≥2个战术道具
         if self._hoshino_tactical_unlocked(player):
             pc = self._police_cache or {}
             captain_id = pc.get("captain_id")
             if captain_id and captain_id != player.player_id:
                 captain = state.get_player(captain_id)
                 if captain and captain.is_alive():
-                    # 检查是否有能力冲队长（至少1个投掷道具 + 有弹药）
-                    throwables = self._hoshino_count_throwables(player)
                     has_ammo = self._hoshino_has_ammo(player) or bool(self._hoshino_find_consumable_for_reload(player))
-                    if throwables >= 1 and has_ammo:
+                    if (has_ammo
+                            and self._hoshino_captain_has_police_protection(state)
+                            and self._hoshino_has_enough_tactical_items(player)):
                         return captain
 
         target = self._pick_target(player, state)
@@ -470,7 +471,8 @@ class HoshinoMixin(_Base):
         if not armor_obj or not hasattr(armor_obj, 'get_all_active'):
             return True  # 无护甲，任何子弹都有效
 
-        outer_armors = [a for a in armor_obj.get_all_active() if not a.is_broken and getattr(a, 'layer', 'outer') == 'outer']
+        from models.equipment import ArmorLayer
+        outer_armors = [a for a in armor_obj.get_all_active() if not a.is_broken and getattr(a, 'layer', None) == ArmorLayer.OUTER]
         if not outer_armors:
             return True  # 无外层护甲
 
@@ -640,8 +642,9 @@ class HoshinoMixin(_Base):
         for a in armor_obj.get_all_active():
             if a.is_broken:
                 continue
+            from models.equipment import ArmorLayer
             layer = getattr(a, 'layer', None)
-            if layer and str(layer) != 'outer' and layer != 'outer':
+            if layer is not None and layer != ArmorLayer.OUTER:
                 continue
             attr = getattr(a, 'attribute', '普通')
             attr_name = attr if isinstance(attr, str) else getattr(attr, 'value', '普通')
@@ -1048,9 +1051,8 @@ class HoshinoMixin(_Base):
                 queue.append(f"射击 {captain.name}")
                 remaining_cost -= COST["射击"]
 
-        # 设置标记：下一轮应该进入全力射击宏
-        self._hoshino_anti_captain_approached = True
-        self._hoshino_anti_captain_target_id = captain.player_id
+        # 注意：不在此处设置 _hoshino_anti_captain_approached 标记。
+        # 由 controller.py 在宏队列赋值后、确认不会被 _generate_candidates 覆盖时设置。
 
         queue.append("terminal")
         return queue
@@ -1224,6 +1226,12 @@ class HoshinoMixin(_Base):
 
         if self._hoshino_macro_queue:
             cmd = self._hoshino_macro_queue.pop(0)
+            # 接近宏执行完毕（terminal）：设置下一轮全力射击标记
+            # 用于肾上腺素路径：构建时未设置标记，在此处补设
+            if (cmd == "terminal"
+                    and getattr(self, '_hoshino_anti_captain_target_id', None)
+                    and not getattr(self, '_hoshino_anti_captain_approached', False)):
+                self._hoshino_anti_captain_approached = True
             return cmd
         return "terminal"
 

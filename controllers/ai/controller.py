@@ -98,6 +98,9 @@ class BasicAIController(
 
         # 星野战术宏队列
         self._hoshino_macro_queue: Optional[list] = None
+        # 星野反队长两阶段标记
+        self._hoshino_anti_captain_approached: bool = False
+        self._hoshino_anti_captain_target_id: Optional[str] = None
 
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command (原 lines 282-308)
@@ -539,6 +542,8 @@ class BasicAIController(
                     if horus_ok:
                         self._hoshino_macro_queue = self._hoshino_build_anti_captain_approach_macro(
                             player, state, target)
+                        self._hoshino_anti_captain_approached = True
+                        self._hoshino_anti_captain_target_id = target.player_id
                         debug_ai_basic(player.name, f"星野搏命反警察：冲 {target.name}")
                         return ["special Hoshino", "forfeit"]
                     else:
@@ -587,9 +592,12 @@ class BasicAIController(
 
             if can_shoot and horus_ok:
                 # 反队长射击轮：上一轮已接近，本轮全力射击
-                if getattr(self, '_hoshino_anti_captain_approached', False):
+                # 守卫：如果宏队列已有内容（接近宏尚未执行完），跳过全力射击
+                if (getattr(self, '_hoshino_anti_captain_approached', False)
+                        and not self._hoshino_macro_queue):
                     self._hoshino_anti_captain_approached = False
                     captain_id = getattr(self, '_hoshino_anti_captain_target_id', None)
+                    self._hoshino_anti_captain_target_id = None  # 清除，防止残留
                     if captain_id:
                         captain = state.get_player(captain_id)
                         if captain and captain.is_alive():
@@ -616,14 +624,21 @@ class BasicAIController(
                                 and not getattr(talent, 'adrenaline_used', False)
                                 and talent.cost <= 5):
                             # 肾上腺素在宏外执行（不消耗回合），同一回合紧接着进入接近宏
+                            # 注意：不在此处设置 _hoshino_anti_captain_approached，
+                            # 因为肾上腺素是免费行动，引擎会再次调用 _generate_candidates，
+                            # 如果此时标记已设置，会被误判为射击轮而覆盖接近宏。
+                            # 标记在接近宏执行完毕后由 _hoshino_get_tactical_command 设置。
                             self._hoshino_macro_queue = self._hoshino_build_anti_captain_approach_macro(
                                 player, state, target)
+                            self._hoshino_anti_captain_target_id = target.player_id
                             debug_ai_basic(player.name, "星野：注射肾上腺素 + 反队长接近宏")
                             return ["special 肾上腺素", "special Hoshino", "forfeit"]
 
                         # 无肾上腺素：直接进入反队长接近宏
                         self._hoshino_macro_queue = self._hoshino_build_anti_captain_approach_macro(
                             player, state, target)
+                        self._hoshino_anti_captain_approached = True
+                        self._hoshino_anti_captain_target_id = target.player_id
                         debug_ai_basic(player.name, f"星野反队长接近宏：目标 {target.name}")
                         return ["special Hoshino", "forfeit"]
                     # 检查是否有同地点残血目标可以补刀
