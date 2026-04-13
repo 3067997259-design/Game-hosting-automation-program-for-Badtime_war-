@@ -105,7 +105,7 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
 
     def get_destiny_cost(self):
         """爱与记忆之诗的递增消耗：min(24, 12 + 3 × 已用次数)"""
-        return min(24, 12 + 3 * self.destiny_use_count)
+        return min(24, 12 + 4 * self.destiny_use_count)
 
     # ================================================================
     #  辅助
