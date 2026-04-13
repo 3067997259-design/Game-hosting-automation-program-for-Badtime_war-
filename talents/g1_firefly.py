@@ -74,8 +74,8 @@ class G1MythFire(BaseTalent):
     def on_register(self):
         """记录开局玩家数"""
         self.initial_player_count = len(self.state.player_order)
-        # 开局赠送1层炽愿（等效享受50%减伤的0.5额外生命值）
-        self.ardent_wish_charges = 1
+        # 开局赠送2层炽愿（等效享受50%减伤的0.5额外生命值）
+        self.ardent_wish_charges = 2
 
     # ============================================
     #  R0：debuff判定 + 0.5血自愈

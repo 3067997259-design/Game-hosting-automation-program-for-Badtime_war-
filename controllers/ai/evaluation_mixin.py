@@ -111,38 +111,69 @@ class EvaluationMixin(_Base):
                     return True
         return False
     # ════════════════════════════════════════════════════════
+    #  攻击目标有效性（共用过滤）
+    # ════════════════════════════════════════════════════════
+
+    def _is_valid_attack_target(self, player, target, state) -> bool:
+        """检查 target 是否是 player 的合法攻击目标。
+        统一过滤逻辑，供 _find_kill_target / _find_firefly_kill_target / _pick_target 共用。
+        - 警察成员不攻击普通玩家（队长除外）
+        - 爱愿保护的目标不可攻击
+        - 隐身且无探测手段的目标不可攻击
+        """
+        # 警察成员不攻击普通玩家
+        if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
+            if not getattr(target, 'is_criminal', False):
+                return False
+        # 爱愿保护
+        if (target.talent and hasattr(target.talent, 'has_love_wish')
+                and target.talent.has_love_wish(player.player_id)):
+            return False
+        # 隐身且无探测
+        if getattr(target, 'is_invisible', False) and not getattr(player, 'has_detection', False):
+            markers_obj = getattr(state, 'markers', None)
+            if markers_obj and hasattr(markers_obj, 'is_visible_to'):
+                if not markers_obj.is_visible_to(target.player_id, player.player_id, player.has_detection):
+                    return False
+        return True
+
+    # ════════════════════════════════════════════════════════
     #  击杀机会判定
     # ════════════════════════════════════════════════════════
 
-    def _has_kill_opportunity(self, player, state) -> bool:
-        """Bug15修复：击杀机会需考虑护甲"""
+    def _find_kill_target(self, player, state):
+        """找到可击杀的目标，返回目标对象或 None。"""
         best_dmg = self._best_weapon_damage(player)
         if best_dmg <= 0:
-            return False
+            return None
         for pid in state.player_order:
             if pid == player.player_id:
                 continue
             target = state.get_player(pid)
             if not target or not target.is_alive():
                 continue
-            # Bug15修复：必须考虑护甲
+            if not self._is_valid_attack_target(player, target, state):
+                continue
+            # ── 击杀判定（原逻辑不变）──
             outer_count = self._count_outer_armor(target)
             inner_count = self._count_inner_armor(target)
-            # 只有在无护甲时，才比较 hp vs damage
             if outer_count == 0 and inner_count == 0:
                 eff_hp = self._get_effective_hp(target)
                 if eff_hp <= best_dmg:
                     if self._can_attack_target(player, target, state):
                         debug_ai_basic(player.name,
                             f"击杀机会: {target.name} HP={target.hp}(有效{eff_hp}) 无护甲 dmg={best_dmg}")
-                        return True
-            # 有护甲时，需要更高伤害穿透
+                        return target
             elif outer_count == 0 and inner_count > 0:
-                # 外层清了只剩内层，如果伤害足够打破最后内层+hp
                 if self._get_effective_hp(target) <= 0.5 and best_dmg >= 1.0:
                     if self._can_attack_target(player, target, state):
-                        return True
-        return False
+                        return target
+        return None
+
+    def _has_kill_opportunity(self, player, state) -> bool:
+        """Bug15修复：击杀机会需考虑护甲"""
+        return self._find_kill_target(player, state) is not None
+
     def _best_effective_weapon_damage(self, player, target) -> float:
         """返回能有效打击目标当前最外层护甲的最高武器伤害（考虑属性克制）"""
         weapons = getattr(player, 'weapons', [])
@@ -174,41 +205,43 @@ class EvaluationMixin(_Base):
             if dmg > best:
                 best = dmg
         return best
-    def _has_firefly_kill_opportunity(self, player, state) -> bool:
-        """火萤专用击杀机会判定（更激进，但考虑护甲克制）"""
+
+    def _find_firefly_kill_target(self, player, state):
+        """火萤专用：找到可击杀的目标，返回目标对象或 None。"""
         for pid in state.player_order:
             if pid == player.player_id:
                 continue
             target = state.get_player(pid)
             if not target or not target.is_alive():
                 continue
+            if not self._is_valid_attack_target(player, target, state):
+                continue
+            # ── 火萤击杀判定（原逻辑不变）──
             if not self._can_attack_target(player, target, state):
                 continue
-            # 先检查是否所有武器都被克制
             if self._all_weapons_countered(player, target):
                 continue
-            # 用能有效打击的最高伤害来判断
             eff_dmg = self._best_effective_weapon_damage(player, target)
             if eff_dmg <= 0:
                 continue
             outer = self._count_outer_armor(target)
             inner = self._count_inner_armor(target)
             eff_hp = self._get_effective_hp(target)
-            # 无甲：伤害 >= HP
             if outer == 0 and inner == 0:
                 if eff_hp <= eff_dmg:
-                    return True
-            # 1层外甲+无内甲：穿甲后溢出 >= HP（外甲通常1HP）
+                    return target
             if outer <= 1 and inner == 0 and eff_hp <= (eff_dmg - 1.0):
-                return True
-            # 无外甲+有内甲+低HP
+                return target
             if outer == 0 and inner > 0 and eff_hp <= 0.5 and eff_dmg >= 1.0:
-                return True
-            # 总耐久度低于有效伤害的75%
+                return target
             total_durability = outer + inner + eff_hp
             if total_durability <= eff_dmg * 0.75:
-                return True
-        return False
+                return target
+        return None
+
+    def _has_firefly_kill_opportunity(self, player, state) -> bool:
+        """火萤专用击杀机会判定（更激进，但考虑护甲克制）"""
+        return self._find_firefly_kill_target(player, state) is not None
     # ════════════════════════════════════════════════════════
     #  战斗状态更新
     # ════════════════════════════════════════════════════════
