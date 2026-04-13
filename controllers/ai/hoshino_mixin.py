@@ -432,8 +432,12 @@ class HoshinoMixin(_Base):
             if w and w.name not in ("拳击", "荷鲁斯之眼"):
                 consumable_count += 1
         for item in getattr(player, 'items', []):
-            item_name = getattr(item, 'name', '')
+            item_name = getattr(item, 'name', None)
             if item and item_name not in PROTECTED_ITEMS and item_name not in repair_names:
+                consumable_count += 1
+        # 检查护甲（盾牌/AT力场等）—— 受损时跳过修复材料
+        for a in getattr(getattr(player, 'armor', None), 'get_all_active', lambda: [])():
+            if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
                 consumable_count += 1
         # 每个消耗品装填4发
         return ammo_count + consumable_count * 4 >= 4

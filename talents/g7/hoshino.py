@@ -68,7 +68,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         self._all_halos_first_lit = False  # 是否已经触发过"首次全亮"
 
         # 铁之荷鲁斯被动自修复
-        self._horus_repair_cooldown = 0  # 自修复冷却计数器
+        self._horus_repair_cooldown = -1  # 自修复冷却计数器（-1 = 未激活）
 
     def on_register(self):
         """选择初始形态"""
@@ -211,23 +211,22 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         if (self.fusion_shield_done
                 and self.iron_horus_hp > 0
                 and self.iron_horus_hp < self.iron_horus_max_hp):
-            if not hasattr(self, '_horus_repair_cooldown'):
-                self._horus_repair_cooldown = 0
+            alive_count = len([pid for pid in self.state.player_order
+                            if self.state.get_player(pid) and self.state.get_player(pid).is_alive()])
+            repair_cd = max((self._halo_cooldown_time(alive_count) + 1) // 2, 2)
+            # 首次受损：从未激活（-1）切换为正常冷却
+            if self._horus_repair_cooldown < 0:
+                self._horus_repair_cooldown = repair_cd
             self._horus_repair_cooldown -= 1
             if self._horus_repair_cooldown <= 0:
                 self.iron_horus_hp = min(self.iron_horus_hp + 0.5, self.iron_horus_max_hp)
-                alive_count = len([pid for pid in self.state.player_order
-                                if self.state.get_player(pid) and self.state.get_player(pid).is_alive()])
-                # 自修复冷却 = 光环冷却的一半（向上取整），最少2轮
-                repair_cd = max((self._halo_cooldown_time(alive_count) + 1) // 2, 2)
                 self._horus_repair_cooldown = repair_cd
                 display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.horus_self_repair",
                     default="🔧 铁之荷鲁斯自修复 +0.5（护甲值: {hp}/{max_hp}）").format(
                     hp=self.iron_horus_hp, max_hp=self.iron_horus_max_hp))
         else:
-            # 不满足自修复条件时重置冷却
-            if hasattr(self, '_horus_repair_cooldown'):
-                self._horus_repair_cooldown = 0
+            # 不满足自修复条件时重置为未激活
+            self._horus_repair_cooldown = -1
 
         # 装备融合检查
         self._check_fusion(me)

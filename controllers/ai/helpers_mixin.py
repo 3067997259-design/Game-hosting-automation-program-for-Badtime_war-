@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS, LOCATIONS,
-    PROTECTED_ITEMS, debug_ai_basic
+    debug_ai_basic
 )
 
 if TYPE_CHECKING:
