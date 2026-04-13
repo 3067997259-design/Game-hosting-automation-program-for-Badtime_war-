@@ -537,7 +537,7 @@ class BasicAIController(
                 if target and "special" in available_actions:
                     horus_ok = self._hoshino_iron_horus_hp(player) > 0
                     if horus_ok:
-                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_shielded_macro(
+                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_approach_macro(
                             player, state, target)
                         debug_ai_basic(player.name, f"星野搏命反警察：冲 {target.name}")
                         return ["special Hoshino", "forfeit"]
