@@ -98,6 +98,9 @@ class BasicAIController(
 
         # 星野战术宏队列
         self._hoshino_macro_queue: Optional[list] = None
+        # 星野反队长两阶段标记
+        self._hoshino_anti_captain_approached: bool = False
+        self._hoshino_anti_captain_target_id: Optional[str] = None
 
     # ════════════════════════════════════════════════════════
     #  接口实现：get_command (原 lines 282-308)
@@ -115,6 +118,21 @@ class BasicAIController(
         # 星野战术宏输入：从预生成队列逐条弹出
         if situation == "hoshino_tactical_input":
             return self._hoshino_get_tactical_command(player, game_state, available_actions)
+
+        # 星野排弹：计算最优弹药顺序并返回（在战术宏执行期间被调用）
+        if situation == "hoshino_reorder_ammo":
+            target = self._combat_target
+            # 反队长宏中 _combat_target 可能未指向队长，优先用专用标记
+            if not target:
+                cap_id = getattr(self, '_hoshino_anti_captain_target_id', None)
+                if cap_id:
+                    target = game_state.get_player(cap_id)
+            if target and hasattr(self, '_hoshino_compute_optimal_ammo_order'):
+                optimal = self._hoshino_compute_optimal_ammo_order(player, target)
+                if optimal and len(optimal) == len(available_actions):
+                    return " ".join(str(i) for i in optimal)
+            # 兜底：返回当前顺序
+            return " ".join(str(i+1) for i in range(len(available_actions)))
 
         # 插入式笑话：使用专用候选生成器
         if (context or {}).get("cutaway_joke"):
@@ -522,8 +540,10 @@ class BasicAIController(
                 if target and "special" in available_actions:
                     horus_ok = self._hoshino_iron_horus_hp(player) > 0
                     if horus_ok:
-                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_shielded_macro(
+                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_approach_macro(
                             player, state, target)
+                        self._hoshino_anti_captain_approached = True
+                        self._hoshino_anti_captain_target_id = target.player_id
                         debug_ai_basic(player.name, f"星野搏命反警察：冲 {target.name}")
                         return ["special Hoshino", "forfeit"]
                     else:
@@ -571,6 +591,21 @@ class BasicAIController(
                 return ["special Hoshino", "forfeit"]
 
             if can_shoot and horus_ok:
+                # 反队长射击轮：上一轮已接近，本轮全力射击
+                # 守卫：如果宏队列已有内容（接近宏尚未执行完），跳过全力射击
+                if (getattr(self, '_hoshino_anti_captain_approached', False)
+                        and not self._hoshino_macro_queue):
+                    self._hoshino_anti_captain_approached = False
+                    captain_id = getattr(self, '_hoshino_anti_captain_target_id', None)
+                    self._hoshino_anti_captain_target_id = None  # 清除，防止残留
+                    if captain_id:
+                        captain = state.get_player(captain_id)
+                        if captain and captain.is_alive():
+                            self._hoshino_macro_queue = self._hoshino_build_fullfire_macro(
+                                player, state, captain)
+                            debug_ai_basic(player.name, f"星野反队长射击轮：全力射击 {captain.name}")
+                            return ["special Hoshino", "forfeit"]
+                    # 队长已死或不存在 → 清除标记，走正常逻辑
                 target = self._hoshino_find_target(player, state)
                 if target and "special" in available_actions:
                     # 新增：反队长战术宏
@@ -583,20 +618,28 @@ class BasicAIController(
                     )
 
                     if is_anti_captain:
-                        # 队长有警察保护 + 有足够战术道具 → 反队长宏
-                        # 检查肾上腺素：如果有且下一轮生效更好，先用肾上腺素
                         talent = getattr(player, 'talent', None)
+                        # 检查肾上腺素
                         if (talent and "肾上腺素" in getattr(talent, 'medicines', [])
                                 and not getattr(talent, 'adrenaline_used', False)
-                                and talent.cost <= 5):  # 非肾上腺素回合
-                            # 宏外用肾上腺素，下一轮再执行反队长宏
-                            self._hoshino_macro_queue = ["服药 肾上腺素", "terminal"]
-                            debug_ai_basic(player.name, "星野：反队长准备——先注射肾上腺素")
-                            return ["special Hoshino", "forfeit"]
+                                and talent.cost <= 5):
+                            # 肾上腺素在宏外执行（不消耗回合），同一回合紧接着进入接近宏
+                            # 注意：不在此处设置 _hoshino_anti_captain_approached，
+                            # 因为肾上腺素是免费行动，引擎会再次调用 _generate_candidates，
+                            # 如果此时标记已设置，会被误判为射击轮而覆盖接近宏。
+                            # 标记在接近宏执行完毕后由 _hoshino_get_tactical_command 设置。
+                            self._hoshino_macro_queue = self._hoshino_build_anti_captain_approach_macro(
+                                player, state, target)
+                            self._hoshino_anti_captain_target_id = target.player_id
+                            debug_ai_basic(player.name, "星野：注射肾上腺素 + 反队长接近宏")
+                            return ["special 肾上腺素", "special Hoshino", "forfeit"]
 
-                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_shielded_macro(
+                        # 无肾上腺素：直接进入反队长接近宏
+                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_approach_macro(
                             player, state, target)
-                        debug_ai_basic(player.name, f"星野反队长宏（有盾）：目标 {target.name}")
+                        self._hoshino_anti_captain_approached = True
+                        self._hoshino_anti_captain_target_id = target.player_id
+                        debug_ai_basic(player.name, f"星野反队长接近宏：目标 {target.name}")
                         return ["special Hoshino", "forfeit"]
                     # 检查是否有同地点残血目标可以补刀
                     finish_target = self._hoshino_find_finishable_target(player, state)
@@ -629,6 +672,8 @@ class BasicAIController(
                             return [f"move {enemy_loc}", "forfeit"]
                     # 都不行 → fall through
             else:
+                # 条件不满足时清除反队长接近标记，防止过期标记触发错误的全力射击
+                self._hoshino_anti_captain_approached = False
                 # 新增：铁之荷鲁斯破损但被警察追击 → 放弃修盾，直接冲队长
                 if (not horus_ok and can_shoot
                         and self._is_pursued_by_police_extended(player, state)):

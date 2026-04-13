@@ -581,9 +581,6 @@ class ChooseMixin(_Base):
                     return target_loc
             return options[0]
 
-        if situation == "hoshino_reorder_ammo":
-            # 不排弹，返回当前顺序
-            return " ".join(str(i+1) for i in range(len(options)))
         # ---- 默认 ----
         return options[0]
 

@@ -147,7 +147,7 @@ class HoshinoMixin(_Base):
 
     def _hoshino_find_target(self, player, state) -> Optional[Any]:
         """找到最佳攻击目标（复用 _pick_target 或按威胁分排序）"""
-        # 被警察追击时优先攻击队长
+        # 被警察追击时优先攻击队长（搏命模式）
         if self._is_pursued_by_police_extended(player, state):
             pc = self._police_cache or {}
             captain_id = pc.get("captain_id")
@@ -155,6 +155,22 @@ class HoshinoMixin(_Base):
                 captain = state.get_player(captain_id)
                 if captain and captain.is_alive():
                     return captain
+
+        # 新增：有队长 + 战术已解锁 + 有足够道具 → 主动选队长
+        # 这绕过了 _pick_target 对受警察保护目标的 -500 惩罚
+        # 条件与 controller.py 中 is_anti_captain 一致：队长受警察保护 + ≥2个战术道具
+        if self._hoshino_tactical_unlocked(player):
+            pc = self._police_cache or {}
+            captain_id = pc.get("captain_id")
+            if captain_id and captain_id != player.player_id:
+                captain = state.get_player(captain_id)
+                if captain and captain.is_alive():
+                    has_ammo = self._hoshino_has_ammo(player) or bool(self._hoshino_find_consumable_for_reload(player))
+                    if (has_ammo
+                            and self._hoshino_captain_has_police_protection(state)
+                            and self._hoshino_has_enough_tactical_items(player)):
+                        return captain
+
         target = self._pick_target(player, state)
         return target
 
@@ -455,7 +471,8 @@ class HoshinoMixin(_Base):
         if not armor_obj or not hasattr(armor_obj, 'get_all_active'):
             return True  # 无护甲，任何子弹都有效
 
-        outer_armors = [a for a in armor_obj.get_all_active() if not a.is_broken and getattr(a, 'layer', 'outer') == 'outer']
+        from models.equipment import ArmorLayer
+        outer_armors = [a for a in armor_obj.get_all_active() if not a.is_broken and getattr(a, 'layer', None) == ArmorLayer.OUTER]
         if not outer_armors:
             return True  # 无外层护甲
 
@@ -507,13 +524,6 @@ class HoshinoMixin(_Base):
         return None
 
     def _hoshino_should_use_adrenaline(self, player, target) -> bool:
-        """判断是否应该在宏外使用肾上腺素。
-        条件：
-        1. 持有肾上腺素且未使用过
-        2. 目标难杀（受警察保护 / 护甲多 / 临时HP）
-        3. 有足够弹药/消耗品支撑爆发
-        4. 弹药属性能有效打击目标
-        """
         talent = getattr(player, 'talent', None)
         if not talent:
             return False
@@ -522,22 +532,34 @@ class HoshinoMixin(_Base):
         if "肾上腺素" not in getattr(talent, 'medicines', []):
             return False
 
-        # 条件1：目标值得用肾上腺素
+        # 高危目标：队长、救世主、高炽愿火萤 → 一定要用肾上腺素
+        is_captain = getattr(target, 'is_captain', False)
+        is_savior = self._is_in_savior_state(target)
+        t_talent = getattr(target, 'talent', None)
+        is_high_charge_firefly = (
+            t_talent and hasattr(t_talent, 'ardent_wish_charges')
+            and getattr(t_talent, 'ardent_wish_charges', 0) >= 2
+        )
+        is_high_priority = is_captain or is_savior or is_high_charge_firefly
+
+        if is_high_priority:
+            # 高危目标：弹药充足 + 属性能有效打击
+            if (self._hoshino_has_enough_ammo_for_burst(player)
+                    and self._hoshino_can_effectively_shoot(player, target)):
+                return True
+            return False
+
+        # 原有逻辑：普通难杀目标
         is_protected = self._hoshino_target_is_police_protected(target)
         is_hard = self._hoshino_target_is_hard_to_kill(target)
         armor_count = self._count_outer_armor(target) + self._count_inner_armor(target)
         target_worth_it = is_protected or is_hard or armor_count >= 2
         if not target_worth_it:
             return False
-
-        # 条件2：弹药充足
         if not self._hoshino_has_enough_ammo_for_burst(player):
             return False
-
-        # 条件3：属性克制
         if not self._hoshino_can_effectively_shoot(player, target):
             return False
-
         return True
 
     def _hoshino_build_finish_and_switch_macro(self, player, state, finish_target, switch_target) -> List[str]:
@@ -610,6 +632,99 @@ class HoshinoMixin(_Base):
 
         queue.append("terminal")
         return queue
+
+    def _hoshino_get_target_outer_armor_attrs(self, target) -> list:
+        """获取目标所有外层护甲的属性列表（字符串）"""
+        armor_obj = getattr(target, 'armor', None)
+        if not armor_obj or not hasattr(armor_obj, 'get_all_active'):
+            return []
+        attrs = []
+        for a in armor_obj.get_all_active():
+            if a.is_broken:
+                continue
+            from models.equipment import ArmorLayer
+            layer = getattr(a, 'layer', None)
+            if layer is not None and layer != ArmorLayer.OUTER:
+                continue
+            attr = getattr(a, 'attribute', '普通')
+            attr_name = attr if isinstance(attr, str) else getattr(attr, 'value', '普通')
+            attrs.append(attr_name)
+        return attrs
+
+    def _hoshino_compute_optimal_ammo_order(self, player, target) -> list:
+        """计算最优弹药排列顺序（返回 1-indexed 位置列表）"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return []
+        ammo = getattr(talent, 'ammo', [])
+        if not ammo:
+            return []
+
+        target_attrs = self._hoshino_get_target_outer_armor_attrs(target)
+        if not target_attrs:
+            return list(range(1, len(ammo) + 1))  # 无甲，不需要排弹
+
+        # 克制关系
+        counter_map = {"普通": "科技", "魔法": "普通", "科技": "魔法"}
+        # 找出需要的弹药属性（能克制目标任意外甲的属性）
+        needed_attrs = set()
+        for armor_attr in target_attrs:
+            needed = counter_map.get(armor_attr)
+            if needed:
+                needed_attrs.add(needed)
+
+        if not needed_attrs:
+            return list(range(1, len(ammo) + 1))
+
+        # 把能克制的子弹排到前面
+        effective_indices = []
+        other_indices = []
+        for i, bullet in enumerate(ammo):
+            bullet_attr = bullet.get("attribute", "普通")
+            if bullet_attr in needed_attrs:
+                effective_indices.append(i + 1)
+            else:
+                other_indices.append(i + 1)
+
+        return effective_indices + other_indices
+
+    def _hoshino_has_effective_ammo_for_target(self, player, target) -> bool:
+        """检查弹匣中是否有能克制目标外层护甲的子弹"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        ammo = getattr(talent, 'ammo', [])
+        if not ammo:
+            return False
+
+        target_attrs = self._hoshino_get_target_outer_armor_attrs(target)
+        if not target_attrs:
+            return True  # 无甲，任何子弹都有效
+
+        counter_map = {"普通": "科技", "魔法": "普通", "科技": "魔法"}
+        ammo_attrs = set(b.get("attribute", "普通") for b in ammo)
+
+        for armor_attr in target_attrs:
+            needed = counter_map.get(armor_attr)
+            if needed and needed in ammo_attrs:
+                return True
+            # 同属性也能打（只是不克制）
+            if armor_attr in ammo_attrs:
+                return True
+        return False
+
+    def _hoshino_needed_ammo_attr_for_target(self, target) -> Optional[str]:
+        """返回克制目标最高优先级外甲所需的弹药属性"""
+        target_attrs = self._hoshino_get_target_outer_armor_attrs(target)
+        if not target_attrs:
+            return None
+        counter_map = {"普通": "科技", "魔法": "普通", "科技": "魔法"}
+        # 盾牌是普通属性且 priority 最高，优先处理
+        if "普通" in target_attrs:
+            return counter_map["普通"]  # 科技
+        return counter_map.get(target_attrs[0])
+
+
     # ════════════════════════════════════════════════════════
     #  顺手拿
     # ════════════════════════════════════════════════════════
@@ -802,6 +917,10 @@ class HoshinoMixin(_Base):
                 queue.append("terminal")
                 return queue
 
+        # ===== 智能排弹（射击前检查） =====
+        if self._hoshino_needs_reorder(player, target):
+            queue.append("排弹")  # cost 0，每宏限1次
+
         # ===== 阶段2：射击填充 =====
         remaining_cost = cost - used_cost
         while remaining_cost >= COST["射击"]:
@@ -811,21 +930,17 @@ class HoshinoMixin(_Base):
         queue.append("terminal")
         return queue
 
-    def _hoshino_build_anti_captain_shielded_macro(self, player, state, captain) -> List[str]:
-        """反队长宏（有盾版）：投掷 → 持盾 → dash → 架盾
+    def _hoshino_build_anti_captain_approach_macro(self, player, state, captain) -> List[str]:
+        """反队长接近宏：投掷 → 持盾 → dash → 架盾
 
-        设计意图：
-        - 投掷道具到队长位置（闪光弹/烟雾弹禁用警察）
-        - 持盾冲刺过去
-        - 到达后立刻架盾（警察强制正面，造伤≤1，架盾大概率挡住）
-        - 下一个宏再全力射击
+        下一轮再用全力射击宏（架盾射击不需要 find，警察强制正面）。
         """
         talent = getattr(player, 'talent', None)
         if not talent:
             return ["terminal"]
 
         queue = []
-        cost = talent.cost
+        cost = talent.cost  # 当前回合的 cost（5 或 10）
         used_cost = 0
         COST = {
             "架盾": 2, "射击": 2, "重新装填": 0, "持盾": 1,
@@ -841,19 +956,53 @@ class HoshinoMixin(_Base):
         shield_mode = talent.shield_mode
         items = getattr(talent, 'tactical_items', [])
 
-        # 选择投掷道具（优先闪光弹 > 烟雾弹 > 震撼弹 > 破片手雷 > 燃烧瓶）
-        anti_police_priority = ["闪光弹", "烟雾弹", "震撼弹", "破片手雷", "燃烧瓶"]
+        # 选择投掷道具
+        # 优先闪光弹/烟雾弹（能禁用警察到下一轮 R4，覆盖射击轮）
+        # 破片手雷/燃烧瓶只在警察盾+HP ≤ 1.5 时使用
+        disable_items = ["闪光弹", "烟雾弹"]
+        damage_items = ["破片手雷", "燃烧瓶", "震撼弹"]
+
         throw_item = None
-        for item in anti_police_priority:
+        for item in disable_items:
             if item in items:
                 throw_item = item
                 break
 
+        if not throw_item:
+            # 只有伤害类道具：检查警察是否脆弱（盾+HP ≤ 1.5）
+            pc = self._police_cache or {}
+            police_fragile = True
+            for unit in pc.get("units", []):
+                if unit.get("is_active") and unit.get("is_alive") and unit.get("location") == captain_loc:
+                    unit_hp = unit.get("hp", 1.0)
+                    outer_armor = unit.get("outer_armor", "")
+                    # 有盾牌的警察：盾1.0 + HP1.0 = 2.0 > 1.5
+                    effective = unit_hp + (1.0 if outer_armor else 0)
+                    if effective > 1.5:
+                        police_fragile = False
+                        break
+
+            if police_fragile:
+                for item in damage_items:
+                    if item in items:
+                        throw_item = item
+                        break
+            # 如果警察不脆弱且没有禁用类道具 → throw_item 保持 None
+            # 此时不应该冲（在修改 1 的条件检查中已经过滤，但这里做兜底）
+
+        # 排弹检查：如果弹药首发属性被队长外甲克制，插入排弹
+        optimal_order = self._hoshino_compute_optimal_ammo_order(player, captain)
+        current_order = list(range(1, len(getattr(talent, 'ammo', [])) + 1))
+        needs_reorder = optimal_order != current_order and len(optimal_order) > 0
+
         if not same_loc:
-            # 不同地点：投掷 → 持盾（如果没持盾）→ dash → 架盾
+            # 不同地点：投掷 → [排弹] → 持盾 → dash → 架盾
             if throw_item and can_afford("投掷"):
                 queue.append(f"投掷 {throw_item} {captain_loc}")
                 used_cost += COST["投掷"]
+
+            if needs_reorder:
+                queue.append("排弹")  # cost 0，每宏限1次
 
             if shield_mode == "架盾":
                 queue.append("取消")  # cost 0
@@ -867,44 +1016,43 @@ class HoshinoMixin(_Base):
                 queue.append(f"冲刺 {captain_loc}")
                 used_cost += COST["冲刺"]
 
-            # 到达后架盾（警察强制正面，架盾挡住）
+            # 到达后架盾（警察强制正面，架盾大概率挡住）
             if can_afford("架盾"):
                 queue.append("架盾")
                 used_cost += COST["架盾"]
         else:
-            # 同地点：投掷（原地）→ 架盾（如果没架盾）→ find → 射击
-            if shield_mode == "持盾":
-                # 已持盾 → 取消 → 投掷 → 架盾
-                queue.append("取消")
-                shield_mode = None
+            # 同地点：[排弹] → 架盾（如果没架盾）
+            # 不需要 find！架盾射击从正面玩家中选择，警察强制正面
+            if needs_reorder:
+                queue.append("排弹")
 
             if throw_item and can_afford("投掷"):
                 queue.append(f"投掷 {throw_item} {captain_loc}")
                 used_cost += COST["投掷"]
 
+            if shield_mode == "持盾":
+                queue.append("取消")
+                shield_mode = None
+
             if shield_mode != "架盾" and can_afford("架盾"):
                 queue.append("架盾")
                 used_cost += COST["架盾"]
 
-            if can_afford("find"):
-                queue.append(f"find {captain.name}")
-                used_cost += COST["find"]
-
-            # 装填检查（射击前确保有弹药）
+            # 同地点已架盾：如果还有 cost，直接开始射击
+            # 装填检查
             has_ammo = bool(getattr(talent, 'ammo', []))
             if not has_ammo:
                 consumable = self._hoshino_find_consumable_for_reload(player)
                 if consumable:
-                    queue.append(f"重新装填 {consumable}")  # cost 0
-                else:
-                    queue.append("terminal")
-                    return queue
+                    queue.append(f"重新装填 {consumable}")
 
-            # 填充射击
             remaining_cost = cost - used_cost
             while remaining_cost >= COST["射击"]:
                 queue.append(f"射击 {captain.name}")
                 remaining_cost -= COST["射击"]
+
+        # 注意：不在此处设置 _hoshino_anti_captain_approached 标记。
+        # 由 controller.py 在宏队列赋值后、确认不会被 _generate_candidates 覆盖时设置。
 
         queue.append("terminal")
         return queue
@@ -973,6 +1121,95 @@ class HoshinoMixin(_Base):
 
         queue.append("terminal")
         return queue
+
+    def _hoshino_build_fullfire_macro(self, player, state, target) -> List[str]:
+        """全力射击宏：架盾状态下连射（不需要 find，警察强制正面）
+
+        用于反队长射击轮（肾上腺素生效后 10 cost）或普通射击轮（5 cost）。
+        """
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return ["terminal"]
+
+        queue = []
+        cost = talent.cost
+        used_cost = 0
+        COST = {"射击": 2, "重新装填": 0, "服药": 0, "排弹": 0, "架盾": 2}
+
+        # 确保架盾状态
+        if talent.shield_mode != "架盾":
+            if talent.shield_mode == "持盾":
+                queue.append("取消")
+            if talent.iron_horus_hp > 0:
+                queue.append("架盾")
+                used_cost += COST["架盾"]
+
+        # 海豚巧克力（cost 0）
+        if self._hoshino_should_use_chocolate(player):
+            queue.append("服药 海豚巧克力")
+
+        # EPO（cost 0，剩余 cost 为奇数时 +1 能多打一发）
+        if self._hoshino_should_use_epo(player, cost, used_cost):
+            queue.append("服药 EPO")
+            cost += 1
+
+        # 装填检查
+        has_ammo = bool(getattr(talent, 'ammo', []))
+        if not has_ammo:
+            consumable = self._hoshino_find_consumable_for_reload(player)
+            if consumable:
+                queue.append(f"重新装填 {consumable}")
+            else:
+                queue.append("terminal")
+                return queue
+
+        # 排弹（如果需要）
+        optimal_order = self._hoshino_compute_optimal_ammo_order(player, target)
+        current_order = list(range(1, len(getattr(talent, 'ammo', [])) + 1))
+        if optimal_order != current_order and len(optimal_order) > 0:
+            queue.append("排弹")
+
+        # 连射到 cost 耗尽
+        remaining_cost = cost - used_cost
+        while remaining_cost >= COST["射击"]:
+            queue.append(f"射击 {target.name}")
+            remaining_cost -= COST["射击"]
+
+        queue.append("terminal")
+        return queue
+
+    def _hoshino_needs_reorder(self, player, target) -> bool:
+        """判断当前弹匣是否需要排弹（首发子弹是否对目标最高 priority 外甲无效）"""
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return False
+        ammo = getattr(talent, 'ammo', [])
+        if len(ammo) <= 1:
+            return False
+
+        # 获取目标最高 priority 外甲
+        armor_obj = getattr(target, 'armor', None)
+        if not armor_obj or not hasattr(armor_obj, 'get_active'):
+            return False
+
+        from models.equipment import ArmorLayer
+        outer_active = armor_obj.get_active(ArmorLayer.OUTER)
+        if not outer_active:
+            return False
+
+        outer_active.sort(key=lambda a: a.priority, reverse=True)
+        top_armor = outer_active[0]
+        armor_attr = getattr(top_armor, 'attribute', None)
+        if armor_attr is None:
+            return False
+
+        # 检查首发子弹是否有效
+        from utils.attribute import is_effective, Attribute
+        attr_str_to_enum = {"普通": Attribute.ORDINARY, "魔法": Attribute.MAGIC, "科技": Attribute.TECH}
+        first_bullet_attr_str = ammo[0].get("attribute", "普通")
+        first_bullet_attr = attr_str_to_enum.get(first_bullet_attr_str, Attribute.ORDINARY)
+
+        return not is_effective(first_bullet_attr, armor_attr)
     # ════════════════════════════════════════════════════════
     #  战术宏指令输入（逐条弹出）
     # ════════════════════════════════════════════════════════
@@ -989,6 +1226,12 @@ class HoshinoMixin(_Base):
 
         if self._hoshino_macro_queue:
             cmd = self._hoshino_macro_queue.pop(0)
+            # 接近宏执行完毕（terminal）：设置下一轮全力射击标记
+            # 用于肾上腺素路径：构建时未设置标记，在此处补设
+            if (cmd == "terminal"
+                    and getattr(self, '_hoshino_anti_captain_target_id', None)
+                    and not getattr(self, '_hoshino_anti_captain_approached', False)):
+                self._hoshino_anti_captain_approached = True
             return cmd
         return "terminal"
 
