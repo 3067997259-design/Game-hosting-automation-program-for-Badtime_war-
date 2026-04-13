@@ -67,6 +67,8 @@ class HoshinoMixin(_Base):
     def _hoshino_find_consumable_for_reload(self, player) -> Optional[str]:
         """找到可消耗的物品用于装填子弹（小刀等非融合武器/物品）。
         当铁之荷鲁斯受损时，盾牌和AT力场保留用于修复，不算作可消耗品。"""
+        # 不可消耗的被动物品（消耗后会失去关键能力）
+        PROTECTED_ITEMS = {"防毒面具", "隐身衣", "热成像仪", "隐形涂层", "雷达", "探测魔法"}
         talent = getattr(player, 'talent', None)
         iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
         iron_horus_max = getattr(talent, 'iron_horus_max_hp', 2) if talent else 2
@@ -79,8 +81,9 @@ class HoshinoMixin(_Base):
             if w and w.name not in ("拳击", "荷鲁斯之眼"):
                 return w.name
         for item in getattr(player, 'items', []):
-            if item and getattr(item, 'name', None) not in repair_names:
-                return getattr(item, 'name', None)
+            item_name = getattr(item, 'name', None)
+            if item and item_name not in repair_names and item_name not in PROTECTED_ITEMS:
+                return item_name
         # 检查护甲（盾牌/AT力场等）—— 受损时跳过修复材料
         for a in getattr(getattr(player, 'armor', None), 'get_all_active', lambda: [])():
             if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
@@ -426,8 +429,9 @@ class HoshinoMixin(_Base):
         for w in getattr(player, 'weapons', []):
             if w and w.name not in ("拳击", "荷鲁斯之眼"):
                 consumable_count += 1
+        PROTECTED_ITEMS = {"防毒面具", "隐身衣", "热成像仪", "隐形涂层", "雷达", "探测魔法"}
         for item in getattr(player, 'items', []):
-            if item:
+            if item and getattr(item, 'name', '') not in PROTECTED_ITEMS:
                 consumable_count += 1
         # 每个消耗品装填4发
         return ammo_count + consumable_count * 4 >= 4

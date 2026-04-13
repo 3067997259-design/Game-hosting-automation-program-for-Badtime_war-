@@ -131,7 +131,8 @@ class HelpersMixin(_Base): # type: ignore
         items = getattr(player, 'items', [])
         # 拳击以外的武器或物品都可以消耗装填
         consumable = [w for w in weapons if w and w.name not in ("拳击",) and not getattr(w, '_is_fused', False)]
-        consumable += [i for i in items if i]
+        PROTECTED_ITEMS = {"防毒面具", "隐身衣", "热成像仪", "隐形涂层", "雷达", "探测魔法"}
+        consumable += [i for i in items if i and getattr(i, 'name', '') not in PROTECTED_ITEMS]
         return len(consumable) > 0
 
     def _hoshino_shield_mode(self, player):
