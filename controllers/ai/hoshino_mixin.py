@@ -159,6 +159,9 @@ class HoshinoMixin(_Base):
         # 新增：有队长 + 战术已解锁 + 有足够道具 → 主动选队长
         # 这绕过了 _pick_target 对受警察保护目标的 -500 惩罚
         # 条件与 controller.py 中 is_anti_captain 一致：队长受警察保护 + ≥2个战术道具
+        # 额外守卫：保护阈值 >= 1.5 时普通宏的射击会被完全挡住，
+        # 必须同时有铁之荷鲁斯（horus_ok）才能走反队长宏；
+        # 否则让 _pick_target 选其他目标，避免普通宏白打受保护的队长。
         if self._hoshino_tactical_unlocked(player):
             pc = self._police_cache or {}
             captain_id = pc.get("captain_id")
@@ -166,9 +169,15 @@ class HoshinoMixin(_Base):
                 captain = state.get_player(captain_id)
                 if captain and captain.is_alive():
                     has_ammo = self._hoshino_has_ammo(player) or bool(self._hoshino_find_consumable_for_reload(player))
+                    horus_ok = self._hoshino_iron_horus_hp(player) > 0
+                    # 检查保护阈值：>= 1.5 时普通射击完全无效
+                    pe = getattr(state, 'police_engine', None)
+                    threshold = pe.get_protection_threshold(captain.player_id) if pe else 0
+                    high_protection = threshold >= 1.5
                     if (has_ammo
                             and self._hoshino_captain_has_police_protection(state)
-                            and self._hoshino_has_enough_tactical_items(player)):
+                            and self._hoshino_has_enough_tactical_items(player)
+                            and (not high_protection or horus_ok)):
                         return captain
 
         target = self._pick_target(player, state)
@@ -912,13 +921,13 @@ class HoshinoMixin(_Base):
             consumable = self._hoshino_find_consumable_for_reload(player)
             if consumable:
                 queue.append(f"重新装填 {consumable}")  # cost 0
+                queue.append("排弹")  # 装填后弹药顺序未知，总是排弹
             else:
                 # 没有子弹也没有可消耗物品 → 无法射击，结束宏
                 queue.append("terminal")
                 return queue
-
-        # ===== 智能排弹（射击前检查） =====
-        if self._hoshino_needs_reorder(player, target):
+        elif self._hoshino_needs_reorder(player, target):
+            # ===== 智能排弹（有弹药时仅在首发无效时排弹） =====
             queue.append("排弹")  # cost 0，每宏限1次
 
         # ===== 阶段2：射击填充 =====
@@ -1045,6 +1054,7 @@ class HoshinoMixin(_Base):
                 consumable = self._hoshino_find_consumable_for_reload(player)
                 if consumable:
                     queue.append(f"重新装填 {consumable}")
+                    queue.append("排弹")  # 装填后弹药顺序未知，总是排弹
 
             remaining_cost = cost - used_cost
             while remaining_cost >= COST["射击"]:
@@ -1159,15 +1169,16 @@ class HoshinoMixin(_Base):
             consumable = self._hoshino_find_consumable_for_reload(player)
             if consumable:
                 queue.append(f"重新装填 {consumable}")
+                queue.append("排弹")  # 装填后弹药顺序未知，总是排弹
             else:
                 queue.append("terminal")
                 return queue
-
-        # 排弹（如果需要）
-        optimal_order = self._hoshino_compute_optimal_ammo_order(player, target)
-        current_order = list(range(1, len(getattr(talent, 'ammo', [])) + 1))
-        if optimal_order != current_order and len(optimal_order) > 0:
-            queue.append("排弹")
+        else:
+            # 排弹（已有弹药时按需排弹）
+            optimal_order = self._hoshino_compute_optimal_ammo_order(player, target)
+            current_order = list(range(1, len(getattr(talent, 'ammo', [])) + 1))
+            if optimal_order != current_order and len(optimal_order) > 0:
+                queue.append("排弹")
 
         # 连射到 cost 耗尽
         remaining_cost = cost - used_cost

@@ -127,7 +127,7 @@ class BasicAIController(
                 cap_id = getattr(self, '_hoshino_anti_captain_target_id', None)
                 if cap_id:
                     target = game_state.get_player(cap_id)
-            if target and hasattr(self, '_hoshino_compute_optimal_ammo_order'):
+            if target:
                 optimal = self._hoshino_compute_optimal_ammo_order(player, target)
                 if optimal and len(optimal) == len(available_actions):
                     return " ".join(str(i) for i in optimal)
@@ -672,8 +672,9 @@ class BasicAIController(
                             return [f"move {enemy_loc}", "forfeit"]
                     # 都不行 → fall through
             else:
-                # 条件不满足时清除反队长接近标记，防止过期标记触发错误的全力射击
+                # 条件不满足时清除反队长标记，防止过期标记触发错误的全力射击
                 self._hoshino_anti_captain_approached = False
+                self._hoshino_anti_captain_target_id = None
                 # 新增：铁之荷鲁斯破损但被警察追击 → 放弃修盾，直接冲队长
                 if (not horus_ok and can_shoot
                         and self._is_pursued_by_police_extended(player, state)):
