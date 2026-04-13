@@ -571,6 +571,18 @@ class BasicAIController(
                 return ["special Hoshino", "forfeit"]
 
             if can_shoot and horus_ok:
+                # 反队长射击轮：上一轮已接近，本轮全力射击
+                if getattr(self, '_hoshino_anti_captain_approached', False):
+                    self._hoshino_anti_captain_approached = False
+                    captain_id = getattr(self, '_hoshino_anti_captain_target_id', None)
+                    if captain_id:
+                        captain = state.get_player(captain_id)
+                        if captain and captain.is_alive():
+                            self._hoshino_macro_queue = self._hoshino_build_fullfire_macro(
+                                player, state, captain)
+                            debug_ai_basic(player.name, f"星野反队长射击轮：全力射击 {captain.name}")
+                            return ["special Hoshino", "forfeit"]
+                    # 队长已死或不存在 → 清除标记，走正常逻辑
                 target = self._hoshino_find_target(player, state)
                 if target and "special" in available_actions:
                     # 新增：反队长战术宏
@@ -583,20 +595,21 @@ class BasicAIController(
                     )
 
                     if is_anti_captain:
-                        # 队长有警察保护 + 有足够战术道具 → 反队长宏
-                        # 检查肾上腺素：如果有且下一轮生效更好，先用肾上腺素
                         talent = getattr(player, 'talent', None)
+                        # 检查肾上腺素
                         if (talent and "肾上腺素" in getattr(talent, 'medicines', [])
                                 and not getattr(talent, 'adrenaline_used', False)
-                                and talent.cost <= 5):  # 非肾上腺素回合
-                            # 宏外用肾上腺素，下一轮再执行反队长宏
-                            self._hoshino_macro_queue = ["服药 肾上腺素", "terminal"]
-                            debug_ai_basic(player.name, "星野：反队长准备——先注射肾上腺素")
-                            return ["special Hoshino", "forfeit"]
+                                and talent.cost <= 5):
+                            # 肾上腺素在宏外执行（不消耗回合），同一回合紧接着进入接近宏
+                            self._hoshino_macro_queue = self._hoshino_build_anti_captain_approach_macro(
+                                player, state, target)
+                            debug_ai_basic(player.name, "星野：注射肾上腺素 + 反队长接近宏")
+                            return ["special 肾上腺素", "special Hoshino", "forfeit"]
 
-                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_shielded_macro(
+                        # 无肾上腺素：直接进入反队长接近宏
+                        self._hoshino_macro_queue = self._hoshino_build_anti_captain_approach_macro(
                             player, state, target)
-                        debug_ai_basic(player.name, f"星野反队长宏（有盾）：目标 {target.name}")
+                        debug_ai_basic(player.name, f"星野反队长接近宏：目标 {target.name}")
                         return ["special Hoshino", "forfeit"]
                     # 检查是否有同地点残血目标可以补刀
                     finish_target = self._hoshino_find_finishable_target(player, state)
