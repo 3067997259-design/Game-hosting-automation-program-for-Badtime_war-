@@ -541,8 +541,9 @@ class HoshinoMixin(_Base):
         is_high_priority = is_captain or is_savior or is_high_charge_firefly
 
         if is_high_priority:
-            # 高危目标只需要弹药充足即可
-            if self._hoshino_has_enough_ammo_for_burst(player):
+            # 高危目标：弹药充足 + 属性能有效打击
+            if (self._hoshino_has_enough_ammo_for_burst(player)
+                    and self._hoshino_can_effectively_shoot(player, target)):
                 return True
             return False
 

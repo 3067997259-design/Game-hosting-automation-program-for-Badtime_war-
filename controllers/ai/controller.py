@@ -116,6 +116,21 @@ class BasicAIController(
         if situation == "hoshino_tactical_input":
             return self._hoshino_get_tactical_command(player, game_state, available_actions)
 
+        # 星野排弹：计算最优弹药顺序并返回（在战术宏执行期间被调用）
+        if situation == "hoshino_reorder_ammo":
+            target = self._combat_target
+            # 反队长宏中 _combat_target 可能未指向队长，优先用专用标记
+            if not target:
+                cap_id = getattr(self, '_hoshino_anti_captain_target_id', None)
+                if cap_id:
+                    target = game_state.get_player(cap_id)
+            if target and hasattr(self, '_hoshino_compute_optimal_ammo_order'):
+                optimal = self._hoshino_compute_optimal_ammo_order(player, target)
+                if optimal and len(optimal) == len(available_actions):
+                    return " ".join(str(i) for i in optimal)
+            # 兜底：返回当前顺序
+            return " ".join(str(i+1) for i in range(len(available_actions)))
+
         # 插入式笑话：使用专用候选生成器
         if (context or {}).get("cutaway_joke"):
             if attempt == 1:
@@ -642,6 +657,8 @@ class BasicAIController(
                             return [f"move {enemy_loc}", "forfeit"]
                     # 都不行 → fall through
             else:
+                # 条件不满足时清除反队长接近标记，防止过期标记触发错误的全力射击
+                self._hoshino_anti_captain_approached = False
                 # 新增：铁之荷鲁斯破损但被警察追击 → 放弃修盾，直接冲队长
                 if (not horus_ok and can_shoot
                         and self._is_pursued_by_police_extended(player, state)):
