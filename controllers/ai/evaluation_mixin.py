@@ -111,13 +111,38 @@ class EvaluationMixin(_Base):
                     return True
         return False
     # ════════════════════════════════════════════════════════
+    #  攻击目标有效性（共用过滤）
+    # ════════════════════════════════════════════════════════
+
+    def _is_valid_attack_target(self, player, target, state) -> bool:
+        """检查 target 是否是 player 的合法攻击目标。
+        统一过滤逻辑，供 _find_kill_target / _find_firefly_kill_target / _pick_target 共用。
+        - 警察成员不攻击普通玩家（队长除外）
+        - 爱愿保护的目标不可攻击
+        - 隐身且无探测手段的目标不可攻击
+        """
+        # 警察成员不攻击普通玩家
+        if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
+            if not getattr(target, 'is_criminal', False):
+                return False
+        # 爱愿保护
+        if (target.talent and hasattr(target.talent, 'has_love_wish')
+                and target.talent.has_love_wish(player.player_id)):
+            return False
+        # 隐身且无探测
+        if getattr(target, 'is_invisible', False) and not getattr(player, 'has_detection', False):
+            markers_obj = getattr(state, 'markers', None)
+            if markers_obj and hasattr(markers_obj, 'is_visible_to'):
+                if not markers_obj.is_visible_to(target.player_id, player.player_id, player.has_detection):
+                    return False
+        return True
+
+    # ════════════════════════════════════════════════════════
     #  击杀机会判定
     # ════════════════════════════════════════════════════════
 
     def _find_kill_target(self, player, state):
-        """找到可击杀的目标，返回目标对象或 None。
-        与 _pick_target 保持一致的过滤逻辑（警察限制、爱愿、隐身）。
-        """
+        """找到可击杀的目标，返回目标对象或 None。"""
         best_dmg = self._best_weapon_damage(player)
         if best_dmg <= 0:
             return None
@@ -127,21 +152,8 @@ class EvaluationMixin(_Base):
             target = state.get_player(pid)
             if not target or not target.is_alive():
                 continue
-            # ── 与 _pick_target 一致的过滤 ──
-            # 警察成员不攻击普通玩家
-            if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
-                if not getattr(target, 'is_criminal', False):
-                    continue
-            # 爱愿保护
-            if (target.talent and hasattr(target.talent, 'has_love_wish')
-                    and target.talent.has_love_wish(player.player_id)):
+            if not self._is_valid_attack_target(player, target, state):
                 continue
-            # 隐身且无探测
-            if getattr(target, 'is_invisible', False) and not getattr(player, 'has_detection', False):
-                markers_obj = getattr(state, 'markers', None)
-                if markers_obj and hasattr(markers_obj, 'is_visible_to'):
-                    if not markers_obj.is_visible_to(target.player_id, player.player_id, player.has_detection):
-                        continue
             # ── 击杀判定（原逻辑不变）──
             outer_count = self._count_outer_armor(target)
             inner_count = self._count_inner_armor(target)
@@ -202,18 +214,8 @@ class EvaluationMixin(_Base):
             target = state.get_player(pid)
             if not target or not target.is_alive():
                 continue
-            # ── 与 _pick_target 一致的过滤 ──
-            if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
-                if not getattr(target, 'is_criminal', False):
-                    continue
-            if (target.talent and hasattr(target.talent, 'has_love_wish')
-                    and target.talent.has_love_wish(player.player_id)):
+            if not self._is_valid_attack_target(player, target, state):
                 continue
-            if getattr(target, 'is_invisible', False) and not getattr(player, 'has_detection', False):
-                markers_obj = getattr(state, 'markers', None)
-                if markers_obj and hasattr(markers_obj, 'is_visible_to'):
-                    if not markers_obj.is_visible_to(target.player_id, player.player_id, player.has_detection):
-                        continue
             # ── 火萤击杀判定（原逻辑不变）──
             if not self._can_attack_target(player, target, state):
                 continue

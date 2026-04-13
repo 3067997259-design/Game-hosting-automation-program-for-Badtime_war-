@@ -413,10 +413,9 @@ class CombatMixin(_Base):
             target = state.get_player(pid)
             if not target or not target.is_alive():
                 continue
-            # 警察成员不攻击普通玩家（Bug修复：警察犯罪限制）
-            if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
-                if not getattr(target, 'is_criminal', False):
-                    continue
+            # 共用硬过滤：警察限制、爱愿保护、隐身不可见
+            if not self._is_valid_attack_target(player, target, state):
+                continue
             candidates.append(target)
         if not candidates:
             return None
@@ -443,9 +442,7 @@ class CombatMixin(_Base):
                 # 如果自己在星野正面，大幅降低优先级
                 if t_talent.is_front(player.player_id):
                     s -= 100  # 正面攻击几乎无效，换目标
-            # In _score_target or target evaluation:
-            if t.talent and hasattr(t.talent, 'has_love_wish') and t.talent.has_love_wish(player.player_id):
-                s -= 10000  # Cannot attack this target due to 爱愿
+            # 爱愿保护已在 _is_valid_attack_target 硬过滤中排除
             # ===== 火萤专用评分（全程生效，不只是 debuff 后）=====
             if self._has_firefly_talent(player):
                 # 1. 优先打发育型玩家（defensive/political/builder）
@@ -517,12 +514,7 @@ class CombatMixin(_Base):
             # 武器有效性（火萤已在专用评分块中处理，跳过）
             if not self._has_firefly_talent(player) and self._all_weapons_countered(player, t):
                 s -= 200
-            # 隐身且无探测 → 大幅降分（打不到）
-            if getattr(t, 'is_invisible', False) and not getattr(player, 'has_detection', False):
-                markers_obj = getattr(state, 'markers', None)
-                if markers_obj and hasattr(markers_obj, 'is_visible_to'):
-                    if not markers_obj.is_visible_to(t.player_id, player.player_id, player.has_detection):
-                        s -= 300  # 看不到的目标大幅降分
+            # 隐身不可见已在 _is_valid_attack_target 硬过滤中排除
             # 警察保护（阈值感知）
             pe = getattr(state, 'police_engine', None)
             if pe and pe.is_protected_by_police(t.player_id):
