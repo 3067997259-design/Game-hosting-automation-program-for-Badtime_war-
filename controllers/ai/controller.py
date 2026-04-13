@@ -946,22 +946,26 @@ class BasicAIController(
 
         # ===== 火萤击杀机会 =====
         if (self._has_firefly_talent(player)
-            and not self._political_develop_only
-            and self._has_firefly_kill_opportunity(player, state)):
-            debug_ai_basic(player.name, "火萤发现击杀机会，打断发育！")
-            kill_cmds = self._cmd_attack(player, state, available_actions)
-            if kill_cmds:
-                candidates.extend(kill_cmds)
-                dev = self._cmd_develop(player, state, available_actions)
-                if dev:
-                    candidates.append(dev[0])
-                candidates.append("forfeit")
-                return candidates
+            and not self._political_develop_only):
+            firefly_kill_target = self._find_firefly_kill_target(player, state)
+            if firefly_kill_target:
+                debug_ai_basic(player.name, "火萤发现击杀机会，打断发育！")
+                kill_cmds = self._cmd_attack(player, state, available_actions,
+                                            forced_target=firefly_kill_target)
+                if kill_cmds:
+                    candidates.extend(kill_cmds)
+                    dev = self._cmd_develop(player, state, available_actions)
+                    if dev:
+                        candidates.append(dev[0])
+                    candidates.append("forfeit")
+                    return candidates
 
         # ===== 击杀机会 =====
-        if self._has_kill_opportunity(player, state) and not self._political_develop_only:
+        kill_target = self._find_kill_target(player, state)
+        if kill_target and not self._political_develop_only:
             debug_ai_basic(player.name, "发现击杀机会！")
-            kill_cmds = self._cmd_attack(player, state, available_actions)
+            kill_cmds = self._cmd_attack(player, state, available_actions,
+                                        forced_target=kill_target)
             if kill_cmds:
                 candidates.extend(kill_cmds)
                 # 备用发育
