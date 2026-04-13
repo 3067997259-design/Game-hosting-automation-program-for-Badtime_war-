@@ -197,7 +197,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                     player_name=me.name, cost=self.cost))
 
         # 首次轮次：启动光环依次恢复（如果还没有任何光环在恢复中）
-        if not any(h['active'] or h['recovering'] for h in self.halos):
+        if not self.is_terror and not any(h['active'] or h['recovering'] for h in self.halos):
             alive_count = len([pid for pid in self.state.player_order
                             if self.state.get_player(pid) and self.state.get_player(pid).is_alive()])
             cooldown_time = self._halo_cooldown_time(alive_count)
@@ -205,7 +205,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             self.halos[0]['cooldown_remaining'] = cooldown_time
 
         # 光环恢复 tick
-        self._halo_tick()
+        if not self.is_terror:
+            self._halo_tick()
 
         # 铁之荷鲁斯被动自修复（受损但未破碎时）
         if (self.fusion_shield_done
