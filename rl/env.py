@@ -151,9 +151,45 @@ class _SyncRLController(RLController):
 
         return idx_to_command(self.pending_action_idx, player, game_state)
 
-    # choose() 和 confirm() 的路由逻辑在基类 RLController 中。
-    # 基类的 _rl_choose() / _rl_confirm() 通过 self._env 访问同步原语。
-    # _SyncRLController 只需要确保 self._env 已设置（在 __init__ 中完成）。
+    def _rl_choose(self, prompt, options, context=None):
+        """线程同步版 _rl_choose：让 RL 智能体通过 env.step() 做 choose 决策。"""
+        if self._env._game_over_flag:
+            return options[0] if options else ""
+
+        # 设置 choose 模式
+        self._env._choose_mode = True
+        self._env._choose_options = list(options)
+        self._env._choose_context = context or {}
+        self._env._current_player = self._player_ref
+        self._env._current_game_state = self._state_ref
+
+        # 通知 env：准备好接收 choose 决策
+        self._env._obs_event.set()
+
+        # 等待 env 提供动作（RL 智能体在 env.step() 中选择）
+        self._env._action_event.wait()
+        self._env._action_event.clear()
+
+        if self._env._game_over_flag:
+            return options[0] if options else ""
+
+        # 读取 RL 选择的索引，翻译为选项字符串
+        from rl.action_space import IDX_CHOOSE_BASE
+        chosen_idx = self.pending_action_idx - IDX_CHOOSE_BASE
+
+        # 清除 choose 模式
+        self._env._choose_mode = False
+        self._env._choose_options = []
+        self._env._choose_context = {}
+
+        if 0 <= chosen_idx < len(options):
+            return options[chosen_idx]
+        return options[0]  # 安全回退
+
+    def _rl_confirm(self, prompt, context=None):
+        """线程同步版 _rl_confirm：映射为 2 选项的 _rl_choose。"""
+        result = self._rl_choose(prompt, ["是", "否"], context)
+        return result == "是"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
