@@ -77,7 +77,7 @@ class OpponentRLController(RLController):
             return "forfeit"
 
         # 构建观测
-        raw_obs = build_obs(player, game_state)
+        raw_obs = build_obs(player, game_state, player.player_id)
         obs = self._stack_obs(raw_obs)
 
         # 构建 action mask

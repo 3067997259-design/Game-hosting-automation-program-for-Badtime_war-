@@ -80,60 +80,6 @@ def _restore_display():
     _original_display.clear()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  choose situation → 数值 ID（用于观测向量末尾的 choose 指示维度）
-# ─────────────────────────────────────────────────────────────────────────────
-
-_CHOOSE_SITUATION_IDS: Dict[str, int] = {
-    # 基础机制
-    "petrified": 1,
-    "recruit_pick_1": 2,
-    "recruit_pick_2": 3,
-    "captain_election": 4,
-    # 六爻
-    "hexagram_my_choice": 5,
-    "hexagram_opp_choice": 6,
-    # 天赋 T0
-    "talent_t0": 7,
-    # T1 一刀缭断
-    "oneslash_pick_target": 8,
-    # T2 剪刀手一突（响应窗口走 confirm，不在此处）
-    # T4 六爻（猜拳已在上面）
-    # T7 死者苏生
-    "resurrection_pick_target": 9,
-    "resurrection_learn_or_mount": 10,
-    # G2 全息影像
-    "hologram_target": 11,
-    # G3 神话之外
-    "mythland_pick_target": 12,
-    # G4 愿负世
-    "savior_activate": 13,
-    # G5 涟漪
-    "ripple_activation_choice": 14,
-    "ripple_anchor_type": 15,
-    "ripple_anchor_target": 16,
-    "ripple_poem_target": 17,
-    # G6 要有笑声
-    "cutaway_borrow_target": 18,
-    # G7 星野
-    "hoshino_form_choice": 19,
-    "hoshino_self_doubt": 20,
-    "hoshino_tactical_equip": 21,
-    "hoshino_repair_material": 22,
-    # 响应窗口（confirm 映射为 2 选项 choose）
-    "response_window": 23,
-    # 强买通行证（confirm 映射为 2 选项 choose）
-    "force_buy_pass": 24,
-    # G5 律法之诗
-    "poem_law_extra_action": 25,
-    "poem_law_police_action": 26,
-}
-_MAX_CHOOSE_SITUATIONS = 30
-
-# choose 指示维度在 obs 向量中的起始偏移
-# 由 obs_builder.py 的 OBS_DIM 决定，最后 3 维是 choose 指示
-_CHOOSE_OBS_START = OBS_DIM - 3  # [OBS_DIM-3, OBS_DIM-2, OBS_DIM-1]
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  内部异常：用于中止后台游戏线程

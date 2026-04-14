@@ -20,8 +20,10 @@ rl/obs_builder.py
   ┌─ 新增：天赋系统观测 ─────────────────────────────────────┐
   │ [287 – 300] 自身天赋 ID       (14) one-hot                │
   │ [301 – 340] 自身天赋状态      (40) -1 哨兵=不适用         │
-  │ [341 – 410] 对手天赋 ID 5×14  (70) one-hot                │
-  │ [411 – 510] 对手天赋状态 5×20 (100) -1 哨兵=不适用        │
+  │ [341 – 510] 对手天赋 5×(14+20)(170) 交错布局，见下        │
+  │   每个对手槽位 34 维 = 天赋ID(14) + 天赋状态(20)          │
+  │   slot0=[341-374] slot1=[375-408] slot2=[409-442]         │
+  │   slot3=[443-476] slot4=[477-510]                         │
   │ [511 – 513] choose 模式指示器 (3)                         │
   └───────────────────────────────────────────────────────────┘
 
@@ -106,40 +108,6 @@ TALENT_CLASS_TO_IDX: dict[str, int] = {
 }
 
 _TALENT_CLASS_INDEX = TALENT_CLASS_TO_IDX  # alias for backward compat
-
-# choose situation → 数值 ID（用于 choose 模式指示器）
-CHOOSE_SITUATION_TO_ID: dict[str, int] = {
-    # ── 原有（非天赋）战略决策 ──
-    "petrified":            1,
-    "recruit_pick_1":       2,
-    "recruit_pick_2":       3,
-    "captain_election":     4,
-    # ── 天赋 T0 发动 ──
-    "talent_t0":            5,
-    # ── T1 一刀缭断 ──
-    "oneslash_pick_weapon": 6,
-    "oneslash_pick_target": 7,
-    # ── T4 六爻 ──
-    "hexagram_pick_target": 8,
-    "hexagram_my_choice":   9,
-    "hexagram_opp_choice":  10,
-    # ── T7 死者苏生 ──
-    "resurrection_pick_target": 11,
-    # ── G2 全息影像 ──
-    "hologram_target":      12,
-    # ── G3 神话之外 ──
-    "mythland_pick_target": 13,
-    # ── G4 愿负世 ──
-    "savior_activate":      14,
-    # ── G5 涟漪 ──
-    "ripple_anchor_type":   15,
-    "ripple_poem_target":   16,
-    # ── G6 要有笑声 ──
-    "cutaway_borrow_target":17,
-    # ── G7 星野 ──
-    "hoshino_form_choice":  18,
-    "hoshino_self_doubt":   19,
-}
 
 # 武器名称列表（与 action_space.WEAPONS 一致，共 10 种）
 WEAPON_NAMES = WEAPONS
@@ -660,8 +628,8 @@ def build_obs(player: "Player", game_state: "GameState",
         ─── 以下为新增 ───
         [287 –300 ]  自身天赋 ID           (14)
         [301 –340 ]  自身天赋状态          (40)  哨兵 -1
-        [341 –410 ]  对手天赋 ID  5×14     (70)
-        [411 –510 ]  对手天赋状态 5×20     (100) 哨兵 -1
+        [341 –510 ]  对手天赋 5×(ID14+状态20) (170) 交错布局
+                     slot0=[341-374] slot1=[375-408] ...
         [511 –513 ]  choose 模式指示       (3)
         ─── 总计 514 ───
     """

@@ -186,7 +186,7 @@ STRATEGIC_CHOOSE_SITUATIONS: set[str] = {
     "ripple_poem_target",       # G5：献诗目标
     "cutaway_borrow_target",    # G6：插入式笑话借用目标
     "hoshino_form_choice",      # G7：形态选择
-    "hoshino_self_doubt",       # G7：自我怀疑接受/拒绝
+    "hoshino_self_doubt_choice", # G7：自我怀疑接受/拒绝
 }
 
 # 纯随机 / 无博弈空间的 situation → 保持启发式
@@ -464,7 +464,7 @@ def build_action_mask(
     available_names, _ = atm._get_available_actions(player)
     available_set = set(available_names)
 
-# ── 未醒来：只能 wake ─────────────────────────────────────────
+    # ── 未醒来：只能 wake ─────────────────────────────────────────
     if not player.is_awake:
         if "wake" in available_set:
             mask[IDX_WAKE] = True
@@ -780,7 +780,7 @@ STRATEGIC_SITUATIONS: set[str] = {
     "cutaway_borrow_target",        # 借用行动目标
     # G7 星野
     "hoshino_form_choice",          # 形态选择
-    "hoshino_self_doubt",           # 自我怀疑接受/拒绝
+    "hoshino_self_doubt_choice",    # 自我怀疑接受/拒绝
     "hoshino_reorder_ammo",         # 排弹顺序（后续批次可能改为启发式）
 }
 
@@ -875,7 +875,7 @@ def _build_choose_mask(
     # ══════════════════════════════════════════════════════════════
     #  适用于：petrified, recruit_pick, hexagram_my/opp_choice,
     #          captain_election, hoshino_form_choice, ripple_activation_choice,
-    #          hoshino_self_doubt, hoshino_reorder_ammo 等
+    #          hoshino_self_doubt_choice, hoshino_reorder_ammo 等
     n_options = min(len(options), 10)
     for i in range(n_options):
         mask[IDX_CHOOSE_BASE + i] = True
