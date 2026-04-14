@@ -283,7 +283,7 @@ class Hologram(BaseTalent):
             roll = roll_d6()
             old_loc = p.location or "未知"
 
-            if roll >= 4:
+            if roll >= 3:
                 # Pulled! Force move to hologram location
                 p.location = self.location
                 # Trigger marker cleanup for the forced move (clear locks/engaged from old location)
