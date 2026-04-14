@@ -26,7 +26,8 @@ from gymnasium import spaces
 
 from rl.action_space import (
     ACTION_COUNT, IDX_FORFEIT, IDX_CHOOSE_BASE,
-    build_action_mask, idx_to_command,
+    IDX_TALENT_T0_TARGET_BASE, IDX_TALENT_T0_SELF,
+    build_action_mask, idx_to_command, idx_to_choose_option,
 )
 from rl.obs_builder import OBS_DIM, build_obs
 from rl.reward import RewardTracker
@@ -517,7 +518,21 @@ class BadtimeWarEnv(gym.Env):
         if self._choose_mode:
             # choose 模式：将动作翻译为选项索引
             if IDX_CHOOSE_BASE <= action < IDX_CHOOSE_BASE + 10:
+                # 通用 choose 索引 (114-123) → 直接映射
                 self._pending_choose_idx = action - IDX_CHOOSE_BASE
+            elif IDX_TALENT_T0_TARGET_BASE <= action <= IDX_TALENT_T0_SELF:
+                # 目标槽位索引 (108-113) → 通过 idx_to_choose_option 翻译
+                # _build_choose_mask 对目标选择 situation 启用的正是这些索引
+                situation = self._choose_context.get("situation", "")
+                chosen_str = idx_to_choose_option(
+                    action, self._choose_options, situation,
+                    self._current_player, self._current_game_state,
+                )
+                # 在选项列表中查找匹配的索引
+                try:
+                    self._pending_choose_idx = self._choose_options.index(chosen_str)
+                except ValueError:
+                    self._pending_choose_idx = 0  # 安全回退
             else:
                 # 安全回退：选第一个选项
                 self._pending_choose_idx = 0
