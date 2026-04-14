@@ -293,14 +293,14 @@ class Hologram(BaseTalent):
                 lines.append(
                     prompt_manager.get_prompt(
                         "talent", "g2eternity.player_pull_success",
-                        default="  🎲 {player_name}: D6 = {roll} ≥ 4 → ✨ 被歌声吸引，来到了舞台前！（从{old_loc}）"
+                        default="  🎲 {player_name}: D6 = {roll} ≥ 3 → ✨ 被歌声吸引，来到了舞台前！（从{old_loc}）"
                     ).format(player_name=p.name, roll=roll, old_loc=old_loc)
                 )
             else:
                 lines.append(
                     prompt_manager.get_prompt(
                         "talent", "g2eternity.player_pull_resist",
-                        default="  🎲 {player_name}: D6 = {roll} < 4 → 抵抗住了歌声的诱惑。"
+                        default="  🎲 {player_name}: D6 = {roll} < 3 → 抵抗住了歌声的诱惑。"
                     ).format(player_name=p.name, roll=roll)
                 )
 

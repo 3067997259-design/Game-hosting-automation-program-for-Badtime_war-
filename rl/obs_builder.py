@@ -417,16 +417,18 @@ def _build_self_talent_state(player: "Player") -> np.ndarray:
         for bullet in ammo:
             attr = bullet.get('attribute', '普通') if isinstance(bullet, dict) else '普通'
             if attr == '普通':
-                buf[17] = min(buf[17] + 1.0 if buf[17] >= 0 else 1.0, 6.0) / 6.0
+                buf[17] = (buf[17] + 1.0) if buf[17] >= 0 else 1.0
             elif attr == '魔法':
-                buf[18] = min(buf[18] + 1.0 if buf[18] >= 0 else 1.0, 6.0) / 6.0
+                buf[18] = (buf[18] + 1.0) if buf[18] >= 0 else 1.0
             elif attr == '科技':
-                buf[19] = min(buf[19] + 1.0 if buf[19] >= 0 else 1.0, 6.0) / 6.0
-        # 如果有弹药但某属性为0，设为0而非-1
+                buf[19] = (buf[19] + 1.0) if buf[19] >= 0 else 1.0
+        # 如果有弹药但某属性为0，设为0而非-1；然后归一化
         if ammo:
             for i in range(17, 20):
                 if buf[i] < 0:
                     buf[i] = 0.0
+                else:
+                    buf[i] = min(buf[i], 6.0) / 6.0
 
         return buf
 

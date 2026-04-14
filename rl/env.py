@@ -324,24 +324,6 @@ class BadtimeWarEnv(gym.Env):
         self._obs_stack[-OBS_DIM:] = raw_obs
         return self._obs_stack.copy()
 
-    def _fill_choose_obs(self, raw_obs: np.ndarray) -> None:
-        """
-        在 obs 向量末尾填入 choose 模式指示维度。
-        [OBS_DIM-3] : current_mode (0=get_command, 1=choose)
-        [OBS_DIM-2] : choose_situation_id / _MAX_CHOOSE_SITUATIONS
-        [OBS_DIM-1] : choose_n_options / 10.0
-        """
-        if self._choose_mode:
-            situation = self._choose_context.get("situation", "")
-            sit_id = _CHOOSE_SITUATION_IDS.get(situation, 0)
-            raw_obs[_CHOOSE_OBS_START] = 1.0
-            raw_obs[_CHOOSE_OBS_START + 1] = sit_id / _MAX_CHOOSE_SITUATIONS
-            raw_obs[_CHOOSE_OBS_START + 2] = len(self._choose_options) / 10.0
-        else:
-            raw_obs[_CHOOSE_OBS_START] = 0.0
-            raw_obs[_CHOOSE_OBS_START + 1] = 0.0
-            raw_obs[_CHOOSE_OBS_START + 2] = 0.0
-
     def set_num_opponents(self, n: int):
         """供 CurriculumCallback 调用，修改对手数量（下次 reset 生效）。"""
         self.num_opponents = n
@@ -437,7 +419,7 @@ class BadtimeWarEnv(gym.Env):
         self._reward_tracker.reset(self._rl_player, self._state)
 
         self._obs_stack = np.zeros(OBS_DIM * self.n_stack, dtype=np.float32)
-        raw_obs = build_obs(self._rl_player, self._state)
+        raw_obs = build_obs(self._rl_player, self._state, "rl_0")
         self._fill_choose_obs(raw_obs)
         obs = self._stack_obs(raw_obs)
         info = {"action_masks": self.action_masks()}
@@ -661,50 +643,6 @@ class BadtimeWarEnv(gym.Env):
             raw_obs[base] = 0.0
             raw_obs[base + 1] = 0.0
             raw_obs[base + 2] = 0.0
-
-    # ══════════════════════════════════════════════════════════════════════════
-    #  天赋分配
-    # ══════════════════════════════════════════════════════════════════════════
-
-    def _assign_talents(self) -> None:
-        """
-        为所有玩家随机分配天赋（每个天赋最多被选一次）。
-
-        逻辑与 stats_runner.py 的天赋分配一致：
-          1. 从 TALENT_TABLE 中随机选取（不重复）
-          2. 实例化天赋并挂载到 player
-          3. 调用 on_register() 完成初始化
-        """
-        from engine.game_setup import TALENT_TABLE
-
-        assert self._state is not None
-
-        taken: set[int] = set()
-        order = list(self._state.player_order)
-        self.np_random.shuffle(order)  # 随机分配顺序
-
-        for pid in order:
-            player = self._state.get_player(pid)
-            if player is None:
-                continue
-
-            available = [
-                (n, name, cls, desc)
-                for n, name, cls, desc in TALENT_TABLE
-                if n not in taken
-            ]
-            if not available:
-                continue
-
-            # 随机选一个天赋
-            idx = self.np_random.integers(0, len(available))
-            n, name, cls, _desc = available[idx]
-
-            talent_inst = cls(pid, self._state)
-            player.talent = talent_inst
-            player.talent_name = name
-            talent_inst.on_register()
-            taken.add(n)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  后台游戏线程
