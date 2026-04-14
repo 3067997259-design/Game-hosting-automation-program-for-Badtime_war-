@@ -26,7 +26,8 @@ from gymnasium import spaces
 
 from rl.action_space import (
     ACTION_COUNT, IDX_FORFEIT, IDX_CHOOSE_BASE,
-    build_action_mask, idx_to_command,
+    IDX_TALENT_T0_TARGET_BASE, IDX_TALENT_T0_SELF,
+    build_action_mask, idx_to_command, idx_to_choose_option,
 )
 from rl.obs_builder import OBS_DIM, build_obs
 from rl.reward import RewardTracker
@@ -151,9 +152,46 @@ class _SyncRLController(RLController):
 
         return idx_to_command(self.pending_action_idx, player, game_state)
 
-    # choose() 和 confirm() 的路由逻辑在基类 RLController 中。
-    # 基类的 _rl_choose() / _rl_confirm() 通过 self._env 访问同步原语。
-    # _SyncRLController 只需要确保 self._env 已设置（在 __init__ 中完成）。
+    def _rl_choose(self, prompt, options, context=None):
+        """线程同步版 _rl_choose：让 RL 智能体通过 env.step() 做 choose 决策。"""
+        if self._env._game_over_flag:
+            return options[0] if options else ""
+
+        # 设置 choose 模式
+        self._env._choose_mode = True
+        self._env._choose_options = list(options)
+        self._env._choose_context = context or {}
+        self._env._current_player = self._player_ref
+        self._env._current_game_state = self._state_ref
+
+        # 通知 env：准备好接收 choose 决策
+        self._env._obs_event.set()
+
+        # 等待 env 提供动作（RL 智能体在 env.step() 中选择）
+        self._env._action_event.wait()
+        self._env._action_event.clear()
+
+        if self._env._game_over_flag:
+            return options[0] if options else ""
+
+        # 读取 RL 选择的索引（step() 已计算 action - IDX_CHOOSE_BASE）
+        chosen_idx = self._env._pending_choose_idx
+
+        # 立即清除 choose 模式，避免其他线程看到过时状态。
+        # 线程安全说明：此时 env 线程阻塞在 _obs_event.wait()，
+        # action_masks() 只从 env 线程调用，因此不会并发访问。
+        self._env._choose_mode = False
+        self._env._choose_options = []
+        self._env._choose_context = {}
+
+        if 0 <= chosen_idx < len(options):
+            return options[chosen_idx]
+        return options[0]  # 安全回退
+
+    def _rl_confirm(self, prompt, context=None):
+        """线程同步版 _rl_confirm：映射为 2 选项的 _rl_choose。"""
+        result = self._rl_choose(prompt, ["是", "否"], context)
+        return result == "是"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -480,7 +518,21 @@ class BadtimeWarEnv(gym.Env):
         if self._choose_mode:
             # choose 模式：将动作翻译为选项索引
             if IDX_CHOOSE_BASE <= action < IDX_CHOOSE_BASE + 10:
+                # 通用 choose 索引 (114-123) → 直接映射
                 self._pending_choose_idx = action - IDX_CHOOSE_BASE
+            elif IDX_TALENT_T0_TARGET_BASE <= action <= IDX_TALENT_T0_SELF:
+                # 目标槽位索引 (108-113) → 通过 idx_to_choose_option 翻译
+                # _build_choose_mask 对目标选择 situation 启用的正是这些索引
+                situation = self._choose_context.get("situation", "")
+                chosen_str = idx_to_choose_option(
+                    action, self._choose_options, situation,
+                    self._current_player, self._current_game_state,
+                )
+                # 在选项列表中查找匹配的索引
+                try:
+                    self._pending_choose_idx = self._choose_options.index(chosen_str)
+                except ValueError:
+                    self._pending_choose_idx = 0  # 安全回退
             else:
                 # 安全回退：选第一个选项
                 self._pending_choose_idx = 0
