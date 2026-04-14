@@ -1,10 +1,14 @@
 """
 rl/env.py
 ─────────
-BadtimeWarEnv —— 主 Gym 封装
+BadtimeWarEnv —— 主 Gym 封装（天赋局版）
 
 单智能体环境，RL 控制一名玩家，其余由 BasicAIController 控制。
 游戏引擎在后台线程运行，通过 threading.Event 与 env 同步。
+
+支持两种同步模式：
+  1. get_command 模式：RL 选择主行动（索引 0-107）
+  2. choose 模式：RL 回答子决策（索引 108-123）
 
 兼容 sb3-contrib MaskablePPO：
   - action_masks() 方法返回 bool 数组
@@ -12,15 +16,17 @@ BadtimeWarEnv —— 主 Gym 封装
 """
 
 from __future__ import annotations
+import random
 import threading
-from typing import Any, Optional
+from typing import Any, Optional, List, Dict
 
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
 from rl.action_space import (
-    ACTION_COUNT, IDX_FORFEIT, build_action_mask, idx_to_command,
+    ACTION_COUNT, IDX_FORFEIT, IDX_CHOOSE_BASE,
+    build_action_mask, idx_to_command,
 )
 from rl.obs_builder import OBS_DIM, build_obs
 from rl.reward import RewardTracker
@@ -31,6 +37,12 @@ from engine.round_manager import RoundManager
 from models.player import Player
 from cli import display as _display_module
 from controllers.ai_basic import create_random_ai_controller
+
+# 天赋系统导入
+from engine.game_setup import (
+    TALENT_TABLE, AI_DISABLED_TALENTS, AI_TALENT_PREFERENCE,
+    AI_PERSONALITIES, TALENT_DECAY_FACTOR,
+)
 
 _DISPLAY_FUNCS = [
     "show_banner", "show_round_header", "show_phase", "show_d4_results",
@@ -50,7 +62,6 @@ def _silence_display():
         if hasattr(_display_module, name):
             _original_display[name] = getattr(_display_module, name)
             setattr(_display_module, name, lambda *a, **kw: None)
-    # 有返回值的函数需要特殊处理
     if hasattr(_display_module, "prompt_input"):
         _original_display["prompt_input"] = _display_module.prompt_input
         _display_module.prompt_input = lambda *a, **kw: ""
@@ -61,11 +72,14 @@ def _silence_display():
         _original_display["prompt_secret"] = _display_module.prompt_secret
         _display_module.prompt_secret = lambda *a, **kw: ""
 
+
 def _restore_display():
     """恢复 cli.display 的原始函数"""
     for name, func in _original_display.items():
         setattr(_display_module, name, func)
     _original_display.clear()
+
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  内部异常：用于中止后台游戏线程
@@ -76,18 +90,26 @@ class _GameAborted(Exception):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  同步版 RLController：在 get_command 中阻塞等待 env 提供动作
+#  同步版 RLController：在 get_command / choose / confirm 中阻塞等待 env
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _SyncRLController(RLController):
     """
-    扩展 RLController，在 get_command() 中与 env 线程同步。
+    扩展 RLController，在 get_command() 和战略 choose()/confirm() 中
+    与 env 线程同步。
 
-    流程：
+    流程（get_command）：
       1. 引擎调用 get_command()
       2. 控制器信号 env（_obs_event）并阻塞（_action_event）
       3. env.step() 设置 pending_action_idx 并信号控制器
       4. 控制器将 idx 翻译为 CLI 命令返回给引擎
+
+    流程（战略 choose）：
+      1. 引擎调用 choose()，基类路由到 _rl_choose()
+      2. _rl_choose() 设置 env._choose_mode=True，信号 _obs_event
+      3. env.step() 返回 choose 模式的 obs/mask
+      4. 下一次 env.step(action) 将 action 翻译为选项索引
+      5. _rl_choose() 被唤醒，返回对应选项
     """
 
     def __init__(self, env: "BadtimeWarEnv"):
@@ -109,9 +131,13 @@ class _SyncRLController(RLController):
             # 重试：mask 未能完全过滤，安全回退
             return "forfeit"
 
+        # 缓存引用供 _rl_choose / _rl_confirm 使用
+        self._cache_player_ref(player, game_state)
+
         # 保存引用供 env 读取
         self._env._current_player = player
         self._env._current_game_state = game_state
+        self._env._choose_mode = False  # 确保是 get_command 模式
 
         # 通知 env：准备好接收动作
         self._env._obs_event.set()
@@ -125,6 +151,42 @@ class _SyncRLController(RLController):
 
         return idx_to_command(self.pending_action_idx, player, game_state)
 
+    # choose() 和 confirm() 的路由逻辑在基类 RLController 中。
+    # 基类的 _rl_choose() / _rl_confirm() 通过 self._env 访问同步原语。
+    # _SyncRLController 只需要确保 self._env 已设置（在 __init__ 中完成）。
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  天赋分配辅助
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ai_pick_talent_for_env(personality: str, available, taken: set, rng):
+    """
+    AI 根据人格偏好从可用天赋中加权随机选择（env 专用版，使用 env 的 rng）。
+    返回 (编号, 名称, 类) 或 None。
+    """
+    preference = AI_TALENT_PREFERENCE.get(personality,
+                                           AI_TALENT_PREFERENCE["balanced"])
+    candidates = []
+    weights = []
+    for i, talent_num in enumerate(preference):
+        for n, name, cls, desc in available:
+            if n == talent_num:
+                candidates.append((n, name, cls))
+                weights.append(TALENT_DECAY_FACTOR ** i)
+                break
+
+    if not candidates:
+        # 偏好列表里的天赋全被选走 → 随机兜底
+        chosen = available[rng.integers(len(available))]
+        return (chosen[0], chosen[1], chosen[2])
+
+    # 加权随机
+    total_w = sum(weights)
+    probs = [w / total_w for w in weights]
+    idx = rng.choice(len(candidates), p=probs)
+    return candidates[idx]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  主环境
@@ -132,13 +194,17 @@ class _SyncRLController(RLController):
 
 class BadtimeWarEnv(gym.Env):
     """
-    Badtime War 单智能体 Gym 环境。
+    Badtime War 单智能体 Gym 环境（天赋局版）。
 
     参数
     ----
-    num_opponents : 对手数量（1-5），默认 3
-    max_rounds    : 最大轮数，超过则 truncated=True，默认 50
-    render_mode   : "human" 时保留游戏输出，否则静默
+    num_opponents  : 对手数量（1-5），默认 3
+    max_rounds     : 最大轮数，超过则 truncated=True，默认动态计算
+    render_mode    : "human" 时保留游戏输出，否则静默
+    n_stack        : 帧堆叠数量
+    opponent_pool  : Self-play 对手池
+    enable_talents : 是否启用天赋系统
+    rl_talent      : RL 玩家的天赋编号（None=随机, 0=无天赋）
     """
 
     metadata = {"render_modes": ["human"]}
@@ -150,6 +216,8 @@ class BadtimeWarEnv(gym.Env):
         render_mode: Optional[str] = None,
         n_stack: int = 1,
         opponent_pool=None,
+        enable_talents: bool = True,
+        rl_talent: Optional[int] = None,
     ):
         super().__init__()
 
@@ -158,12 +226,15 @@ class BadtimeWarEnv(gym.Env):
         self.render_mode = render_mode
         self.n_stack = n_stack
         self.opponent_pool = opponent_pool
+        self.enable_talents = enable_talents
+        self.rl_talent = rl_talent  # None=随机, 0=无天赋, 1-14=指定天赋
 
         # ── Gym 空间 ──
         self.observation_space = spaces.Box(
             low=-1.0, high=1.0, shape=(OBS_DIM * n_stack,), dtype=np.float32
         )
         self.action_space = spaces.Discrete(ACTION_COUNT)
+
         # ── 帧堆叠缓冲 ──
         self._obs_stack = np.zeros(OBS_DIM * n_stack, dtype=np.float32)
 
@@ -185,11 +256,16 @@ class BadtimeWarEnv(gym.Env):
         self._current_player = None
         self._current_game_state = None
 
+        # ── choose 同步状态 ──
+        self._choose_mode: bool = False
+        self._choose_options: List[str] = []
+        self._choose_context: Dict = {}
+        self._pending_choose_idx: int = 0
+
     def _stack_obs(self, raw_obs: np.ndarray) -> np.ndarray:
         """将新观测推入帧堆叠缓冲，返回拼接后的完整观测。"""
         if self.n_stack <= 1:
             return raw_obs
-        # 左移旧帧，新帧放最右
         self._obs_stack[:-OBS_DIM] = self._obs_stack[OBS_DIM:]
         self._obs_stack[-OBS_DIM:] = raw_obs
         return self._obs_stack.copy()
@@ -198,17 +274,18 @@ class BadtimeWarEnv(gym.Env):
         """供 CurriculumCallback 调用，修改对手数量（下次 reset 生效）。"""
         self.num_opponents = n
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  reset
-    # ══════════════════════════════════════════════════════════════════════════
     def set_opponent_pool(self, pool):
         """供 SelfPlayCallback 调用，设置对手池（下次 reset 生效）。"""
         self.opponent_pool = pool
 
     def update_basic_ai_prob(self, new_prob: float):
-        """供 SelfPlayCallback 调用，更新对手池的 BasicAI 概率（SubprocVecEnv 兼容）。"""
+        """供 SelfPlayCallback 调用，更新对手池的 BasicAI 概率。"""
         if self.opponent_pool is not None:
             self.opponent_pool.basic_ai_prob = new_prob
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  reset
+    # ══════════════════════════════════════════════════════════════════════════
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -227,24 +304,31 @@ class BadtimeWarEnv(gym.Env):
 
         # 创建对手（self-play 或 BasicAI）
         ai_players = []
+        ai_personalities = {}  # pid → personality
         for i in range(self.num_opponents):
             if self.opponent_pool is not None:
                 ctrl = self.opponent_pool.sample_opponent_controller()
-                # 如果是 OpponentRLController，重置帧堆叠
                 if hasattr(ctrl, 'reset_stack'):
                     ctrl.reset_stack()
+                personality = "balanced"  # self-play 对手无人格概念
             else:
+                personality = random.choice(AI_PERSONALITIES)
                 ctrl = create_random_ai_controller(player_name=f"AI_{i}")
             p = Player(f"ai_{i}", f"AI_{i}", ctrl)
             ai_players.append(p)
+            ai_personalities[p.player_id] = personality
 
-        # 随机化玩家顺序，避免 RL 永远是零号玩家，在开局时吃到不必要的针对
+        # 随机化玩家顺序
         all_players = [self._rl_player] + ai_players
         self.np_random.shuffle(all_players)
         for p in all_players:
             self._state.add_player(p)
 
-        # 设置最大轮数：显式指定 > 动态默认
+        # ── 天赋分配 ──
+        if self.enable_talents:
+            self._assign_talents(ai_personalities)
+
+        # 设置最大轮数
         if self.max_rounds is not None:
             self._state.max_rounds = self.max_rounds
         else:
@@ -262,12 +346,15 @@ class BadtimeWarEnv(gym.Env):
         self._action_event.clear()
         self._game_over_flag = False
         self._max_rounds_reached = False
+        self._choose_mode = False
+        self._choose_options = []
+        self._choose_context = {}
 
         # 后台线程启动游戏
         self._game_thread = threading.Thread(target=self._run_game, daemon=True)
         self._game_thread.start()
 
-        # 等待第一个 RL 回合（或游戏提前结束）
+        # 等待第一个 RL 决策点（get_command 或 choose）
         self._obs_event.wait()
         self._obs_event.clear()
 
@@ -277,12 +364,92 @@ class BadtimeWarEnv(gym.Env):
         assert self._reward_tracker is not None
         self._reward_tracker.reset(self._rl_player, self._state)
 
-        self._obs_stack = np.zeros(OBS_DIM * self.n_stack, dtype=np.float32)  # 重置缓冲
-        raw_obs = build_obs(self._rl_player, self._state)
+        self._obs_stack = np.zeros(OBS_DIM * self.n_stack, dtype=np.float32)
+        raw_obs = build_obs(self._rl_player, self._state, "rl_0")
+        self._fill_choose_obs(raw_obs)
         obs = self._stack_obs(raw_obs)
         info = {"action_masks": self.action_masks()}
 
         return obs, info
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  天赋分配
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _assign_talents(self, ai_personalities: Dict[str, str]):
+        """
+        为所有玩家分配天赋。
+        RL 玩家：按 self.rl_talent 决定（None=随机, 0=无天赋, 1-14=指定）。
+        AI 对手：按人格偏好加权随机选择。
+        """
+        assert self._state is not None
+
+        taken: set = set()
+
+        for pid in self._state.player_order:
+            player = self._state.get_player(pid)
+            if player is None:
+                continue
+
+            # 可用天赋列表（排除已选走的）
+            available = [
+                (n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                if n not in taken
+            ]
+            if not available:
+                continue
+
+            # ── RL 玩家 ──
+            if pid == "rl_0":
+                if self.rl_talent == 0:
+                    # 明确不要天赋
+                    continue
+                elif self.rl_talent is not None:
+                    # 指定天赋编号
+                    matched = None
+                    for n, name, cls, desc in available:
+                        if n == self.rl_talent:
+                            matched = (n, name, cls)
+                            break
+                    if matched is None:
+                        # 指定的天赋已被选走或不存在，随机兜底
+                        chosen = available[self.np_random.integers(len(available))]
+                        matched = (chosen[0], chosen[1], chosen[2])
+                    n, name, cls = matched
+                else:
+                    # 随机分配
+                    chosen = available[self.np_random.integers(len(available))]
+                    n, name, cls = chosen[0], chosen[1], chosen[2]
+
+                talent_inst = cls(pid, self._state)
+                player.talent = talent_inst
+                player.talent_name = name
+                talent_inst.on_register()
+                taken.add(n)
+                continue
+
+            # ── AI 对手 ──
+            # 排除 AI 禁用天赋
+            ai_available = [
+                (n, name, cls, desc) for n, name, cls, desc in available
+                if n not in AI_DISABLED_TALENTS
+            ]
+            if not ai_available:
+                continue
+
+            personality = ai_personalities.get(pid, "balanced")
+            result = _ai_pick_talent_for_env(
+                personality, ai_available, taken, self.np_random
+            )
+            if result is None:
+                continue
+
+            n, name, cls = result
+            talent_inst = cls(pid, self._state)
+            player.talent = talent_inst
+            player.talent_name = name
+            talent_inst.on_register()
+            taken.add(n)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  step
@@ -297,36 +464,49 @@ class BadtimeWarEnv(gym.Env):
 
         # 游戏已在上一步结束（防御性检查）
         if self._game_over_flag or (self._state and self._state.game_over):
-            raw_obs = build_obs(self._rl_player, self._state)
+            raw_obs = build_obs(self._rl_player, self._state, "rl_0")
+            self._fill_choose_obs(raw_obs)
             obs = self._stack_obs(raw_obs)
             reward = self._reward_tracker.compute(
-                self._rl_player, self._state, "forfeit", False, action_idx=IDX_FORFEIT
+                self._rl_player, self._state, "forfeit", False,
+                action_idx=IDX_FORFEIT
             )
             info: dict[str, Any] = {"action_masks": self.action_masks()}
             if self._state:
                 info["winner"] = getattr(self._state, "winner", None)
             return obs, reward, True, False, info
 
-        # 将动作传递给控制器
-        self._rl_controller.pending_action_idx = action
+        # ── 根据当前模式处理动作 ──
+        if self._choose_mode:
+            # choose 模式：将动作翻译为选项索引
+            if IDX_CHOOSE_BASE <= action < IDX_CHOOSE_BASE + 10:
+                self._pending_choose_idx = action - IDX_CHOOSE_BASE
+            else:
+                # 安全回退：选第一个选项
+                self._pending_choose_idx = 0
+        else:
+            # get_command 模式：将动作传递给控制器
+            self._rl_controller.pending_action_idx = action
 
         # 唤醒游戏线程
         self._action_event.set()
 
-        # 等待下一个 RL 回合或游戏结束
+        # 等待下一个 RL 决策点（get_command 或 choose）或游戏结束
         self._obs_event.wait()
         self._obs_event.clear()
 
-        # 读取上一次动作结果
-        action_type = getattr(self._rl_player, "last_action_type", None) or "forfeit"
-        action_success = not (action != IDX_FORFEIT and action_type == "forfeit")
+        # 读取上一次动作结果（仅 get_command 模式有意义）
+        if not self._choose_mode:
+            action_type = getattr(self._rl_player, "last_action_type", None) or "forfeit"
+            action_success = not (action != IDX_FORFEIT and action_type == "forfeit")
+        else:
+            # choose 模式下，action_type 沿用上一次 get_command 的结果
+            action_type = getattr(self._rl_player, "last_action_type", None) or "choose"
+            action_success = True
 
-        # ── 判定终止 / 截断（修复竞态条件）──
-        # 后台线程可能已经因 max_rounds 设置了 game_over=True，
-        # 用 _max_rounds_reached 标志区分"胜利终止"和"轮数截断"
+        # ── 判定终止 / 截断 ──
         truncated = bool(self._max_rounds_reached)
         if not truncated and not self._state.game_over:
-            # env 侧也检查一次（防御性）
             if self._state.is_max_rounds_reached():
                 truncated = True
                 self._max_rounds_reached = True
@@ -343,14 +523,15 @@ class BadtimeWarEnv(gym.Env):
 
         # 计算奖励
         reward = self._reward_tracker.compute(
-            self._rl_player, self._state, action_type, action_success, action_idx=action
+            self._rl_player, self._state, action_type, action_success,
+            action_idx=action
         )
 
-        raw_obs = build_obs(self._rl_player, self._state)
+        raw_obs = build_obs(self._rl_player, self._state, "rl_0")
+        self._fill_choose_obs(raw_obs)
         obs = self._stack_obs(raw_obs)
         info = {"action_masks": self.action_masks()}
 
-        # ★ 传递实际胜者给 WinRateCallback
         if terminated or truncated:
             info["winner"] = self._state.winner
 
@@ -361,7 +542,7 @@ class BadtimeWarEnv(gym.Env):
     # ══════════════════════════════════════════════════════════════════════════
 
     def action_masks(self) -> np.ndarray:
-        """返回当前合法动作的 bool 掩码，shape=(108,)"""
+        """返回当前合法动作的 bool 掩码，shape=(ACTION_COUNT,)"""
         if (
             self._state is None
             or self._state.game_over
@@ -369,9 +550,45 @@ class BadtimeWarEnv(gym.Env):
             or not self._rl_player.is_alive()
         ):
             mask = np.zeros(ACTION_COUNT, dtype=bool)
-            mask[IDX_FORFEIT] = True  # 至少保留一个合法动作
+            mask[IDX_FORFEIT] = True
             return mask
-        return build_action_mask(self._rl_player, self._state, "rl_0")
+
+        return build_action_mask(
+            self._rl_player,
+            self._state,
+            "rl_0",
+            choose_mode=self._choose_mode,
+            choose_situation=self._choose_context.get("situation", ""),
+            choose_options=self._choose_options if self._choose_mode else None,
+        )
+
+# ══════════════════════════════════════════════════════════════════════════
+    #  choose 模式观测填充
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _fill_choose_obs(self, raw_obs: np.ndarray) -> None:
+        """
+        将 choose 模式指示写入 raw_obs 的末尾 3 维。
+        在 build_obs() 返回后、_stack_obs() 之前调用。
+
+        维度布局（相对于 OBS_DIM 末尾 3 维）：
+          [-3] current_mode     : 0.0 = get_command, 1.0 = choose
+          [-2] situation_id     : 归一化的 situation 编号 (/max)
+          [-1] n_options        : 归一化的选项数量 (/10)
+        """
+        from rl.obs_builder import _CHOOSE_SITUATION_MAP, _MAX_CHOOSE_SITUATIONS
+
+        base = OBS_DIM - 3  # choose 观测的起始索引
+
+        if self._choose_mode:
+            raw_obs[base] = 1.0
+            situation = self._choose_context.get("situation", "")
+            raw_obs[base + 1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / max(_MAX_CHOOSE_SITUATIONS, 1)
+            raw_obs[base + 2] = len(self._choose_options) / 10.0
+        else:
+            raw_obs[base] = 0.0
+            raw_obs[base + 1] = 0.0
+            raw_obs[base + 2] = 0.0
 
     # ══════════════════════════════════════════════════════════════════════════
     #  后台游戏线程
@@ -406,6 +623,8 @@ class BadtimeWarEnv(gym.Env):
             traceback.print_exc(file=sys.stderr)
         finally:
             self._game_over_flag = True
+            # 如果 env 线程正在等待 choose 同步，也需要唤醒
+            self._choose_mode = False
             self._obs_event.set()  # 唤醒 env 线程
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -421,6 +640,11 @@ class BadtimeWarEnv(gym.Env):
         self._game_thread = None
         self._current_player = None
         self._current_game_state = None
+        # 重置 choose 模式状态
+        self._choose_mode = False
+        self._choose_options = []
+        self._choose_context = {}
+        self._pending_choose_idx = 0
 
     def close(self):
         self._cleanup()

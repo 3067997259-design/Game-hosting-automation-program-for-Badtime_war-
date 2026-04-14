@@ -2,23 +2,65 @@
 """
 rl/obs_builder.py
 ─────────────────
-观测向量构建器（无天赋局，共 267 维 float32）
+观测向量构建器（天赋局，共 514 维 float32）
 
 维度布局：
-  [  0 –  21] 自身状态          (22)
-  [ 22 –  31] 武器持有          (10)
-  [ 32 –  38] 护甲持有          (7)
-  [ 39 –  43] 物品持有          (5)
-  [ 44 – 228] 对手状态 5×37     (185)
-  [229 – 243] 警察状态          (15)
-  [244 – 245] 病毒状态          (2)
-  [246 – 251] 轮次信息          (6)
-  [252 – 266] 自身标记          (15)
-  [267 – 286] 高层特征          (20)
+  ┌─ 原有观测（不变）─────────────────────────────────────────┐
+  │ [  0 –  21] 自身状态          (22)                        │
+  │ [ 22 –  31] 武器持有          (10)                        │
+  │ [ 32 –  38] 护甲持有          (7)                         │
+  │ [ 39 –  43] 物品持有          (5)                         │
+  │ [ 44 – 228] 对手状态 5×37     (185)                       │
+  │ [229 – 243] 警察状态          (15)                        │
+  │ [244 – 245] 病毒状态          (2)                         │
+  │ [246 – 251] 轮次信息          (6)                         │
+  │ [252 – 266] 自身标记          (15)                        │
+  │ [267 – 286] 高层特征          (20)                        │
+  └───────────────────────────────────────────────────────────┘
+  ┌─ 新增：天赋系统观测 ─────────────────────────────────────┐
+  │ [287 – 300] 自身天赋 ID       (14) one-hot                │
+  │ [301 – 340] 自身天赋状态      (40) -1 哨兵=不适用         │
+  │ [341 – 510] 对手天赋 5×(14+20)(170) 交错布局，见下        │
+  │   每个对手槽位 34 维 = 天赋ID(14) + 天赋状态(20)          │
+  │   slot0=[341-374] slot1=[375-408] slot2=[409-442]         │
+  │   slot3=[443-476] slot4=[477-510]                         │
+  │ [511 – 513] choose 模式指示器 (3)                         │
+  └───────────────────────────────────────────────────────────┘
+
+自身天赋状态 40 维槽位分配（按批次逐步填充）：
+  批次 2: [0]       T5 Combo consecutive_actions/3
+  批次 3: [0]       T1 uses_remaining/2
+          [0]       T3 uses_remaining/1
+          [0-4]     T2 response_uses/2, triggered_crimes/5,
+                    find_triggered, found_triggered, attack_count/10
+  批次 4: [0-3]     T4 charges/2, round_counter/6, immunity, disabled_count/3
+          [0-3]     T7 learned, learn_progress/2, mounted_slot(5-hot), used
+          [0-3]     G6 laugh_points/6, cutaway_charges/3, d4_force, threshold/6
+  批次 5: [0-4]     G1 debuff_started, action_count/20, supernova, ardent/3, burn_count/5
+          [0-7]     G4 divinity/12, is_savior, duration/12, temp_hp/6,
+                    atk_bonus/6, spent, can_active, aoe_bonus/2
+  批次 6: [0-14]    G2 active, duration/6, location(6-hot), targets_count/5, ...
+          [0-7]     G3 barrier_active, barrier_round/10, partner_slot(5-hot), ...
+          [0-9]     G5 reminiscence/24, activation_count/5, anchor_active,
+                    anchor_type(4-hot), anchor_rounds/5, destructive/3, ...
+  批次 7: [0-24]    G7 form(3-hot), cost/5, iron_horus_hp/2, shield_mode,
+                    ammo_count/6, is_terror, terror_hp/6, color(3), fused,
+                    tactical_unlocked, front/5, back/5, guard_mode, ...
+
+对手天赋状态 20 维槽位分配（公开信息子集）：
+  [0-4]   通用：uses_remaining 或 charges 或 关键计数
+  [5-9]   状态标记：immunity/savior/terror/barrier/hologram 等
+  [10-14] 数值：divinity/temp_hp/terror_hp/laugh_points 等
+  [15-19] 预留
+
+choose 模式指示器：
+  [511] is_choose_mode: 0=get_command, 1=choose
+  [512] choose_situation_id / 20.0 (归一化)
+  [513] choose_n_options / 10.0 (归一化)
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 import numpy as np
 
 if TYPE_CHECKING:
@@ -31,10 +73,41 @@ from rl.action_space import LOCATIONS, WEAPONS, get_opponent_slots
 #  常量
 # ─────────────────────────────────────────────────────────────────────────────
 
-OBS_DIM = 287
+OBS_DIM = 514
+_CHOOSE_OBS_DIM = 3
 
-# 每个对手槽位的维度
+# 原有观测维度（用于内部断言，不对外暴露）
+_BASE_OBS_DIM = 287
+
+# 天赋系统维度
+_TALENT_ID_DIM = 14          # 14 种天赋的 one-hot
+_SELF_TALENT_STATE_DIM = 40  # 自身天赋状态
+_OPP_TALENT_ID_DIM = 14      # 每个对手的天赋 ID
+_OPP_TALENT_STATE_DIM = 20   # 每个对手的天赋状态
+_CHOOSE_MODE_DIM = 3         # choose 模式指示器
+
+# 每个对手槽位的维度（原有）
 _OPP_DIM = 37
+
+# 天赋类名 → one-hot 索引（与 game_setup.TALENT_TABLE 编号一致，0-indexed）
+TALENT_CLASS_TO_IDX: dict[str, int] = {
+    "OneSlash":    0,   # 天赋 1
+    "ScissorRush": 1,   # 天赋 2
+    "Star":        2,   # 天赋 3
+    "Hexagram":    3,   # 天赋 4
+    "Combo":       4,   # 天赋 5
+    "GoodCitizen": 5,   # 天赋 6
+    "Resurrection":6,   # 天赋 7
+    "G1MythFire":  7,   # 天赋 8 (神代1)
+    "Hologram":    8,   # 天赋 9 (神代2)
+    "Mythland":    9,   # 天赋 10 (神代3)
+    "Savior":      10,  # 天赋 11 (神代4)
+    "Ripple":      11,  # 天赋 12 (神代5)
+    "CutawayJoke": 12,  # 天赋 13 (神代6)
+    "Hoshino":     13,  # 天赋 14 (神代7)
+}
+
+_TALENT_CLASS_INDEX = TALENT_CLASS_TO_IDX  # alias for backward compat
 
 # 武器名称列表（与 action_space.WEAPONS 一致，共 10 种）
 WEAPON_NAMES = WEAPONS
@@ -105,21 +178,460 @@ def _normalize_location(loc: str | None) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  核心 API
+#  天赋观测辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_obs(player: "Player", game_state: "GameState") -> np.ndarray:
+def _get_talent_class_name(player: "Player") -> str | None:
+    """获取玩家天赋的类名，无天赋返回 None"""
+    talent = getattr(player, 'talent', None)
+    if talent is None:
+        return None
+    return talent.__class__.__name__
+
+
+def _encode_talent_id(player: "Player", buf: np.ndarray, offset: int) -> None:
+    """将玩家天赋编码为 one-hot 写入 buf[offset : offset+14]"""
+    cls_name = _get_talent_class_name(player)
+    if cls_name is not None and cls_name in TALENT_CLASS_TO_IDX:
+        buf[offset + TALENT_CLASS_TO_IDX[cls_name]] = 1.0
+
+def _build_talent_id(player) -> np.ndarray:
+    """返回 14 维 one-hot 天赋 ID 向量。无天赋时全零。"""
+    buf = np.zeros(_TALENT_ID_DIM, dtype=np.float32)
+    talent = getattr(player, 'talent', None)
+    if talent is not None:
+        cls_name = talent.__class__.__name__
+        idx = _TALENT_CLASS_INDEX.get(cls_name, -1)
+        if 0 <= idx < _TALENT_ID_DIM:
+            buf[idx] = 1.0
+    return buf
+
+
+def _build_self_talent_state(player: "Player") -> np.ndarray:
     """
-    构建 267 维 float32 观测向量。
+    构建自身天赋状态向量（40 维）。
+    不适用的维度填 -1（哨兵值），实际值归一化到 [0, 1]。
 
-    参数
-    ----
-    player     : RL 智能体控制的 Player 对象
-    game_state : 当前 GameState
+    批次 1：全部返回 -1（框架占位）。
+    后续批次在此函数中逐步添加各天赋的状态编码。
+    """
+    buf = np.full(_SELF_TALENT_STATE_DIM, -1.0, dtype=np.float32)
 
-    返回
-    ----
-    np.ndarray, shape=(267,), dtype=float32
+    talent = getattr(player, 'talent', None)
+    if talent is None:
+        return buf
+
+    cls = talent.__class__.__name__
+
+    # ──────────────────────────────────────────────────────────
+    #  批次 2: 纯被动天赋（T5 Combo, T6 GoodCitizen）
+    # ──────────────────────────────────────────────────────────
+    if cls == "Combo":
+        buf[0] = getattr(talent, 'consecutive_actions', 0) / 3.0
+        buf[1] = float(getattr(talent, '_bonus_round_active', False))
+        buf[2] = float(getattr(talent, '_d4_force', False))
+        return buf
+
+    if cls == "GoodCitizen":
+        # T6 纯被动，无内部状态需要编码（效果体现在 action mask 中）
+        # 但标记为"有天赋"（非 -1）以区分无天赋
+        buf[0] = 0.0  # 占位：表示"此天赋存在但无动态状态"
+        return buf
+
+    # ──────────────────────────────────────────────────────────
+    #  批次 3: 简单主动天赋（T1, T3, T2 被动部分）
+    # ──────────────────────────────────────────────────────────
+    if cls == "OneSlash":
+        buf[0] = getattr(talent, 'uses_remaining', 0) / 2.0
+        return buf
+
+    if cls == "Star":
+        buf[0] = getattr(talent, 'uses_remaining', 0) / 1.0
+        return buf
+
+    if cls == "ScissorRush":
+        buf[0] = getattr(talent, 'response_uses_remaining', 0) / 2.0
+        buf[1] = len(getattr(talent, 'triggered_crime_types', set())) / 5.0
+        buf[2] = float(getattr(talent, 'find_triggered', False))
+        buf[3] = float(getattr(talent, 'found_triggered', False))
+        buf[4] = getattr(talent, 'attack_count', 0) / 10.0
+        return buf
+
+    # ──────────────────────────────────────────────────────────
+    #  批次 4: 中等天赋（T4, T7, G6）
+    # ──────────────────────────────────────────────────────────
+    if cls == "Hexagram":
+        buf[0] = getattr(talent, 'charges', 0) / 2.0
+        buf[1] = getattr(talent, 'round_counter', 0) / 6.0
+        buf[2] = float(getattr(talent, 'immunity_active', False))
+        buf[3] = len(getattr(talent, 'disabled_weapons', [])) / 3.0
+        return buf
+
+    if cls == "Resurrection":
+        buf[0] = float(getattr(talent, 'learned', False))
+        buf[1] = getattr(talent, 'learn_progress', 0) / 2.0
+        buf[2] = float(getattr(talent, 'used', False))
+        # mounted_on: 编码为对手槽位 one-hot [3-7]
+        mounted_id = getattr(talent, 'mounted_on', None)
+        if mounted_id is not None:
+            # 需要 game_state 来解析槽位，这里用简单标记
+            buf[3] = 1.0  # 已挂载
+        else:
+            buf[3] = 0.0  # 未挂载
+        return buf
+
+    if cls == "CutawayJoke":
+        buf[0] = getattr(talent, 'laugh_points', 0) / 6.0
+        buf[1] = getattr(talent, 'cutaway_charges', 0) / 3.0
+        buf[2] = float(getattr(talent, '_d4_force', False))
+        effective_threshold = getattr(talent, 'laugh_threshold', 6) - getattr(talent, 'forfeit_reduction', 0)
+        buf[3] = max(0, effective_threshold) / 6.0
+        return buf
+
+    # ──────────────────────────────────────────────────────────
+    #  批次 5: 神代被动（G1, G4）
+    # ──────────────────────────────────────────────────────────
+    if cls == "G1MythFire":
+        buf[0] = float(getattr(talent, 'debuff_started', False))
+        buf[1] = getattr(talent, 'action_turn_count', 0) / 20.0
+        buf[2] = float(getattr(talent, 'has_supernova', False))
+        buf[3] = getattr(talent, 'ardent_wish_charges', 0) / 3.0
+        buf[4] = len(getattr(talent, 'burn_targets', {})) / 5.0
+        return buf
+
+    if cls == "Savior":
+        buf[0] = getattr(talent, 'divinity', 0) / 12.0
+        buf[1] = float(getattr(talent, 'is_savior', False))
+        buf[2] = getattr(talent, 'savior_duration', 0) / 12.0
+        buf[3] = getattr(talent, 'temp_hp', 0) / 6.0
+        buf[4] = getattr(talent, 'temp_attack_bonus', 0) / 6.0
+        buf[5] = float(getattr(talent, 'spent', False))
+        buf[6] = float(getattr(talent, 'can_active_start', False))
+        buf[7] = getattr(talent, 'aoe_bonus', 0) / 2.0
+        return buf
+
+    # ──────────────────────────────────────────────────────────
+    #  批次 6: 神代主动（G2, G3, G5）
+    # ──────────────────────────────────────────────────────────
+    if cls == "Hologram":
+        buf[0] = float(getattr(talent, 'active', False))
+        buf[1] = getattr(talent, 'remaining_rounds', 0) / 6.0
+        buf[2] = float(getattr(talent, 'used', False))
+        return buf
+
+    if cls == "Mythland":
+        buf[0] = float(getattr(talent, 'barrier_active', False))
+        buf[1] = float(getattr(talent, 'used', False))
+        return buf
+
+    if cls == "Ripple":
+        buf[0] = getattr(talent, 'reminiscence', 0) / 24.0
+        buf[1] = getattr(talent, 'activation_count', 0) / 5.0
+        buf[2] = float(getattr(talent, 'anchor_active', False))
+        buf[3] = getattr(talent, 'anchor_remaining_rounds', 0) / 5.0
+        buf[4] = getattr(talent, 'destructive_count', 0) / 3.0
+        return buf
+
+    # ──────────────────────────────────────────────────────────
+    #  批次 7: G7 星野
+    # ──────────────────────────────────────────────────────────
+    if cls == "Hoshino":
+        # 形态 one-hot [0-2]: 临战-Archer / 临战-shielder / 水着-shielder
+        form = getattr(talent, 'form', None)
+        form_map = {"临战-Archer": 0, "临战-shielder": 1, "水着-shielder": 2}
+        if form in form_map:
+            buf[form_map[form]] = 1.0
+        else:
+            buf[0:3] = 0.0  # 未融合，无形态
+
+        buf[3] = getattr(talent, 'cost', 0) / 5.0
+        buf[4] = getattr(talent, 'iron_horus_hp', 0) / 2.0
+        buf[5] = float(getattr(talent, 'shield_mode', '') == '架盾')
+        buf[6] = len(getattr(talent, 'ammo', [])) / 6.0
+        buf[7] = float(getattr(talent, 'is_terror', False))
+        buf[8] = getattr(talent, 'terror_extra_hp', 0) / 6.0
+        buf[9] = float(getattr(talent, 'fused', False))
+        buf[10] = float(getattr(talent, 'tactical_unlocked', False))
+        buf[11] = len(getattr(talent, 'front_players', set())) / 5.0
+        buf[12] = len(getattr(talent, 'back_players', set())) / 5.0
+        buf[13] = float(getattr(talent, 'shield_guard_mode', '') == 'block_entering')
+
+        # 色彩值 [14-16]
+        color_values = getattr(talent, 'color_values', {})
+        buf[14] = color_values.get('red', 0) / 10.0
+        buf[15] = color_values.get('blue', 0) / 10.0
+        buf[16] = color_values.get('yellow', 0) / 10.0
+
+        # 弹药属性摘要 [17-19]: 普通/魔法/科技弹药数量
+        ammo = getattr(talent, 'ammo', [])
+        for bullet in ammo:
+            attr = bullet.get('attribute', '普通') if isinstance(bullet, dict) else '普通'
+            if attr == '普通':
+                buf[17] = (buf[17] + 1.0) if buf[17] >= 0 else 1.0
+            elif attr == '魔法':
+                buf[18] = (buf[18] + 1.0) if buf[18] >= 0 else 1.0
+            elif attr == '科技':
+                buf[19] = (buf[19] + 1.0) if buf[19] >= 0 else 1.0
+        # 如果有弹药但某属性为0，设为0而非-1；然后归一化
+        if ammo:
+            for i in range(17, 20):
+                if buf[i] < 0:
+                    buf[i] = 0.0
+                else:
+                    buf[i] = min(buf[i], 6.0) / 6.0
+
+        return buf
+
+    # 未知天赋类型：保持全 -1
+    return buf
+
+
+def _build_opp_talent_state(opp: "Player") -> np.ndarray:
+    """
+    构建对手天赋状态向量（20 维，公开信息子集）。
+    不适用的维度填 -1（哨兵值）。
+
+    批次 1：全部返回 -1（框架占位）。
+    后续批次逐步添加各天赋的公开状态编码。
+    """
+    buf = np.full(_OPP_TALENT_STATE_DIM, -1.0, dtype=np.float32)
+
+    talent = getattr(opp, 'talent', None)
+    if talent is None:
+        return buf
+
+    cls = talent.__class__.__name__
+
+    # ── 通用：uses / charges / 关键计数 [0-4] ──
+    if cls == "OneSlash":
+        buf[0] = getattr(talent, 'uses_remaining', 0) / 2.0
+    elif cls == "Star":
+        buf[0] = getattr(talent, 'uses_remaining', 0) / 1.0
+    elif cls == "Hexagram":
+        buf[0] = getattr(talent, 'charges', 0) / 2.0
+        buf[1] = float(getattr(talent, 'immunity_active', False))
+    elif cls == "Combo":
+        buf[0] = getattr(talent, 'consecutive_actions', 0) / 3.0
+    elif cls == "ScissorRush":
+        buf[0] = getattr(talent, 'response_uses_remaining', 0) / 2.0
+    elif cls == "Resurrection":
+        buf[0] = float(getattr(talent, 'learned', False))
+        buf[1] = float(getattr(talent, 'used', False))
+        buf[2] = float(getattr(talent, 'mounted_on', None) is not None)
+    elif cls == "GoodCitizen":
+        buf[0] = 0.0  # 存在标记
+    elif cls == "CutawayJoke":
+        buf[0] = getattr(talent, 'laugh_points', 0) / 6.0
+        buf[1] = getattr(talent, 'cutaway_charges', 0) / 3.0
+
+    # ── 神代天赋公开状态 [5-19] ──
+    elif cls == "G1MythFire":
+        buf[0] = float(getattr(talent, 'debuff_started', False))
+        buf[1] = float(getattr(talent, 'has_supernova', False))
+        buf[2] = len(getattr(talent, 'burn_targets', {})) / 5.0
+
+    elif cls == "Hologram":
+        buf[0] = float(getattr(talent, 'used', False))
+        buf[1] = float(getattr(talent, 'active', False))
+        buf[2] = getattr(talent, 'remaining_rounds', 0) / 6.0
+        buf[3] = float(getattr(talent, 'enhanced', False))
+        # buf[4]: 影像所在地点是否与"我"相同（需要 rl_player 信息，
+        #         在 _build_opponent_block 中由调用方填充，此处留 -1）
+
+    elif cls == "Mythland":
+        buf[0] = float(getattr(talent, 'used', False))
+        buf[1] = float(getattr(talent, 'active', False))
+        buf[2] = getattr(talent, 'barrier_round', 0) / 5.0
+        # buf[3]: 我是否在结界内（需要 rl_player 信息，由调用方填充）
+
+    elif cls == "Savior":
+        buf[0] = getattr(talent, 'divinity', 0) / 12.0
+        buf[1] = float(getattr(talent, 'is_savior', False))
+        buf[2] = getattr(talent, 'temp_hp', 0) / 6.0
+        buf[3] = float(getattr(talent, 'spent', False))
+        buf[4] = float(getattr(talent, 'can_active_start', False))
+        buf[5] = getattr(talent, 'savior_duration', 0) / 12.0
+
+    elif cls == "Ripple":
+        buf[0] = getattr(talent, 'reminiscence', 0) / 24.0
+        buf[1] = float(getattr(talent, 'anchor_active', False))
+        buf[2] = getattr(talent, 'anchor_rounds_left', 0) / 5.0
+        buf[3] = getattr(talent, 'total_uses', 0) / 5.0
+        # buf[4]: 锚定目标是否是"我"（需要 rl_player 信息，由调用方填充）
+        # buf[5]: 我是否持有此 G5 的爱愿（需要 rl_player 信息，由调用方填充）
+        buf[6] = getattr(talent, 'anchor_fate', 0) / 10.0
+        buf[7] = getattr(talent, 'anchor_variance', 0) / 5.0
+        buf[8] = getattr(talent, 'anchor_destructive_count', 0) / 3.0
+
+    elif cls == "Hoshino":
+        # 形态 one-hot [0-2]
+        form = getattr(talent, 'form', None)
+        if form == "水着-shielder":
+            buf[0] = 1.0
+        elif form == "临战-Archer":
+            buf[1] = 1.0
+        elif form == "临战-shielder":
+            buf[2] = 1.0
+        # 核心状态 [3-12]
+        buf[3] = getattr(talent, 'cost', 0) / 10.0
+        buf[4] = getattr(talent, 'iron_horus_hp', 0) / 2.0
+        buf[5] = float(getattr(talent, 'tactical_unlocked', False))
+        buf[6] = float(getattr(talent, 'is_terror', False))
+        buf[7] = getattr(talent, 'terror_extra_hp', 0) / 6.0
+        # 盾牌模式
+        sm = getattr(talent, 'shield_mode', None)
+        if sm == "持盾":
+            buf[8] = 0.5
+        elif sm == "架盾":
+            buf[8] = 1.0
+        else:
+            buf[8] = 0.0
+        # 光环
+        halos = getattr(talent, 'halos', [])
+        buf[9] = sum(1 for h in halos if h.get('active', False)) / 3.0
+        # 色彩
+        buf[10] = getattr(talent, 'color', 0) / 10.0
+        buf[11] = float(getattr(talent, 'color_is_null', False))
+        # 弹药数量
+        buf[12] = len(getattr(talent, 'ammo', [])) / 8.0
+        # 永久额外HP
+        buf[13] = getattr(talent, 'permanent_extra_hp', 0) / 3.0
+        # 战斗续行免死
+        buf[14] = float(getattr(talent, '_combat_continuation_immunity', False))
+
+    # 未知天赋类型：保持全 -1
+    return buf
+
+
+def _fill_opp_talent_relational(
+    opp_talent_buf: np.ndarray,
+    opp: "Player",
+    rl_player: "Player",
+    game_state: "GameState",
+) -> None:
+    """
+    填充对手天赋状态中依赖 RL 玩家信息的关系维度。
+    直接修改 opp_talent_buf（原地写入）。
+
+    这些维度在 _build_opp_talent_state 中被留为 -1，
+    因为它们需要知道"我是谁"才能计算。
+    """
+    talent = getattr(opp, 'talent', None)
+    if talent is None:
+        return
+
+    cls = talent.__class__.__name__
+    rl_pid = rl_player.player_id
+
+    if cls == "Hologram":
+        # buf[4]: 影像地点是否与我相同
+        if getattr(talent, 'active', False) and talent.location is not None:
+            opp_talent_buf[4] = float(rl_player.location == talent.location)
+
+    elif cls == "Mythland":
+        # buf[3]: 我是否在结界内
+        if getattr(talent, 'active', False):
+            barrier_players = getattr(talent, 'barrier_players', [])
+            opp_talent_buf[3] = float(rl_pid in barrier_players)
+
+    elif cls == "Ripple":
+        # buf[4]: 锚定目标是否是我
+        if getattr(talent, 'anchor_active', False):
+            opp_talent_buf[4] = float(
+                getattr(talent, 'anchor_target_id', None) == rl_pid
+            )
+        # buf[5]: 我是否持有此 G5 的爱愿
+        love_wish = getattr(talent, 'love_wish', {})
+        opp_talent_buf[5] = float(love_wish.get(rl_pid, 0) > 0)
+
+
+# ════════════════════════════════════════════════════════════
+#  choose 模式观测（3 维）
+# ════════════════════════════════════════════════════════════
+
+# 战略 situation → 编号映射
+_CHOOSE_SITUATION_MAP: dict[str, int] = {
+    "talent_t0":                1,
+    "petrified":                2,
+    "recruit_pick_1":           3,
+    "recruit_pick_2":           4,
+    "captain_election":         5,
+    "hexagram_my_choice":       6,
+    "hexagram_opp_choice":      7,
+    "hexagram_pick_target":     8,
+    "oneslash_pick_target":     9,
+    "oneslash_pick_weapon":    10,
+    "resurrection_pick_target": 11,
+    "hologram_target":         12,
+    "mythland_pick_target":    13,
+    "ripple_choose_method":    14,
+    "ripple_anchor_type":      15,
+    "ripple_poem_target":      16,
+    "savior_activate":         17,
+    "hoshino_form_choice":     18,
+    "hoshino_self_doubt_choice": 19,
+    "cutaway_borrow_target":   20,
+}
+_MAX_CHOOSE_SITUATIONS = 20
+
+
+def build_choose_obs(situation: str, n_options: int) -> np.ndarray:
+    """
+    构建 choose 模式的 3 维附加观测。
+    [0] current_mode: 1.0 = choose 模式, 0.0 = get_command 模式
+    [1] choose_situation_id: 归一化的 situation 编号
+    [2] choose_n_options: 选项数量 / 10
+    """
+    buf = np.zeros(_CHOOSE_OBS_DIM, dtype=np.float32)
+    buf[0] = 1.0  # choose 模式
+    buf[1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / _MAX_CHOOSE_SITUATIONS
+    buf[2] = min(n_options, 10) / 10.0
+    return buf
+
+
+def build_normal_mode_choose_obs() -> np.ndarray:
+    """get_command 模式下的 choose 观测（全零）。"""
+    return np.zeros(_CHOOSE_OBS_DIM, dtype=np.float32)
+
+
+# ════════════════════════════════════════════════════════════
+#  主入口：build_obs（重写）
+# ════════════════════════════════════════════════════════════
+
+def build_obs(player: "Player", game_state: "GameState",
+              rl_player_id: str,
+              choose_mode: bool = False,
+              choose_situation: str = "",
+              choose_n_options: int = 0) -> np.ndarray:
+    """
+    构建完整观测向量（OBS_DIM 维）。
+
+    参数:
+        player:           当前 RL 玩家对象
+        game_state:       游戏状态（可能是 FilteredGameState）
+        rl_player_id:     RL 玩家 ID
+        choose_mode:      是否处于 choose 决策模式
+        choose_situation:  choose 的 situation 字符串
+        choose_n_options:  choose 的选项数量
+
+    维度布局:
+        [  0 – 21 ]  自身基础状态          (22)
+        [ 22 – 31 ]  武器持有              (10)
+        [ 32 – 38 ]  护甲持有              (7)
+        [ 39 – 43 ]  物品持有              (5)
+        [ 44 –228 ]  对手基础状态 5×37     (185)  ← 不变
+        [229 –243 ]  警察状态              (15)
+        [244 –245 ]  病毒状态              (2)
+        [246 –251 ]  轮次信息              (6)
+        [252 –266 ]  自身标记              (15)
+        [267 –286 ]  高层特征              (20)
+        ─── 以下为新增 ───
+        [287 –300 ]  自身天赋 ID           (14)
+        [301 –340 ]  自身天赋状态          (40)  哨兵 -1
+        [341 –510 ]  对手天赋 5×(ID14+状态20) (170) 交错布局
+                     slot0=[341-374] slot1=[375-408] ...
+        [511 –513 ]  choose 模式指示       (3)
+        ─── 总计 514 ───
     """
     from models.equipment import ArmorLayer
     from utils.attribute import Attribute
@@ -127,9 +639,6 @@ def build_obs(player: "Player", game_state: "GameState") -> np.ndarray:
     obs = np.zeros(OBS_DIM, dtype=np.float32)
     idx = 0
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  自身状态 (22)  [0 – 21]
-    # ══════════════════════════════════════════════════════════════════════════
     obs[idx] = player.hp / _MAX_HP;                          idx += 1  # 0
     obs[idx] = player.max_hp / _MAX_HP;                      idx += 1  # 1
     obs[idx] = player.vouchers / _MAX_VOUCHERS;              idx += 1  # 2
@@ -489,5 +998,50 @@ def build_obs(player: "Player", game_state: "GameState") -> np.ndarray:
             can_shop = True
     obs[idx] = float(can_shop); idx += 1
 
-    assert idx == OBS_DIM  # 287
+    # ── [287 – 300] 自身天赋 ID (14-hot) ──
+    talent_id_start = 287
+    obs[talent_id_start:talent_id_start + _TALENT_ID_DIM] = _build_talent_id(player)
+
+    # ── [301 – 340] 自身天赋状态 (40 维) ──
+    self_talent_start = talent_id_start + _TALENT_ID_DIM  # 301
+    obs[self_talent_start:self_talent_start + _SELF_TALENT_STATE_DIM] = \
+        _build_self_talent_state(player)
+
+    # ── [341 – 510] 对手天赋 ID + 状态 ──
+    opp_talent_start = self_talent_start + _SELF_TALENT_STATE_DIM  # 341
+    opp_block_size = _TALENT_ID_DIM + _OPP_TALENT_STATE_DIM  # 14 + 20 = 34
+    for slot in range(5):
+        opp = opponents[slot]
+        block_base = opp_talent_start + slot * opp_block_size
+
+        if opp is None:
+            # 空槽位：天赋 ID 全 0，天赋状态全 -1
+            obs[block_base:block_base + _TALENT_ID_DIM] = 0.0
+            obs[block_base + _TALENT_ID_DIM:
+                block_base + opp_block_size] = -1.0
+        else:
+            # 天赋 ID
+            obs[block_base:block_base + _TALENT_ID_DIM] = \
+                _build_talent_id(opp)
+            # 天赋状态
+            opp_state = _build_opp_talent_state(opp)
+            obs[block_base + _TALENT_ID_DIM:
+                block_base + opp_block_size] = opp_state
+            # 填充关系维度（依赖 RL 玩家信息的维度）
+            _fill_opp_talent_relational(
+                opp_state, opp, player, game_state
+            )
+            # 回写（因为 _fill_opp_talent_relational 修改的是 opp_state）
+            obs[block_base + _TALENT_ID_DIM:
+                block_base + opp_block_size] = opp_state
+
+    # ── [511 – 513] choose 模式指示 (3 维) ──
+    choose_start = opp_talent_start + 5 * opp_block_size  # 511
+    if choose_mode:
+        obs[choose_start:choose_start + _CHOOSE_OBS_DIM] = \
+            build_choose_obs(choose_situation, choose_n_options)
+    else:
+        obs[choose_start:choose_start + _CHOOSE_OBS_DIM] = \
+            build_normal_mode_choose_obs()
+
     return obs
