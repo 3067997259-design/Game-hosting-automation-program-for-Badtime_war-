@@ -173,11 +173,12 @@ class _SyncRLController(RLController):
         if self._env._game_over_flag:
             return options[0] if options else ""
 
-        # 读取 RL 选择的索引，翻译为选项字符串
-        from rl.action_space import IDX_CHOOSE_BASE
-        chosen_idx = self.pending_action_idx - IDX_CHOOSE_BASE
+        # 读取 RL 选择的索引（step() 已计算 action - IDX_CHOOSE_BASE）
+        chosen_idx = self._env._pending_choose_idx
 
-        # 清除 choose 模式
+        # 立即清除 choose 模式，避免其他线程看到过时状态。
+        # 线程安全说明：此时 env 线程阻塞在 _obs_event.wait()，
+        # action_masks() 只从 env 线程调用，因此不会并发访问。
         self._env._choose_mode = False
         self._env._choose_options = []
         self._env._choose_context = {}
