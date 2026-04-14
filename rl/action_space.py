@@ -359,51 +359,45 @@ def idx_to_choose_option(
     """
     在 choose 同步模式下，将 RL 输出的动作索引翻译为 options 中的选项字符串。
 
-    对于 talent_t0 situation：
-      - IDX_TALENT_T0_TARGET_BASE + slot → "发动天赋"（目标信息存入 player._rl_t0_target_slot）
-      - IDX_TALENT_T0_SELF              → "发动天赋"
-      - IDX_CHOOSE_BASE + 1             → "不发动，正常行动"
-
-    对于其他 situation：
-      - IDX_CHOOSE_BASE + i             → options[i]
+    索引范围：
+      108-112 (IDX_TALENT_T0_TARGET_BASE + slot) → 对手槽位目标选择
+      113     (IDX_TALENT_T0_SELF)                → 自身目标选择
+      114-123 (IDX_CHOOSE_BASE + i)               → 通用选项 options[i]
 
     返回
     ----
     options 中的一个字符串
     """
-    if situation == "talent_t0":
-        # 天赋 T0 特殊处理：T0_TARGET / T0_SELF → "发动天赋"
-        if IDX_TALENT_T0_TARGET_BASE <= idx <= IDX_TALENT_T0_TARGET_BASE + 4:
-            target_slot = idx - IDX_TALENT_T0_TARGET_BASE
-            # 存储目标槽位，供后续 execute_t0 内的 choose 调用使用
-            player._rl_t0_target_slot = target_slot
-            # 返回"发动天赋"
-            for opt in options:
-                if "发动" in opt:
-                    return opt
-            return options[0]
+    if not options:
+        return ""
 
+    # ── 槽位目标选择 (108-113) ──
+    # _build_choose_mask 对目标选择 situation 启用这些索引，
+    # 将对手名字映射到槽位号。这里做反向翻译。
+    if IDX_TALENT_T0_TARGET_BASE <= idx <= IDX_TALENT_T0_SELF:
         if idx == IDX_TALENT_T0_SELF:
-            player._rl_t0_target_slot = -1  # -1 表示自身
+            # 自身目标：匹配玩家名或"自己"
+            player_name = getattr(player, 'name', '')
             for opt in options:
-                if "发动" in opt:
+                if opt == player_name or "自己" in opt:
                     return opt
-            return options[0]
+            return options[0]  # 安全回退
 
-        # 其他索引（如 IDX_CHOOSE_BASE + 1）→ "不发动"
-        if IDX_CHOOSE_BASE <= idx < IDX_CHOOSE_BASE + 10:
-            opt_idx = idx - IDX_CHOOSE_BASE
-            if opt_idx < len(options):
-                return options[opt_idx]
-            return options[-1]
+        # 对手槽位目标
+        slot = idx - IDX_TALENT_T0_TARGET_BASE
+        opponents = get_opponent_slots(player, game_state)
+        if slot < len(opponents) and opponents[slot] is not None:
+            target_name = opponents[slot].name
+            # 在 options 中查找匹配的选项
+            if target_name in options:
+                return target_name
+            for opt in options:
+                if target_name in opt:
+                    return opt
+        # 槽位无效，安全回退
+        return options[0]
 
-        # 安全回退：不发动
-        for opt in options:
-            if "不发动" in opt or "正常" in opt:
-                return opt
-        return options[-1]
-
-    # ── 通用 choose：直接映射到 options 索引 ──
+    # ── 通用 choose 选项 (114-123) ──
     if IDX_CHOOSE_BASE <= idx < IDX_CHOOSE_BASE + 10:
         opt_idx = idx - IDX_CHOOSE_BASE
         if opt_idx < len(options):
