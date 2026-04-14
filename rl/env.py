@@ -518,7 +518,7 @@ class BadtimeWarEnv(gym.Env):
 
         # 游戏已在上一步结束（防御性检查）
         if self._game_over_flag or (self._state and self._state.game_over):
-            raw_obs = build_obs(self._rl_player, self._state)
+            raw_obs = build_obs(self._rl_player, self._state, "rl_0")
             self._fill_choose_obs(raw_obs)
             obs = self._stack_obs(raw_obs)
             reward = self._reward_tracker.compute(
@@ -581,7 +581,7 @@ class BadtimeWarEnv(gym.Env):
             action_idx=action
         )
 
-        raw_obs = build_obs(self._rl_player, self._state)
+        raw_obs = build_obs(self._rl_player, self._state, "rl_0")
         self._fill_choose_obs(raw_obs)
         obs = self._stack_obs(raw_obs)
         info = {"action_masks": self.action_masks()}

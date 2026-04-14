@@ -105,25 +105,7 @@ TALENT_CLASS_TO_IDX: dict[str, int] = {
     "Hoshino":     13,  # 天赋 14 (神代7)
 }
 
-_TALENT_CLASS_INDEX = {
-    "OneSlash":    0,
-    "ScissorRush": 1,
-    "Star":        2,
-    "Hexagram":    3,
-    "Combo":       4,
-    "GoodCitizen": 5,
-    "Resurrection":6,
-    "G1MythFire":  7,
-    "Hologram":    8,
-    "Mythland":    9,
-    "Savior":      10,
-    "Ripple":      11,
-    "CutawayJoke": 12,
-    "Hoshino":     13,
-}
-_TALENT_ID_DIM = 14 
-
-_TALENT_ID_DIM = 14
+_TALENT_CLASS_INDEX = TALENT_CLASS_TO_IDX  # alias for backward compat
 
 # choose situation → 数值 ID（用于 choose 模式指示器）
 CHOOSE_SITUATION_TO_ID: dict[str, int] = {
@@ -474,7 +456,7 @@ def _build_opp_talent_state(opp: "Player") -> np.ndarray:
         buf[0] = getattr(talent, 'laugh_points', 0) / 6.0
         buf[1] = getattr(talent, 'cutaway_charges', 0) / 3.0
 
-# ── 神代天赋公开状态 [5-19] ──
+    # ── 神代天赋公开状态 [5-19] ──
     elif cls == "G1MythFire":
         buf[0] = float(getattr(talent, 'debuff_started', False))
         buf[1] = float(getattr(talent, 'has_supernova', False))
@@ -512,10 +494,6 @@ def _build_opp_talent_state(opp: "Player") -> np.ndarray:
         buf[6] = getattr(talent, 'anchor_fate', 0) / 10.0
         buf[7] = getattr(talent, 'anchor_variance', 0) / 5.0
         buf[8] = getattr(talent, 'anchor_destructive_count', 0) / 3.0
-
-    elif cls == "CutawayJoke":
-        buf[0] = getattr(talent, 'laugh_points', 0) / 6.0
-        buf[1] = getattr(talent, 'cutaway_charges', 0) / 3.0
 
     elif cls == "Hoshino":
         # 形态 one-hot [0-2]

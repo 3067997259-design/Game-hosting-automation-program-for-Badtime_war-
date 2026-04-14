@@ -1119,6 +1119,7 @@ class HoshinoMixin(_Base):
                 consumable = self._hoshino_find_consumable_for_reload(player)
                 if consumable:
                     queue.append(f"重新装填 {consumable}")  # cost 0
+                    queue.append("排弹")  # 装填后弹药顺序未知，总是排弹
                 else:
                     queue.append("terminal")
                     return queue
