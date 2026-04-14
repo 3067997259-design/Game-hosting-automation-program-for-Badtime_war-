@@ -5,16 +5,20 @@ RLController —— Gym 环境与游戏引擎的唯一接触点。
 
 实现 PlayerController 接口：
   - get_command()  : 将 env 设置的 pending_action_idx 翻译为 CLI 命令
-  - choose()       : 子决策用启发式（无天赋局精简版）
-  - choose_multi() : 子决策用启发式
-  - confirm()      : 子决策用启发式
-  - on_event()     : 记录事件日志（供调试）
+  - choose()       : 战略决策走 RL 同步，非战略走启发式
+  - choose_multi() : 按威胁分排序（启发式）
+  - confirm()      : 响应窗口/强买通行证走 RL 同步，其余启发式
+  - on_event()     : 记录事件日志 + 威胁分
 
-设计原则：
-  RL 智能体只控制 get_command() 层面的"选什么行动"，
-  行动内部的子决策（石化二选一、加入警察选奖励等）
-  使用与 BasicAIController 相同的启发式规则，
-  不暴露给 RL 智能体，以保持动作空间简洁。
+设计原则（天赋局版）：
+  绝大多数 choose/confirm 决策交给 RL 智能体控制。
+  仅以下情况使用启发式：
+    - mythland_rps          : 纯随机猜拳，无博弈空间
+    - hoshino_reorder_ammo  : 排弹顺序，开支大收益小
+    - G7 宏内参数选择       : 由自回归序列在 get_command 层面处理
+
+  _SyncRLController（定义在 env.py）继承本类，
+  覆写 _rl_choose() 和 _rl_confirm() 实现与 env 的线程同步。
 """
 
 from __future__ import annotations
@@ -38,8 +42,32 @@ class RLController(PlayerController):
       2. 游戏引擎调用 controller.get_command(...)
       3. get_command 将 pending_action_idx 翻译为 CLI 字符串返回
       4. 引擎执行该命令，期间可能调用 choose/choose_multi/confirm
-      5. env 从 controller.last_action_type / last_action_success 读取结果
+      5. 战略 choose/confirm 通过 _rl_choose/_rl_confirm 走 RL 同步
+      6. 非战略 choose/confirm 使用启发式直接返回
     """
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  启发式 situation 白名单（仅这些走启发式，其余全部交给 RL）
+    # ══════════════════════════════════════════════════════════════════════════
+
+    _HEURISTIC_CHOOSE: set[str] = {
+        # 纯随机，无博弈空间
+        "mythland_rps",
+
+        # 排弹顺序：开支大收益小，让 damage_resolver 处理
+        "hoshino_reorder_ammo",
+
+        # G7 宏内参数选择：由自回归序列在 get_command 层面处理
+        # 这些 situation 在战术宏 while 循环内部触发，
+        # RL 的决策点是 get_command(situation="hoshino_tactical_input")，
+        # 不是这些子参数 choose
+        "hoshino_throw_item",
+        "hoshino_throw_location",
+        "hoshino_medicine",
+        "hoshino_dash_target",
+        "hoshino_shoot_target",
+        "hoshino_find_target",
+    }
 
     def __init__(self):
         # ── env 写入，get_command 读取 ──
@@ -52,6 +80,39 @@ class RLController(PlayerController):
         # ── 内部状态 ──
         self._event_log: List[Dict] = []
         self._threat_scores: Dict[str, float] = {}
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  RL 同步钩子（由 _SyncRLController 覆写）
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _rl_choose(
+        self,
+        prompt: str,
+        options: List[str],
+        context: Optional[Dict] = None,
+    ) -> str:
+        """
+        战略 choose 决策的 RL 同步入口。
+
+        默认实现返回 options[0]（用于测试/离线场景）。
+        _SyncRLController 覆写此方法，通过 threading.Event
+        与 env.step() 同步，让 RL 智能体做出选择。
+        """
+        return options[0] if options else ""
+
+    def _rl_confirm(
+        self,
+        prompt: str,
+        context: Optional[Dict] = None,
+    ) -> bool:
+        """
+        战略 confirm 决策的 RL 同步入口。
+
+        默认实现返回 False。
+        _SyncRLController 覆写此方法，内部映射为
+        2 选项的 _rl_choose(["是", "否"])。
+        """
+        return False
 
     # ══════════════════════════════════════════════════════════════════════════
     #  接口实现：get_command
@@ -73,7 +134,7 @@ class RLController(PlayerController):
         return idx_to_command(self.pending_action_idx, player, game_state)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  接口实现：choose（子决策启发式，无天赋局精简版）
+    #  接口实现：choose
     # ══════════════════════════════════════════════════════════════════════════
 
     def choose(
@@ -84,47 +145,22 @@ class RLController(PlayerController):
     ) -> str:
         """
         从 options 中选择一个。
-        无天赋局只需处理以下 situation：
-          - petrified          : 石化二选一
-          - recruit_pick_1/2   : 加入警察选奖励
-          - captain_election   : 竞选队长
-        其余 situation 直接返回 options[0]。
+
+        路由逻辑：
+          1. situation 在 _HEURISTIC_CHOOSE 中 → 启发式
+          2. 其余所有 situation → RL 同步（_rl_choose）
         """
         if not options:
             return ""
 
         situation = (context or {}).get("situation", "")
 
-        # ── 石化：优先解除 ──
-        if situation == "petrified":
-            for opt in options:
-                if "解除" in opt:
-                    return opt
-            return options[0]
+        # ── 启发式路径 ──
+        if situation in self._HEURISTIC_CHOOSE:
+            return self._heuristic_choose(situation, prompt, options, context)
 
-        # ── 加入警察：选奖励（盾牌 > 凭证 > 警棍）──
-        if situation in ("recruit_pick_1", "recruit_pick_2"):
-            priority = ["盾牌", "凭证", "警棍"]
-            for preferred in priority:
-                if preferred in options:
-                    return preferred
-            return options[0]
-
-        # ── 竞选队长：默认不竞选 ──
-        if situation == "captain_election":
-            for opt in options:
-                if "不竞选" in opt or "放弃" in opt:
-                    return opt
-            return options[0]
-
-        # ── 猜拳（结界等，无天赋局理论上不触发，保险起见）──
-        if situation in (
-            "hexagram_my_choice", "hexagram_opp_choice", "mythland_rps"
-        ):
-            return random.choice(options)
-
-        # ── 默认：选第一个 ──
-        return options[0]
+        # ── RL 路径（绝大多数 situation 走这里）──
+        return self._rl_choose(prompt, options, context)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  接口实现：choose_multi
@@ -141,6 +177,9 @@ class RLController(PlayerController):
         """
         从 options 中选多个（如地动山摇选震荡目标）。
         按威胁分排序，取 min(max_count, len) 个。
+
+        TODO: 后续可考虑让 RL 控制多选决策，
+              当前用启发式（威胁分排序）。
         """
         if not options:
             return []
@@ -163,52 +202,300 @@ class RLController(PlayerController):
     ) -> bool:
         """
         是/否判断。
-        无天赋局只需处理：
-          - 强买通行证：同意（RL 智能体如果选了去军事基地，大概率需要通行证）
-        其余默认拒绝。
+
+        路由逻辑：
+          1. response_window（天赋响应窗口）→ RL 同步
+          2. 强买通行证 → RL 同步
+          3. 其余 → 默认拒绝
         """
-        if "强买通行证" in prompt:
-            return True
+        phase = (context or {}).get("phase", "")
+
+        # ── 响应窗口：RL 决定是否发动天赋 ──
+        if phase == "response_window":
+            return self._rl_confirm(prompt, context)
+
+        # ── 强买通行证：RL 决定是否消耗凭证 ──
+        if "强买通行证" in prompt or "强买" in prompt:
+            return self._rl_confirm(prompt, context)
+
+        # ── 默认：拒绝 ──
         return False
 
     # ══════════════════════════════════════════════════════════════════════════
     #  接口实现：on_event
     # ══════════════════════════════════════════════════════════════════════════
 
-    def on_event(self, event: Dict) -> None:
-        self._event_log.append(event)
-        event_type = event.get("type", "")
-        attacker = event.get("attacker", "")
+def on_event(self, event: Dict) -> None:
+    """记录事件日志，更新威胁分。"""
+    self._event_log.append(event)
+    event_type = event.get("type", "")
+    attacker = event.get("attacker", "")
+    target = event.get("target", "")
 
-        if event_type == "attack" and event.get("target"):
-            self._threat_scores[attacker] = (
-                self._threat_scores.get(attacker, 0) + 20
+    # ── 攻击事件：攻击者威胁 +20 ──
+    if event_type == "attack" and attacker:
+        self._threat_scores[attacker] = (
+            self._threat_scores.get(attacker, 0) + 20
+        )
+
+    # ── 找到事件：finder 威胁 +10 ──
+    if event_type == "find":
+        finder = event.get("player", "")
+        if finder:
+            self._threat_scores[finder] = (
+                self._threat_scores.get(finder, 0) + 10
             )
 
-        if event_type == "find":
-            finder = event.get("player", "")
-            if finder:
-                self._threat_scores[finder] = (
-                    self._threat_scores.get(finder, 0) + 10
-                )
+    # ── 锁定事件：locker 威胁 +15 ──
+    if event_type == "lock":
+        locker = event.get("player", "")
+        if locker:
+            self._threat_scores[locker] = (
+                self._threat_scores.get(locker, 0) + 15
+            )
 
-        if event_type == "lock":
-            locker = event.get("player", "")
-            if locker:
-                self._threat_scores[locker] = (
-                    self._threat_scores.get(locker, 0) + 15
-                )
+    # ── 释放病毒：releaser 威胁 +20 ──
+    if event_type == "release_virus":
+        releaser = event.get("player", "")
+        if releaser:
+            self._threat_scores[releaser] = (
+                self._threat_scores.get(releaser, 0) + 20
+            )
 
-        if event_type == "release_virus":
-            releaser = event.get("player", "")
-            if releaser:
-                self._threat_scores[releaser] = (
-                    self._threat_scores.get(releaser, 0) + 20
-                )
+    # ── 死亡事件：killer 威胁 +30，死者从威胁表移除 ──
+    if event_type == "death":
+        killer = event.get("killer", "")
+        if killer:
+            self._threat_scores[killer] = (
+                self._threat_scores.get(killer, 0) + 30
+            )
+        dead_name = event.get("dead", "") or target
+        if dead_name and dead_name in self._threat_scores:
+            del self._threat_scores[dead_name]
 
-        if event_type == "death":
-            killer = event.get("killer", "")
-            if killer:
-                self._threat_scores[killer] = (
-                    self._threat_scores.get(killer, 0) + 30
-                )
+    # ── 竞选事件：candidate 威胁 +10 ──
+    if event_type == "election":
+        candidate = event.get("player", "")
+        if candidate:
+            self._threat_scores[candidate] = (
+                self._threat_scores.get(candidate, 0) + 10
+            )
+
+    # ── 当选队长：captain 威胁 +30 ──
+    if event_type == "captain_elected":
+        captain = event.get("captain", "")
+        if captain:
+            self._threat_scores[captain] = (
+                self._threat_scores.get(captain, 0) + 30
+            )
+
+    # ── 天赋相关事件：记录但不额外加分 ──
+    # （天赋事件的威胁评估由 obs 中的天赋状态编码承担，
+    #   不需要在 threat_scores 中重复体现）
+
+# ══════════════════════════════════════════════════════════════════════════
+#  生命周期回调
+# ══════════════════════════════════════════════════════════════════════════
+
+def on_round_start(self, player, state, round_number: int):
+    """轮次开始时调用。更新内部缓存。"""
+    self._round_number = round_number
+    self._been_attacked_by.clear()
+    # 威胁分衰减：每轮所有威胁分 ×0.95，防止远古事件永久影响决策
+    for name in list(self._threat_scores):
+        self._threat_scores[name] *= 0.95
+        if self._threat_scores[name] < 1.0:
+            del self._threat_scores[name]
+
+def on_round_end(self, player, state, round_number: int):
+    """轮次结束时调用。"""
+    pass  # 当前无需处理
+
+def on_damaged(self, player, attacker_name: str, damage: float):
+    """被攻击时调用。"""
+    self._been_attacked_by.add(attacker_name)
+    self._threat_scores[attacker_name] = (
+        self._threat_scores.get(attacker_name, 0) + damage * 10
+    )
+
+def on_player_killed(self, player, killed_name: str, killer_name: str):
+    """有玩家被杀时调用。"""
+    if killed_name in self._threat_scores:
+        del self._threat_scores[killed_name]
+    if killer_name and killer_name != getattr(player, 'name', ''):
+        self._threat_scores[killer_name] = (
+            self._threat_scores.get(killer_name, 0) + 30
+        )
+
+# ══════════════════════════════════════════════════════════════════════════
+#  内部方法：RL 同步 choose
+# ══════════════════════════════════════════════════════════════════════════
+
+def _rl_choose(
+    self,
+    prompt: str,
+    options: List[str],
+    context: Optional[Dict] = None,
+) -> str:
+    """
+    将 choose 决策交给 RL 智能体。
+
+    机制与 get_command 的同步路径完全一致：
+        1. 设置 env 的 choose 模式标记
+        2. 通知 env（_obs_event.set）
+        3. 等待 env 返回动作（_action_event.wait）
+        4. 将动作索引翻译为 options 中的选项
+
+    env.step() 在 choose 模式下：
+        - 构建 choose 模式的 obs（包含 choose_situation_id）
+        - 构建 choose 模式的 mask（只启用 IDX_CHOOSE_BASE 段）
+        - RL 输出动作 → 翻译为选项索引
+    """
+    if self._env._game_over_flag:
+        return options[0] if options else ""
+
+    # 设置 choose 模式上下文
+    self._env._choose_mode = True
+    self._env._choose_options = options
+    self._env._choose_context = context or {}
+    self._env._current_player = getattr(self, '_player_ref', None)
+    self._env._current_game_state = getattr(self, '_state_ref', None)
+
+    # 通知 env：准备好接收 choose 动作
+    self._env._obs_event.set()
+
+    # 等待 env 提供动作
+    self._env._action_event.wait()
+    self._env._action_event.clear()
+
+    # 重置 choose 模式
+    self._env._choose_mode = False
+
+    if self._env._game_over_flag:
+        return options[0] if options else ""
+
+    # 翻译动作索引为选项
+    from rl.action_space import choose_to_option
+    result = choose_to_option(self._env._pending_choose_idx, options, context)
+    return result
+
+# ══════════════════════════════════════════════════════════════════════════
+#  内部方法：RL 同步 confirm
+# ══════════════════════════════════════════════════════════════════════════
+
+def _rl_confirm(
+    self,
+    prompt: str,
+    context: Optional[Dict] = None,
+) -> bool:
+    """
+    将 confirm 决策交给 RL 智能体。
+
+    映射为 2 选项的 choose：["是", "否"]
+    返回 True（选了"是"）或 False（选了"否"）。
+    """
+    options = ["是", "否"]
+    # 构造 confirm 专用 context
+    confirm_context = dict(context or {})
+    confirm_context["situation"] = confirm_context.get("situation", "confirm")
+    confirm_context["_is_confirm"] = True
+
+    result = self._rl_choose(prompt, options, confirm_context)
+    return result == "是"
+
+# ══════════════════════════════════════════════════════════════════════════
+#  内部方法：启发式 choose 子函数
+# ══════════════════════════════════════════════════════════════════════════
+
+def _heuristic_mythland_rps(self, options: List[str]) -> str:
+    """结界猜拳：纯随机，无博弈空间。"""
+    return random.choice(options)
+
+def _heuristic_reorder_ammo(self, options: List[str]) -> str:
+    """
+    排弹顺序：按属性克制排列。
+    开销不小收益不大，大部分情况下子弹打出去让 damage_resolver 算。
+    保持原序即可。
+    """
+    # 返回原序（不重排）
+    return " ".join(str(i + 1) for i in range(len(options)))
+
+def _heuristic_tactical_macro(
+    self,
+    situation: str,
+    options: List[str],
+) -> str:
+    """
+    G7 战术宏内部的子 choose（目标选择、投掷物选择等）。
+    这些在自回归序列中由 get_command 的战术动作索引直接包含目标信息，
+    此处作为兜底：按威胁分选目标，按优先级选物品。
+    """
+    # ── 目标选择类 ──
+    if situation in (
+        "hoshino_dash_target",
+        "hoshino_shoot_target",
+        "hoshino_find_target",
+    ):
+        if not options:
+            return ""
+        return max(
+            options,
+            key=lambda name: self._threat_scores.get(name, 0),
+        )
+
+    # ── 投掷物选择 ──
+    if situation == "hoshino_throw_item":
+        priority = ["闪光弹", "烟雾弹", "破片手雷", "震撼弹", "燃烧瓶"]
+        for item in priority:
+            if item in options:
+                return item
+        return options[0] if options else ""
+
+    # ── 投掷地点选择 ──
+    if situation == "hoshino_throw_location":
+        # 默认选第一个（战术宏已经决定了目标，地点跟随目标）
+        return options[0] if options else ""
+
+    # ── 服药选择 ──
+    if situation == "hoshino_medicine":
+        for opt in options:
+            if "EPO" in opt:
+                return opt
+        for opt in options:
+            if "巧克力" in opt:
+                return opt
+        return options[0] if options else ""
+
+    # ── 兜底 ──
+    return options[0] if options else ""
+
+# ══════════════════════════════════════════════════════════════════════════
+#  内部方法：缓存更新
+# ══════════════════════════════════════════════════════════════════════════
+
+def _cache_player_ref(self, player, game_state):
+    """
+    缓存 player 和 game_state 引用，供 _rl_choose / _rl_confirm 使用。
+    在 get_command() 被调用时自动更新。
+    """
+    self._player_ref = player
+    self._state_ref = game_state
+
+# ══════════════════════════════════════════════════════════════════════════
+#  调试接口
+# ══════════════════════════════════════════════════════════════════════════
+
+def get_debug_info(self) -> Dict:
+    """返回调试信息。"""
+    return {
+        "round": self._round_number,
+        "threat_scores": dict(self._threat_scores),
+        "been_attacked_by": list(self._been_attacked_by),
+        "event_log_size": len(self._event_log),
+    }
+
+def __repr__(self) -> str:
+    return (
+        f"RLController(round={self._round_number}, "
+        f"threats={len(self._threat_scores)})"
+    )
