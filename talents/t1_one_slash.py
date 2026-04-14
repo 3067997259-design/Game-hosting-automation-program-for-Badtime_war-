@@ -109,6 +109,14 @@ class OneSlash(BaseTalent):
             is_talent_attack=True,
         )
 
+        # ── RL 事件日志 ──
+        self.state.log_event("oneslash_attack", player=player.player_id,
+                             target=target.player_id,
+                             weapon=weapon.name,
+                             damage=result.get("final_damage", 0),
+                             killed=result.get("killed", False),
+                             uses_remaining=self.uses_remaining)
+
         # 构建攻击结果消息
         attack_msg = prompt_manager.get_prompt("talent", "t1oneslash.attack",
                                               default="⚔️ 一刀缭断！{player_name} 用「{weapon_name}」斩向 {target_name}！",

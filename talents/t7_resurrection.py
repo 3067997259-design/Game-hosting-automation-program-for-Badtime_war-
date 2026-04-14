@@ -61,6 +61,7 @@ class Resurrection(BaseTalent):
                 ).format(player_name=player.name, progress=self.learn_progress)), True
 
             self.learned = True
+            self.state.log_event("resurrection_learned", player=self.player_id)
             return (prompt_manager.get_prompt(
                 "talent", "t7resurrection.learning_complete",
                 default="✨ {player_name} 学会了「死者苏生」！\n   下次行动回合可挂载到目标玩家身上。"
@@ -82,6 +83,8 @@ class Resurrection(BaseTalent):
             # ══ CONTROLLER 改动结束 ══
 
             self.mounted_on = target.player_id
+            self.state.log_event("resurrection_mount", player=self.player_id,
+                                 target=target.player_id)
             return (prompt_manager.get_prompt(
                 "talent", "t7resurrection.mount_success",
                 default="🔮 {player_name} 将「死者苏生」挂载到 {target_name} 身上！\n   当 {target_name} 死亡时，将在家中重生。"
@@ -98,6 +101,8 @@ class Resurrection(BaseTalent):
             return None
 
         self.used = True
+        self.state.log_event("resurrection_trigger", player=self.player_id,
+                             target=dying_player.player_id)
         home_id = f"home_{dying_player.player_id}"
 
         dying_player.location = home_id

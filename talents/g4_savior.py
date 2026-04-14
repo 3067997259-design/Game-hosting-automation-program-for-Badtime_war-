@@ -188,6 +188,10 @@ class Savior(BaseTalent):
             f"\n  ⛔ 禁用远程攻击 | 🛡️ 免疫死亡"
             f"\n{'='*50}")
 
+        self.state.log_event("savior_activate", player=self.player_id,
+                             divinity_consumed=consumed,
+                             is_manual=is_manual)
+
         # 恢复HP到1（免疫该次致命伤害）
         return {"prevent_death": True, "new_hp": 1.0}
 
@@ -235,6 +239,9 @@ class Savior(BaseTalent):
         self.temp_attack_bonus = 0.0
         self.aoe_bonus = 0.0
         self.temp_hp = 0.0
+
+        self.state.log_event("savior_end", player=self.player_id,
+                             permanent_hp_gain=actual_gain)
 
         # 标记状态结束
         self.is_savior = False

@@ -140,6 +140,10 @@ class Hologram(BaseTalent):
             )
         )
 
+        self.state.log_event("hologram_activate", player=self.player_id,
+                             location=self.location,
+                             duration=self.remaining_rounds)
+
         return "\n".join(lines), "talent"
 
     # ============================================
@@ -666,6 +670,8 @@ class Hologram(BaseTalent):
 
         lines.append(f"{'='*50}")
         display.show_info("\n".join(lines))
+
+        self.state.log_event("hologram_expire", player=self.player_id)
 
         # 重置状态
         self.active = False

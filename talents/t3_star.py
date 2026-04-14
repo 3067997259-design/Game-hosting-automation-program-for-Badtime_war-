@@ -210,7 +210,7 @@ class Star(BaseTalent):
                             lines.append(f"   💀 警察{target_obj.unit_id} 被弹射击杀！")
 
         msg = "\n".join(lines)
-        self.state.log_event("star", player=player.player_id)
+        self.state.log_event("star_attack", player=player.player_id)
         return msg, True  # 消耗行动回合
 
     def describe_status(self):

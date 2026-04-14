@@ -130,6 +130,10 @@ class Mythland(BaseTalent):
         )
         display.show_info(barrier_text)
 
+        self.state.log_event("mythland_activate", player=self.player_id,
+                             target=target.player_id if target else None,
+                             location=self.barrier_location)
+
         self.run_barrier()
 
         return f"「神话之外」结界已结束。", "talent"
@@ -492,6 +496,9 @@ class Mythland(BaseTalent):
                 p._mythland_talent_suppressed = False
                 display.show_info(f"  🌀 {p.name} 的天赋压制解除。")
         # ══ 修复结束 ══
+
+        self.state.log_event("mythland_end", player=self.player_id,
+                             rounds=self.barrier_round)
 
         self.active = False
         self.barrier_players = []
