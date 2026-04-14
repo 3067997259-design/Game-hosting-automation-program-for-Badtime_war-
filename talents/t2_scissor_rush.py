@@ -68,6 +68,9 @@ class ScissorRush(BaseTalent):
             effective_type = "击杀玩家"
             if effective_type not in self.triggered_crime_types:
                 self.triggered_crime_types.add(effective_type)
+                self.state.log_event("scissor_rush_crime_trigger",
+                                     player=self.player_id,
+                                     crime_type=effective_type)
                 return {
                     "extra_turn": True,
                     "message": prompt_manager.get_prompt(
@@ -80,6 +83,9 @@ class ScissorRush(BaseTalent):
         # 非攻击类犯罪（进入军事基地、释放病毒等）
         if crime_type not in self.triggered_crime_types:
             self.triggered_crime_types.add(crime_type)
+            self.state.log_event("scissor_rush_crime_trigger",
+                                 player=self.player_id,
+                                 crime_type=crime_type)
             return {
                 "extra_turn": True,
                 "message": prompt_manager.get_prompt(
@@ -135,6 +141,8 @@ class ScissorRush(BaseTalent):
         self.find_triggered = True
         self.vigilance_uses -= 1
         player.vigilance_extra_turn = True
+        self.state.log_event("scissor_rush_vigilance", player=self.player_id,
+                             trigger="find", target=target_id)
         display.show_info(prompt_manager.get_prompt(
             "talent", "t2scissorrush.vigilance_find",
             default="👁️ 剪刀手一突·警觉：{player_name} 首次主动找到他人 → 获得额外行动回合！"
@@ -147,6 +155,8 @@ class ScissorRush(BaseTalent):
         self.found_triggered = True
         self.vigilance_uses -= 1
         player.vigilance_extra_turn = True
+        self.state.log_event("scissor_rush_vigilance", player=self.player_id,
+                             trigger="found_by", finder=finder_id)
         display.show_info(prompt_manager.get_prompt(
             "talent", "t2scissorrush.vigilance_found",
             default="👁️ 剪刀手一突·警觉：{player_name} 首次被他人找到 → 获得额外行动回合！"
@@ -206,6 +216,9 @@ class ScissorRush(BaseTalent):
                 current=existing.current_hp,
                 max=existing.max_hp
             ))
+            self.state.log_event("scissor_rush_shield_recovery",
+                                 player=self.player_id,
+                                 armor=existing.name, recovery=recovery)
         else:
             # 没有同名护甲 → 创建新护甲
             new_piece = ArmorPiece(
@@ -226,6 +239,9 @@ class ScissorRush(BaseTalent):
                     armor_name=hit_piece.name,
                     recovery=recovery
                 ))
+                self.state.log_event("scissor_rush_shield_recovery",
+                                     player=self.player_id,
+                                     armor=hit_piece.name, recovery=recovery)
             else:
                 display.show_info(f"🛡️ 攻击回盾：无法装备「{hit_piece.name}」（{msg}）")
 

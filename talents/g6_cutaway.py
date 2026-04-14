@@ -62,6 +62,9 @@ class CutawayJoke(BaseTalent):
             self._d4_force = True
             self._d6_force = True
 
+        self.state.log_event("cutaway_charge", player=self.player_id,
+                                 charges=self.cutaway_charges)
+
     # ---- D4/D6 钩子 ----
 
     def on_d4_bonus(self, player):
@@ -91,6 +94,8 @@ class CutawayJoke(BaseTalent):
         """T2：插入式笑话回合结束，消耗充能"""
         if getattr(player, '_in_cutaway_joke', False):
             self.cutaway_charges -= 1
+            self.state.log_event("cutaway_joke", player=self.player_id,
+                                 charges_remaining=self.cutaway_charges)
             player._in_cutaway_joke = False
 
     # ---- 状态描述 ----

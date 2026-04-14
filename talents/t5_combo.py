@@ -103,6 +103,8 @@ class Combo(BaseTalent):
             display.show_info(
                 f"🔥 {player.name} 连续行动{self.trigger_threshold}轮！"
                 f"下一轮 D4 必为 4，D6 必为 6！")
+            self.state.log_event("combo_trigger", player=self.player_id,
+                                 threshold=self.trigger_threshold)
 
             # 如果献诗临时降低了阈值，恢复为默认值
             if self.trigger_threshold != 3:

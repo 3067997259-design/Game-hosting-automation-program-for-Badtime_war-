@@ -111,6 +111,8 @@ class G1MythFire(BaseTalent):
                             level=PromptLevel.IMPORTANT)
             # V1.92: 首次 debuff 生效时授予超新星
             self._grant_supernova(me)
+            self.state.log_event("firefly_debuff_start", player=self.player_id,
+                                 round_num=round_num)
             # 首次启动轮立刻结算
             self._try_debuff_settle(me, round_num)
             return
@@ -213,6 +215,7 @@ class G1MythFire(BaseTalent):
         """授予 1 次超新星过载（不叠加）"""
         if not self.has_supernova:
             self.has_supernova = True
+            self.state.log_event("firefly_supernova_granted", player=self.player_id)
             prompt_manager.show("talent", "g1mythfire.supernova_granted",
                             player_name=me.name,
                             level=PromptLevel.IMPORTANT)
@@ -392,6 +395,9 @@ class G1MythFire(BaseTalent):
             ignore_counter=True, exclude_self=True,
             damage_attribute_override="无视属性克制",
             is_talent_attack=True)
+
+        self.state.log_event("firefly_supernova", player=self.player_id,
+                             location=destination)
 
         hit_count = 0
         kill_count = 0
