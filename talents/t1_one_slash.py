@@ -110,7 +110,7 @@ class OneSlash(BaseTalent):
         )
 
         # ── RL 事件日志 ──
-        self.state.log_event("oneslash", player=player.player_id,
+        self.state.log_event("oneslash_attack", player=player.player_id,
                              target=target.player_id,
                              weapon=weapon.name,
                              damage=result.get("final_damage", 0),

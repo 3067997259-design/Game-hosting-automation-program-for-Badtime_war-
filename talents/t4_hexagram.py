@@ -217,7 +217,7 @@ class Hexagram(BaseTalent):
         # 判定结果
         msg = self._resolve(player, target, my_choice, opp_choice)
 
-        self.state.log_event("hexagram", player=player.player_id,
+        self.state.log_event("hexagram_cast", player=player.player_id,
                              target=target.player_id,
                              my_choice=my_choice, opp_choice=opp_choice)
         return msg, True
