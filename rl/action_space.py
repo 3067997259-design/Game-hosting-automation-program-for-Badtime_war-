@@ -16,7 +16,7 @@ rl/action_space.py
   ── 以下为天赋扩展 ──
   108 – 112: talent_t0_activate <对手槽 0-4>  (5 个，选目标发动天赋)
   113      : talent_t0_self                   (1 个，对自己发动天赋)
-  114 – 123: choose_option <0-9>              (10 个，用于 choose 同步)
+  114 – 129: choose_option <0-15>              (16 个，用于 choose 同步)
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 # ─────────────────────────────────────────────────────────────────────────────
 #  动作空间大小
 # ─────────────────────────────────────────────────────────────────────────────
-ACTION_COUNT = 124
+ACTION_COUNT = 130   # 原来是 124，现在需要让RL自己选天赋
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  索引偏移常量
@@ -339,7 +339,7 @@ def idx_to_command(idx: int, player, game_state) -> str:
     if IDX_TALENT_T0_TARGET_BASE <= idx <= IDX_TALENT_T0_SELF:
         return "forfeit"
 
-    if IDX_CHOOSE_BASE <= idx < IDX_CHOOSE_BASE + 10:
+    if IDX_CHOOSE_BASE <= idx < IDX_CHOOSE_BASE + 16:
         return "forfeit"
 
     raise ValueError(f"动作索引越界: {idx}（合法范围 0–{ACTION_COUNT - 1}）")
@@ -803,7 +803,7 @@ def _build_choose_mask(
     if situation == "talent_t0":
         # 选项通常是 ["发动天赋", "不发动，正常行动"]
         # 映射到 choose 选项索引
-        for i in range(min(len(options), 10)):
+        for i in range(min(len(options), 16)):
             mask[IDX_CHOOSE_BASE + i] = True
         return mask
 
@@ -846,7 +846,7 @@ def _build_choose_mask(
         # 兜底：如果没有匹配到任何槽位（选项格式不是玩家名），
         # 回退到通用 choose 索引
         if not has_any:
-            for i in range(min(len(options), 10)):
+            for i in range(min(len(options), 16)):
                 mask[IDX_CHOOSE_BASE + i] = True
         return mask
 
@@ -860,7 +860,7 @@ def _build_choose_mask(
     if situation in _SELF_SITUATIONS:
         # 通常是 ["发动", "不发动"] 之类的二选一
         # 用 choose 索引处理
-        for i in range(min(len(options), 10)):
+        for i in range(min(len(options), 16)):
             mask[IDX_CHOOSE_BASE + i] = True
         return mask
 
@@ -870,7 +870,7 @@ def _build_choose_mask(
     #  适用于：petrified, recruit_pick, hexagram_my/opp_choice,
     #          captain_election, hoshino_form_choice, ripple_activation_choice,
     #          hoshino_self_doubt_choice, hoshino_reorder_ammo 等
-    n_options = min(len(options), 10)
+    n_options = min(len(options), 16)
     for i in range(n_options):
         mask[IDX_CHOOSE_BASE + i] = True
 

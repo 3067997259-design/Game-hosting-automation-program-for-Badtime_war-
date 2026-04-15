@@ -300,6 +300,8 @@ class BadtimeWarEnv(gym.Env):
         self._choose_context: Dict = {}
         self._pending_choose_idx: int = 0
 
+        self._taken_talents: set = set()
+
     def _stack_obs(self, raw_obs: np.ndarray) -> np.ndarray:
         """将新观测推入帧堆叠缓冲，返回拼接后的完整观测。"""
         if self.n_stack <= 1:
@@ -417,7 +419,7 @@ class BadtimeWarEnv(gym.Env):
     def _assign_talents(self, ai_personalities: Dict[str, str]):
         """
         为所有玩家分配天赋。
-        RL 玩家：按 self.rl_talent 决定（None=随机, 0=无天赋, 1-14=指定）。
+        RL 玩家：延迟到游戏进程中自己决定。
         AI 对手：按人格偏好加权随机选择。
         """
         assert self._state is not None
@@ -437,33 +439,9 @@ class BadtimeWarEnv(gym.Env):
             if not available:
                 continue
 
-            # ── RL 玩家 ──
+            # ── RL 玩家：延迟到游戏线程中通过 choose 同步分配 ──
             if pid == "rl_0":
-                if self.rl_talent == 0:
-                    # 明确不要天赋
-                    continue
-                elif self.rl_talent is not None:
-                    # 指定天赋编号
-                    matched = None
-                    for n, name, cls, desc in available:
-                        if n == self.rl_talent:
-                            matched = (n, name, cls)
-                            break
-                    if matched is None:
-                        # 指定的天赋已被选走或不存在，随机兜底
-                        chosen = available[self.np_random.integers(len(available))]
-                        matched = (chosen[0], chosen[1], chosen[2])
-                    n, name, cls = matched
-                else:
-                    # 随机分配
-                    chosen = available[self.np_random.integers(len(available))]
-                    n, name, cls = chosen[0], chosen[1], chosen[2]
-
-                talent_inst = cls(pid, self._state)
-                player.talent = talent_inst
-                player.talent_name = name
-                talent_inst.on_register()
-                taken.add(n)
+                # 记录当前已被选走的天赋，供后续 _assign_rl_talent 使用
                 continue
 
             # ── AI 对手 ──
@@ -488,6 +466,74 @@ class BadtimeWarEnv(gym.Env):
             player.talent_name = name
             talent_inst.on_register()
             taken.add(n)
+            # 保存已选天赋集合，供 _assign_rl_talent 使用
+            self._taken_talents = taken
+
+    def _assign_rl_talent(self):
+        """
+        在游戏线程中为 RL 玩家分配天赋。
+
+        - rl_talent=0  : 无天赋，直接跳过
+        - rl_talent=N  : 指定天赋编号，直接分配（不走 choose）
+        - rl_talent=None: 通过 choose 同步让 RL 自主选择
+        """
+        assert self._state is not None
+        assert self._rl_player is not None
+        assert self._rl_controller is not None
+
+        taken = getattr(self, '_taken_talents', set())
+
+        # 明确不要天赋
+        if self.rl_talent == 0:
+            return
+
+        # 指定天赋编号：直接分配
+        if self.rl_talent is not None and self.rl_talent != 0:
+            for n, name, cls, desc in TALENT_TABLE:
+                if n == self.rl_talent and n not in taken:
+                    talent_inst = cls("rl_0", self._state)
+                    self._rl_player.talent = talent_inst
+                    self._rl_player.talent_name = name
+                    talent_inst.on_register()
+                    return
+            # 指定的天赋已被选走，回退到 choose
+            # （继续往下走 choose 路径）
+
+        # RL 自主选择：通过 choose 同步
+        available = [
+            (n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+            if n not in taken
+        ]
+        if not available:
+            return
+
+        # 构建选项列表：["一刀缭断", "剪刀手一突", ...]
+        option_names = [name for n, name, cls, desc in available]
+        # 添加"不选天赋"选项
+        option_names.append("不选择天赋")
+
+        # 通过 controller.choose() 走 RL 同步路径
+        chosen_name = self._rl_controller.choose(
+            "选择你的天赋：",
+            option_names,
+            context={
+                "phase": "pregame",
+                "situation": "talent_pick",
+                "taken": list(taken),
+            }
+        )
+
+        if chosen_name == "不选择天赋":
+            return
+
+        # 查找选中的天赋并分配
+        for n, name, cls, desc in available:
+            if name == chosen_name:
+                talent_inst = cls("rl_0", self._state)
+                self._rl_player.talent = talent_inst
+                self._rl_player.talent_name = name
+                talent_inst.on_register()
+                return
 
     # ══════════════════════════════════════════════════════════════════════════
     #  step
@@ -517,7 +563,7 @@ class BadtimeWarEnv(gym.Env):
         # ── 根据当前模式处理动作 ──
         if self._choose_mode:
             # choose 模式：将动作翻译为选项索引
-            if IDX_CHOOSE_BASE <= action < IDX_CHOOSE_BASE + 10:
+            if IDX_CHOOSE_BASE <= action < IDX_CHOOSE_BASE + 16:
                 # 通用 choose 索引 (114-123) → 直接映射
                 self._pending_choose_idx = action - IDX_CHOOSE_BASE
             elif IDX_TALENT_T0_TARGET_BASE <= action <= IDX_TALENT_T0_SELF:
@@ -614,7 +660,7 @@ class BadtimeWarEnv(gym.Env):
             choose_options=self._choose_options if self._choose_mode else None,
         )
 
-# ══════════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
     #  choose 模式观测填充
     # ══════════════════════════════════════════════════════════════════════════
 
@@ -636,7 +682,7 @@ class BadtimeWarEnv(gym.Env):
             raw_obs[base] = 1.0
             situation = self._choose_context.get("situation", "")
             raw_obs[base + 1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / max(_MAX_CHOOSE_SITUATIONS, 1)
-            raw_obs[base + 2] = len(self._choose_options) / 10.0
+            raw_obs[base + 2] = len(self._choose_options) / 16.0
         else:
             raw_obs[base] = 0.0
             raw_obs[base + 1] = 0.0
@@ -651,6 +697,10 @@ class BadtimeWarEnv(gym.Env):
         assert self._state is not None
         assert self._round_manager is not None
         try:
+            # ── 游戏开始前：为 RL 玩家分配天赋 ──
+            if self.enable_talents:
+                self._assign_rl_talent()
+
             while not self._state.game_over and not self._game_over_flag:
                 self._round_manager.run_one_round()
 

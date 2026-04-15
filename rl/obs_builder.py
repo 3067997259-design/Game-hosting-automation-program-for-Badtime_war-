@@ -571,8 +571,9 @@ _CHOOSE_SITUATION_MAP: dict[str, int] = {
     "hoshino_form_choice":     18,
     "hoshino_self_doubt_choice": 19,
     "cutaway_borrow_target":   20,
+    "talent_pick": 21
 }
-_MAX_CHOOSE_SITUATIONS = 20
+_MAX_CHOOSE_SITUATIONS = 21
 
 
 def build_choose_obs(situation: str, n_options: int) -> np.ndarray:
