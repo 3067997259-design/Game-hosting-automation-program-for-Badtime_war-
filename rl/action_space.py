@@ -287,7 +287,7 @@ def idx_to_command(idx: int, player, game_state) -> str:
     调用方应保证 idx 在 action mask 允许范围内；
     若因竞态导致目标失效，则安全回退为 "forfeit"。
 
-    注意：天赋 T0 索引 (108-113) 和 choose 索引 (114-123) 不会经过此函数——
+    注意：天赋 T0 索引 (108-113) 和 choose 索引 (114-129) 不会经过此函数——
     它们在 _SyncRLController.choose() 中直接被解释为选项索引。
     如果意外到达这里，安全回退为 forfeit。
     """
@@ -364,7 +364,7 @@ def idx_to_choose_option(
     索引范围：
       108-112 (IDX_TALENT_T0_TARGET_BASE + slot) → 对手槽位目标选择
       113     (IDX_TALENT_T0_SELF)                → 自身目标选择
-      114-123 (IDX_CHOOSE_BASE + i)               → 通用选项 options[i]
+      114-129 (IDX_CHOOSE_BASE + i)               → 通用选项 options[i]
 
     返回
     ----
@@ -424,7 +424,7 @@ def build_action_mask(
     choose_options: Optional[List[str]] = None,
 ) -> np.ndarray:
     """
-    返回 124 维 bool 数组，True 表示该动作当前合法可选。
+    返回 130 维 bool 数组，True 表示该动作当前合法可选。
 
     参数
     ----
@@ -437,13 +437,13 @@ def build_action_mask(
 
     设计原则：
     - choose_mode=False 时：构建正常 get_command 模式的 mask（索引 0-107）
-    - choose_mode=True  时：构建 choose 模式的 mask（索引 108-123）
+    - choose_mode=True  时：构建 choose 模式的 mask（索引 108-129）
     - 两种模式互斥，不会同时启用
     """
     mask = np.zeros(ACTION_COUNT, dtype=bool)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  choose 模式：只启用 108-123 范围的索引
+    #  choose 模式：只启用 108-129 范围的索引
     # ══════════════════════════════════════════════════════════════════════════
     if choose_mode:
         return _build_choose_mask(mask, player, game_state, choose_situation,
@@ -793,7 +793,7 @@ def _build_choose_mask(
     """
     构建 choose 模式下的 action mask。
 
-    choose 模式下，只有 [108-123] 范围的索引可能为 True。
+    choose 模式下，只有 [108-129] 范围的索引可能为 True。
     具体哪些索引可用取决于 situation 类型：
 
     - talent_t0 + 需要选目标的天赋：启用 108-112（对手槽）或 113（自身）
@@ -869,7 +869,7 @@ def _build_choose_mask(
         return mask
 
     # ══════════════════════════════════════════════════════════════
-    #  通用 choose：直接映射选项到 choose 索引 (114-123)
+    #  通用 choose：直接映射选项到 choose 索引 (114-129)
     # ══════════════════════════════════════════════════════════════
     #  适用于：petrified, recruit_pick, hexagram_my/opp_choice,
     #          captain_election, hoshino_form_choice, ripple_activation_choice,

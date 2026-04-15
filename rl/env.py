@@ -8,7 +8,7 @@ BadtimeWarEnv —— 主 Gym 封装（天赋局版）
 
 支持两种同步模式：
   1. get_command 模式：RL 选择主行动（索引 0-107）
-  2. choose 模式：RL 回答子决策（索引 108-123）
+  2. choose 模式：RL 回答子决策（索引 108-129）
 
 兼容 sb3-contrib MaskablePPO：
   - action_masks() 方法返回 bool 数组
@@ -565,7 +565,7 @@ class BadtimeWarEnv(gym.Env):
         if self._choose_mode:
             # choose 模式：将动作翻译为选项索引
             if IDX_CHOOSE_BASE <= action < IDX_CHOOSE_BASE + 16:
-                # 通用 choose 索引 (114-123) → 直接映射
+                # 通用 choose 索引 (114-129) → 直接映射
                 self._pending_choose_idx = action - IDX_CHOOSE_BASE
             elif IDX_TALENT_T0_TARGET_BASE <= action <= IDX_TALENT_T0_SELF:
                 # 目标槽位索引 (108-113) → 通过 idx_to_choose_option 翻译
@@ -673,7 +673,7 @@ class BadtimeWarEnv(gym.Env):
         维度布局（相对于 OBS_DIM 末尾 3 维）：
           [-3] current_mode     : 0.0 = get_command, 1.0 = choose
           [-2] situation_id     : 归一化的 situation 编号 (/max)
-          [-1] n_options        : 归一化的选项数量 (/10)
+          [-1] n_options        : 归一化的选项数量 (/16)
         """
         from rl.obs_builder import _CHOOSE_SITUATION_MAP, _MAX_CHOOSE_SITUATIONS
 
@@ -755,6 +755,7 @@ class BadtimeWarEnv(gym.Env):
         self._choose_options = []
         self._choose_context = {}
         self._pending_choose_idx = 0
+        self._taken_talents = set()
 
     def close(self):
         self._cleanup()
