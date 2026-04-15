@@ -352,6 +352,7 @@ class G1MythFire(BaseTalent):
         if killer.player_id != self.player_id:
             return
         self.kill_count += 1
+        self.state.log_event("firefly_kill", player=self.player_id)
         # V1.92: 击杀不再推迟debuff，改为授予超新星
         self._grant_supernova(killer)
         prompt_manager.show("talent", "g1mythfire.kill_record",
@@ -421,6 +422,7 @@ class G1MythFire(BaseTalent):
                 if game_state.police_engine:
                     game_state.police_engine.on_player_death(t.player_id)
                 display.show_info(f"  💀 {t.name} 被超新星击杀！")
+                # firefly_kill 已由 on_kill（resolve_damage 自动调用）记录，此处不重复
                 self._grant_supernova(player)
 
         # 处理警察
@@ -500,6 +502,7 @@ class G1MythFire(BaseTalent):
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target_id)
                 display.show_info(f"  💀 {target.name} 被灼烧击杀！")
+                # firefly_kill 已由 on_kill（resolve_damage 自动调用）记录，此处不重复
                 # 灼烧击杀也给炽愿
                 self._grant_ardent_wish_from_supernova(1)
                 # self._grant_supernova(me)  # 击杀再给超新星（由于平衡性调整，暂时被注释掉）
