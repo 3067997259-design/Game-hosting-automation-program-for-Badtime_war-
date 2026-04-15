@@ -375,11 +375,11 @@ def train(args: argparse.Namespace):
             policy_kwargs=dict(
                 features_extractor_class=GRUFeatureExtractor,
                 features_extractor_kwargs=dict(
-                    gru_hidden_size=128,
-                    proj_size=128,
+                    gru_hidden_size=192,
+                    proj_size=256,
                     num_layers=1,
                 ),
-                net_arch=dict(pi=[256, 256], vf=[256, 256]),
+                net_arch=dict(pi=[384, 256], vf=[384, 256]),
             ),
             tensorboard_log=str(log_dir),
             verbose=0,
@@ -561,7 +561,11 @@ def parse_args() -> argparse.Namespace:
 
     #天赋选择参数
     p.add_argument("--rl-talent", type=int, default=None,
-                   help="RL 天赋编号（None=RL自选, 0=无天赋, 1-14=指定）")
+                help="RL 天赋编号（None=RL自选, 0=无天赋, 1-14=指定）")
+    p.add_argument("--enable-talents", action="store_true", default=True,
+                help="启用天赋系统")
+    p.add_argument("--no-talents", action="store_false", dest="enable_talents",
+                help="禁用天赋系统（无天赋局）")
 
     return p.parse_args()
 
