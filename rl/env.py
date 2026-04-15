@@ -466,8 +466,9 @@ class BadtimeWarEnv(gym.Env):
             player.talent_name = name
             talent_inst.on_register()
             taken.add(n)
-            # 保存已选天赋集合，供 _assign_rl_talent 使用
-            self._taken_talents = taken
+
+        # 保存已选天赋集合，供 _assign_rl_talent 使用
+        self._taken_talents = taken
 
     def _assign_rl_talent(self):
         """
@@ -682,7 +683,7 @@ class BadtimeWarEnv(gym.Env):
             raw_obs[base] = 1.0
             situation = self._choose_context.get("situation", "")
             raw_obs[base + 1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / max(_MAX_CHOOSE_SITUATIONS, 1)
-            raw_obs[base + 2] = len(self._choose_options) / 16.0
+            raw_obs[base + 2] = min(len(self._choose_options), 16) / 16.0
         else:
             raw_obs[base] = 0.0
             raw_obs[base + 1] = 0.0
@@ -696,7 +697,14 @@ class BadtimeWarEnv(gym.Env):
         """在后台线程中运行游戏主循环。"""
         assert self._state is not None
         assert self._round_manager is not None
+        assert self._rl_controller is not None
+        assert self._rl_player is not None
         try:
+            # 预缓存 player/state 引用，供 _assign_rl_talent 中的
+            # choose 同步使用（正常情况下由 get_command 调用 _cache_player_ref，
+            # 但 talent_pick 发生在第一次 get_command 之前）
+            self._rl_controller._cache_player_ref(self._rl_player, self._state)
+
             # ── 游戏开始前：为 RL 玩家分配天赋 ──
             if self.enable_talents:
                 self._assign_rl_talent()

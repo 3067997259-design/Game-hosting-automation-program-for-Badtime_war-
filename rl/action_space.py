@@ -1,7 +1,7 @@
 """
 rl/action_space.py
 ──────────────────
-动作空间定义（天赋局，共 124 个 Discrete 动作）
+动作空间定义（天赋局，共 130 个 Discrete 动作）
 
 索引布局：
   0        : forfeit
@@ -49,7 +49,7 @@ IDX_POLICE_BASE  = 101  # 101 – 107
 # ── 天赋扩展 ──
 IDX_TALENT_T0_TARGET_BASE = 108  # 108 – 112
 IDX_TALENT_T0_SELF        = 113
-IDX_CHOOSE_BASE           = 114  # 114 – 123
+IDX_CHOOSE_BASE           = 114  # 114 – 129
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  枚举列表
@@ -165,6 +165,8 @@ SPELL_PREREQUISITES: dict[str, str] = {
 #  这些 situation 的 choose() 调用会交给 RL 决策，而非启发式
 # ─────────────────────────────────────────────────────────────────────────────
 STRATEGIC_CHOOSE_SITUATIONS: set[str] = {
+    # ── 预局 ──
+    "talent_pick",              # 天赋选择（RL 自主选天赋）
     # ── 基础机制 ──
     "petrified",                # 石化解除 vs 保持
     "recruit_pick_1",           # 加入警察选奖励 1
@@ -397,8 +399,8 @@ def idx_to_choose_option(
         # 槽位无效，安全回退
         return options[0]
 
-    # ── 通用 choose 选项 (114-123) ──
-    if IDX_CHOOSE_BASE <= idx < IDX_CHOOSE_BASE + 10:
+    # ── 通用 choose 选项 (114-129) ──
+    if IDX_CHOOSE_BASE <= idx < IDX_CHOOSE_BASE + 16:
         opt_idx = idx - IDX_CHOOSE_BASE
         if opt_idx < len(options):
             return options[opt_idx]
@@ -744,6 +746,8 @@ def build_action_mask(
 
 # 需要 RL 控制的战略性 choose situation 集合
 STRATEGIC_SITUATIONS: set[str] = {
+    # 预局
+    "talent_pick",                  # 天赋选择（RL 自主选天赋）
     # 基础博弈
     "petrified",                    # 石化解除 vs 保持
     "recruit_pick_1",               # 警察奖励选择（第1件）

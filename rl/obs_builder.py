@@ -56,7 +56,7 @@ rl/obs_builder.py
 choose 模式指示器：
   [511] is_choose_mode: 0=get_command, 1=choose
   [512] choose_situation_id / 20.0 (归一化)
-  [513] choose_n_options / 10.0 (归一化)
+  [513] choose_n_options / 16.0 (归一化)
 """
 
 from __future__ import annotations
@@ -581,12 +581,12 @@ def build_choose_obs(situation: str, n_options: int) -> np.ndarray:
     构建 choose 模式的 3 维附加观测。
     [0] current_mode: 1.0 = choose 模式, 0.0 = get_command 模式
     [1] choose_situation_id: 归一化的 situation 编号
-    [2] choose_n_options: 选项数量 / 10
+    [2] choose_n_options: 选项数量 / 16
     """
     buf = np.zeros(_CHOOSE_OBS_DIM, dtype=np.float32)
     buf[0] = 1.0  # choose 模式
     buf[1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / _MAX_CHOOSE_SITUATIONS
-    buf[2] = min(n_options, 10) / 10.0
+    buf[2] = min(n_options, 16) / 16.0
     return buf
 
 
