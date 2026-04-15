@@ -102,10 +102,8 @@ class BasicAIController(
         self._hoshino_anti_captain_approached: bool = False
         self._hoshino_anti_captain_target_id: Optional[str] = None
 
-        # 初始化 DevelopMixin 所需的 其他fallback level 属性
-        self._territorial_fallback_level = 0
-        self._diplomatic_fallback_level = 0
-        self._political_fallback_level = 0
+        # 初始化 DevelopMixin 所需的 fallback level 属性
+        self._political_fallback_level = "none"
 
 
     # ════════════════════════════════════════════════════════
