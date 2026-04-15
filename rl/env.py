@@ -777,4 +777,5 @@ class BadtimeWarEnv(gym.Env):
     def close(self):
         self._cleanup()
         _restore_display()
+        _restore_prompt_manager()
         super().close()
