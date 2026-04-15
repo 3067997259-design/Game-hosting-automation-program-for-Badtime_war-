@@ -38,6 +38,7 @@ from engine.round_manager import RoundManager
 from models.player import Player
 from cli import display as _display_module
 from controllers.ai_basic import create_random_ai_controller
+from engine.prompt_manager import prompt_manager as _prompt_manager
 
 # 天赋系统导入
 from engine.game_setup import (
@@ -79,6 +80,21 @@ def _restore_display():
     for name, func in _original_display.items():
         setattr(_display_module, name, func)
     _original_display.clear()
+
+_original_pm_output = None
+
+def _silence_prompt_manager():
+    """将 prompt_manager._output 替换为 no-op"""
+    global _original_pm_output
+    _original_pm_output = getattr(_prompt_manager, '_output', None)
+    setattr(_prompt_manager, '_output', lambda text, level: None)
+
+def _restore_prompt_manager():
+    """恢复 prompt_manager._output"""
+    global _original_pm_output
+    if _original_pm_output is not None:
+        setattr(_prompt_manager, '_output', _original_pm_output)
+        _original_pm_output = None
 
 
 
@@ -334,6 +350,7 @@ class BadtimeWarEnv(gym.Env):
         self._cleanup()
         if self.render_mode != "human":
             _silence_display()
+            _silence_prompt_manager()
 
         # 创建新游戏
         self._state = GameState()
@@ -760,4 +777,5 @@ class BadtimeWarEnv(gym.Env):
     def close(self):
         self._cleanup()
         _restore_display()
+        _restore_prompt_manager()
         super().close()
