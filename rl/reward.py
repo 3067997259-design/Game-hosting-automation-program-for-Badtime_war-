@@ -397,7 +397,7 @@ def event_reward(events: List[Dict[str, Any]], player_id: str,
             r += 3.0  # 偶数次攻击回盾
 
         # ── T3 天星 ──
-        if etype == "star" and event.get("player") == player_id:
+        if etype == "star_attack" and event.get("player") == player_id:
             r += 8.0  # 天星发动
 
         # ── T4 六爻 ──
