@@ -1245,7 +1245,11 @@ class ActionTurnManager:
                 "选择第1项：", filtered_rewards,
                 context={"phase": "T1", "situation": "recruit_pick_1"}
             )
-            remaining = [o for o in filtered_rewards if o != choice1]
+            remaining = list(filtered_rewards)
+            if choice1 in remaining:
+                remaining.remove(choice1)  # 只移除第一个匹配项，保留重复项
+            if not remaining:
+                remaining = ["购买凭证"]  # 兜底：至少有一个选项
             choice2 = player.controller.choose(
                 "选择第2项：", remaining,
                 context={"phase": "T1", "situation": "recruit_pick_2"}
