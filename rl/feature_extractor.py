@@ -25,9 +25,9 @@ class GRUFeatureExtractor(BaseFeaturesExtractor):
     observation_space : gym.spaces.Box
         Shape = (n_stack * OBS_DIM,)
     gru_hidden_size : int
-        GRU hidden dimension (default 128)
+        GRU hidden dimension (default 192)
     proj_size : int
-        Linear projection size before GRU (default 128)
+        Linear projection size before GRU (default 256)
     num_layers : int
         Number of GRU layers (default 1)
     """
