@@ -17,7 +17,7 @@ rl/reward.py
 
 第四层：行为惩罚（Anti-Degenerate）
   forfeit 递增惩罚 / 无效行动 / 过长对局
-  天赋扩展：条件化惩罚（如攻击 G4 = 给他充能）
+  天赋扩展：条件化惩罚（如 Combo forfeit 打断连击）
 
 完整公式：
   total = terminal
@@ -512,30 +512,12 @@ def behavior_penalty(player, game_state, action_type, action_success, action_idx
     # ═══════════════════════════════════════════════════════════════════════
     #  天赋条件化惩罚
     # ═══════════════════════════════════════════════════════════════════════
+    # 注：G4 攻击惩罚已统一由第三层 event_reward 处理（有游标去重），
+    #     此处不再重复，避免双层叠加 + 无游标重复触发导致收敛困难。
 
     talent = getattr(player, 'talent', None)
     if talent is not None:
         cls = talent.__class__.__name__
-
-        # G4 反直觉：攻击未进入救世主状态的 G4 玩家 = 给他充能
-        if cls != "Savior":  # 自己不是 G4 时才检查
-            for p in game_state.alive_players():
-                if p.player_id == player.player_id:
-                    continue
-                opp_talent = getattr(p, 'talent', None)
-                if (opp_talent and opp_talent.__class__.__name__ == "Savior"
-                        and not getattr(opp_talent, 'is_savior', False)
-                        and not getattr(opp_talent, 'spent', False)):
-                    # 检查最近事件：是否刚攻击了这个 G4
-                    for evt in game_state.event_log[-3:]:
-                        if (evt.get("type") == "attack"
-                                and evt.get("attacker") == player.player_id
-                                and evt.get("target") == p.player_id):
-                            divinity = getattr(opp_talent, 'divinity', 0)
-                            if divinity >= 8:
-                                r -= 3.0  # 对手火种已高，继续打 = 帮他触发
-                            else:
-                                r -= 1.0  # 轻微惩罚，提醒 RL 注意
 
         # Combo：forfeit 打断连击的额外惩罚
         if cls == "Combo":
