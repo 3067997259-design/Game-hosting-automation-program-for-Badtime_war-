@@ -57,6 +57,7 @@ def make_env(
     n_stack: int = 1,
     opponent_pool=None,
     rl_talent: Optional[int] = None,
+    enable_talents: bool = True,
 ):
     """返回一个创建 BadtimeWarEnv 的闭包，供 DummyVecEnv 使用。"""
     def _init():
@@ -72,6 +73,7 @@ def make_env(
                     n_stack=n_stack,
                     opponent_pool=opponent_pool,
                     rl_talent=rl_talent,
+                    enable_talents=enable_talents,
                 )
                 env = Monitor(env)
                 env.reset(seed=seed + rank)
@@ -329,6 +331,7 @@ def train(args: argparse.Namespace):
             n_stack=args.n_stack,
             opponent_pool=opponent_pool,
             rl_talent=args.rl_talent,
+            enable_talents=args.enable_talents,
         )
         for i in range(args.n_envs)
     ]
@@ -346,6 +349,7 @@ def train(args: argparse.Namespace):
             rank=0,
             n_stack=args.n_stack,
             rl_talent=args.rl_talent,
+            enable_talents=args.enable_talents,
         )
     ])
 

@@ -52,7 +52,7 @@ class GRUFeatureExtractor(BaseFeaturesExtractor):
         self.n_stack = n_stack
         self.obs_dim = OBS_DIM
 
-        # 线性投影：OBS_DIM(514) → proj_size
+        # 线性投影：OBS_DIM → proj_size
         self.projection = nn.Sequential(
             nn.Linear(OBS_DIM, proj_size),
             nn.ReLU(),
