@@ -294,6 +294,8 @@ def train(args: argparse.Namespace):
 
     # ── 路径设置 ──────────────────────────────────────────────────
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    import torch
+    torch.set_num_threads(min(8, os.cpu_count() or 1))
     run_name = f"maskable_ppo_{args.opponents}opp_{timestamp}"
     log_dir = Path("logs") / run_name
     ckpt_dir = Path("checkpoints") / run_name
@@ -360,7 +362,8 @@ def train(args: argparse.Namespace):
             args.resume,
             env=train_env,
             tensorboard_log=str(log_dir),
-            learning_rate=args.lr,  # ← 加这一行
+            learning_rate=args.lr,
+            device="auto"
         )
     else:
         model = MaskablePPO(
@@ -376,6 +379,7 @@ def train(args: argparse.Namespace):
             ent_coef=args.ent_coef,
             vf_coef=0.5,
             max_grad_norm=0.5,
+            device="auto",
             policy_kwargs=dict(
                 features_extractor_class=GRUFeatureExtractor,
                 features_extractor_kwargs=dict(
@@ -511,7 +515,7 @@ def parse_args() -> argparse.Namespace:
                    help="学习率")
     p.add_argument("--n-steps", type=int, default=2048,
                    help="每次 rollout 的步数")
-    p.add_argument("--batch-size", type=int, default=64,
+    p.add_argument("--batch-size", type=int, default=256,
                    help="Mini-batch 大小")
     p.add_argument("--n-epochs", type=int, default=10,
                    help="每次更新的 epoch 数")
@@ -563,13 +567,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-save-win-rate", type=float, default=0.45,
                 help="Self-play 质量门控：胜率低于此值时不保存模型到对手池")
 
-    #天赋选择参数
+    # 天赋选择参数
     p.add_argument("--rl-talent", type=int, default=None,
                 help="RL 天赋编号（None=RL自选, 0=无天赋, 1-14=指定）")
     p.add_argument("--enable-talents", action="store_true", default=True,
                 help="启用天赋系统")
     p.add_argument("--no-talents", action="store_false", dest="enable_talents",
                 help="禁用天赋系统（无天赋局）")
+
+    # 设备支持参数
+    p.add_argument("--device", type=str, default="auto",
+               help="训练设备（auto/cpu/cuda）")
+
+
 
     return p.parse_args()
 
