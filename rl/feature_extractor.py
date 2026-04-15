@@ -25,9 +25,9 @@ class GRUFeatureExtractor(BaseFeaturesExtractor):
     observation_space : gym.spaces.Box
         Shape = (n_stack * OBS_DIM,)
     gru_hidden_size : int
-        GRU hidden dimension (default 128)
+        GRU hidden dimension (default 192)
     proj_size : int
-        Linear projection size before GRU (default 128)
+        Linear projection size before GRU (default 256)
     num_layers : int
         Number of GRU layers (default 1)
     """
@@ -35,8 +35,8 @@ class GRUFeatureExtractor(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: gym.spaces.Box,
-        gru_hidden_size: int = 128,
-        proj_size: int = 128,
+        gru_hidden_size: int = 192,
+        proj_size: int = 256,
         num_layers: int = 1,
     ):
         # n_stack 从 observation_space 推断
@@ -52,7 +52,7 @@ class GRUFeatureExtractor(BaseFeaturesExtractor):
         self.n_stack = n_stack
         self.obs_dim = OBS_DIM
 
-        # 线性投影：267 → proj_size
+        # 线性投影：OBS_DIM → proj_size
         self.projection = nn.Sequential(
             nn.Linear(OBS_DIM, proj_size),
             nn.ReLU(),
