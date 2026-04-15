@@ -1333,7 +1333,7 @@ class ActionTurnManager:
 
         if weapon is None:
             display.show_info(f"❌ {player.name} 没有武器「{weapon_name}」")
-            return "attack"  # 返回 action_type，不崩溃
+            return f"❌ {player.name} 没有武器「{weapon_name}」", "attack", False
 
         from models.equipment import WeaponRange
         if weapon.weapon_range == WeaponRange.AREA:
