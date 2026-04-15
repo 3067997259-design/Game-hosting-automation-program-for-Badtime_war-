@@ -160,87 +160,6 @@ def potential(player, game_state) -> float:
         cls = talent.__class__.__name__
         phi += _talent_potential(talent, cls, player, game_state)
 
-        if cls == "OneSlash":
-            # 每次使用机会价值 8 点（用完就没了）
-            phi += getattr(talent, 'uses_remaining', 0) * 8
-
-        elif cls == "ScissorRush":
-            # 响应窗口剩余次数
-            phi += getattr(talent, 'response_uses_remaining', 0) * 5
-            # 未触发的警觉（一次性资源）
-            phi += (1 - int(getattr(talent, 'find_triggered', False))) * 3
-            phi += (1 - int(getattr(talent, 'found_triggered', False))) * 3
-
-        elif cls == "Star":
-            phi += getattr(talent, 'uses_remaining', 0) * 10
-
-        elif cls == "Hexagram":
-            phi += getattr(talent, 'charges', 0) * 6
-            # 金身状态 = 短期无敌，极高价值
-            if getattr(talent, 'immunity_active', False):
-                phi += 25
-
-        elif cls == "Combo":
-            # 连续行动进度（越接近阈值越有价值）
-            progress = getattr(talent, 'consecutive_actions', 0)
-            threshold = getattr(talent, 'trigger_threshold', 3)
-            phi += (progress / max(threshold, 1)) * 8
-
-        elif cls == "GoodCitizen":
-            pass  # 纯被动，无内部状态影响势函数
-
-        elif cls == "Resurrection":
-            if not getattr(talent, 'learned', False):
-                phi += 5  # 未学习 = 有潜力
-            elif getattr(talent, 'mounted_on', None) is None:
-                phi += 8  # 已学习未挂载 = 需要尽快挂载
-            elif not getattr(talent, 'used', False):
-                phi += 12  # 已挂载未触发 = 保险在手
-
-        elif cls == "G1MythFire":
-            # 超新星 = 高价值移动 AOE
-            if getattr(talent, 'has_supernova', False):
-                phi += 15
-            # debuff 开始后，护甲价值提升（debuff 会扣护甲）
-            if getattr(talent, 'debuff_started', False):
-                phi += _count_outer_armor(player) * 5  # 额外护甲价值
-                phi += getattr(talent, 'ardent_wish_charges', 0) * 4
-
-        elif cls == "Hologram":
-            if not getattr(talent, 'used', False):
-                phi += 15  # 未使用 = 手握王牌
-            if getattr(talent, 'active', False):
-                phi += 10  # 影像展开中 = 区域优势
-
-        elif cls == "Mythland":
-            if not getattr(talent, 'used', False):
-                phi += 15  # 未使用 = 手握王牌
-            if getattr(talent, 'active', False):
-                phi += 8  # 结界中 = 独立战场优势
-
-        elif cls == "Savior":
-            if getattr(talent, 'spent', False):
-                pass  # 已永久失效
-            elif getattr(talent, 'is_savior', False):
-                # 救世主状态中：临时 HP + 攻击加成 = 极高战力
-                phi += getattr(talent, 'temp_hp', 0) * 8
-                phi += getattr(talent, 'temp_attack_bonus', 0) * 6
-            else:
-                # 未触发：火种越多越接近触发，但触发条件是濒死
-                # 火种本身不是"好事"（意味着被打了），但接近阈值时有威慑力
-                divinity = getattr(talent, 'divinity', 0)
-                phi += min(divinity, 6) * 1.5  # 前 6 点温和正向
-                if divinity >= 8:
-                    phi += 5  # 接近触发阈值，威慑价值
-
-        elif cls == "CutawayJoke":
-            phi += getattr(talent, 'cutaway_charges', 0) * 6
-            # 笑点进度
-            laugh = getattr(talent, 'laugh_points', 0)
-            threshold = max(1, getattr(talent, 'laugh_threshold', 6)
-                           - getattr(talent, 'forfeit_reduction', 0))
-            phi += (laugh / max(threshold, 1)) * 4
-
     return phi
 
 
@@ -530,49 +449,177 @@ def event_reward(events: List[Dict[str, Any]], player_id: str,
             hp_gain = event.get("permanent_hp_gain", 0)
             r += 5.0 + hp_gain * 5.0  # 永久转化 HP（基础 +5，每点 HP +5）
 
-        # ── G4 反直觉惩罚：攻击未进入救世主的 G4 = 给他充能 ──
-        if etype == "attack" and event.get("attacker") == player_id:
-            target_id = event.get("target")
-            # 需要从 game_state 获取目标天赋信息（在 compute() 中传入）
-            # 此处通过 event 中的 result 间接判断
-            pass  # 移到 behavior_penalty 中处理更合适
-
         # ── G6 要有笑声 ──
         if etype == "cutaway_charge" and event.get("player") == player_id:
             r += 4.0  # 笑点积满，获得插入式笑话充能
         if etype == "cutaway_joke" and event.get("player") == player_id:
             r += 8.0  # 成功使用插入式笑话（借用他人行动）
 
-        # === 天赋条件化惩罚 ===
-        talent = getattr(player, 'talent', None)
-        if talent is not None:
-            cls = talent.__class__.__name__
+    return r
 
-            # G4 反直觉：如果 RL 持续攻击未进入救世主状态的 G4 玩家
-            # 这等于在给对手充能。通过 action history 检测
-            if cls != "Savior":  # 自己不是 G4 时才检查
-                for p in game_state.alive_players():
-                    if p.player_id == player.player_id:
-                        continue
-                    opp_talent = getattr(p, 'talent', None)
-                    if (opp_talent and opp_talent.__class__.__name__ == "Savior"
-                            and not getattr(opp_talent, 'is_savior', False)
-                            and not getattr(opp_talent, 'spent', False)):
-                        # 检查最近事件：是否刚攻击了这个 G4
-                        for evt in game_state.event_log[-3:]:
-                            if (evt.get("type") == "attack"
-                                    and evt.get("attacker") == player.player_id
-                                    and evt.get("target") == p.player_id):
-                                divinity = getattr(opp_talent, 'divinity', 0)
-                                if divinity >= 8:
-                                    r -= 3.0  # 对手火种已高，继续打 = 帮他触发
-                                else:
-                                    r -= 1.0  # 轻微惩罚，提醒 RL 注意
 
-            # Combo：forfeit 打断连击的额外惩罚
-            if cls == "Combo":
-                progress = getattr(talent, 'consecutive_actions', 0)
-                if action_type == "forfeit" and progress >= 2:
-                    r -= 3.0  # 即将触发 combo 却 forfeit，浪费
+# ─────────────────────────────────────────────────────────────────────────────
+#  第四层：行为惩罚（天赋感知版）
+# ─────────────────────────────────────────────────────────────────────────────
+
+def behavior_penalty(player, game_state, action_type, action_success, action_idx=None) -> float:
+    r = 0.0
+
+    if action_type == "forfeit":
+        r -= 0.5 * player.no_action_streak
+
+    if not action_success:
+        # 递增惩罚：连续失败越多越痛
+        fail_streak = getattr(player, '_rl_fail_streak', 0) + 1
+        player._rl_fail_streak = fail_streak
+        r -= 2.0 * fail_streak          # 第1次-2, 第2次-4, 第3次-6...
+    else:
+        player._rl_fail_streak = 0       # 成功则重置
+
+    if game_state.current_round > 70:
+        r -= 0.15 * (game_state.current_round - 70)
+
+    # 纯连续移动惩罚
+    move_streak = getattr(player, '_rl_move_streak', 0)
+    if action_type == "move":
+        move_streak += 1
+        player._rl_move_streak = move_streak
+        if move_streak >= 3:
+            r -= 2.0 * (move_streak - 2)  # 第3次-2, 第4次-4, 第5次-6...
+    else:
+        player._rl_move_streak = 0
+
+    # 通用重复行动惩罚：完全相同的动作连续重复 5 次及以上
+    if action_idx is not None:
+        history = getattr(player, '_rl_action_idx_history', [])
+        history.append(action_idx)
+        # 只保留最近 20 条，避免无限增长
+        if len(history) > 20:
+            history = history[-20:]
+        player._rl_action_idx_history = history
+
+        # 从末尾往前数连续相同的 action_idx
+        streak = 1
+        for i in range(len(history) - 2, -1, -1):
+            if history[i] == action_idx:
+                streak += 1
+            else:
+                break
+
+        if streak >= 5:
+            r -= 4.0 * (streak - 4)  # 第5次: -4, 第6次: -8, 第7次: -12...
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  天赋条件化惩罚
+    # ═══════════════════════════════════════════════════════════════════════
+
+    talent = getattr(player, 'talent', None)
+    if talent is not None:
+        cls = talent.__class__.__name__
+
+        # G4 反直觉：攻击未进入救世主状态的 G4 玩家 = 给他充能
+        if cls != "Savior":  # 自己不是 G4 时才检查
+            for p in game_state.alive_players():
+                if p.player_id == player.player_id:
+                    continue
+                opp_talent = getattr(p, 'talent', None)
+                if (opp_talent and opp_talent.__class__.__name__ == "Savior"
+                        and not getattr(opp_talent, 'is_savior', False)
+                        and not getattr(opp_talent, 'spent', False)):
+                    # 检查最近事件：是否刚攻击了这个 G4
+                    for evt in game_state.event_log[-3:]:
+                        if (evt.get("type") == "attack"
+                                and evt.get("attacker") == player.player_id
+                                and evt.get("target") == p.player_id):
+                            divinity = getattr(opp_talent, 'divinity', 0)
+                            if divinity >= 8:
+                                r -= 3.0  # 对手火种已高，继续打 = 帮他触发
+                            else:
+                                r -= 1.0  # 轻微惩罚，提醒 RL 注意
+
+        # Combo：forfeit 打断连击的额外惩罚
+        if cls == "Combo":
+            progress = getattr(talent, 'consecutive_actions', 0)
+            if action_type == "forfeit" and progress >= 2:
+                r -= 3.0  # 即将触发 combo 却 forfeit，浪费
 
     return r
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  RewardTracker —— 有状态的奖励计算器
+# ─────────────────────────────────────────────────────────────────────────────
+
+class RewardTracker:
+    """
+    在 env.step() 中使用，跨步追踪势函数和事件日志偏移。
+
+    用法::
+
+        tracker = RewardTracker(rl_player_id, gamma=0.99, alpha=0.3, beta=0.5)
+        tracker.reset(player, game_state)          # env.reset() 时调用
+        reward = tracker.compute(                   # env.step() 后调用
+            player, game_state, action_type, action_success
+        )
+    """
+
+    def __init__(
+        self,
+        rl_player_id: str,
+        gamma: float = GAMMA,
+        alpha: float = ALPHA,
+        beta: float = BETA,
+    ):
+        self.rl_player_id = rl_player_id
+        self.gamma = gamma
+        self.alpha = alpha
+        self.beta = beta
+
+        self._prev_potential: float = 0.0
+        self._event_cursor: int = 0          # event_log 已处理到的位置
+
+    # ─────────────────────────────────────────────────────────────────────
+    def reset(self, player, game_state) -> None:
+        """env.reset() 时调用，初始化势函数基线和事件游标。"""
+        self._prev_potential = potential(player, game_state)
+        self._event_cursor = len(game_state.event_log)
+
+    # ─────────────────────────────────────────────────────────────────────
+    def compute(self, player, game_state, action_type, action_success, action_idx=None) -> float:
+        """计算四层奖励总和。"""
+        total = 0.0
+
+        # ── 第一层：终局奖励 ──
+        if game_state.game_over:
+            winner = game_state.winner
+            if winner == self.rl_player_id:
+                total += 100.0
+            elif winner == "nobody":
+                total += -75.0
+            else:
+                total += -100.0
+
+        # ── 第二层：势函数差分 ──
+        if game_state.game_over:
+            # 终局：Phi(terminal) = 0（PBRS 理论要求）
+            shaping = 0.0 * self.gamma - self._prev_potential
+            self._prev_potential = 0.0
+        else:
+            curr_potential = potential(player, game_state)
+            shaping = self.gamma * curr_potential - self._prev_potential
+            self._prev_potential = curr_potential
+        total += shaping
+
+        # ── 第三层：事件驱动奖励 ──
+        new_events = game_state.event_log[self._event_cursor:]
+        self._event_cursor = len(game_state.event_log)
+        total += self.alpha * event_reward(
+            new_events, self.rl_player_id, game_state
+        )
+
+        # ── 第四层：行为惩罚 ──
+        total += self.beta * behavior_penalty(
+            player, game_state, action_type, action_success, action_idx
+        )
+
+        return total
