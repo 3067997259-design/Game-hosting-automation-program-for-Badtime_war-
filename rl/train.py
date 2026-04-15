@@ -286,16 +286,18 @@ class SelfPlayCallback(BaseCallback):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def train(args: argparse.Namespace):
+    """执行训练流程。"""
     import sys
+    import torch
+
     sys.stderr.write(f"[TRAIN] args: {args}\n")
     sys.stderr.flush()
 
-    """执行训练流程。"""
+    # ── 性能设置 ──────────────────────────────────────────────────
+    torch.set_num_threads(min(8, os.cpu_count() or 1))
 
     # ── 路径设置 ──────────────────────────────────────────────────
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    import torch
-    torch.set_num_threads(min(8, os.cpu_count() or 1))
     run_name = f"maskable_ppo_{args.opponents}opp_{timestamp}"
     log_dir = Path("logs") / run_name
     ckpt_dir = Path("checkpoints") / run_name
