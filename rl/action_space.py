@@ -1,7 +1,7 @@
 """
 rl/action_space.py
 ──────────────────
-动作空间定义（天赋局，共 124 个 Discrete 动作）
+动作空间定义（天赋局，共 130 个 Discrete 动作）
 
 索引布局：
   0        : forfeit
@@ -16,7 +16,7 @@ rl/action_space.py
   ── 以下为天赋扩展 ──
   108 – 112: talent_t0_activate <对手槽 0-4>  (5 个，选目标发动天赋)
   113      : talent_t0_self                   (1 个，对自己发动天赋)
-  114 – 123: choose_option <0-9>              (10 个，用于 choose 同步)
+  114 – 129: choose_option <0-15>              (16 个，用于 choose 同步)
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 # ─────────────────────────────────────────────────────────────────────────────
 #  动作空间大小
 # ─────────────────────────────────────────────────────────────────────────────
-ACTION_COUNT = 124
+ACTION_COUNT = 130   # 原来是 124，现在需要让RL自己选天赋
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  索引偏移常量
@@ -49,7 +49,7 @@ IDX_POLICE_BASE  = 101  # 101 – 107
 # ── 天赋扩展 ──
 IDX_TALENT_T0_TARGET_BASE = 108  # 108 – 112
 IDX_TALENT_T0_SELF        = 113
-IDX_CHOOSE_BASE           = 114  # 114 – 123
+IDX_CHOOSE_BASE           = 114  # 114 – 129
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  枚举列表
@@ -165,6 +165,8 @@ SPELL_PREREQUISITES: dict[str, str] = {
 #  这些 situation 的 choose() 调用会交给 RL 决策，而非启发式
 # ─────────────────────────────────────────────────────────────────────────────
 STRATEGIC_CHOOSE_SITUATIONS: set[str] = {
+    # ── 预局 ──
+    "talent_pick",              # 天赋选择（RL 自主选天赋）
     # ── 基础机制 ──
     "petrified",                # 石化解除 vs 保持
     "recruit_pick_1",           # 加入警察选奖励 1
@@ -285,7 +287,7 @@ def idx_to_command(idx: int, player, game_state) -> str:
     调用方应保证 idx 在 action mask 允许范围内；
     若因竞态导致目标失效，则安全回退为 "forfeit"。
 
-    注意：天赋 T0 索引 (108-113) 和 choose 索引 (114-123) 不会经过此函数——
+    注意：天赋 T0 索引 (108-113) 和 choose 索引 (114-129) 不会经过此函数——
     它们在 _SyncRLController.choose() 中直接被解释为选项索引。
     如果意外到达这里，安全回退为 forfeit。
     """
@@ -339,7 +341,7 @@ def idx_to_command(idx: int, player, game_state) -> str:
     if IDX_TALENT_T0_TARGET_BASE <= idx <= IDX_TALENT_T0_SELF:
         return "forfeit"
 
-    if IDX_CHOOSE_BASE <= idx < IDX_CHOOSE_BASE + 10:
+    if IDX_CHOOSE_BASE <= idx < IDX_CHOOSE_BASE + 16:
         return "forfeit"
 
     raise ValueError(f"动作索引越界: {idx}（合法范围 0–{ACTION_COUNT - 1}）")
@@ -362,7 +364,7 @@ def idx_to_choose_option(
     索引范围：
       108-112 (IDX_TALENT_T0_TARGET_BASE + slot) → 对手槽位目标选择
       113     (IDX_TALENT_T0_SELF)                → 自身目标选择
-      114-123 (IDX_CHOOSE_BASE + i)               → 通用选项 options[i]
+      114-129 (IDX_CHOOSE_BASE + i)               → 通用选项 options[i]
 
     返回
     ----
@@ -397,8 +399,8 @@ def idx_to_choose_option(
         # 槽位无效，安全回退
         return options[0]
 
-    # ── 通用 choose 选项 (114-123) ──
-    if IDX_CHOOSE_BASE <= idx < IDX_CHOOSE_BASE + 10:
+    # ── 通用 choose 选项 (114-129) ──
+    if IDX_CHOOSE_BASE <= idx < IDX_CHOOSE_BASE + 16:
         opt_idx = idx - IDX_CHOOSE_BASE
         if opt_idx < len(options):
             return options[opt_idx]
@@ -422,7 +424,7 @@ def build_action_mask(
     choose_options: Optional[List[str]] = None,
 ) -> np.ndarray:
     """
-    返回 124 维 bool 数组，True 表示该动作当前合法可选。
+    返回 130 维 bool 数组，True 表示该动作当前合法可选。
 
     参数
     ----
@@ -435,13 +437,13 @@ def build_action_mask(
 
     设计原则：
     - choose_mode=False 时：构建正常 get_command 模式的 mask（索引 0-107）
-    - choose_mode=True  时：构建 choose 模式的 mask（索引 108-123）
+    - choose_mode=True  时：构建 choose 模式的 mask（索引 108-129）
     - 两种模式互斥，不会同时启用
     """
     mask = np.zeros(ACTION_COUNT, dtype=bool)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  choose 模式：只启用 108-123 范围的索引
+    #  choose 模式：只启用 108-129 范围的索引
     # ══════════════════════════════════════════════════════════════════════════
     if choose_mode:
         return _build_choose_mask(mask, player, game_state, choose_situation,
@@ -744,6 +746,8 @@ def build_action_mask(
 
 # 需要 RL 控制的战略性 choose situation 集合
 STRATEGIC_SITUATIONS: set[str] = {
+    # 预局
+    "talent_pick",                  # 天赋选择（RL 自主选天赋）
     # 基础博弈
     "petrified",                    # 石化解除 vs 保持
     "recruit_pick_1",               # 警察奖励选择（第1件）
@@ -789,7 +793,7 @@ def _build_choose_mask(
     """
     构建 choose 模式下的 action mask。
 
-    choose 模式下，只有 [108-123] 范围的索引可能为 True。
+    choose 模式下，只有 [108-129] 范围的索引可能为 True。
     具体哪些索引可用取决于 situation 类型：
 
     - talent_t0 + 需要选目标的天赋：启用 108-112（对手槽）或 113（自身）
@@ -803,7 +807,7 @@ def _build_choose_mask(
     if situation == "talent_t0":
         # 选项通常是 ["发动天赋", "不发动，正常行动"]
         # 映射到 choose 选项索引
-        for i in range(min(len(options), 10)):
+        for i in range(min(len(options), 16)):
             mask[IDX_CHOOSE_BASE + i] = True
         return mask
 
@@ -846,7 +850,7 @@ def _build_choose_mask(
         # 兜底：如果没有匹配到任何槽位（选项格式不是玩家名），
         # 回退到通用 choose 索引
         if not has_any:
-            for i in range(min(len(options), 10)):
+            for i in range(min(len(options), 16)):
                 mask[IDX_CHOOSE_BASE + i] = True
         return mask
 
@@ -860,17 +864,17 @@ def _build_choose_mask(
     if situation in _SELF_SITUATIONS:
         # 通常是 ["发动", "不发动"] 之类的二选一
         # 用 choose 索引处理
-        for i in range(min(len(options), 10)):
+        for i in range(min(len(options), 16)):
             mask[IDX_CHOOSE_BASE + i] = True
         return mask
 
     # ══════════════════════════════════════════════════════════════
-    #  通用 choose：直接映射选项到 choose 索引 (114-123)
+    #  通用 choose：直接映射选项到 choose 索引 (114-129)
     # ══════════════════════════════════════════════════════════════
     #  适用于：petrified, recruit_pick, hexagram_my/opp_choice,
     #          captain_election, hoshino_form_choice, ripple_activation_choice,
     #          hoshino_self_doubt_choice, hoshino_reorder_ammo 等
-    n_options = min(len(options), 10)
+    n_options = min(len(options), 16)
     for i in range(n_options):
         mask[IDX_CHOOSE_BASE + i] = True
 

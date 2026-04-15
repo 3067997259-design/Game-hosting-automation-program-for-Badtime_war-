@@ -56,6 +56,7 @@ def make_env(
     rank: int = 0,
     n_stack: int = 1,
     opponent_pool=None,
+    rl_talent: Optional[int] = None,
 ):
     """返回一个创建 BadtimeWarEnv 的闭包，供 DummyVecEnv 使用。"""
     def _init():
@@ -70,6 +71,7 @@ def make_env(
                     max_rounds=max_rounds,
                     n_stack=n_stack,
                     opponent_pool=opponent_pool,
+                    rl_talent=rl_talent,
                 )
                 env = Monitor(env)
                 env.reset(seed=seed + rank)
@@ -326,6 +328,7 @@ def train(args: argparse.Namespace):
             rank=i,
             n_stack=args.n_stack,
             opponent_pool=opponent_pool,
+            rl_talent=args.rl_talent,
         )
         for i in range(args.n_envs)
     ]
@@ -342,6 +345,7 @@ def train(args: argparse.Namespace):
             seed=args.seed + 1000,
             rank=0,
             n_stack=args.n_stack,
+            rl_talent=args.rl_talent,
         )
     ])
 
@@ -554,6 +558,10 @@ def parse_args() -> argparse.Namespace:
                 help="Self-play 最终 BasicAI 混入概率")
     p.add_argument("--min-save-win-rate", type=float, default=0.45,
                 help="Self-play 质量门控：胜率低于此值时不保存模型到对手池")
+
+    #天赋选择参数
+    p.add_argument("--rl-talent", type=int, default=None,
+                   help="RL 天赋编号（None=RL自选, 0=无天赋, 1-14=指定）")
 
     return p.parse_args()
 
