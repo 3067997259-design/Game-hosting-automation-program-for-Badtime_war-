@@ -929,6 +929,11 @@ class ActionTurnManager:
             sp = self.state.get_player(sp_id)
             if not sp:
                 continue
+            # Terror 攻击不可被插入式笑话借用————Terror并不好笑
+            if (sp.talent and hasattr(sp.talent, 'is_terror')
+                    and sp.talent.is_terror):
+                last_reason = f"{sp.name} 处于 Terror 状态，无法借用攻击"
+                continue
             valid, reason = validate(parsed, sp, self.state)
             if valid:
                 source_player = sp
@@ -1325,6 +1330,10 @@ class ActionTurnManager:
         layer_str = parsed.get("layer")
         attr_str = parsed.get("attr")
         weapon = player.get_weapon(weapon_name)
+
+        if weapon is None:
+            display.show_info(f"❌ {player.name} 没有武器「{weapon_name}」")
+            return "attack"  # 返回 action_type，不崩溃
 
         from models.equipment import WeaponRange
         if weapon.weapon_range == WeaponRange.AREA:
