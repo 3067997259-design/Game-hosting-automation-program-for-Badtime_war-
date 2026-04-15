@@ -363,7 +363,7 @@ def train(args: argparse.Namespace):
             env=train_env,
             tensorboard_log=str(log_dir),
             learning_rate=args.lr,
-            device="auto"
+            device=args.device
         )
     else:
         model = MaskablePPO(
@@ -379,7 +379,7 @@ def train(args: argparse.Namespace):
             ent_coef=args.ent_coef,
             vf_coef=0.5,
             max_grad_norm=0.5,
-            device="auto",
+            device=args.device,
             policy_kwargs=dict(
                 features_extractor_class=GRUFeatureExtractor,
                 features_extractor_kwargs=dict(
