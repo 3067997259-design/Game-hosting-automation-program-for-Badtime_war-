@@ -214,7 +214,9 @@ class CurriculumCallback(BaseCallback):
                 self._episode_wins.clear()  # 重置统计
 
                 # Entropy 回弹：临时提高 ent_coef 鼓励重新探索
-                self._original_ent_coef = self.model.ent_coef
+                # 仅在首次回弹时记录原始值，避免快速连续升级时覆盖真实原值
+                if self._original_ent_coef is None:
+                    self._original_ent_coef = self.model.ent_coef
                 self.model.ent_coef = self.ent_rebound_coef
                 self._rebound_start_step = self.num_timesteps
 
