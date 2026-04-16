@@ -147,9 +147,17 @@ def train_bc(data_path: str, output_path: str,
     criterion = nn.CrossEntropyLoss()
 
     output_path = str(output_path)
-    # 兼容 .zip 后缀（SB3 风格），实际保存为 .pt
-    best_ckpt = output_path.replace(".zip", "_best.pt")
-    final_ckpt = output_path.replace(".zip", "_final.pt")
+    # 兼容 .zip 后缀（SB3 风格），实际保存为 .pt；
+    # 若路径不含 .zip / .pt 后缀，则作为无后缀 base 使用，
+    # 避免 str.replace 无替换时 best/final 路径冲突互相覆盖。
+    for ext in (".zip", ".pt"):
+        if output_path.endswith(ext):
+            base = output_path[: -len(ext)]
+            break
+    else:
+        base = output_path
+    best_ckpt = base + "_best.pt"
+    final_ckpt = base + "_final.pt"
     Path(best_ckpt).parent.mkdir(parents=True, exist_ok=True)
 
     best_val_acc = 0.0

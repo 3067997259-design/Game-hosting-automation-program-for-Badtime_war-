@@ -183,10 +183,18 @@ class BCCollectorController(BasicAIController):
         if action_idx is None:
             return
 
-        obs = build_obs(player, game_state, player.player_id)
-        # 战术宏模式映射到 choose 动作空间（108-129），使用 choose mask；
-        # 普通模式使用 action mask（0-107）。
-        if situation == "hoshino_tactical_input":
+        # 战术宏模式的动作索引位于 108-129，属于 choose 动作空间；
+        # 因此 obs 也必须标记为 choose 模式，否则 [512-514] 指示维度为 0，
+        # 网络无法区分"正常 get_command"与"战术宏"两种动作空间（obs-action 错配）。
+        is_tactical = (situation == "hoshino_tactical_input")
+
+        if is_tactical:
+            obs = build_obs(
+                player, game_state, player.player_id,
+                choose_mode=True,
+                choose_situation=situation,
+                choose_n_options=0,
+            )
             mask = build_action_mask(
                 player, game_state, player.player_id,
                 choose_mode=True,
@@ -199,6 +207,7 @@ class BCCollectorController(BasicAIController):
             mask = mask.copy()
             mask[IDX_TALENT_T0_TARGET_BASE:IDX_CHOOSE_BASE + 16] = True
         else:
+            obs = build_obs(player, game_state, player.player_id)
             mask = build_action_mask(player, game_state, player.player_id)
 
         if 0 <= action_idx < ACTION_COUNT and mask[action_idx]:
