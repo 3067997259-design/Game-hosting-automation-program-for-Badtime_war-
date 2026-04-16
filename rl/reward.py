@@ -262,13 +262,13 @@ def _talent_potential(talent, cls: str, player, game_state) -> float:
 
     # ── G5 涟漪 ──
     elif cls == "Ripple":
-        reminiscence = getattr(talent, 'reminiscence', 0)
-        phi += reminiscence * 0.5
-        # 锚定进行中
+        # 追忆积累有价值
+        phi += getattr(talent, 'reminiscence', 0) * 1.5
+        # 锚定激活中有高价值（正在执行锚定 = 即将获得强力效果）
         if getattr(talent, 'anchor_active', False):
-            phi += 8
-            phi += getattr(talent, 'anchor_fate', 0) * 3  # 命定值越高越好
-            phi -= getattr(talent, 'anchor_destructive_count', 0) * 5  # 破坏性行动是负面的
+            phi += 15 + getattr(talent, 'anchor_variance', 0) * 3
+        # 已发动次数（经验积累）
+        phi += getattr(talent, 'total_uses', 0) * 5
 
     # ── G6 要有笑声 ──
     elif cls == "CutawayJoke":
@@ -454,6 +454,32 @@ def event_reward(events: List[Dict[str, Any]], player_id: str,
             r += 4.0  # 笑点积满，获得插入式笑话充能
         if etype == "cutaway_joke" and event.get("player") == player_id:
             r += 8.0  # 成功使用插入式笑话（借用他人行动）
+
+        # ── G5 往世的涟漪 ──
+        # 锚定启动（选择了有价值的目标）
+        if etype == "ripple_anchor_start" and event.get("player") == player_id:
+            variance = event.get("variance", 0)
+            r += 8.0 + variance * 2.0  # 变数越高（命数越低），锚定越容易成功，奖励越高
+
+        # 锚定成功（极高价值：无视一切防御的击杀/破甲）
+        if etype == "ripple_anchor_success" and event.get("player") == player_id:
+            r += 25.0
+
+        # 锚定失败
+        if etype == "ripple_anchor_fail" and event.get("player") == player_id:
+            r -= 5.0  # 轻微惩罚（追忆已消耗，但可以选择回溯）
+
+        # 献诗发动
+        if etype == "ripple_poem" and event.get("player") == player_id:
+            r += 10.0  # 献诗是强力增益
+
+        # === 被锚定方的奖励 ===
+        # 如果 RL 被锚定，执行破坏性行动打破锚定
+        if etype == "ripple_anchor_fail" and event.get("target") == player_id:
+            r += 15.0  # 成功打破锚定（避免被无视防御击杀）
+
+        if etype == "ripple_anchor_success" and event.get("target") == player_id:
+            r -= 20.0  # 被成功锚定（极大惩罚）
 
     return r
 

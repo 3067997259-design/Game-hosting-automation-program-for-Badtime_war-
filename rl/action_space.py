@@ -770,10 +770,17 @@ STRATEGIC_SITUATIONS: set[str] = {
     # G4 愿负世
     "savior_activate",              # 涟漪强化后主动发动
     # G5 涟漪
-    "ripple_activation_choice",     # 选锚定 vs 献诗
+    "ripple_choose_method",         # 选锚定 vs 献诗
     "ripple_anchor_type",           # 锚定事件类型
-    "ripple_anchor_target",         # 锚定目标
+    "ripple_anchor_kill_target",    # 击杀目标
+    "ripple_anchor_armor_target",   # 护甲目标
+    "ripple_anchor_armor_pick",     # 护甲层选择
+    "ripple_anchor_acquire_item",   # 获取物品
+    "ripple_anchor_arrive_loc",     # 到达地点
     "ripple_poem_target",           # 献诗目标
+    "ripple_anchor_fail",           # 锚定失败后选择回溯/留下
+    "ripple_destiny_damage",        # 爱与记忆之诗伤害选择
+    "ripple_hexagram_free_choice",  # 六爻献诗自由选择
     # G6 要有笑声
     "cutaway_borrow_target",        # 借用行动目标
     # G7 星野
@@ -820,7 +827,8 @@ def _build_choose_mask(
         "resurrection_pick_target",
         "hologram_target",
         "mythland_pick_target",
-        "ripple_anchor_target",
+        "ripple_anchor_kill_target",
+        "ripple_anchor_armor_target",
         "ripple_poem_target",
         "cutaway_borrow_target",
     }

@@ -114,6 +114,11 @@ class PoemMixin:
 
         self.poem_use_counts[poem_type] = self.poem_use_counts.get(poem_type, 0) + 1
 
+        # RL 事件日志
+        self.state.log_event("ripple_poem",
+                             player=self.player_id,
+                             poem_type=poem_type)
+
         from combat.damage_resolver import notify_positive_talent_effect
         caster = self.state.get_player(self.player_id)
         notify_positive_talent_effect(caster, target)

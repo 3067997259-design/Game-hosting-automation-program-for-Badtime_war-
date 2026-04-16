@@ -148,9 +148,15 @@ class CurriculumCallback(BaseCallback):
         win_threshold: float = 0.55,  # fallback default
         window: int = 200,
         verbose: int = 0,
+        ent_rebound_coef: float = 0.03,  # stage 升级时的 entropy 回弹值
+        ent_rebound_decay_steps: int = 200_000,  # 回弹后衰减回原值的步数
     ):
         super().__init__(verbose)
         self.stages = stages
+        self.ent_rebound_coef = ent_rebound_coef
+        self.ent_rebound_decay_steps = ent_rebound_decay_steps
+        self._rebound_start_step: int | None = None
+        self._original_ent_coef: float | None = None
         # Per-stage thresholds: one per transition (len = len(stages) - 1)
         if win_thresholds and len(win_thresholds) == len(stages) - 1:
             self.win_thresholds = win_thresholds
@@ -171,6 +177,21 @@ class CurriculumCallback(BaseCallback):
         self._episode_wins: list[bool] = []
 
     def _on_step(self) -> bool:
+        # Entropy 回弹衰减
+        if self._rebound_start_step is not None and self._original_ent_coef is not None:
+            elapsed = self.num_timesteps - self._rebound_start_step
+            if elapsed >= self.ent_rebound_decay_steps:
+                self.model.ent_coef = self._original_ent_coef
+                self._rebound_start_step = None
+                self._original_ent_coef = None
+            else:
+                # 线性衰减
+                progress = elapsed / self.ent_rebound_decay_steps
+                self.model.ent_coef = (
+                    self.ent_rebound_coef * (1 - progress)
+                    + self._original_ent_coef * progress
+                )
+
         infos = self.locals.get("infos", [])
         for info in infos:
             ep_info = info.get("episode")
@@ -192,8 +213,16 @@ class CurriculumCallback(BaseCallback):
                 self._update_envs(new_opponents)
                 self._episode_wins.clear()  # 重置统计
 
+                # Entropy 回弹：临时提高 ent_coef 鼓励重新探索
+                # 仅在首次回弹时记录原始值，避免快速连续升级时覆盖真实原值
+                if self._original_ent_coef is None:
+                    self._original_ent_coef = self.model.ent_coef
+                self.model.ent_coef = self.ent_rebound_coef
+                self._rebound_start_step = self.num_timesteps
+
                 if self.verbose >= 1:
                     print(f"  [Curriculum] 升级! 对手数: {new_opponents} (stage {self._current_stage}/{len(self.stages)-1}, win_rate={win_rate:.1%}, threshold={threshold:.1%})")
+                    print(f"  [Curriculum] Entropy 回弹: ent_coef={self.ent_rebound_coef} (原值={self._original_ent_coef}, 衰减步数={self.ent_rebound_decay_steps})")
 
         return True
 
@@ -304,7 +333,10 @@ def train(args: argparse.Namespace):
     log_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     if args.curriculum:
-        stages = list(range(1, args.opponents + 1))
+        stages = list(range(args.curriculum_start, args.opponents + 1))  # 从 curriculum_start 开始，跳过 1v1
+        if not stages:
+            print(f"Warning: curriculum_start ({args.curriculum_start}) > opponents ({args.opponents}), disabling curriculum.")
+            stages = [args.opponents]
         initial_opponents = stages[0]
     else:
         stages = []
@@ -406,6 +438,8 @@ def train(args: argparse.Namespace):
             win_threshold=args.curriculum_threshold,
             window=200,
             verbose=1,
+            ent_rebound_coef=args.ent_rebound,
+            ent_rebound_decay_steps=args.ent_rebound_decay,
         )
 
     callback_list = [
@@ -547,11 +581,17 @@ def parse_args() -> argparse.Namespace:
 
     # 课程学习
     p.add_argument("--curriculum", action="store_true",
-                help="启用课程学习（从1个对手逐步增加到 --opponents 个）")
+                help="启用课程学习（从 --curriculum-start 个对手逐步增加到 --opponents 个）")
+    p.add_argument("--curriculum-start", type=int, default=2,
+                help="课程学习起始对手数（默认2，跳过1v1）")
     p.add_argument("--curriculum-threshold", type=float, default=0.55,
                 help="课程升级胜率阈值（全局，如果未指定 --curriculum-thresholds）")
     p.add_argument("--curriculum-thresholds", type=float, nargs="+", default=None,
                 help="每阶段课程升级胜率阈值（例如 0.55 0.40 表示两次升级的阈值）")
+    p.add_argument("--ent-rebound", type=float, default=0.03,
+                help="课程升级时的 entropy 回弹系数")
+    p.add_argument("--ent-rebound-decay", type=int, default=200_000,
+                help="entropy 回弹衰减步数")
 
     # Self-play 参数
     p.add_argument("--self-play", action="store_true",
@@ -564,8 +604,8 @@ def parse_args() -> argparse.Namespace:
                 help="Self-play 模型保存频率（步数）")
     p.add_argument("--initial-basic-ai-prob", type=float, default=0.5,
                 help="Self-play 初始 BasicAI 混入概率")
-    p.add_argument("--final-basic-ai-prob", type=float, default=0.1,
-                help="Self-play 最终 BasicAI 混入概率")
+    p.add_argument("--final-basic-ai-prob", type=float, default=0.3,
+                help="Self-play 最终 BasicAI 混入概率（不低于0.3，确保策略多样性）")
     p.add_argument("--min-save-win-rate", type=float, default=0.45,
                 help="Self-play 质量门控：胜率低于此值时不保存模型到对手池")
 
