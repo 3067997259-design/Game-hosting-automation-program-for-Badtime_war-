@@ -2,7 +2,7 @@
 """
 rl/obs_builder.py
 ─────────────────
-观测向量构建器（天赋局，共 514 维 float32）
+观测向量构建器（天赋局，共 515 维 float32）
 
 维度布局：
   ┌─ 原有观测（不变）─────────────────────────────────────────┐
@@ -24,7 +24,8 @@ rl/obs_builder.py
   │   每个对手槽位 34 维 = 天赋ID(14) + 天赋状态(20)          │
   │   slot0=[341-374] slot1=[375-408] slot2=[409-442]         │
   │   slot3=[443-476] slot4=[477-510]                         │
-  │ [511 – 513] choose 模式指示器 (3)                         │
+  │ [511]       存活对手数量      (1)  n_alive/5              │
+  │ [512 – 514] choose 模式指示器 (3)                         │
   └───────────────────────────────────────────────────────────┘
 
 自身天赋状态 40 维槽位分配（按批次逐步填充）：
@@ -41,8 +42,11 @@ rl/obs_builder.py
                     atk_bonus/6, spent, can_active, aoe_bonus/2
   批次 6: [0-14]    G2 active, duration/6, location(6-hot), targets_count/5, ...
           [0-7]     G3 barrier_active, barrier_round/10, partner_slot(5-hot), ...
-          [0-9]     G5 reminiscence/24, activation_count/5, anchor_active,
-                    anchor_type(4-hot), anchor_rounds/5, destructive/3, ...
+          [0-31]    G5 reminiscence/24, threshold/24, total_uses/5,
+                    anchor_active, anchor_type(4-hot), anchor_rounds/5,
+                    destructive/3, fate/5, variance/5, can_activate,
+                    锚定评估 5×3(feasible,fate/5,variance/5),
+                    poem_use/5, destiny_use/5, destiny_cost/24, love_wish
   批次 7: [0-24]    G7 form(3-hot), cost/5, iron_horus_hp/2, shield_mode,
                     ammo_count/6, is_terror, terror_hp/6, color(3), fused,
                     tactical_unlocked, front/5, back/5, guard_mode, ...
@@ -53,10 +57,13 @@ rl/obs_builder.py
   [10-14] 数值：divinity/temp_hp/terror_hp/laugh_points 等
   [15-19] 预留
 
+存活对手数量：
+  [511] n_alive_opponents / 5.0
+
 choose 模式指示器：
-  [511] is_choose_mode: 0=get_command, 1=choose
-  [512] choose_situation_id / 21.0 (归一化)
-  [513] choose_n_options / 16.0 (归一化)
+  [512] is_choose_mode: 0=get_command, 1=choose
+  [513] choose_situation_id / 21.0 (归一化)
+  [514] choose_n_options / 16.0 (归一化)
 """
 
 from __future__ import annotations
@@ -73,7 +80,7 @@ from rl.action_space import LOCATIONS, WEAPONS, get_opponent_slots
 #  常量
 # ─────────────────────────────────────────────────────────────────────────────
 
-OBS_DIM = 514
+OBS_DIM = 515
 _CHOOSE_OBS_DIM = 3
 
 # 原有观测维度（用于内部断言，不对外暴露）
@@ -326,10 +333,37 @@ def _build_self_talent_state(player: "Player") -> np.ndarray:
 
     if cls == "Ripple":
         buf[0] = getattr(talent, 'reminiscence', 0) / 24.0
-        buf[1] = getattr(talent, 'activation_count', 0) / 5.0
-        buf[2] = float(getattr(talent, 'anchor_active', False))
-        buf[3] = getattr(talent, 'anchor_remaining_rounds', 0) / 5.0
-        buf[4] = getattr(talent, 'destructive_count', 0) / 3.0
+        buf[1] = getattr(talent, 'activation_threshold', 24) / 24.0
+        buf[2] = getattr(talent, 'total_uses', 0) / 5.0
+        buf[3] = float(getattr(talent, 'anchor_active', False))
+        # anchor_type one-hot [4-7]
+        atype = getattr(talent, 'anchor_type', None)
+        type_map = {"kill": 4, "break_armor": 5, "acquire": 6, "arrive": 7}
+        if atype in type_map:
+            buf[type_map[atype]] = 1.0
+        buf[8] = getattr(talent, 'anchor_rounds_left', 0) / 5.0
+        buf[9] = getattr(talent, 'anchor_destructive_count', 0) / 3.0
+        buf[10] = getattr(talent, 'anchor_fate', 0) / 5.0
+        buf[11] = getattr(talent, 'anchor_variance', 0) / 5.0
+
+        # can_activate_now
+        can_activate = (
+            getattr(talent, 'reminiscence', 0) >= getattr(talent, 'activation_threshold', 24)
+            and not getattr(talent, 'anchor_active', False)
+        )
+        buf[12] = float(can_activate)
+
+        # 锚定评估结果（仅在可激活时计算，否则全 -1）
+        if can_activate and hasattr(player, 'player_id'):
+            _fill_anchor_eval(buf, 13, talent, player, getattr(talent, 'state', None))
+        else:
+            buf[13:28] = -1.0  # 哨兵值：不适用
+
+        # 献诗相关
+        buf[28] = sum(getattr(talent, 'poem_use_counts', {}).values()) / 5.0
+        buf[29] = getattr(talent, 'destiny_use_count', 0) / 5.0
+        buf[30] = talent.get_destiny_cost() / 24.0 if hasattr(talent, 'get_destiny_cost') else 0.5
+        buf[31] = float(bool(getattr(talent, 'love_wish', {})))
         return buf
 
     # ──────────────────────────────────────────────────────────
@@ -384,6 +418,44 @@ def _build_self_talent_state(player: "Player") -> np.ndarray:
 
     # 未知天赋类型：保持全 -1
     return buf
+
+
+def _fill_anchor_eval(buf, offset, talent, player, game_state):
+    """
+    为 G5 天赋填充锚定评估结果。
+    对每个存活对手运行 AnchorVerifier.verify_kill()，
+    将 (feasible, fate/5, variance/5) 写入 buf[offset + slot*3 : offset + slot*3 + 3]。
+    """
+    if game_state is None:
+        buf[offset:offset + 15] = -1.0
+        return
+
+    try:
+        from engine.anchor_resolver import AnchorVerifier
+    except ImportError:
+        buf[offset:offset + 15] = -1.0
+        return
+
+    verifier = AnchorVerifier(game_state)
+    opp_slots = get_opponent_slots(player, game_state)
+
+    for slot_idx in range(5):
+        base = offset + slot_idx * 3
+        if slot_idx < len(opp_slots):
+            opp = opp_slots[slot_idx]
+            if opp is not None and opp.is_alive():
+                try:
+                    result = verifier.verify_kill(player, opp)
+                    buf[base] = float(result.feasible)
+                    buf[base + 1] = result.fate / 5.0
+                    buf[base + 2] = result.variance / 5.0
+                    continue
+                except Exception:
+                    pass
+        # 对手不存在或已死亡或评估失败
+        buf[base] = -1.0
+        buf[base + 1] = -1.0
+        buf[base + 2] = -1.0
 
 
 def _build_opp_talent_state(opp: "Player") -> np.ndarray:
@@ -456,12 +528,13 @@ def _build_opp_talent_state(opp: "Player") -> np.ndarray:
         buf[0] = getattr(talent, 'reminiscence', 0) / 24.0
         buf[1] = float(getattr(talent, 'anchor_active', False))
         buf[2] = getattr(talent, 'anchor_rounds_left', 0) / 5.0
-        buf[3] = getattr(talent, 'total_uses', 0) / 5.0
-        # buf[4]: 锚定目标是否是"我"（需要 rl_player 信息，由调用方填充）
-        # buf[5]: 我是否持有此 G5 的爱愿（需要 rl_player 信息，由调用方填充）
-        buf[6] = getattr(talent, 'anchor_fate', 0) / 10.0
-        buf[7] = getattr(talent, 'anchor_variance', 0) / 5.0
-        buf[8] = getattr(talent, 'anchor_destructive_count', 0) / 3.0
+        buf[3] = getattr(talent, 'anchor_destructive_count', 0) / 3.0
+        buf[4] = getattr(talent, 'anchor_fate', 0) / 5.0
+        buf[5] = getattr(talent, 'anchor_variance', 0) / 5.0
+        # buf[6]: RL 是否是被锚定的目标（需要 rl_player 信息，由调用方填充）
+        buf[7] = float(getattr(talent, 'reminiscence', 0) >= getattr(talent, 'activation_threshold', 24))  # 对手即将可以锚定
+        buf[8] = getattr(talent, 'total_uses', 0) / 5.0
+        # buf[9]: 我是否持有此 G5 的爱愿（需要 rl_player 信息，由调用方填充）
 
     elif cls == "Hoshino":
         # 形态 one-hot [0-2]
@@ -535,14 +608,14 @@ def _fill_opp_talent_relational(
             opp_talent_buf[3] = float(rl_pid in barrier_players)
 
     elif cls == "Ripple":
-        # buf[4]: 锚定目标是否是我
+        # buf[6]: RL 是否是被锚定的目标
         if getattr(talent, 'anchor_active', False):
-            opp_talent_buf[4] = float(
+            opp_talent_buf[6] = float(
                 getattr(talent, 'anchor_target_id', None) == rl_pid
             )
-        # buf[5]: 我是否持有此 G5 的爱愿
+        # buf[9]: 我是否持有此 G5 的爱愿
         love_wish = getattr(talent, 'love_wish', {})
-        opp_talent_buf[5] = float(love_wish.get(rl_pid, 0) > 0)
+        opp_talent_buf[9] = float(love_wish.get(rl_pid, 0) > 0)
 
 
 # ════════════════════════════════════════════════════════════
@@ -571,9 +644,19 @@ _CHOOSE_SITUATION_MAP: dict[str, int] = {
     "hoshino_form_choice":     18,
     "hoshino_self_doubt_choice": 19,
     "cutaway_borrow_target":   20,
-    "talent_pick": 21
+    "talent_pick":             21,
+    # G5 锚定系统新增
+    "ripple_anchor_kill_target":  22,
+    "ripple_anchor_armor_target": 23,
+    "ripple_anchor_armor_pick":   24,
+    "ripple_anchor_acquire_item": 25,
+    "ripple_anchor_arrive_loc":   26,
+    "ripple_anchor_fail":         27,
+    # G5 献诗系统新增
+    "ripple_destiny_damage":      28,
+    "ripple_hexagram_free_choice": 29,
 }
-_MAX_CHOOSE_SITUATIONS = 21
+_MAX_CHOOSE_SITUATIONS = 29
 
 
 def build_choose_obs(situation: str, n_options: int) -> np.ndarray:
@@ -631,8 +714,9 @@ def build_obs(player: "Player", game_state: "GameState",
         [301 –340 ]  自身天赋状态          (40)  哨兵 -1
         [341 –510 ]  对手天赋 5×(ID14+状态20) (170) 交错布局
                      slot0=[341-374] slot1=[375-408] ...
-        [511 –513 ]  choose 模式指示       (3)
-        ─── 总计 514 ───
+        [511]        存活对手数量          (1)  n_alive/5
+        [512 –514 ]  choose 模式指示       (3)
+        ─── 总计 515 ───
     """
     from models.equipment import ArmorLayer
     from utils.attribute import Attribute
@@ -1036,8 +1120,18 @@ def build_obs(player: "Player", game_state: "GameState",
             obs[block_base + _TALENT_ID_DIM:
                 block_base + opp_block_size] = opp_state
 
-    # ── [511 – 513] choose 模式指示 (3 维) ──
-    choose_start = opp_talent_start + 5 * opp_block_size  # 511
+    # ── [511] 存活对手数量 (1 维) ──
+    alive_opp_start = opp_talent_start + 5 * opp_block_size  # 511
+    alive_opponents = 0
+    for pid in game_state.player_order:
+        if pid != rl_player_id:
+            p = game_state.get_player(pid)
+            if p and p.is_alive():
+                alive_opponents += 1
+    obs[alive_opp_start] = alive_opponents / 5.0
+
+    # ── [512 – 514] choose 模式指示 (3 维) ──
+    choose_start = alive_opp_start + 1  # 512
     if choose_mode:
         obs[choose_start:choose_start + _CHOOSE_OBS_DIM] = \
             build_choose_obs(choose_situation, choose_n_options)

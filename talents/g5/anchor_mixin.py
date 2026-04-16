@@ -621,6 +621,14 @@ class AnchorMixin:
         self.anchor_rounds_left = 5
         self.anchor_destructive_count = 0
 
+        # RL 事件日志
+        self.state.log_event("ripple_anchor_start",
+                             player=self.player_id,
+                             target=self.anchor_target_id,
+                             anchor_type=self.anchor_type,
+                             fate=self.anchor_fate,
+                             variance=self.anchor_variance)
+
         display.show_info(self._format_anchor_start_msg(player, target))
 
     def _format_anchor_start_msg(self, player, target):
@@ -983,6 +991,10 @@ class AnchorMixin:
     def _anchor_resolve_simple(self):
         me = self._get_caster()
         if me and me.is_alive():
+            # RL 事件日志：简单锚定成功
+            self.state.log_event("ripple_anchor_success",
+                                 player=self.player_id,
+                                 target=self.anchor_target_id)
             display.show_info(
                 f"\n{'='*60}"
                 f"\n" + prompt_manager.get_prompt(
@@ -1000,6 +1012,10 @@ class AnchorMixin:
             # V1.92: 应用「一页永恒的善见天」D4加成
             self._apply_anchor_d4_bonus()
         else:
+            # RL 事件日志：发动者死亡导致锚定失败
+            self.state.log_event("ripple_anchor_fail",
+                                 player=self.player_id,
+                                 target=self.anchor_target_id)
             display.show_info(
                 prompt_manager.get_prompt(
                     "talent", "g5ripple.caster_death_anchor_fail",
@@ -1074,6 +1090,10 @@ class AnchorMixin:
             )
 
         if adjusted_count <= self.anchor_variance:
+            # RL 事件日志：锚定成功
+            self.state.log_event("ripple_anchor_success",
+                                 player=self.player_id,
+                                 target=self.anchor_target_id)
             display.show_info(
                 f"\n" + prompt_manager.get_prompt(
                     "talent", "g5ripple.combat_anchor_success",
@@ -1090,6 +1110,10 @@ class AnchorMixin:
             # V1.92: 应用「一页永恒的善见天」D4加成
             self._apply_anchor_d4_bonus()
         else:
+            # RL 事件日志：锚定失败
+            self.state.log_event("ripple_anchor_fail",
+                                 player=self.player_id,
+                                 target=self.anchor_target_id)
             display.show_info(
                 prompt_manager.get_prompt(
                     "talent", "g5ripple.combat_anchor_failure",
