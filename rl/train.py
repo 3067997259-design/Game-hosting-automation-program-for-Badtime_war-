@@ -334,6 +334,9 @@ def train(args: argparse.Namespace):
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     if args.curriculum:
         stages = list(range(args.curriculum_start, args.opponents + 1))  # 从 curriculum_start 开始，跳过 1v1
+        if not stages:
+            print(f"Warning: curriculum_start ({args.curriculum_start}) > opponents ({args.opponents}), disabling curriculum.")
+            stages = [args.opponents]
         initial_opponents = stages[0]
     else:
         stages = []

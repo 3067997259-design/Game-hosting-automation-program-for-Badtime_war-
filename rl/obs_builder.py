@@ -62,7 +62,7 @@ rl/obs_builder.py
 
 choose 模式指示器：
   [512] is_choose_mode: 0=get_command, 1=choose
-  [513] choose_situation_id / 21.0 (归一化)
+  [513] choose_situation_id / 29.0 (归一化)
   [514] choose_n_options / 16.0 (归一化)
 """
 
