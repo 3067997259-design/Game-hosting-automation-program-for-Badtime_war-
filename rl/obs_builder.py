@@ -655,8 +655,10 @@ _CHOOSE_SITUATION_MAP: dict[str, int] = {
     # G5 献诗系统新增
     "ripple_destiny_damage":      28,
     "ripple_hexagram_free_choice": 29,
+    # G7 战术宏（BC 收集/RL 微调时 get_command 也会走 choose obs 指示）
+    "hoshino_tactical_input":     30,
 }
-_MAX_CHOOSE_SITUATIONS = 29
+_MAX_CHOOSE_SITUATIONS = 30
 
 
 def build_choose_obs(situation: str, n_options: int) -> np.ndarray:
