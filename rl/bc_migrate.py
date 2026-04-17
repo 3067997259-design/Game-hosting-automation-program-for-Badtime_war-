@@ -12,8 +12,7 @@ PPO 的 policy head 有 3 层：Linear(192,384) → Linear(384,256) → Linear(2
     python -m rl.bc_migrate \
         --bc-weights pretrained/g7_bc_best.pt \
         --output pretrained/g7_warmstart.zip \
-        --n-stack 30 \
-        --opponents 5
+        --n-stack 30
 """
 
 from __future__ import annotations
