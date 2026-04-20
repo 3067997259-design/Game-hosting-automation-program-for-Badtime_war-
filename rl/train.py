@@ -390,7 +390,7 @@ def train(args: argparse.Namespace):
         make_env(
             num_opponents=initial_opponents if args.curriculum else args.opponents,
             max_rounds=args.max_rounds,
-            seed=args.seed + 1000 + i,
+            seed=args.seed + 1000,
             rank=i,
             n_stack=args.n_stack,
             rl_talent=args.rl_talent,
