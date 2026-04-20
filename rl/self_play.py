@@ -15,7 +15,14 @@ import numpy as np
 from sb3_contrib import MaskablePPO
 
 from controllers.base import PlayerController
-from rl.action_space import ACTION_COUNT, IDX_FORFEIT, build_action_mask, idx_to_command
+from rl.action_space import (
+    ACTION_COUNT,
+    IDX_FORFEIT,
+    IDX_CHOOSE_BASE,
+    build_action_mask,
+    idx_to_choose_option,
+    idx_to_command,
+)
 from rl.obs_builder import OBS_DIM, build_obs
 from rl.rl_controller import RLController
 
@@ -60,6 +67,28 @@ class OpponentRLController(RLController):
         """每局开始时重置帧堆叠缓冲。"""
         self._obs_stack = np.zeros(OBS_DIM * self.n_stack, dtype=np.float32)
 
+    def reset_game_state(self):
+        """重置所有跨局会泄漏的状态（用于 stats_runner 等复用 controller 实例的场景）。
+
+        除了 reset_stack()，还清理继承自 RLController 的 per-game 状态：
+          - _event_log：否则跨局无限增长，造成内存泄漏
+          - _threat_scores：否则上一局的威胁分会干扰启发式 target 选择
+          - _been_attacked_by / _round_number
+          - pending_action_idx / last_action_type / last_action_success
+          - _player_ref / _state_ref / _player_id
+        """
+        self.reset_stack()
+        self._event_log.clear()
+        self._threat_scores.clear()
+        self._been_attacked_by.clear()
+        self._round_number = 0
+        self.pending_action_idx = 0
+        self.last_action_type = ""
+        self.last_action_success = True
+        self._player_ref = None
+        self._state_ref = None
+        self._player_id = None
+
     def get_command(
         self,
         player: Any,
@@ -67,6 +96,9 @@ class OpponentRLController(RLController):
         available_actions: List[str],
         context: Optional[Dict] = None,
     ) -> str:
+        # 缓存 player/state 引用，供 _rl_choose 使用
+        self._cache_player_ref(player, game_state)
+
         # 记录 player_id（首次调用时）
         if self._player_id is None:
             self._player_id = player.player_id
@@ -89,6 +121,76 @@ class OpponentRLController(RLController):
 
         # 翻译为 CLI 命令
         return idx_to_command(action, player, game_state)
+
+    def _rl_choose(
+        self,
+        prompt: str,
+        options: List[str],
+        context: Optional[Dict] = None,
+    ) -> str:
+        """用模型推理做 choose 决策（覆写基类的默认实现）。"""
+        if not options:
+            return ""
+        if len(options) == 1:
+            return options[0]
+
+        player = self._player_ref
+        state = self._state_ref
+        if player is None or state is None:
+            return options[0]
+
+        situation = (context or {}).get("situation", "")
+
+        # 构建观测
+        raw_obs = build_obs(player, state, player.player_id)
+
+        # 填充 choose 模式指示维（与训练 env._fill_choose_obs 保持一致）
+        # 尾部 3 维：[current_mode=1.0, situation_id/30, n_options/16]
+        from rl.obs_builder import _CHOOSE_SITUATION_MAP, _MAX_CHOOSE_SITUATIONS
+        base = OBS_DIM - 3
+        raw_obs[base] = 1.0
+        raw_obs[base + 1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / max(_MAX_CHOOSE_SITUATIONS, 1)
+        raw_obs[base + 2] = min(len(options), 16) / 16.0
+
+        obs = self._stack_obs(raw_obs)
+
+        # 复用训练时的 mask 构造器：target-selection situation 会启用 108-113，
+        # 其余通用 situation 启用 114-129，与训练端完全一致
+        mask = build_action_mask(
+            player, state, player.player_id,
+            choose_mode=True,
+            choose_situation=situation,
+            choose_options=options,
+        )
+
+        # 模型推理
+        action, _ = self.model.predict(obs, action_masks=mask, deterministic=True)
+        action = int(action)
+
+        # 用 env 侧同款翻译逻辑把索引还原为选项字符串
+        return idx_to_choose_option(action, options, situation, player, state)
+
+    def _rl_confirm(
+        self,
+        prompt: str,
+        context: Optional[Dict] = None,
+    ) -> bool:
+        """用模型推理做 confirm 决策（与训练 env._SyncRLController 一致）。
+
+        复用 _rl_choose 处理 2 选项 ["是", "否"]，避免响应窗口 / 强买通行证
+        等决策永远返回 False 而浪费模型学到的策略。
+        """
+        result = self._rl_choose(prompt, ["是", "否"], context)
+        return result == "是"
+
+    def set_player_ref(self, player, state):
+        """手动设置 player 和 state 引用（用于 stats_runner 等非 env 场景）。"""
+        self._player_ref = player
+        self._state_ref = state
+        if self._player_id is None:
+            self._player_id = player.player_id
+
+
 class OpponentPool:
     """
     对手模型池。

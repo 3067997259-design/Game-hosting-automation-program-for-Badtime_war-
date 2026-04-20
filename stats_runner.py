@@ -28,6 +28,15 @@ try:
     from controllers.ai_basic import BasicAIController
     from cli import display as _display_module
     from engine.prompt_manager import prompt_manager
+
+    # RL 模型支持（可选）
+    _rl_available = False
+    try:
+        from rl.self_play import OpponentRLController
+        from rl.obs_builder import OBS_DIM
+        _rl_available = True
+    except ImportError:
+        pass
 finally:
     sys.stdout = _real_stdout
 
@@ -141,18 +150,33 @@ COL_WINS = 7       # 胜场
 COL_PERS = 14      # 人格列宽
 
 
-def run_single_game(num_players: int) -> dict[str, Any]:
-    """Run a single all-AI game and return results."""
+def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random") -> dict[str, Any]:
+    """Run a single game (all-AI, or with one RL seat) and return results."""
     game_state = GameState()
 
     available_names = list(AI_NAME_POOL)
     random.shuffle(available_names)
 
     ai_players_info: list[tuple[str, str, str]] = []
-    for i in range(num_players):
+
+    # RL 玩家创建（占据 p1 席位）
+    rl_pid: Optional[str] = None
+    if rl_controller is not None:
+        rl_pid = "p1"
+        rl_name = "RL_Agent"
+        # 重置所有跨局状态（帧堆叠 + 事件日志 + 威胁分等）
+        rl_controller.reset_game_state()
+        player = Player(rl_pid, rl_name, controller=rl_controller)
+        game_state.add_player(player)
+        start_idx = 1  # AI 从 p2 开始
+    else:
+        start_idx = 0
+
+    ai_count = num_players - (1 if rl_controller else 0)
+    for i in range(ai_count):
         ai_name = available_names[i] if i < len(available_names) else f"AI_{i+1}"
         personality = random.choice(AI_PERSONALITIES)
-        pid = f"p{i+1}"
+        pid = f"p{i + 1 + start_idx}"
         controller = BasicAIController(personality=personality)  # type: ignore[abstract]
         player = Player(pid, ai_name, controller=controller)
         game_state.add_player(player)
@@ -167,6 +191,67 @@ def run_single_game(num_players: int) -> dict[str, Any]:
         player = game_state.get_player(pid)
         if player is None:
             continue
+
+        # RL 玩家天赋分配
+        if pid == rl_pid:
+            if rl_talent_mode == "0":
+                # 不选天赋
+                pass
+            elif rl_talent_mode == "model":
+                # 模型自选：通过 controller.choose() 走模型推理
+                available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                             if n not in taken and n not in AI_DISABLED_TALENTS]
+                if available:
+                    option_names = [name for n, name, cls, desc in available]
+                    option_names.append("不选择天赋")
+                    # 设置 player_ref 以便 _rl_choose 能构建观测
+                    rl_controller.set_player_ref(player, game_state)
+                    chosen_name = rl_controller.choose(
+                        "选择你的天赋：",
+                        option_names,
+                        context={"phase": "pregame", "situation": "talent_pick", "taken": list(taken)},
+                    )
+                    if chosen_name != "不选择天赋":
+                        for n, name, cls, desc in available:
+                            if name == chosen_name:
+                                talent_inst = cls(pid, game_state)
+                                player.talent = talent_inst
+                                player.talent_name = name
+                                talent_inst.on_register()
+                                taken.add(n)
+                                break
+            elif rl_talent_mode == "random":
+                # 均匀随机：从可用天赋中等概率选一个
+                available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                             if n not in taken and n not in AI_DISABLED_TALENTS]
+                if available:
+                    chosen = random.choice(available)
+                    n, name, cls, desc = chosen
+                    talent_inst = cls(pid, game_state)
+                    player.talent = talent_inst
+                    player.talent_name = name
+                    talent_inst.on_register()
+                    taken.add(n)
+            else:
+                # 指定天赋编号
+                try:
+                    talent_num = int(rl_talent_mode)
+                except ValueError:
+                    talent_num = -1
+                for n, name, cls, desc in TALENT_TABLE:
+                    if n == talent_num and n not in taken:
+                        talent_inst = cls(pid, game_state)
+                        player.talent = talent_inst
+                        player.talent_name = name
+                        talent_inst.on_register()
+                        taken.add(n)
+                        break
+            # 设置 player_ref（天赋分配后，确保后续 choose/get_command 能用）
+            if rl_controller is not None:
+                rl_controller.set_player_ref(player, game_state)
+            continue
+
+        # AI 玩家天赋分配（原有逻辑）
         available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
                      if n not in taken and n not in AI_DISABLED_TALENTS]
         if not available:
@@ -212,10 +297,11 @@ def run_single_game(num_players: int) -> dict[str, Any]:
         results["players"].append({
             "pid": pid,
             "name": player.name,
-            "personality": personality,
+            "personality": "RL" if pid == rl_pid else personality,
             "talent_num": talent_num,
             "talent_name": player.talent_name or "无",
             "is_winner": pid == winner_pid,
+            "is_rl": pid == rl_pid,
             "alive": player.is_alive(),
             "kill_count": player.kill_count,
             "talent_usage": talent_usage,
@@ -309,11 +395,17 @@ def _fmt_count_pct(count: int, total: int) -> str:
 
 # ── Main batch runner ──
 
-def run_batch(num_players: int, num_games: int) -> None:
+def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mode: str = "random") -> None:
     """Run multiple games and collect statistics."""
 
     talent_stats: dict[int, TalentStats] = defaultdict(TalentStats)
     personality_stats: dict[str, PersonalityStats] = defaultdict(PersonalityStats)
+
+    # RL 专用统计
+    rl_games = 0
+    rl_wins = 0
+    rl_talent_picks: dict[int, int] = defaultdict(int)
+    rl_talent_wins: dict[int, int] = defaultdict(int)
 
     total_rounds = 0
     total_draws = 0
@@ -331,7 +423,7 @@ def run_batch(num_players: int, num_games: int) -> None:
             print(f"\r  进度: {game_idx + 1}/{num_games} ({rate:.1f} 局/秒)", end="", flush=True)
 
         try:
-            result = run_single_game(num_players)
+            result = run_single_game(num_players, rl_controller, rl_talent_mode)
         except Exception:
             errors += 1
             continue
@@ -341,6 +433,14 @@ def run_batch(num_players: int, num_games: int) -> None:
             total_draws += 1
 
         for p in result["players"]:
+            if p.get("is_rl"):
+                rl_games += 1
+                rl_talent_picks[p["talent_num"]] += 1
+                if p["is_winner"]:
+                    rl_wins += 1
+                    rl_talent_wins[p["talent_num"]] += 1
+                continue  # RL 不计入 talent_stats 和 personality_stats
+
             talent_num: int = p["talent_num"]
             personality: str = p["personality"]
 
@@ -366,7 +466,9 @@ def run_batch(num_players: int, num_games: int) -> None:
     print(f"\r  完成: {num_games} 局, 耗时 {elapsed:.1f}秒 ({num_games / max(elapsed, 0.01):.1f} 局/秒)    ")
 
     print_results(num_players, num_games, completed, total_rounds, total_draws, errors,
-                  talent_stats, personality_stats)
+                  talent_stats, personality_stats,
+                  rl_games=rl_games, rl_wins=rl_wins,
+                  rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins)
 
 
 def print_results(
@@ -378,6 +480,10 @@ def print_results(
     errors: int,
     talent_stats: dict[int, TalentStats],
     personality_stats: dict[str, PersonalityStats],
+    rl_games: int = 0,
+    rl_wins: int = 0,
+    rl_talent_picks: Optional[dict[int, int]] = None,
+    rl_talent_wins: Optional[dict[int, int]] = None,
 ) -> None:
     """Print all result tables with CJK-aware alignment."""
 
@@ -390,6 +496,38 @@ def print_results(
     if errors > 0:
         print(f"  错误/崩溃: {errors}")
     print(f"{'=' * 80}")
+
+    # ── RL 统计表（仅在 RL 参与时显示）──
+    if rl_games > 0:
+        print(f"\n{'=' * 80}")
+        print(f"  RL 模型统计")
+        print(f"{'=' * 80}")
+        rl_wr = rl_wins / rl_games * 100 if rl_games > 0 else 0
+        random_baseline = 1.0 / num_players * 100
+        print(f"  总局数: {rl_games} | 胜场: {rl_wins} | 胜率: {rl_wr:.1f}% (随机基线: {random_baseline:.1f}%)")
+        print()
+        print(f"  RL 各天赋胜率:")
+        _print_table_header([
+            ("编号", COL_NUM), ("天赋名", COL_NAME),
+            ("Pick数", COL_PICKS), ("胜场", COL_WINS), ("胜率", COL_RATE),
+        ])
+        if rl_talent_picks:
+            sorted_rl = sorted(
+                rl_talent_picks.items(),
+                key=lambda x: (rl_talent_wins or {}).get(x[0], 0) / max(x[1], 1),
+                reverse=True,
+            )
+            for talent_num, picks in sorted_rl:
+                name = TALENT_NUM_TO_NAME.get(talent_num, "无天赋")
+                wins = (rl_talent_wins or {}).get(talent_num, 0)
+                wr = wins / picks * 100 if picks > 0 else 0
+                row = "  "
+                row += pad(str(talent_num), COL_NUM)
+                row += pad(name, COL_NAME)
+                row += pad(str(picks), COL_PICKS)
+                row += pad(str(wins), COL_WINS)
+                row += pad(f"{wr:.1f}%", COL_RATE)
+                print(row)
 
     total_picks = sum(ts.picks for ts in talent_stats.values())
     sorted_talents = sorted(
@@ -562,6 +700,12 @@ def main():
     parser = argparse.ArgumentParser(description="起闯战争 自动胜率统计")
     parser.add_argument("--players", type=int, default=6, help="每局玩家人数 (2-6)")
     parser.add_argument("--games", type=int, default=5000, help="总局数")
+    parser.add_argument("--model", type=str, default=None,
+                        help="RL 模型路径（.zip），启用后一个 AI 席位替换为 RL")
+    parser.add_argument("--rl-talent", type=str, default="random",
+                        help="RL 天赋选择模式：'model'=模型自选, 'random'=均匀随机14天赋, 数字=指定天赋编号, '0'=无天赋")
+    parser.add_argument("--n-stack", type=int, default=30,
+                        help="RL 帧堆叠数量（需与训练时一致）")
     args = parser.parse_args()
 
     if not 2 <= args.players <= 6:
@@ -570,9 +714,18 @@ def main():
 
     print(f"  起闯战争 自动胜率统计")
     print(f"  {args.players}人局 × {args.games}局")
+
+    rl_controller = None
+    if args.model:
+        if not _rl_available:
+            print("错误：RL 模块不可用，请确保 rl/ 目录和依赖已安装")
+            sys.exit(1)
+        print(f"  加载 RL 模型: {args.model}")
+        rl_controller = OpponentRLController(model_path=args.model, n_stack=args.n_stack)
+        print(f"  RL 天赋模式: {args.rl_talent}")
     print()
 
-    run_batch(args.players, args.games)
+    run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent)
 
 
 if __name__ == "__main__":
