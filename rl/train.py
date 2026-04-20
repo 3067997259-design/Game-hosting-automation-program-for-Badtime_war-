@@ -150,8 +150,10 @@ class CurriculumCallback(BaseCallback):
         verbose: int = 0,
         ent_rebound_coef: float = 0.03,  # stage 升级时的 entropy 回弹值
         ent_rebound_decay_steps: int = 200_000,  # 回弹后衰减回原值的步数
+        eval_env=None,
     ):
         super().__init__(verbose)
+        self._eval_env = eval_env
         self.stages = stages
         self.ent_rebound_coef = ent_rebound_coef
         self.ent_rebound_decay_steps = ent_rebound_decay_steps
@@ -232,6 +234,9 @@ class CurriculumCallback(BaseCallback):
             # env_method uses getattr which penetrates gym.Wrapper via __getattr__
             # set_attr does NOT penetrate wrappers (sets on Monitor, not BadtimeWarEnv)
             venv.env_method("set_num_opponents", new_opponents)
+            # 同步更新评估环境
+            if self._eval_env is not None:
+                self._eval_env.env_method("set_num_opponents", new_opponents)
 
 class SelfPlayCallback(BaseCallback):
     """
@@ -376,18 +381,27 @@ def train(args: argparse.Namespace):
     else:
         train_env = DummyVecEnv(env_fns) # type: ignore
 
-    # ── 评估环境 ──────────────────────────────────────────────────
-    eval_env = DummyVecEnv([
+    # ── 评估环境（多进程并行）──────────────────────────────────────
+    n_eval_envs = args.n_eval_envs if args.n_eval_envs is not None else args.n_envs
+    n_eval_envs = min(n_eval_envs, args.eval_episodes)  # 不超过评估局数
+    n_eval_envs = max(n_eval_envs, 1)  # 至少 1 个
+
+    eval_env_fns = [
         make_env(
-            num_opponents=args.opponents,
+            num_opponents=initial_opponents if args.curriculum else args.opponents,
             max_rounds=args.max_rounds,
             seed=args.seed + 1000,
-            rank=0,
+            rank=i,
             n_stack=args.n_stack,
             rl_talent=args.rl_talent,
             enable_talents=args.enable_talents,
         )
-    ])
+        for i in range(n_eval_envs)
+    ]
+    if n_eval_envs > 1:
+        eval_env = SubprocVecEnv(eval_env_fns, start_method="spawn")
+    else:
+        eval_env = DummyVecEnv(eval_env_fns)
 
     # ── 模型 ─────────────────────────────────────────────────────
     if args.resume:
@@ -440,6 +454,7 @@ def train(args: argparse.Namespace):
             verbose=1,
             ent_rebound_coef=args.ent_rebound,
             ent_rebound_decay_steps=args.ent_rebound_decay,
+            eval_env=eval_env,
         )
 
     callback_list = [
@@ -567,10 +582,12 @@ def parse_args() -> argparse.Namespace:
     # 回调参数
     p.add_argument("--ckpt-freq", type=int, default=50_000,
                    help="Checkpoint 保存频率（步数）")
-    p.add_argument("--eval-freq", type=int, default=10_000,
+    p.add_argument("--eval-freq", type=int, default=50_000,
                    help="评估频率（步数）")
     p.add_argument("--eval-episodes", type=int, default=20,
                    help="每次评估的局数")
+    p.add_argument("--n-eval-envs", type=int, default=None,
+                help="评估环境并行数（默认=--n-envs，上限=--eval-episodes）")
 
     # 恢复训练
     p.add_argument("--resume", type=str, default=None,
