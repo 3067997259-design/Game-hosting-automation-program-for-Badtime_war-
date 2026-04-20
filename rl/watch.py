@@ -1,9 +1,17 @@
 """
-rl/watch.py
-───────────
-加载训练好的 MaskablePPO 模型，跑一局可视化对局，
-逐步打印 RL 智能体的决策过程。
+rl/watch.py  [DEPRECATED]
+─────────────────────────
+此文件已被 rl/watch_all.py 完全替代。
+请使用: python -m rl.watch_all --model <模型路径>
+
+保留此文件仅为向后兼容。
 """
+import warnings
+warnings.warn(
+    "rl.watch 已废弃，请使用 rl.watch_all",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import sys
 import numpy as np
