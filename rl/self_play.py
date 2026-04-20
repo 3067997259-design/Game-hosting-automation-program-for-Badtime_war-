@@ -170,6 +170,19 @@ class OpponentRLController(RLController):
         # 用 env 侧同款翻译逻辑把索引还原为选项字符串
         return idx_to_choose_option(action, options, situation, player, state)
 
+    def _rl_confirm(
+        self,
+        prompt: str,
+        context: Optional[Dict] = None,
+    ) -> bool:
+        """用模型推理做 confirm 决策（与训练 env._SyncRLController 一致）。
+
+        复用 _rl_choose 处理 2 选项 ["是", "否"]，避免响应窗口 / 强买通行证
+        等决策永远返回 False 而浪费模型学到的策略。
+        """
+        result = self._rl_choose(prompt, ["是", "否"], context)
+        return result == "是"
+
     def set_player_ref(self, player, state):
         """手动设置 player 和 state 引用（用于 stats_runner 等非 env 场景）。"""
         self._player_ref = player
