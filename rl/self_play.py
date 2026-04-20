@@ -15,7 +15,14 @@ import numpy as np
 from sb3_contrib import MaskablePPO
 
 from controllers.base import PlayerController
-from rl.action_space import ACTION_COUNT, IDX_FORFEIT, IDX_CHOOSE_BASE, build_action_mask, idx_to_command
+from rl.action_space import (
+    ACTION_COUNT,
+    IDX_FORFEIT,
+    IDX_CHOOSE_BASE,
+    build_action_mask,
+    idx_to_choose_option,
+    idx_to_command,
+)
 from rl.obs_builder import OBS_DIM, build_obs
 from rl.rl_controller import RLController
 
@@ -132,34 +139,36 @@ class OpponentRLController(RLController):
         if player is None or state is None:
             return options[0]
 
+        situation = (context or {}).get("situation", "")
+
         # 构建观测
         raw_obs = build_obs(player, state, player.player_id)
 
-        # 填充 choose 模式指示维（与训练 env 保持一致）
+        # 填充 choose 模式指示维（与训练 env._fill_choose_obs 保持一致）
         # 尾部 3 维：[current_mode=1.0, situation_id/30, n_options/16]
         from rl.obs_builder import _CHOOSE_SITUATION_MAP, _MAX_CHOOSE_SITUATIONS
-        situation = (context or {}).get("situation", "")
-        n_options = min(len(options), 16)
         base = OBS_DIM - 3
         raw_obs[base] = 1.0
         raw_obs[base + 1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / max(_MAX_CHOOSE_SITUATIONS, 1)
-        raw_obs[base + 2] = n_options / 16.0
+        raw_obs[base + 2] = min(len(options), 16) / 16.0
 
         obs = self._stack_obs(raw_obs)
 
-        # 构建 choose mask：只启用 IDX_CHOOSE_BASE + 0..len(options)-1
-        mask = np.zeros(ACTION_COUNT, dtype=bool)
-        for i in range(n_options):
-            mask[IDX_CHOOSE_BASE + i] = True
+        # 复用训练时的 mask 构造器：target-selection situation 会启用 108-113，
+        # 其余通用 situation 启用 114-129，与训练端完全一致
+        mask = build_action_mask(
+            player, state, player.player_id,
+            choose_mode=True,
+            choose_situation=situation,
+            choose_options=options,
+        )
 
         # 模型推理
         action, _ = self.model.predict(obs, action_masks=mask, deterministic=True)
         action = int(action)
 
-        # 翻译为选项
-        if IDX_CHOOSE_BASE <= action < IDX_CHOOSE_BASE + n_options:
-            return options[action - IDX_CHOOSE_BASE]
-        return options[0]
+        # 用 env 侧同款翻译逻辑把索引还原为选项字符串
+        return idx_to_choose_option(action, options, situation, player, state)
 
     def set_player_ref(self, player, state):
         """手动设置 player 和 state 引用（用于 stats_runner 等非 env 场景）。"""
