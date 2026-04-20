@@ -164,7 +164,8 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
     if rl_controller is not None:
         rl_pid = "p1"
         rl_name = "RL_Agent"
-        rl_controller.reset_stack()
+        # 重置所有跨局状态（帧堆叠 + 事件日志 + 威胁分等）
+        rl_controller.reset_game_state()
         player = Player(rl_pid, rl_name, controller=rl_controller)
         game_state.add_player(player)
         start_idx = 1  # AI 从 p2 开始

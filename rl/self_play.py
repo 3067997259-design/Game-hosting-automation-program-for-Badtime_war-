@@ -60,6 +60,28 @@ class OpponentRLController(RLController):
         """每局开始时重置帧堆叠缓冲。"""
         self._obs_stack = np.zeros(OBS_DIM * self.n_stack, dtype=np.float32)
 
+    def reset_game_state(self):
+        """重置所有跨局会泄漏的状态（用于 stats_runner 等复用 controller 实例的场景）。
+
+        除了 reset_stack()，还清理继承自 RLController 的 per-game 状态：
+          - _event_log：否则跨局无限增长，造成内存泄漏
+          - _threat_scores：否则上一局的威胁分会干扰启发式 target 选择
+          - _been_attacked_by / _round_number
+          - pending_action_idx / last_action_type / last_action_success
+          - _player_ref / _state_ref / _player_id
+        """
+        self.reset_stack()
+        self._event_log.clear()
+        self._threat_scores.clear()
+        self._been_attacked_by.clear()
+        self._round_number = 0
+        self.pending_action_idx = 0
+        self.last_action_type = ""
+        self.last_action_success = True
+        self._player_ref = None
+        self._state_ref = None
+        self._player_id = None
+
     def get_command(
         self,
         player: Any,
@@ -112,11 +134,21 @@ class OpponentRLController(RLController):
 
         # 构建观测
         raw_obs = build_obs(player, state, player.player_id)
+
+        # 填充 choose 模式指示维（与训练 env 保持一致）
+        # 尾部 3 维：[current_mode=1.0, situation_id/30, n_options/16]
+        from rl.obs_builder import _CHOOSE_SITUATION_MAP, _MAX_CHOOSE_SITUATIONS
+        situation = (context or {}).get("situation", "")
+        n_options = min(len(options), 16)
+        base = OBS_DIM - 3
+        raw_obs[base] = 1.0
+        raw_obs[base + 1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / max(_MAX_CHOOSE_SITUATIONS, 1)
+        raw_obs[base + 2] = n_options / 16.0
+
         obs = self._stack_obs(raw_obs)
 
         # 构建 choose mask：只启用 IDX_CHOOSE_BASE + 0..len(options)-1
         mask = np.zeros(ACTION_COUNT, dtype=bool)
-        n_options = min(len(options), 16)
         for i in range(n_options):
             mask[IDX_CHOOSE_BASE + i] = True
 
