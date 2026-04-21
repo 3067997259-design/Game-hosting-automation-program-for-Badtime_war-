@@ -254,9 +254,11 @@ class SelfPlayCallback(BaseCallback):
         initial_basic_ai_prob: float = 0.5,
         final_basic_ai_prob: float = 0.1,
         anneal_steps: int = 5_000_000,
-        min_win_rate: float = 0.45,
+        min_win_rate: float | None = None,
         win_rate_window: int = 200,
         verbose: int = 0,
+        curriculum_cb=None,  # CurriculumCallback 引用，None 表示无课程（立即激活）
+        max_opponents: int = 5,  # 最终对手数，用于动态计算入池阈值
     ):
         super().__init__(verbose)
         self.pool = pool
@@ -264,12 +266,32 @@ class SelfPlayCallback(BaseCallback):
         self.initial_basic_ai_prob = initial_basic_ai_prob
         self.final_basic_ai_prob = final_basic_ai_prob
         self.anneal_steps = anneal_steps
-        self.min_win_rate = min_win_rate
+        if min_win_rate is None:
+            random_baseline = 1.0 / (max_opponents + 1)
+            self.min_win_rate = max(random_baseline * 1.5, 0.25)
+        else:
+            self.min_win_rate = min_win_rate
         self.win_rate_window = win_rate_window
         self._episode_wins: list[bool] = []
         self._last_save_step: int = 0
+        self.curriculum_cb = curriculum_cb
+        self._activated = (curriculum_cb is None)  # 无课程时立即激活
+        self._activation_step: int = 0  # 激活时的步数，用于退火计时
 
     def _on_step(self) -> bool:
+        # 课程模式下，等待最终阶段才激活
+        if not self._activated:
+            if (self.curriculum_cb is not None
+                and self.curriculum_cb._current_stage >= len(self.curriculum_cb.stages) - 1):
+                self._activated = True
+                self._activation_step = self.num_timesteps
+                self._episode_wins.clear()  # 清空课程阶段积累的无效数据
+                if self.verbose >= 1:
+                    print(f"  [SelfPlay] 激活! 课程已到最终阶段 (step {self.num_timesteps})")
+                    print(f"  [SelfPlay] 入池阈值: {self.min_win_rate:.1%}")
+            else:
+                return True  # 课程未到最终阶段，跳过全部自对弈逻辑
+
         # ── 1. 收集胜率数据 ──
         infos = self.locals.get("infos", [])
         for info in infos:
@@ -294,7 +316,8 @@ class SelfPlayCallback(BaseCallback):
                 saved = True
 
             # 2c. 退火（无论是否保存都执行）
-            progress = min(self.num_timesteps / self.anneal_steps, 1.0)
+            elapsed = self.num_timesteps - self._activation_step
+            progress = min(elapsed / self.anneal_steps, 1.0)
             new_prob = self.initial_basic_ai_prob + (
                 self.final_basic_ai_prob - self.initial_basic_ai_prob
             ) * progress
@@ -491,8 +514,10 @@ def train(args: argparse.Namespace):
             initial_basic_ai_prob=args.initial_basic_ai_prob,
             final_basic_ai_prob=args.final_basic_ai_prob,
             anneal_steps=args.timesteps,
-            min_win_rate=args.min_save_win_rate,
+            min_win_rate=args.min_save_win_rate if args.min_save_win_rate != 0.45 else None,
             verbose=1,
+            curriculum_cb=curriculum_cb,
+            max_opponents=args.opponents,
         )
         callback_list.append(self_play_cb)
 
@@ -624,7 +649,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--final-basic-ai-prob", type=float, default=0.3,
                 help="Self-play 最终 BasicAI 混入概率（不低于0.3，确保策略多样性）")
     p.add_argument("--min-save-win-rate", type=float, default=0.45,
-                help="Self-play 质量门控：胜率低于此值时不保存模型到对手池")
+                help="Self-play 质量门控：胜率低于此值时不保存模型到对手池（默认0.45，课程模式下自动计算为 1/(n+1)*1.5）")
 
     # 天赋选择参数
     p.add_argument("--rl-talent", type=int, default=None,
