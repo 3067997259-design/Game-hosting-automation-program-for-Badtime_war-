@@ -172,8 +172,8 @@ class CurriculumCallback(BaseCallback):
             for i in range(len(stages) - 1):
                 n_opponents = stages[i]
                 random_baseline = 1.0 / (n_opponents + 1)
-                # Threshold = random_baseline * 1.3 (30% above random)
-                self.win_thresholds.append(max(random_baseline * 1.3, 0.35))
+                # Threshold = random_baseline * 1.5 (50% above random)
+                self.win_thresholds.append(random_baseline * 1.5)
         self.window = window
         self._current_stage = 0
         self._episode_wins: list[bool] = []
@@ -529,11 +529,14 @@ def train(args: argparse.Namespace):
     if args.curriculum:
         thresholds_str = ', '.join(f"{t:.0%}" for t in curriculum_cb.win_thresholds)   # type: ignore
         print(f"  课程学习: 启用 ({' → '.join(str(s) for s in stages)}, 阈值 [{thresholds_str}])")
-    if args.max_rounds is not None:
-        print(f"  最大轮数: {args.max_rounds}（手动指定）")
+    if args.max_rounds is None:
+        if args.curriculum:
+            print(f"  最大轮数: 动态（按当前课程人数×50 计算，范围 {(args.curriculum_start+1)*50} ~ {(args.opponents+1)*50}）")
+        else:
+            default_mr = (args.opponents + 1) * 50
+            print(f"  最大轮数: {default_mr}（动态默认，{args.opponents + 1}人 × 50）")
     else:
-        default_mr = (args.opponents + 1) * 50
-        print(f"  最大轮数: {default_mr}（动态默认，{args.opponents + 1}人 × 50）")
+        print(f"  最大轮数: {args.max_rounds}（手动指定，课程模式下不建议）")
     print(f"  总步数: {args.timesteps:,}")
     print(f"  并行环境: {args.n_envs}")
     print(f"  日志目录: {log_dir}")

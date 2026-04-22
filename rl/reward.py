@@ -120,10 +120,7 @@ def potential(player, game_state) -> float:
     phi += 4 if getattr(player, "has_detection", False) else 0  # 探测
 
     # === 战略维度 ===
-    alive_count = len(game_state.alive_players())
     phi += player.kill_count * 15                               # 击杀数
-    if alive_count > 0:
-        phi += (1.0 / alive_count) * 30                        # 存活比例
 
     # === 战斗准备维度 ===
     markers = game_state.markers
@@ -502,8 +499,10 @@ def behavior_penalty(player, game_state, action_type, action_success, action_idx
     else:
         player._rl_fail_streak = 0       # 成功则重置
 
-    if game_state.current_round > 70:
-        r -= 0.15 * (game_state.current_round - 70)
+    n_players = len(game_state.player_order)
+    long_game_threshold = n_players * 30  # 2人=60, 3人=90, 4人=120, 5人=150, 6人=180
+    if game_state.current_round > long_game_threshold:
+        r -= 0.15 * (game_state.current_round - long_game_threshold)
 
     # 纯连续移动惩罚
     move_streak = getattr(player, '_rl_move_streak', 0)
