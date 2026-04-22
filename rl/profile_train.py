@@ -359,7 +359,7 @@ def main() -> None:
         model.ent_coef = args.ent_coef
         model.gamma = args.gamma
         model.gae_lambda = args.gae_lambda
-        model.clip_range = args.clip_range
+        model.clip_range = lambda _: args.clip_range
         print(f"  超参数已覆盖: n_steps={args.n_steps}, batch_size={args.batch_size}, "
               f"n_epochs={args.n_epochs}, ent_coef={args.ent_coef}")
     else:
