@@ -327,7 +327,11 @@ class BadtimeWarEnv(gym.Env):
         return self._obs_stack.copy()
 
     def set_num_opponents(self, n: int):
-        """供 CurriculumCallback 调用，修改对手数量（下次 reset 生效）。"""
+        """供 CurriculumCallback 调用，修改对手数量（下次 reset 生效）。
+
+        注意：当 self.max_rounds 为 None 时，reset() 会根据新的
+        player_order 长度动态计算 max_rounds，无需在此处更新。
+        """
         self.num_opponents = n
 
     def set_opponent_pool(self, pool):
