@@ -406,6 +406,7 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
     rl_wins = 0
     rl_talent_picks: dict[int, int] = defaultdict(int)
     rl_talent_wins: dict[int, int] = defaultdict(int)
+    rl_talent_usage: dict[int, list[dict[str, Any]]] = defaultdict(list)
 
     total_rounds = 0
     total_draws = 0
@@ -439,6 +440,7 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
                 if p["is_winner"]:
                     rl_wins += 1
                     rl_talent_wins[p["talent_num"]] += 1
+                rl_talent_usage[p["talent_num"]].append(p["talent_usage"])
                 continue  # RL 不计入 talent_stats 和 personality_stats
 
             talent_num: int = p["talent_num"]
@@ -468,7 +470,8 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
     print_results(num_players, num_games, completed, total_rounds, total_draws, errors,
                   talent_stats, personality_stats,
                   rl_games=rl_games, rl_wins=rl_wins,
-                  rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins)
+                  rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins,
+                  rl_talent_usage=rl_talent_usage)
 
 
 def print_results(
@@ -484,6 +487,7 @@ def print_results(
     rl_wins: int = 0,
     rl_talent_picks: Optional[dict[int, int]] = None,
     rl_talent_wins: Optional[dict[int, int]] = None,
+    rl_talent_usage: Optional[dict[int, list[dict[str, Any]]]] = None,
 ) -> None:
     """Print all result tables with CJK-aware alignment."""
 
@@ -528,6 +532,65 @@ def print_results(
                 row += pad(str(wins), COL_WINS)
                 row += pad(f"{wr:.1f}%", COL_RATE)
                 print(row)
+
+        # RL 天赋选择偏好
+        if rl_talent_picks and rl_games > 0:
+            print()
+            print(f"  RL 天赋选择偏好:")
+            uniform_pct = 100.0 / len(TALENT_NUM_TO_NAME) if TALENT_NUM_TO_NAME else 0
+            _print_table_header([
+                ("编号", COL_NUM), ("天赋名", COL_NAME),
+                ("Pick数", COL_PICKS), ("Pick率", COL_RATE),
+                ("偏好度", COL_RATE),
+            ])
+            sorted_by_picks = sorted(rl_talent_picks.items(), key=lambda x: x[1], reverse=True)
+            for talent_num, picks in sorted_by_picks:
+                name = TALENT_NUM_TO_NAME.get(talent_num, "无天赋")
+                pick_rate = picks / rl_games * 100
+                preference = pick_rate / uniform_pct if uniform_pct > 0 else 0
+                row = "  "
+                row += pad(str(talent_num), COL_NUM)
+                row += pad(name, COL_NAME)
+                row += pad(str(picks), COL_PICKS)
+                row += pad(f"{pick_rate:.1f}%", COL_RATE)
+                row += pad(f"{preference:.2f}x", COL_RATE)
+                print(row)
+            print(f"  （偏好度 = Pick率 / 均匀基线{uniform_pct:.1f}%，>1.0 表示偏好，<1.0 表示回避）")
+
+        # RL 天赋使用统计
+        if rl_talent_usage:
+            print()
+            print(f"  RL 天赋使用详情:")
+            print(f"  {_sep(76)}")
+            for talent_num in sorted(rl_talent_usage.keys()):
+                samples = rl_talent_usage[talent_num]
+                if not samples:
+                    continue
+                name = TALENT_NUM_TO_NAME.get(talent_num, "无")
+
+                used_count = sum(1 for s in samples if s.get("used", False))
+                activated_counts = [s.get("times_activated", 0) for s in samples if "times_activated" in s]
+
+                info_parts = [f"{name}(#{talent_num})", f"样本数{len(samples)}"]
+                if activated_counts:
+                    avg_act = sum(activated_counts) / len(activated_counts)
+                    info_parts.append(f"平均发动{avg_act:.2f}次")
+                if used_count > 0:
+                    info_parts.append(f"使用率{used_count}/{len(samples)}({used_count / len(samples) * 100:.0f}%)")
+
+                debuff_counts = [s for s in samples if s.get("debuff_started")]
+                if debuff_counts:
+                    info_parts.append(f"debuff触发{len(debuff_counts)}/{len(samples)}")
+
+                savior_counts = [s for s in samples if s.get("savior_triggered")]
+                if savior_counts:
+                    info_parts.append(f"救世主触发{len(savior_counts)}/{len(samples)}")
+
+                anchor_counts = [s for s in samples if s.get("anchor_used")]
+                if anchor_counts:
+                    info_parts.append(f"锚定使用{len(anchor_counts)}/{len(samples)}")
+
+                print(f"  {' | '.join(info_parts)}")
 
     total_picks = sum(ts.picks for ts in talent_stats.values())
     sorted_talents = sorted(
@@ -617,7 +680,7 @@ def print_results(
 
     # ── Table 5: Talent usage summary ──
     print(f"\n{_sep()}")
-    print(f"  天赋使用次数统计（限定使用次数的天赋）")
+    print(f"  BasicAI 天赋使用次数统计（限定使用次数的天赋）")
     print(f"{_sep()}")
 
     for talent_num, ts in sorted_talents:
