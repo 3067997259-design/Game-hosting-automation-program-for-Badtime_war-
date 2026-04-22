@@ -436,6 +436,16 @@ def train(args: argparse.Namespace):
             learning_rate=args.lr,
             device=args.device
         )
+        # ── 覆盖超参数（.load() 会还原保存时的值，需要用命令行参数覆盖）──
+        model.n_steps = args.n_steps
+        model.batch_size = args.batch_size
+        model.n_epochs = args.n_epochs
+        model.ent_coef = args.ent_coef
+        model.gamma = args.gamma
+        model.gae_lambda = args.gae_lambda
+        model.clip_range = args.clip_range
+        print(f"  超参数已覆盖: n_steps={args.n_steps}, batch_size={args.batch_size}, "
+              f"n_epochs={args.n_epochs}, ent_coef={args.ent_coef}")
     else:
         model = MaskablePPO(
             policy="MlpPolicy",
