@@ -11,6 +11,8 @@ import random
 from pathlib import Path
 from typing import Any, Optional, List, Dict, TYPE_CHECKING
 
+import multiprocessing
+import torch
 import numpy as np
 from sb3_contrib import MaskablePPO
 
@@ -45,6 +47,12 @@ class OpponentRLController(RLController):
 
     def __init__(self, model_path: str | None = None, n_stack: int = 30,
                  *, _model: MaskablePPO | None = None):
+        # 子进程中单样本推理（batch_size=1），多线程并行没有收益，
+        # 反而会导致多个子进程之间的线程争抢，必须限制为单线程。
+        # 仅在 SubprocVecEnv 子进程中生效，避免 DummyVecEnv（n_envs=1）
+        # 时覆盖主进程的线程数设置。
+        if multiprocessing.current_process().name != "MainProcess":
+            torch.set_num_threads(1)
         super().__init__()
         if _model is not None:
             self.model = _model
