@@ -18,6 +18,7 @@ CLI 用法（同时会验证导出模型的 logits 与原模型是否一致）::
 from __future__ import annotations
 
 import argparse
+import copy
 import logging
 from pathlib import Path
 from typing import Union
@@ -84,15 +85,20 @@ def export_torchscript(
         model = model_or_path
 
     policy = model.policy
-    features_extractor = policy.features_extractor
-    policy_net = policy.mlp_extractor.policy_net
-    action_net = policy.action_net
+    # 深拷贝子模块：save_current_model 期间传入的是正在训练的 live model，
+    # 直接提取子模块引用后再调用 .eval() / .to("cpu") 会原地改动训练模型
+    # （把 features_extractor / policy_net / action_net 搬到 CPU，而
+    # value_net 等仍在 GPU 上），下一次 PPO.predict 会因 device mismatch 崩溃。
+    features_extractor = copy.deepcopy(policy.features_extractor)
+    policy_net = copy.deepcopy(policy.mlp_extractor.policy_net)
+    action_net = copy.deepcopy(policy.action_net)
 
     policy_forward = PolicyForward(features_extractor, policy_net, action_net)
     policy_forward.eval()
 
     # MaskablePPO 用 CPU 或 CUDA 加载都有可能，trace 前统一迁到 CPU，
-    # 让导出的 .pts 在任何子进程里都能直接加载使用。
+    # 让导出的 .pts 在任何子进程里都能直接加载使用。深拷贝之后在 CPU 上做
+    # in-place 搬运是安全的，不会影响原模型。
     policy_forward = policy_forward.to("cpu")
 
     dummy_input = torch.zeros(1, n_stack * OBS_DIM, dtype=torch.float32)
