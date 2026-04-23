@@ -46,7 +46,8 @@ class OpponentRLController(RLController):
     """
 
     def __init__(self, model_path: str | None = None, n_stack: int = 30,
-                 *, _model: MaskablePPO | None = None):
+                 *, _model: MaskablePPO | None = None,
+                 _jit_model: "torch.jit.ScriptModule | None" = None):
         # 子进程中单样本推理（batch_size=1），多线程并行没有收益，
         # 反而会导致多个子进程之间的线程争抢，必须限制为单线程。
         # 仅在 SubprocVecEnv 子进程中生效，避免 DummyVecEnv（n_envs=1）
@@ -54,12 +55,16 @@ class OpponentRLController(RLController):
         if multiprocessing.current_process().name != "MainProcess":
             torch.set_num_threads(1)
         super().__init__()
-        if _model is not None:
+        self._jit_model = _jit_model
+        if _jit_model is not None:
+            # 走 TorchScript 快路径时不需要完整的 MaskablePPO 实例。
+            self.model = None
+        elif _model is not None:
             self.model = _model
         elif model_path is not None:
             self.model = MaskablePPO.load(model_path)
         else:
-            raise ValueError("Either model_path or _model must be provided")
+            raise ValueError("Either model_path, _model, or _jit_model must be provided")
         self.n_stack = n_stack
         self._obs_stack = np.zeros(OBS_DIM * n_stack, dtype=np.float32)
         self._player_id: Optional[str] = None
@@ -124,11 +129,27 @@ class OpponentRLController(RLController):
         mask = build_action_mask(player, game_state, player.player_id)
 
         # 模型推理（deterministic=True，对手用确定性策略）
-        action, _ = self.model.predict(obs, action_masks=mask, deterministic=True)
-        action = int(action)
+        if self._jit_model is not None:
+            action = self._fast_predict(obs, mask)
+        else:
+            action, _ = self.model.predict(obs, action_masks=mask, deterministic=True)
+            action = int(action)
 
         # 翻译为 CLI 命令
         return idx_to_command(action, player, game_state)
+
+    def _fast_predict(self, obs: np.ndarray, mask: np.ndarray) -> int:
+        """使用 TorchScript 模型做快速推理（跳过 SB3 的 Python/numpy 包装开销）。
+
+        等价于 ``MaskablePPO.predict(..., action_masks=mask, deterministic=True)``
+        的输出：先算 logits，再把 mask 为 False 的位置置为 -inf，最后取 argmax。
+        """
+        with torch.no_grad():
+            obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
+            logits = self._jit_model(obs_tensor)  # (1, ACTION_COUNT)
+            mask_tensor = torch.as_tensor(mask, dtype=torch.bool)
+            logits[0, ~mask_tensor] = float("-inf")
+            return int(logits.argmax(dim=1).item())
 
     def _rl_choose(
         self,
@@ -172,8 +193,11 @@ class OpponentRLController(RLController):
         )
 
         # 模型推理
-        action, _ = self.model.predict(obs, action_masks=mask, deterministic=True)
-        action = int(action)
+        if self._jit_model is not None:
+            action = self._fast_predict(obs, mask)
+        else:
+            action, _ = self.model.predict(obs, action_masks=mask, deterministic=True)
+            action = int(action)
 
         # 用 env 侧同款翻译逻辑把索引还原为选项字符串
         return idx_to_choose_option(action, options, situation, player, state)
@@ -219,18 +243,29 @@ class OpponentPool:
         self.n_stack = n_stack
         self.max_pool_size = max_pool_size
         self.basic_ai_prob = basic_ai_prob
-        self._model_cache: Dict[str, MaskablePPO] = {}  # 缓存已加载的模型
+        # 模型缓存：可能同时包含 MaskablePPO 实例（由 .zip 加载）和
+        # torch.jit.ScriptModule 实例（由 .pts 加载），用不同的
+        # cache_key（完整文件路径，含 .zip / .pts 后缀）区分。
+        self._model_cache: Dict[str, Any] = {}
 
     def save_current_model(self, model: BaseAlgorithm, step: int):
-        """保存当前模型到对手池。"""
+        """保存当前模型到对手池，同时导出 TorchScript 快推理版本。"""
         path = self.pool_dir / f"opponent_step_{step}"
         model.save(str(path))
+
+        # 同时导出 TorchScript 版本用于快速推理（导出失败时回退到完整模型）
+        try:
+            from rl.export_torchscript import export_torchscript
+            pts_path = self.pool_dir / f"opponent_step_{step}.pts"
+            export_torchscript(model, str(pts_path), n_stack=self.n_stack)
+        except Exception as e:
+            logger.warning("TorchScript 导出失败，将回退到完整模型: %s", e)
 
         # 如果超出池大小，删除最旧的
         self._cleanup_old_models()
 
     def _cleanup_old_models(self):
-        """保留最新的 max_pool_size 个模型。"""
+        """保留最新的 max_pool_size 个模型（同时清理对应的 .pts）。"""
         models = sorted(self.pool_dir.glob("opponent_step_*.zip"), key=lambda p: p.stat().st_mtime)
         while len(models) > self.max_pool_size:
             oldest = models.pop(0)
@@ -238,7 +273,13 @@ class OpponentPool:
             cache_key = str(oldest)
             if cache_key in self._model_cache:
                 del self._model_cache[cache_key]
+            pts_file = oldest.with_suffix(".pts")
+            pts_key = str(pts_file)
+            if pts_key in self._model_cache:
+                del self._model_cache[pts_key]
             oldest.unlink()
+            if pts_file.exists():
+                pts_file.unlink()
 
     def get_available_models(self) -> List[Path]:
         """返回池中所有可用的模型路径。"""
@@ -261,7 +302,9 @@ class OpponentPool:
             return create_random_ai_controller(player_name="AI")
 
         # 清理缓存中已不存在于磁盘的模型（主进程可能已删除旧文件）
+        # 同一个 checkpoint 可能有 .zip 和 .pts 两个 cache entry，都要照顧到
         available_set = {str(p) for p in available}
+        available_set |= {str(p.with_suffix(".pts")) for p in available}
         stale_keys = [k for k in self._model_cache if k not in available_set]
         for k in stale_keys:
             del self._model_cache[k]
@@ -270,12 +313,24 @@ class OpponentPool:
         random.shuffle(available)
         for model_path in available:
             cache_key = str(model_path)
+            pts_path = model_path.with_suffix(".pts")
+            pts_key = str(pts_path)
             try:
-                # 使用缓存避免重复加载
+                # 优先尝试加载 TorchScript 版本（快路径）
+                if pts_path.exists():
+                    if pts_key not in self._model_cache:
+                        jit_model = torch.jit.load(str(pts_path))
+                        jit_model.eval()
+                        self._model_cache[pts_key] = jit_model
+                    ctrl = OpponentRLController(
+                        n_stack=self.n_stack,
+                        _jit_model=self._model_cache[pts_key],
+                    )
+                    return ctrl
+
+                # 回退：加载完整 MaskablePPO
                 if cache_key not in self._model_cache:
                     self._model_cache[cache_key] = MaskablePPO.load(str(model_path))
-
-                # 创建 OpponentRLController（共享模型对象，不重复加载）
                 ctrl = OpponentRLController(
                     n_stack=self.n_stack,
                     _model=self._model_cache[cache_key],
@@ -285,6 +340,7 @@ class OpponentPool:
                 # 主进程的 _cleanup_old_models 可能在 glob 和 load 之间删除了文件
                 logger.warning("对手模型加载失败（可能已被清理）: %s — %s", model_path, e)
                 self._model_cache.pop(cache_key, None)
+                self._model_cache.pop(pts_key, None)
                 continue
 
         # 所有模型都加载失败，回退到 BasicAI
