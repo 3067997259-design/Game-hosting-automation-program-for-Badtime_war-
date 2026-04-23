@@ -22,6 +22,7 @@ from typing import Any, Optional, List, Dict
 
 import gymnasium as gym
 import numpy as np
+import torch
 from gymnasium import spaces
 
 from rl.action_space import (
@@ -274,6 +275,12 @@ class BadtimeWarEnv(gym.Env):
         rl_talent: Optional[int] = None,
     ):
         super().__init__()
+
+        # SubprocVecEnv 使用 start_method="spawn"，子进程不继承主进程的
+        # torch.set_num_threads 设置，默认会使用所有 CPU 核心。多个子进程同时
+        # 在 self-play 中做单样本推理时会导致严重的线程争抢，因此在每个 env
+        # 构造时显式限制为 1 线程。
+        torch.set_num_threads(1)
 
         self.num_opponents = num_opponents
         self.max_rounds = max_rounds
