@@ -21,6 +21,12 @@ class FrozenPlayer:
         self.kill_count = getattr(player, 'kill_count', 0)
         self.has_military_pass = getattr(player, 'has_military_pass', False)
         self.has_detection = getattr(player, 'has_detection', False)
+        self.is_captain = getattr(player, 'is_captain', False)
+        self.is_criminal = getattr(player, 'is_criminal', False)
+        self.is_police = getattr(player, 'is_police', False)
+        self.is_petrified = getattr(player, 'is_petrified', False)
+        self.has_police_protection = getattr(player, 'has_police_protection', False)
+        self.has_seal = getattr(player, 'has_seal', False)
         self.vouchers = getattr(player, 'vouchers', 0)
         self.talent_name = getattr(player, 'talent_name', None)
         # talent 设为 None，防止 AI controller 访问 p.talent 时 AttributeError
