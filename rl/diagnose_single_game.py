@@ -275,9 +275,10 @@ def run_game_with_diagnostics(game_state: GameState, stats: TimingStats):
             round_num = game_state.current_round + 1
             round_t0 = time.perf_counter()
 
-            print(f"\n{'\u2500' * 60}")
+            _line = "\u2500" * 60
+            print(f"\n{_line}")
             print(f"  \u25b6 \u8f6e\u6b21 {round_num} \u5f00\u59cb")
-            print(f"{'\u2500' * 60}")
+            print(f"{_line}")
 
             # 打印存活玩家状态
             for pid in game_state.player_order:
