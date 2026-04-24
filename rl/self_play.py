@@ -34,20 +34,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class OpponentRLController(RLController):
+class _BaseOpponentRLController(RLController):
+    """Self-play 对手控制器的内部公共基类。
+
+    负责 obs 堆叠、action mask 构造、choose/confirm 模式分发、跨局状态重置等
+    共用逻辑。子类只需实现 ``_predict_action(obs, mask) -> int`` 来把观测 +
+    掩码映射到具体的动作索引。
+
+    与 _SyncRLController 不同，对手控制器不需要与 env 线程同步；它在游戏引擎
+    后台线程中被调用时，直接用自己的模型做推理。继承 RLController 以复用
+    choose()/choose_multi()/confirm()/on_event() 的启发式逻辑。
     """
-    Self-play 对手控制器。
 
-    与 _SyncRLController 不同，这个控制器不需要与 env 线程同步。
-    它在游戏引擎后台线程中被调用时，直接用自己的模型做推理。
-
-    继承 RLController 以复用 choose()/choose_multi()/confirm()/on_event() 的启发式逻辑。
-    只需要重写 get_command() 来做模型推理。
-    """
-
-    def __init__(self, model_path: str | None = None, n_stack: int = 30,
-                 *, _model: MaskablePPO | None = None,
-                 _jit_model: "torch.jit.ScriptModule | None" = None):
+    def __init__(self, n_stack: int = 30):
         # 子进程中单样本推理（batch_size=1），多线程并行没有收益，
         # 反而会导致多个子进程之间的线程争抢，必须限制为单线程。
         # 仅在 SubprocVecEnv 子进程中生效，避免 DummyVecEnv（n_envs=1）
@@ -55,19 +54,13 @@ class OpponentRLController(RLController):
         if multiprocessing.current_process().name != "MainProcess":
             torch.set_num_threads(1)
         super().__init__()
-        self._jit_model = _jit_model
-        if _jit_model is not None:
-            # 走 TorchScript 快路径时不需要完整的 MaskablePPO 实例。
-            self.model = None
-        elif _model is not None:
-            self.model = _model
-        elif model_path is not None:
-            self.model = MaskablePPO.load(model_path)
-        else:
-            raise ValueError("Either model_path, _model, or _jit_model must be provided")
         self.n_stack = n_stack
         self._obs_stack = np.zeros(OBS_DIM * n_stack, dtype=np.float32)
         self._player_id: Optional[str] = None
+
+    def _predict_action(self, obs: np.ndarray, mask: np.ndarray) -> int:
+        """子类必须实现：从堆叠后的观测和合法动作 mask 产出动作索引。"""
+        raise NotImplementedError
 
     def _stack_obs(self, raw_obs: np.ndarray) -> np.ndarray:
         if self.n_stack <= 1:
@@ -129,27 +122,10 @@ class OpponentRLController(RLController):
         mask = build_action_mask(player, game_state, player.player_id)
 
         # 模型推理（deterministic=True，对手用确定性策略）
-        if self._jit_model is not None:
-            action = self._fast_predict(obs, mask)
-        else:
-            action, _ = self.model.predict(obs, action_masks=mask, deterministic=True)
-            action = int(action)
+        action = self._predict_action(obs, mask)
 
         # 翻译为 CLI 命令
         return idx_to_command(action, player, game_state)
-
-    def _fast_predict(self, obs: np.ndarray, mask: np.ndarray) -> int:
-        """使用 TorchScript 模型做快速推理（跳过 SB3 的 Python/numpy 包装开销）。
-
-        等价于 ``MaskablePPO.predict(..., action_masks=mask, deterministic=True)``
-        的输出：先算 logits，再把 mask 为 False 的位置置为 -inf，最后取 argmax。
-        """
-        with torch.no_grad():
-            obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
-            logits = self._jit_model(obs_tensor)  # (1, ACTION_COUNT)
-            mask_tensor = torch.as_tensor(mask, dtype=torch.bool)
-            logits[0, ~mask_tensor] = float("-inf")
-            return int(logits.argmax(dim=1).item())
 
     def _rl_choose(
         self,
@@ -193,11 +169,7 @@ class OpponentRLController(RLController):
         )
 
         # 模型推理
-        if self._jit_model is not None:
-            action = self._fast_predict(obs, mask)
-        else:
-            action, _ = self.model.predict(obs, action_masks=mask, deterministic=True)
-            action = int(action)
+        action = self._predict_action(obs, mask)
 
         # 用 env 侧同款翻译逻辑把索引还原为选项字符串
         return idx_to_choose_option(action, options, situation, player, state)
@@ -221,6 +193,67 @@ class OpponentRLController(RLController):
         self._state_ref = state
         if self._player_id is None:
             self._player_id = player.player_id
+
+
+class OpponentRLController(_BaseOpponentRLController):
+    """基于完整 MaskablePPO.predict() 的 self-play 对手控制器。
+
+    适用于没有 TorchScript 导出版本的 checkpoint（回退路径），以及
+    stats_runner 等只手里有 ``.zip`` 的外部调用场景。推理链路上走 SB3 的
+    Python/numpy 包装，开销比 ``TorchScriptRLController`` 更高；推荐优先
+    使用后者。
+    """
+
+    def __init__(self, model_path: str | None = None, n_stack: int = 30,
+                 *, _model: MaskablePPO | None = None):
+        super().__init__(n_stack=n_stack)
+        if _model is not None:
+            self.model = _model
+        elif model_path is not None:
+            self.model = MaskablePPO.load(model_path)
+        else:
+            raise ValueError("Either model_path or _model must be provided")
+
+    def _predict_action(self, obs: np.ndarray, mask: np.ndarray) -> int:
+        action, _ = self.model.predict(obs, action_masks=mask, deterministic=True)
+        return int(action)
+
+
+class TorchScriptRLController(_BaseOpponentRLController):
+    """使用 TorchScript 导出模型的轻量级对手控制器。
+
+    相比 :class:`OpponentRLController`（走完整 ``MaskablePPO.predict()``），
+    本控制器直接调用 ``torch.jit`` 模型的 ``forward()`` 获取 logits，跳过
+    SB3 的 Python/numpy 包装层，推理速度实测提升 2–5 倍。
+
+    行为等价于 ``MaskablePPO.predict(..., action_masks=mask, deterministic=True)``：
+    先算 logits，再把 mask 为 ``False`` 的位置置为 ``-inf``，最后取 argmax。
+    """
+
+    def __init__(
+        self,
+        pts_path: str | None = None,
+        n_stack: int = 30,
+        *,
+        _jit_model: "torch.jit.ScriptModule | None" = None,
+    ):
+        super().__init__(n_stack=n_stack)
+        if _jit_model is not None:
+            self.jit_model = _jit_model
+        elif pts_path is not None:
+            jit_model = torch.jit.load(pts_path)
+            jit_model.eval()
+            self.jit_model = jit_model
+        else:
+            raise ValueError("Either pts_path or _jit_model must be provided")
+
+    def _predict_action(self, obs: np.ndarray, mask: np.ndarray) -> int:
+        with torch.no_grad():
+            obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
+            logits = self.jit_model(obs_tensor)  # (1, ACTION_COUNT)
+            mask_tensor = torch.as_tensor(mask, dtype=torch.bool)
+            logits[0, ~mask_tensor] = float("-inf")
+            return int(logits.argmax(dim=1).item())
 
 
 class OpponentPool:
@@ -322,7 +355,7 @@ class OpponentPool:
                         jit_model = torch.jit.load(str(pts_path))
                         jit_model.eval()
                         self._model_cache[pts_key] = jit_model
-                    ctrl = OpponentRLController(
+                    ctrl = TorchScriptRLController(
                         n_stack=self.n_stack,
                         _jit_model=self._model_cache[pts_key],
                     )
