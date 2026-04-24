@@ -16,9 +16,7 @@ rl/diagnose_single_game.py
 from __future__ import annotations
 
 import argparse
-import os
 import random
-import sys
 import time
 import traceback
 from collections import Counter, defaultdict
