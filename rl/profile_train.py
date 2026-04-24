@@ -95,9 +95,20 @@ class ProfilingCallback(BaseCallback):
             avg_step = sum(self._step_times) / max(n_steps, 1)
             max_step = max(self._step_times) if self._step_times else 0.0
             min_step = min(self._step_times) if self._step_times else 0.0
+            sorted_times = sorted(self._step_times)
             median_step = (
-                sorted(self._step_times)[len(self._step_times) // 2]
-                if self._step_times
+                sorted_times[len(sorted_times) // 2]
+                if sorted_times
+                else 0.0
+            )
+            p95 = (
+                sorted_times[int(len(sorted_times) * 0.95)]
+                if sorted_times
+                else 0.0
+            )
+            p99 = (
+                sorted_times[int(len(sorted_times) * 0.99)]
+                if sorted_times
                 else 0.0
             )
             steps_per_sec = n_steps / rollout_time if rollout_time > 0 else 0.0
@@ -132,9 +143,25 @@ class ProfilingCallback(BaseCallback):
                 f"median={median_step * 1000:.2f}ms"
             )
             print(
+                f"  百分位:    P50={median_step * 1000:.2f}ms  "
+                f"P95={p95 * 1000:.2f}ms  P99={p99 * 1000:.2f}ms"
+            )
+            print(
                 f"  慢步骤(>{slow_threshold * 1000:.1f}ms): "
                 f"{slow_count}/{n_steps} ({slow_count / max(n_steps, 1) * 100:.1f}%)"
             )
+            if slow_count > 0:
+                slow_indices = [
+                    (t, i) for i, t in enumerate(self._step_times) if t > slow_threshold
+                ]
+                slow_indices.sort(reverse=True)
+                print("  最慢5步:")
+                for t, idx in slow_indices[:5]:
+                    print(f"    Step {idx}: {t * 1000:.2f}ms")
+            if self._iteration == 1 and len(self._step_times) >= 20:
+                print("  首轮前20步逐步耗时:")
+                for j in range(20):
+                    print(f"    Step {j + 1}: {self._step_times[j] * 1000:.2f}ms")
             print("  ──────────────────────────────────────")
             print(
                 f"  累计: Rollout {self._total_rollout:.1f}s | "
@@ -232,6 +259,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--eval-episodes", type=int, default=20)
     p.add_argument("--n-eval-envs", type=int, default=None)
 
+    # Self-play（诊断模式）
+    p.add_argument("--self-play", action="store_true",
+                   help="启用 self-play（用于诊断 self-play 对训练速度的影响）")
+    p.add_argument("--seed-model", type=str, default=None,
+                   help="Self-play 种子模型路径（.zip），放入对手池作为初始对手")
+    p.add_argument("--pool-size", type=int, default=20,
+                   help="对手池最大模型数量")
+    p.add_argument("--initial-basic-ai-prob", type=float, default=0.5,
+                   help="Self-play 初始 BasicAI 混入概率")
+
     # PPO 超参数
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--ent-coef", type=float, default=0.03)
@@ -273,6 +310,9 @@ def main() -> None:
     print(f"  预计迭代次数:    {n_iterations}")
     print(f"  课程学习:        {'启用' if args.curriculum else '禁用'}")
     print(f"  评估回调:        {'启用' if args.with_eval else '禁用'}")
+    print(f"  Self-play:       {'启用' if args.self_play else '禁用'}")
+    if args.self_play and args.seed_model:
+        print(f"  种子模型:        {args.seed_model}")
     print(f"  恢复模型:        {args.resume or '(无，从头训练)'}")
     print(f"  设备:            {args.device}")
     print("=" * 70)
@@ -299,6 +339,25 @@ def main() -> None:
         stages = []
         initial_opponents = args.opponents
 
+    # ── Self-play 对手池（可选）────────────────────────────────
+    opponent_pool = None
+    if args.self_play:
+        from rl.self_play import OpponentPool
+        opponent_pool = OpponentPool(
+            pool_dir=str(log_dir / "opponent_pool"),
+            n_stack=args.n_stack,
+            max_pool_size=args.pool_size,
+            basic_ai_prob=args.initial_basic_ai_prob,
+        )
+        if args.seed_model:
+            from sb3_contrib import MaskablePPO as _MaskablePPO
+            seed_m = _MaskablePPO.load(args.seed_model)
+            opponent_pool.save_current_model(seed_m, step=0)
+            del seed_m
+        print(f"  Self-play:       启用 (seed_model={args.seed_model})")
+    else:
+        print(f"  Self-play:       禁用")
+
     # ── 训练环境 ────────────────────────────────────────────────
     env_fns = [
         make_env(
@@ -307,7 +366,7 @@ def main() -> None:
             seed=args.seed,
             rank=i,
             n_stack=args.n_stack,
-            opponent_pool=None,  # profile 模式不使用 self-play
+            opponent_pool=opponent_pool,
             rl_talent=args.rl_talent,
             enable_talents=args.enable_talents,
         )
