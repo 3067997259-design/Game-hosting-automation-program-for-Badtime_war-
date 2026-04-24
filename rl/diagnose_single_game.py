@@ -95,11 +95,11 @@ def wrap_controller(player: Player, stats: TimingStats):
     original_choose = ctrl.choose
     original_confirm = ctrl.confirm
 
-    def timed_get_command(player_arg, game_state, available_actions, context=None):
+    def timed_get_command(player, game_state, available_actions, context=None):
         stats.current_round = game_state.current_round
         attempt = (context or {}).get("attempt", 1)
         t0 = time.perf_counter()
-        result = original_get_command(player_arg, game_state, available_actions, context)
+        result = original_get_command(player, game_state, available_actions, context)
         elapsed = (time.perf_counter() - t0) * 1000
 
         key = (player_name, "get_command", f"attempt={attempt}")
