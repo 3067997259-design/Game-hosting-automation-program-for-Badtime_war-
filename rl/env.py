@@ -745,6 +745,20 @@ class BadtimeWarEnv(gym.Env):
             while not self._state.game_over and not self._game_over_flag:
                 self._round_manager.run_one_round()
 
+                # RL 死亡后立即终止：不需要模拟剩余 AI 对战
+                # RL 死后 get_command() 不再被调用，_obs_event 只有等整局
+                # 游戏结束才会 set，导致 env.step() 阻塞数秒甚至数十秒。
+                # 在 SubprocVecEnv 多进程模式下，一个子进程的阻塞会拖慢所有进程。
+                if self._rl_player and not self._rl_player.is_alive():
+                    self._state.game_over = True
+                    alive = [pid for pid in self._state.player_order
+                             if self._state.get_player(pid) and self._state.get_player(pid).is_alive()]
+                    if len(alive) == 1:
+                        self._state.winner = alive[0]
+                    else:
+                        self._state.winner = "nobody"
+                    break
+
                 # 检查胜利
                 winner_id = self._state.check_victory()
                 if winner_id:
