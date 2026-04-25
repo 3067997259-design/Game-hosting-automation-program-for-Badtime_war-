@@ -17,6 +17,7 @@ BadtimeWarEnv —— 主 Gym 封装（天赋局版）
 
 from __future__ import annotations
 
+import multiprocessing
 import random
 import threading
 from typing import Any, Optional, List, Dict
