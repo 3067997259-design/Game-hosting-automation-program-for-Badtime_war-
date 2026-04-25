@@ -35,6 +35,9 @@ class PromptManager:
         if self._initialized:
             return
 
+        import multiprocessing
+        self._is_subprocess = multiprocessing.parent_process() is not None
+
         self.prompts: Dict[str, Any] = {}
         self.config: Dict[str, Any] = {}
         self.current_level = PromptLevel.NORMAL
@@ -86,7 +89,8 @@ class PromptManager:
                         PromptLevel.DEBUG
                     )
 
-                    print(f"[提示系统] 加载配置: {path}")
+                    if not self._is_subprocess:
+                        print(f"[提示系统] 加载配置: {path}")
                     return
                 except Exception as e:
                     print(f"[提示系统] 配置加载失败 {path}: {e}")
@@ -111,7 +115,8 @@ class PromptManager:
                     # 尝试解析JSON
                     try:
                         self.prompts = json.loads(content)
-                        print(f"[提示系统] 加载提示: {path} ({len(self.prompts)} categories)")
+                        if not self._is_subprocess:
+                            print(f"[提示系统] 加载提示: {path} ({len(self.prompts)} categories)")
                         return
                     except json.JSONDecodeError as e:
                         print(f"[提示系统] JSON解析错误 {path}: {e}")
