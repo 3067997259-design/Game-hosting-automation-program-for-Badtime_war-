@@ -624,6 +624,11 @@ def build_action_mask(
             if has_ranged_weapon:
                 for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):
                     if alive and opp is not None and opp.is_on_map():
+                        # 已锁定的目标不能再 lock（与 validator.validate_lock 保持一致）
+                        already_locked = game_state.markers.has_relation(
+                            opp.player_id, "LOCKED_BY", player.player_id)
+                        if already_locked:
+                            continue
                         visible = game_state.markers.is_visible_to(
                             opp.player_id, player.player_id, player.has_detection)
                         if visible:
@@ -633,6 +638,12 @@ def build_action_mask(
     if "find" in available_set:
             for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):
                 if alive and opp is not None and opp.location == player.location:
+                    # 已面对面的目标不能再 find（与 validator.validate_find 和
+                    # action_registry._get_findable_targets 保持一致）
+                    already_engaged = game_state.markers.has_relation(
+                        player.player_id, "ENGAGED_WITH", opp.player_id)
+                    if already_engaged:
+                        continue
                     visible = game_state.markers.is_visible_to(
                         opp.player_id, player.player_id, player.has_detection)
                     if visible:
