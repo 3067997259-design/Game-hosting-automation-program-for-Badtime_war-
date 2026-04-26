@@ -517,7 +517,7 @@ def run_collection(num_games: int, num_players: int, output_dir: str,
         _restore_display()
 
     if talent_num is not None:
-        output_path = os.path.join(output_dir, "g7_bc_data.npz")
+        output_path = os.path.join(output_dir, f"t{talent_num}_bc_data.npz")
     else:
         output_path = os.path.join(output_dir, "all_bc_data.npz")
     collector.save(output_path)
