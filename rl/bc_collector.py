@@ -1,10 +1,10 @@
 """
 rl/bc_collector.py
 ──────────────────
-G7（星野）BasicAI 行为克隆数据收集器。
+BasicAI 行为克隆数据收集器（支持全天赋 / 单天赋模式）。
 
 设计目标：
-- 复用 BasicAIController 作为"老师"，运行全 AI 对局，强制某个玩家拿到 G7 天赋。
+- 复用 BasicAIController 作为"老师"，运行全 AI 对局，强制某个玩家拿到指定天赋。
 - 在该玩家每次被调用 get_command() / choose() 时，额外记录
   (obs, action_idx, mask) 三元组。
 - 动作索引使用与 RL 完全相同的动作空间（ACTION_COUNT=130）。
@@ -20,7 +20,11 @@ G7（星野）BasicAI 行为克隆数据收集器。
   只记录 RL 实际会同步的 situation（非 _HEURISTIC_CHOOSE）。
 
 用法：
-    python -m rl.bc_collector --games 5000 --players 6 --output bc_data/g7
+    # 收集全天赋 BC 数据
+    python -m rl.bc_collector --games 5000 --players 6 --talent all --output bc_data/all
+
+    # 只收集 G7 天赋数据
+    python -m rl.bc_collector --games 5000 --players 6 --talent 14 --output bc_data/g7
 """
 
 from __future__ import annotations
@@ -385,17 +389,22 @@ class BCCollectorController(BasicAIController):
 #  数据收集主流程
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _find_g7_talent_entry(talent_table):
-    """从 TALENT_TABLE 中找到 G7（星野/编号 14）的条目。"""
+def _find_talent_entry(talent_table, talent_num: int):
+    """从 TALENT_TABLE 中找到指定编号的天赋条目。"""
     for entry in talent_table:
         n, name, cls, desc = entry[0], entry[1], entry[2], entry[3]
-        if n == 14:
+        if n == talent_num:
             return entry
     return None
 
 
-def run_collection(num_games: int, num_players: int, output_dir: str) -> None:
-    """运行多局全 AI 对局，收集 G7 玩家的 BC 数据。"""
+def run_collection(num_games: int, num_players: int, output_dir: str,
+                   talent_num: Optional[int] = None) -> None:
+    """运行多局全 AI 对局，收集 BC 数据。
+
+    talent_num=None : 每局随机选一个天赋强制分配给 BC 收集者
+    talent_num=N    : 只收集指定天赋的数据
+    """
     from engine.game_state import GameState
     from engine.round_manager import RoundManager
     from models.player import Player
@@ -406,12 +415,14 @@ def run_collection(num_games: int, num_players: int, output_dir: str) -> None:
     from rl.env import _silence_display, _restore_display
 
     collector = DataCollector()
-    total_g7_games = 0
+    total_games = 0
 
-    g7_entry = _find_g7_talent_entry(TALENT_TABLE)
-    if g7_entry is None:
-        raise RuntimeError("未在 TALENT_TABLE 中找到编号 14 的 G7 天赋")
-    g7_num, g7_name, g7_cls, _g7_desc = g7_entry
+    # 单天赋模式：预先查找指定天赋
+    fixed_entry = None
+    if talent_num is not None:
+        fixed_entry = _find_talent_entry(TALENT_TABLE, talent_num)
+        if fixed_entry is None:
+            raise RuntimeError(f"未在 TALENT_TABLE 中找到编号 {talent_num} 的天赋")
 
     _silence_display()
     _silence_prompt_manager()
@@ -421,7 +432,18 @@ def run_collection(num_games: int, num_players: int, output_dir: str) -> None:
             names = list(AI_NAME_POOL)
             random.shuffle(names)
 
-            g7_pid: Optional[str] = None
+            # 确定本局 BC 收集者的天赋
+            if fixed_entry is not None:
+                target_num, target_name, target_cls, _ = fixed_entry
+            else:
+                available_talents = [
+                    (n, name, cls, desc)
+                    for n, name, cls, desc in TALENT_TABLE
+                ]
+                chosen = random.choice(available_talents)
+                target_num, target_name, target_cls, _ = chosen
+
+            bc_pid: Optional[str] = None
             personality_map: Dict[str, str] = {}
 
             for i in range(num_players):
@@ -434,7 +456,7 @@ def run_collection(num_games: int, num_players: int, output_dir: str) -> None:
                     controller = BCCollectorController(
                         personality=personality, collector=collector,
                     )
-                    g7_pid = pid
+                    bc_pid = pid
                 else:
                     controller = BasicAIController(personality=personality)
 
@@ -443,33 +465,33 @@ def run_collection(num_games: int, num_players: int, output_dir: str) -> None:
 
             random.shuffle(state.player_order)
 
-            # 天赋分配：强制 g7_pid 拿 G7
+            # 天赋分配：强制 bc_pid 拿到目标天赋
             taken: set = set()
             for pid in state.player_order:
                 p = state.get_player(pid)
                 if p is None:
                     continue
-                if pid == g7_pid:
-                    talent_inst = g7_cls(pid, state)
+                if pid == bc_pid:
+                    talent_inst = target_cls(pid, state)
                     p.talent = talent_inst
-                    p.talent_name = g7_name
+                    p.talent_name = target_name
                     talent_inst.on_register()
-                    taken.add(g7_num)
+                    taken.add(target_num)
                 else:
                     available = [
                         (n, name, cls, desc)
                         for n, name, cls, desc in TALENT_TABLE
-                        if n not in taken and n != g7_num
+                        if n not in taken and n != target_num
                     ]
                     if not available:
                         continue
-                    chosen = _ai_pick_talent(
+                    chosen_ai = _ai_pick_talent(
                         personality_map.get(pid, "balanced"),
                         available, taken,
                     )
-                    if chosen is None:
+                    if chosen_ai is None:
                         continue
-                    n, name, cls = chosen  # type: ignore[misc]
+                    n, name, cls = chosen_ai  # type: ignore[misc]
                     talent_inst = cls(pid, state)
                     p.talent = talent_inst
                     p.talent_name = name
@@ -485,7 +507,7 @@ def run_collection(num_games: int, num_players: int, output_dir: str) -> None:
             except Exception:
                 state.game_over = True
             collector.stop_recording()
-            total_g7_games += 1
+            total_games += 1
 
             if (game_idx + 1) % 100 == 0:
                 print(f"[BC] Game {game_idx + 1}/{num_games}, "
@@ -494,22 +516,39 @@ def run_collection(num_games: int, num_players: int, output_dir: str) -> None:
         _restore_prompt_manager()
         _restore_display()
 
-    output_path = os.path.join(output_dir, "g7_bc_data.npz")
+    if talent_num is not None:
+        output_path = os.path.join(output_dir, "g7_bc_data.npz")
+    else:
+        output_path = os.path.join(output_dir, "all_bc_data.npz")
     collector.save(output_path)
-    print(f"[BC] Collection done. {total_g7_games} G7 games, "
+    talent_desc = f"天赋 {talent_num}" if talent_num is not None else "全天赋"
+    print(f"[BC] Collection done. {total_games} {talent_desc} games, "
           f"{collector.n_samples} total samples.")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="G7 BC 数据收集")
+    parser = argparse.ArgumentParser(description="BC 数据收集")
     parser.add_argument("--games", type=int, default=5000,
                         help="游戏局数（默认 5000）")
     parser.add_argument("--players", type=int, default=6,
                         help="每局玩家数（默认 6）")
     parser.add_argument("--output", type=str, default="bc_data/g7",
                         help="输出目录（默认 bc_data/g7）")
+    parser.add_argument("--talent", type=str, default="all",
+                        help="收集哪个天赋的数据（all=所有天赋轮流, 14=只收集G7, 等）")
     args = parser.parse_args()
-    run_collection(args.games, args.players, args.output)
+
+    talent_num: Optional[int] = None
+    if args.talent != "all":
+        talent_num = int(args.talent)
+
+    # 默认输出目录：如果用户没有显式指定，根据天赋模式调整
+    output_dir = args.output
+    if output_dir == "bc_data/g7" and args.talent == "all":
+        output_dir = "bc_data/all"
+
+    run_collection(args.games, args.players, output_dir,
+                   talent_num=talent_num)
 
 
 if __name__ == "__main__":
