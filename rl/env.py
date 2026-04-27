@@ -16,18 +16,8 @@ BadtimeWarEnv —— 主 Gym 封装（天赋局版）
 """
 
 from __future__ import annotations
-import multiprocessing
-import os as _os
-# SubprocVecEnv 子进程中必须在 numpy/torch 导入前限制 BLAS 线程数。
-# torch.set_num_threads(1) 只控制 PyTorch 的 OpenMP 线程池，
-# 不控制 numpy 底层的 MKL/OpenBLAS，后者默认使用所有 CPU 核心。
-# 16 个子进程 × 32 线程 = 512 线程争抢 32 核，导致 load average > 260。
-# 使用 setdefault 以尊重用户显式设置的环境变量。
-if multiprocessing.parent_process() is not None:
-    _os.environ.setdefault("OMP_NUM_THREADS", "1")
-    _os.environ.setdefault("MKL_NUM_THREADS", "1")
-    _os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
+import multiprocessing
 import random
 import threading
 from typing import Any, Optional, List, Dict

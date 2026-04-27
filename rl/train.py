@@ -15,6 +15,14 @@ MaskablePPO 训练入口脚本
 """
 
 from __future__ import annotations
+import os as _os
+# SubprocVecEnv(start_method="spawn") 子进程继承父进程的环境变量。
+# 必须在 import numpy/torch 之前设置，否则 BLAS 会用默认线程数初始化。
+# 16 个子进程 × 32 默认线程 = 512 线程争抢 32 核，导致 load average > 260。
+# setdefault 尊重用户显式设置的环境变量。
+_os.environ.setdefault("OMP_NUM_THREADS", "1")
+_os.environ.setdefault("MKL_NUM_THREADS", "1")
+_os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import argparse
 import os
