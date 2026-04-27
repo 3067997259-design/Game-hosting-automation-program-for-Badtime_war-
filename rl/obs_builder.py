@@ -2,7 +2,7 @@
 """
 rl/obs_builder.py
 ─────────────────
-观测向量构建器（天赋局，共 515 维 float32）
+观测向量构建器（天赋局，共 523 维 float32）
 
 维度布局：
   ┌─ 原有观测（不变）─────────────────────────────────────────┐
@@ -25,7 +25,8 @@ rl/obs_builder.py
   │   slot0=[341-374] slot1=[375-408] slot2=[409-442]         │
   │   slot3=[443-476] slot4=[477-510]                         │
   │ [511]       存活对手数量      (1)  n_alive/5              │
-  │ [512 – 514] choose 模式指示器 (3)                         │
+  │ [512 – 519] 长线记忆特征      (8)                         │
+  │ [520 – 522] choose 模式指示器 (3)                         │
   └───────────────────────────────────────────────────────────┘
 
 自身天赋状态 40 维槽位分配（按批次逐步填充）：
@@ -60,10 +61,20 @@ rl/obs_builder.py
 存活对手数量：
   [511] n_alive_opponents / 5.0
 
+长线记忆特征（由 env 跟踪并传入 long_term_stats 字典）：
+  [512] rl_hp_delta           (初始HP-当前HP)/max_hp
+  [513] avg_opp_hp_ratio      存活对手平均HP/max_hp
+  [514] max_opp_kill_count    存活对手最高击杀数/5
+  [515] n_engaged             当前与RL面对面的对手数/5
+  [516] rounds_since_last_kill 距上次击杀轮次数/max_rounds
+  [517] rl_attack_ratio        本局攻击次数/总行动次数
+  [518] rl_damage_dealt        本局造成总伤害/(max_hp*n_opponents)
+  [519] economy_advantage      (RL vouchers-对手均值)/max_vouchers [-1,1]
+
 choose 模式指示器：
-  [512] is_choose_mode: 0=get_command, 1=choose
-  [513] choose_situation_id / 29.0 (归一化)
-  [514] choose_n_options / 16.0 (归一化)
+  [520] is_choose_mode: 0=get_command, 1=choose
+  [521] choose_situation_id / 30.0 (归一化)
+  [522] choose_n_options / 16.0 (归一化)
 """
 
 from __future__ import annotations
@@ -80,7 +91,7 @@ from rl.action_space import LOCATIONS, WEAPONS, get_opponent_slots
 #  常量
 # ─────────────────────────────────────────────────────────────────────────────
 
-OBS_DIM = 515
+OBS_DIM = 523
 _CHOOSE_OBS_DIM = 3
 
 # 原有观测维度（用于内部断言，不对外暴露）
@@ -688,7 +699,8 @@ def build_obs(player: "Player", game_state: "GameState",
               rl_player_id: str,
               choose_mode: bool = False,
               choose_situation: str = "",
-              choose_n_options: int = 0) -> np.ndarray:
+              choose_n_options: int = 0,
+              long_term_stats: dict | None = None) -> np.ndarray:
     """
     构建完整观测向量（OBS_DIM 维）。
 
@@ -717,8 +729,9 @@ def build_obs(player: "Player", game_state: "GameState",
         [341 –510 ]  对手天赋 5×(ID14+状态20) (170) 交错布局
                      slot0=[341-374] slot1=[375-408] ...
         [511]        存活对手数量          (1)  n_alive/5
-        [512 –514 ]  choose 模式指示       (3)
-        ─── 总计 515 ───
+        [512 –519 ]  长线记忆特征          (8)  env 跟踪
+        [520 –522 ]  choose 模式指示       (3)
+        ─── 总计 523 ───
     """
     from models.equipment import ArmorLayer
     from utils.attribute import Attribute
@@ -1132,8 +1145,20 @@ def build_obs(player: "Player", game_state: "GameState",
                 alive_opponents += 1
     obs[alive_opp_start] = alive_opponents / 5.0
 
-    # ── [512 – 514] choose 模式指示 (3 维) ──
-    choose_start = alive_opp_start + 1  # 512
+    # ── [512 – 519] 长线记忆特征 (8 维) ──
+    lt = long_term_stats or {}
+    lt_start = alive_opp_start + 1  # 512
+    obs[lt_start]     = lt.get("rl_hp_delta", 0.0)
+    obs[lt_start + 1] = lt.get("avg_opp_hp_ratio", 0.0)
+    obs[lt_start + 2] = lt.get("max_opp_kill_count", 0.0)
+    obs[lt_start + 3] = lt.get("n_engaged", 0.0)
+    obs[lt_start + 4] = lt.get("rounds_since_last_kill", 0.0)
+    obs[lt_start + 5] = lt.get("rl_attack_ratio", 0.0)
+    obs[lt_start + 6] = lt.get("rl_damage_dealt", 0.0)
+    obs[lt_start + 7] = lt.get("economy_advantage", 0.0)
+
+    # ── [520 – 522] choose 模式指示 (3 维) ──
+    choose_start = lt_start + 8  # 520
     if choose_mode:
         obs[choose_start:choose_start + _CHOOSE_OBS_DIM] = \
             build_choose_obs(choose_situation, choose_n_options)

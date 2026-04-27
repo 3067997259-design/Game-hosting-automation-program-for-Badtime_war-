@@ -307,6 +307,9 @@ class BadtimeWarEnv(gym.Env):
         # ── 帧堆叠缓冲 ──
         self._obs_stack = np.zeros(OBS_DIM * n_stack, dtype=np.float32)
 
+        # ── 局结果记录（用于坍塌检测的 eval 胜率计算） ──
+        self._episode_outcomes: list[str | None] = []
+
         # ── 内部状态（reset 时初始化）──
         self._state: Optional[GameState] = None
         self._round_manager: Optional[RoundManager] = None
@@ -385,18 +388,21 @@ class BadtimeWarEnv(gym.Env):
         # 创建对手（self-play 或 BasicAI）
         ai_players = []
         ai_personalities = {}  # pid → personality
+        self._opponent_model_stems: Dict[str, str] = {}  # pid → model_stem（用于 ELO）
         for i in range(self.num_opponents):
             if self.opponent_pool is not None:
-                ctrl = self.opponent_pool.sample_opponent_controller()
+                ctrl, model_stem = self.opponent_pool.sample_opponent_controller()
                 if hasattr(ctrl, 'reset_stack'):
                     ctrl.reset_stack()
                 personality = "balanced"  # self-play 对手无人格概念
             else:
                 personality = random.choice(AI_PERSONALITIES)
                 ctrl = create_random_ai_controller(player_name=f"AI_{i}")
+                model_stem = "basic_ai"
             p = Player(f"ai_{i}", f"AI_{i}", ctrl)
             ai_players.append(p)
             ai_personalities[p.player_id] = personality
+            self._opponent_model_stems[p.player_id] = model_stem
 
         # 随机化玩家顺序
         all_players = [self._rl_player] + ai_players
@@ -420,6 +426,14 @@ class BadtimeWarEnv(gym.Env):
 
         # 创建奖励追踪器
         self._reward_tracker = RewardTracker("rl_0")
+
+        # ── 长线统计 ──
+        self._lt_initial_hp = self._rl_player.hp
+        self._lt_total_actions = 0
+        self._lt_attack_actions = 0
+        self._lt_damage_dealt = 0.0
+        self._lt_last_kill_round = 0
+        self._lt_last_kill_count = 0
 
         # 重置同步原语
         self._obs_event.clear()
@@ -445,7 +459,8 @@ class BadtimeWarEnv(gym.Env):
         self._reward_tracker.reset(self._rl_player, self._state)
 
         self._obs_stack = np.zeros(OBS_DIM * self.n_stack, dtype=np.float32)
-        raw_obs = build_obs(self._rl_player, self._state, "rl_0")
+        raw_obs = build_obs(self._rl_player, self._state, "rl_0",
+                            long_term_stats=self._build_long_term_stats())
         self._fill_choose_obs(raw_obs)
         obs = self._stack_obs(raw_obs)
         info = {"action_masks": self.action_masks()}
@@ -604,7 +619,8 @@ class BadtimeWarEnv(gym.Env):
 
         # 游戏已在上一步结束（防御性检查）
         if self._game_over_flag or (self._state and self._state.game_over):
-            raw_obs = build_obs(self._rl_player, self._state, "rl_0")
+            raw_obs = build_obs(self._rl_player, self._state, "rl_0",
+                                long_term_stats=self._build_long_term_stats())
             self._fill_choose_obs(raw_obs)
             obs = self._stack_obs(raw_obs)
             reward = self._reward_tracker.compute(
@@ -675,21 +691,49 @@ class BadtimeWarEnv(gym.Env):
             self._game_over_flag = True
             self._action_event.set()
 
+        # ── 更新长线统计 ──
+        if not self._choose_mode:
+            self._lt_total_actions += 1
+            if action_type == "attack":
+                self._lt_attack_actions += 1
+            current_kills = self._rl_player.kill_count
+            if current_kills > self._lt_last_kill_count:
+                self._lt_last_kill_round = self._state.current_round
+                self._lt_last_kill_count = current_kills
+
         # 计算奖励
         reward = self._reward_tracker.compute(
             self._rl_player, self._state, action_type, action_success,
             action_idx=action
         )
 
-        raw_obs = build_obs(self._rl_player, self._state, "rl_0")
+        raw_obs = build_obs(self._rl_player, self._state, "rl_0",
+                            long_term_stats=self._build_long_term_stats())
         self._fill_choose_obs(raw_obs)
         obs = self._stack_obs(raw_obs)
         info = {"action_masks": self.action_masks()}
 
         if terminated or truncated:
             info["winner"] = self._state.winner
+            self._episode_outcomes.append(self._state.winner)
+            # 将对手模型标识传入 info，由主进程的 SelfPlayCallback 更新 ELO
+            if self.opponent_pool is not None:
+                opp_stems = [s for s in self._opponent_model_stems.values()
+                             if s != "basic_ai"]
+                if opp_stems:
+                    info["opponent_stems"] = opp_stems
 
         return obs, reward, terminated, truncated, info
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  局结果追踪（用于坍塌检测）
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def get_episode_outcomes(self) -> list[str | None]:
+        """返回并清空累积的局结果（winner player_id 列表）。"""
+        outcomes = self._episode_outcomes
+        self._episode_outcomes = []
+        return outcomes
 
     # ══════════════════════════════════════════════════════════════════════════
     #  action_masks（MaskablePPO 接口）
@@ -717,6 +761,68 @@ class BadtimeWarEnv(gym.Env):
         )
 
     # ══════════════════════════════════════════════════════════════════════════
+    #  长线统计
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _build_long_term_stats(self) -> dict:
+        """构建长线记忆特征字典（8 维），传入 build_obs()。"""
+        player = self._rl_player
+        state = self._state
+        if player is None or state is None:
+            return {}
+
+        alive_opps = [
+            state.get_player(pid) for pid in state.player_order
+            if pid != "rl_0"
+            and state.get_player(pid) is not None
+            and state.get_player(pid).is_alive()
+        ]
+        n_alive = len(alive_opps)
+
+        stats: dict = {}
+        stats["rl_hp_delta"] = (self._lt_initial_hp - player.hp) / 5.0
+        stats["avg_opp_hp_ratio"] = (
+            sum(p.hp for p in alive_opps) / (n_alive * 5.0)
+        ) if n_alive > 0 else 0.0
+        stats["max_opp_kill_count"] = (
+            max((p.kill_count for p in alive_opps), default=0) / 5.0
+        )
+
+        markers = state.markers
+        n_engaged = sum(
+            1 for p in alive_opps
+            if markers.has_relation(player.player_id, "ENGAGED_WITH", p.player_id)
+        )
+        stats["n_engaged"] = n_engaged / 5.0
+
+        rounds_since = (
+            (state.current_round - self._lt_last_kill_round)
+            if self._lt_last_kill_count > 0
+            else state.current_round
+        )
+        stats["rounds_since_last_kill"] = min(
+            rounds_since / max(state.max_rounds, 1), 1.0
+        )
+
+        stats["rl_attack_ratio"] = (
+            self._lt_attack_actions / max(self._lt_total_actions, 1)
+        )
+        stats["rl_damage_dealt"] = min(
+            self._lt_last_kill_count * 5.0
+            / max(self.num_opponents * 5.0, 1),
+            1.0,
+        )
+
+        avg_opp_vouchers = (
+            sum(p.vouchers for p in alive_opps) / n_alive
+        ) if n_alive > 0 else 0.0
+        stats["economy_advantage"] = max(
+            min((player.vouchers - avg_opp_vouchers) / 3.0, 1.0), -1.0
+        )
+
+        return stats
+
+    # ══════════════════════════════════════════════════════════════════════════
     #  choose 模式观测填充
     # ══════════════════════════════════════════════════════════════════════════
 
@@ -725,10 +831,10 @@ class BadtimeWarEnv(gym.Env):
         将 choose 模式指示写入 raw_obs 的末尾 3 维。
         在 build_obs() 返回后、_stack_obs() 之前调用。
 
-        维度布局（相对于 OBS_DIM 末尾 3 维）：
-          [-3] current_mode     : 0.0 = get_command, 1.0 = choose
-          [-2] situation_id     : 归一化的 situation 编号 (/max)
-          [-1] n_options        : 归一化的选项数量 (/16)
+        维度布局（OBS_DIM 末尾 3 维 [520-522]）：
+          [520] current_mode     : 0.0 = get_command, 1.0 = choose
+          [521] situation_id     : 归一化的 situation 编号 (/max)
+          [522] n_options        : 归一化的选项数量 (/16)
         """
         from rl.obs_builder import _CHOOSE_SITUATION_MAP, _MAX_CHOOSE_SITUATIONS
 
