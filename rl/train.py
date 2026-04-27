@@ -182,8 +182,9 @@ class CurriculumCallback(BaseCallback):
             for i in range(len(stages) - 1):
                 n_opponents = stages[i]
                 random_baseline = 1.0 / (n_opponents + 1)
-                # Threshold = random_baseline * 1.5 (50% above random)
-                self.win_thresholds.append(random_baseline * 1.5)
+                # Threshold = random_baseline * 1.2 (20% above random)
+                # 强制随机天赋时，RL 可能拿到被克制的天赋，1.5x 太高会卡住课程进度
+                self.win_thresholds.append(random_baseline * 1.2)
         self.window = window
         self._current_stage = 0
         self._episode_wins: list[bool] = []
