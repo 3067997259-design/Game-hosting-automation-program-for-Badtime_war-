@@ -150,9 +150,9 @@ class _BaseOpponentRLController(RLController):
         raw_obs = build_obs(player, state, player.player_id)
 
         # 填充 choose 模式指示维（与训练 env._fill_choose_obs 保持一致）
-        # 尾部 3 维：[current_mode=1.0, situation_id/30, n_options/16]
+        # 尾部 3 维 [520-522]：[current_mode=1.0, situation_id/30, n_options/16]
         from rl.obs_builder import _CHOOSE_SITUATION_MAP, _MAX_CHOOSE_SITUATIONS
-        base = OBS_DIM - 3
+        base = OBS_DIM - 3  # 520
         raw_obs[base] = 1.0
         raw_obs[base + 1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / max(_MAX_CHOOSE_SITUATIONS, 1)
         raw_obs[base + 2] = min(len(options), 16) / 16.0
@@ -281,6 +281,32 @@ class OpponentPool:
         # cache_key（完整文件路径，含 .zip / .pts 后缀）区分。
         self._model_cache: Dict[str, Any] = {}
 
+        # ELO 评分系统
+        self.elo_scores: Dict[str, float] = {}
+        self.elo_k = 32.0
+        self.elo_default = 1000.0
+        self.elo_cull_threshold = 800.0
+        self.elo_min_games = 10
+        self.elo_game_counts: Dict[str, int] = {}
+
+    def update_elo(self, model_stem: str, opponent_stem: str, win: bool):
+        """更新两个模型的 ELO 评分。"""
+        if model_stem not in self.elo_scores:
+            self.elo_scores[model_stem] = self.elo_default
+        if opponent_stem not in self.elo_scores:
+            self.elo_scores[opponent_stem] = self.elo_default
+
+        ra = self.elo_scores[model_stem]
+        rb = self.elo_scores[opponent_stem]
+        ea = 1.0 / (1.0 + 10 ** ((rb - ra) / 400.0))
+        sa = 1.0 if win else 0.0
+
+        self.elo_scores[model_stem] = ra + self.elo_k * (sa - ea)
+        self.elo_scores[opponent_stem] = rb + self.elo_k * ((1 - sa) - (1 - ea))
+
+        self.elo_game_counts[model_stem] = self.elo_game_counts.get(model_stem, 0) + 1
+        self.elo_game_counts[opponent_stem] = self.elo_game_counts.get(opponent_stem, 0) + 1
+
     def save_current_model(self, model: BaseAlgorithm, step: int):
         """保存当前模型到对手池，同时导出 TorchScript 快推理版本。"""
         path = self.pool_dir / f"opponent_step_{step}"
@@ -294,37 +320,67 @@ class OpponentPool:
         except Exception as e:
             logger.warning("TorchScript 导出失败，将回退到完整模型: %s", e)
 
+        # 初始化新模型的 ELO
+        stem = f"opponent_step_{step}"
+        self.elo_scores[stem] = self.elo_default
+        self.elo_game_counts[stem] = 0
+
         # 如果超出池大小，删除最旧的
         self._cleanup_old_models()
 
     def _cleanup_old_models(self):
-        """保留最新的 max_pool_size 个模型（同时清理对应的 .pts）。"""
+        """淘汰低 ELO 模型，保留最新的 max_pool_size 个。"""
         models = sorted(self.pool_dir.glob("opponent_step_*.zip"), key=lambda p: p.stat().st_mtime)
+
+        # 先淘汰 ELO 低于阈值且对战局数足够的模型
+        to_remove = []
+        for m in models[:-3]:  # 至少保留最新 3 个
+            stem = m.stem
+            games = self.elo_game_counts.get(stem, 0)
+            elo = self.elo_scores.get(stem, self.elo_default)
+            if games >= self.elo_min_games and elo < self.elo_cull_threshold:
+                to_remove.append(m)
+
+        for m in to_remove:
+            self._remove_model(m)
+            models.remove(m)
+
+        # 然后按原有逻辑：超出 max_pool_size 时删除最旧的
         while len(models) > self.max_pool_size:
             oldest = models.pop(0)
-            # 从缓存中移除（在 unlink 之前计算 key）
-            cache_key = str(oldest)
-            if cache_key in self._model_cache:
-                del self._model_cache[cache_key]
-            pts_file = oldest.with_suffix(".pts")
-            pts_key = str(pts_file)
-            if pts_key in self._model_cache:
-                del self._model_cache[pts_key]
-            oldest.unlink()
-            if pts_file.exists():
-                pts_file.unlink()
+            self._remove_model(oldest)
+
+    def _remove_model(self, model_path: Path):
+        """从磁盘和缓存中移除一个模型。"""
+        cache_key = str(model_path)
+        if cache_key in self._model_cache:
+            del self._model_cache[cache_key]
+        pts_file = model_path.with_suffix(".pts")
+        pts_key = str(pts_file)
+        if pts_key in self._model_cache:
+            del self._model_cache[pts_key]
+        # 清理 ELO 记录
+        stem = model_path.stem
+        self.elo_scores.pop(stem, None)
+        self.elo_game_counts.pop(stem, None)
+        model_path.unlink(missing_ok=True)
+        if pts_file.exists():
+            pts_file.unlink()
 
     def get_available_models(self) -> List[Path]:
         """返回池中所有可用的模型路径。"""
         return sorted(self.pool_dir.glob("opponent_step_*.zip"))
 
-    def sample_opponent_controller(self) -> PlayerController:
+    def sample_opponent_controller(self) -> tuple[PlayerController, str]:
         """
         从对手池中采样一个控制器。
 
         有 basic_ai_prob 的概率返回 BasicAI，
-        否则从历史模型中随机选一个。
+        否则按 ELO 加权从历史模型中采样。
         如果池为空，总是返回 BasicAI。
+
+        返回 (controller, model_stem)，model_stem 用于 ELO 更新。
+        BasicAI 返回 "basic_ai"。
         """
         from controllers.ai_basic import create_random_ai_controller
 
@@ -332,7 +388,7 @@ class OpponentPool:
 
         # 池为空或随机选择 BasicAI
         if not available or random.random() < self.basic_ai_prob:
-            return create_random_ai_controller(player_name="AI")
+            return create_random_ai_controller(player_name="AI"), "basic_ai"
 
         # 清理缓存中已不存在于磁盘的模型（主进程可能已删除旧文件）
         # 同一个 checkpoint 可能有 .zip 和 .pts 两个 cache entry，都要照顧到
@@ -342,8 +398,14 @@ class OpponentPool:
         for k in stale_keys:
             del self._model_cache[k]
 
-        # 从池中随机选一个模型（带重试，防止主进程并发删除导致 FileNotFoundError）
-        random.shuffle(available)
+        # 按 ELO 加权采样（ELO 越高被选中概率越大）
+        weights = []
+        for p in available:
+            elo = self.elo_scores.get(p.stem, self.elo_default)
+            weights.append(max(elo - 600, 1.0))
+        chosen = random.choices(available, weights=weights, k=1)[0]
+        available = [chosen]  # 只尝试加载选中的那个
+
         for model_path in available:
             cache_key = str(model_path)
             pts_path = model_path.with_suffix(".pts")
@@ -359,7 +421,7 @@ class OpponentPool:
                         n_stack=self.n_stack,
                         _jit_model=self._model_cache[pts_key],
                     )
-                    return ctrl
+                    return ctrl, model_path.stem
 
                 # 回退：加载完整 MaskablePPO
                 if cache_key not in self._model_cache:
@@ -368,7 +430,7 @@ class OpponentPool:
                     n_stack=self.n_stack,
                     _model=self._model_cache[cache_key],
                 )
-                return ctrl
+                return ctrl, model_path.stem
             except (FileNotFoundError, OSError) as e:
                 # 主进程的 _cleanup_old_models 可能在 glob 和 load 之间删除了文件
                 logger.warning("对手模型加载失败（可能已被清理）: %s — %s", model_path, e)
@@ -377,10 +439,11 @@ class OpponentPool:
                 continue
 
         # 所有模型都加载失败，回退到 BasicAI
-        return create_random_ai_controller(player_name="AI")
+        return create_random_ai_controller(player_name="AI"), "basic_ai"
 
     def __getstate__(self):
         state = self.__dict__.copy()
         state['_model_cache'] = {}  # 不序列化模型缓存
+        # elo_scores 和 elo_game_counts 保留（轻量级，可序列化）
         return state
 

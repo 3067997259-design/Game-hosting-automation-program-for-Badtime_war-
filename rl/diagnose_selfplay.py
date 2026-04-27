@@ -66,11 +66,12 @@ class DiagnosticEnv(BadtimeWarEnv):
 
             def timed_sample():
                 st = time.perf_counter()
-                ctrl = original_sample()
+                result = original_sample()
                 elapsed = time.perf_counter() - st
+                ctrl = result[0] if isinstance(result, tuple) else result
                 ctrl_type = type(ctrl).__name__
                 sample_timings.append({"type": ctrl_type, "time_ms": elapsed * 1000})
-                return ctrl
+                return result
 
             self.opponent_pool.sample_opponent_controller = timed_sample
 

@@ -269,6 +269,9 @@ class SelfPlayCallback(BaseCallback):
         verbose: int = 0,
         curriculum_cb=None,  # CurriculumCallback 引用，None 表示无课程（立即激活）
         max_opponents: int = 5,  # 最终对手数，用于动态计算入池阈值
+        eval_env=None,  # 评估环境，用于坍塔检测
+        collapse_threshold: float = 0.12,
+        no_collapse_detection: bool = False,
     ):
         super().__init__(verbose)
         self.pool = pool
@@ -287,6 +290,16 @@ class SelfPlayCallback(BaseCallback):
         self.curriculum_cb = curriculum_cb
         self._activated = (curriculum_cb is None)  # 无课程时立即激活
         self._activation_step: int = 0  # 激活时的步数，用于退火计时
+
+        # 坍塔检测
+        self.collapse_eval_freq = save_freq * 2
+        self.collapse_wr_threshold = collapse_threshold
+        self.collapse_consecutive_fails = 0
+        self.collapse_trigger_count = 3
+        self._collapse_active = False
+        self._collapse_original_ent_coef: float | None = None
+        self._collapse_original_basic_ai_prob: float | None = None
+        self._eval_env = eval_env if not no_collapse_detection else None
 
     def _on_step(self) -> bool:
         # 课程模式下，等待最终阶段才激活
@@ -318,9 +331,9 @@ class SelfPlayCallback(BaseCallback):
                 recent = self._episode_wins[-self.win_rate_window:]
                 current_win_rate = sum(recent) / len(recent)
 
-            # 2b. 质量门控：只有胜率达标才保存
+            # 2b. 质量门控：只有胜率达标才保存（坍塔恢复模式下跳过保存）
             saved = False
-            if current_win_rate is not None and current_win_rate >= self.min_win_rate:
+            if not self._collapse_active and current_win_rate is not None and current_win_rate >= self.min_win_rate:
                 self.pool.save_current_model(self.model, self.num_timesteps)
                 self._last_save_step = self.num_timesteps
                 saved = True
@@ -345,7 +358,83 @@ class SelfPlayCallback(BaseCallback):
                     f"Pool size: {n_models} | BasicAI prob: {new_prob:.1%}"
                 )
 
+        # ── 3. 坍塔检测 ──
+        if self.n_calls % self.collapse_eval_freq == 0 and self._eval_env is not None:
+            from sb3_contrib.common.maskable.evaluation import evaluate_policy
+            evaluate_policy(
+                self.model, self._eval_env, n_eval_episodes=20,
+                deterministic=True, use_masking=True,
+            )
+            eval_win_rate = self._compute_eval_win_rate()
+
+            if eval_win_rate is not None and eval_win_rate < self.collapse_wr_threshold:
+                self.collapse_consecutive_fails += 1
+                if self.verbose:
+                    print(f"  [SelfPlay] \u26a0\ufe0f 坍塔预警 ({self.collapse_consecutive_fails}/{self.collapse_trigger_count}): "
+                          f"eval win rate = {eval_win_rate:.1%} < {self.collapse_wr_threshold:.1%}")
+            else:
+                self.collapse_consecutive_fails = 0
+                if self._collapse_active and eval_win_rate is not None and eval_win_rate > self.collapse_wr_threshold * 1.5:
+                    self._exit_collapse_mode()
+
+            if self.collapse_consecutive_fails >= self.collapse_trigger_count and not self._collapse_active:
+                self._enter_collapse_mode()
+
         return True
+
+    def _compute_eval_win_rate(self) -> float | None:
+        """从评估环境收集胜率。"""
+        if self._eval_env is None:
+            return None
+        try:
+            infos = self._eval_env.env_method("get_episode_outcomes")
+            wins = 0
+            total = 0
+            for env_outcomes in infos:
+                if env_outcomes is not None:
+                    for outcome in env_outcomes:
+                        total += 1
+                        if outcome == "rl_0":
+                            wins += 1
+            if total == 0:
+                return None
+            return wins / total
+        except Exception:
+            return None
+
+    def _enter_collapse_mode(self):
+        """进入坍塔恢复模式：暂停入池、提高 BasicAI 概率、提高熵系数"""
+        self._collapse_active = True
+        self._collapse_original_ent_coef = self.model.ent_coef
+        self._collapse_original_basic_ai_prob = self.pool.basic_ai_prob
+
+        self.model.ent_coef = max(self.model.ent_coef * 2, 0.05)
+        self.pool.basic_ai_prob = 0.7
+        self.training_env.env_method("update_basic_ai_prob", 0.7)
+
+        if self.verbose:
+            print(f"  [SelfPlay] \U0001f6a8 策略坍塔检测触发! "
+                  f"ent_coef: {self._collapse_original_ent_coef} \u2192 {self.model.ent_coef}, "
+                  f"BasicAI prob: {self._collapse_original_basic_ai_prob:.1%} \u2192 70%")
+
+    def _exit_collapse_mode(self):
+        """退出坍塔恢复模式：恢复原始参数"""
+        if self._collapse_original_ent_coef is not None:
+            self.model.ent_coef = self._collapse_original_ent_coef
+
+        # basic_ai_prob 恢复到退火当前值（不是坍塔前的值）
+        elapsed = self.num_timesteps - self._activation_step
+        progress = min(elapsed / self.anneal_steps, 1.0)
+        normal_prob = self.initial_basic_ai_prob + (
+            self.final_basic_ai_prob - self.initial_basic_ai_prob
+        ) * progress
+        self.pool.basic_ai_prob = normal_prob
+        self.training_env.env_method("update_basic_ai_prob", normal_prob)
+
+        self._collapse_active = False
+        self.collapse_consecutive_fails = 0
+        if self.verbose:
+            print(f"  [SelfPlay] \u2705 坍塔恢复完成，参数已恢复")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -569,6 +658,9 @@ def train(args: argparse.Namespace):
             verbose=1,
             curriculum_cb=curriculum_cb,
             max_opponents=args.opponents,
+            eval_env=eval_env,
+            collapse_threshold=args.collapse_threshold,
+            no_collapse_detection=args.no_collapse_detection,
         )
         callback_list.append(self_play_cb)
 
@@ -704,6 +796,10 @@ def parse_args() -> argparse.Namespace:
                 help="Self-play 最终 BasicAI 混入概率（不低于0.3，确保策略多样性）")
     p.add_argument("--min-save-win-rate", type=float, default=0.45,
                 help="Self-play 质量门控：胜率低于此值时不保存模型到对手池（默认0.45，课程模式下自动计算为 1/(n+1)*1.5）")
+    p.add_argument("--collapse-threshold", type=float, default=0.12,
+                help="坍塌检测胜率阈值（低于此值视为坍塌，默认0.12）")
+    p.add_argument("--no-collapse-detection", action="store_true",
+                help="禁用策略坍塌检测")
 
     # 天赋选择参数
     p.add_argument("--rl-talent", type=int, default=None,
