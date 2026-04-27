@@ -16,8 +16,10 @@ rl/watch_all.py
     python -m rl.watch_all --model <模型路径> --opponents 3 --n-stack 30
     python -m rl.watch_all --model <模型路径> --opponents 2 --no-talents
     python -m rl.watch_all --model <模型路径> --opponents 5 --games 20
+    python -m rl.watch_all --model <模型路径> --opponents 5 --games 20 --rl-talent random
 """
 
+import random as _random
 import sys
 import threading
 from collections import Counter
@@ -26,6 +28,7 @@ from typing import Optional
 import numpy as np
 from sb3_contrib import MaskablePPO
 
+from engine.game_setup import TALENT_TABLE
 from rl.env import BadtimeWarEnv
 from rl.action_space import (
     ACTION_COUNT, LOCATIONS, INTERACT_ITEMS, WEAPONS,
@@ -36,6 +39,26 @@ from rl.action_space import (
     IDX_TALENT_T0_TARGET_BASE, IDX_TALENT_T0_SELF, IDX_CHOOSE_BASE,
     get_opponent_slots,
 )
+
+
+def _resolve_rl_talent(raw: str | None) -> int | None:
+    """将 --rl-talent 参数解析为 BadtimeWarEnv 接受的 int | None。
+
+    - None / "none" → None（RL 自选）
+    - "random"      → 从 TALENT_TABLE 中随机选一个编号
+    - "0"           → 0（无天赋）
+    - "1"-"14"      → 对应天赋编号
+    """
+    if raw is None or raw.lower() == "none":
+        return None
+    if raw.lower() == "random":
+        available = [n for n, name, cls, desc in TALENT_TABLE]
+        return _random.choice(available)
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"警告: 无法识别的 --rl-talent 值 '{raw}'，使用自选模式")
+        return None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -540,8 +563,8 @@ if __name__ == "__main__":
                    help="启用天赋系统（默认启用）")
     p.add_argument("--no-talents", action="store_false", dest="enable_talents",
                    help="关闭天赋系统（向后兼容旧模型）")
-    p.add_argument("--rl-talent", type=int, default=None,
-                   help="RL 天赋编号（None=自选, 0=无天赋, 1-14=指定）")
+    p.add_argument("--rl-talent", type=str, default=None,
+                   help="RL 天赋（None=自选, 0=无天赋, 1-14=指定, random=随机）")
     p.add_argument("--games", type=int, default=1,
                    help="连续跑多局并汇总统计")
     args = p.parse_args()
@@ -556,13 +579,14 @@ if __name__ == "__main__":
         print(f"{'=' * 60}\n")
 
         for i in range(args.games):
+            resolved_talent = _resolve_rl_talent(args.rl_talent)
             result = watch_all_silent(
                 model_path=args.model,
                 num_opponents=args.opponents,
                 max_rounds=args.max_rounds,
                 n_stack=args.n_stack,
                 enable_talents=args.enable_talents,
-                rl_talent=args.rl_talent,
+                rl_talent=resolved_talent,
             )
             if result["rl_won"]:
                 wins += 1
@@ -586,11 +610,12 @@ if __name__ == "__main__":
             print(f"    {name}: {cnt} 次 ({cnt/args.games*100:.1f}%)")
         print(f"{'=' * 60}")
     else:
+        resolved_talent = _resolve_rl_talent(args.rl_talent)
         watch_all(
             model_path=args.model,
             num_opponents=args.opponents,
             max_rounds=args.max_rounds,
             n_stack=args.n_stack,
             enable_talents=args.enable_talents,
-            rl_talent=args.rl_talent,
+            rl_talent=resolved_talent,
         )
