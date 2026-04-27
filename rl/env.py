@@ -716,12 +716,12 @@ class BadtimeWarEnv(gym.Env):
         if terminated or truncated:
             info["winner"] = self._state.winner
             self._episode_outcomes.append(self._state.winner)
-            # ELO 更新
+            # 将对手模型标识传入 info，由主进程的 SelfPlayCallback 更新 ELO
             if self.opponent_pool is not None:
-                rl_won = (self._state.winner == "rl_0")
-                for pid, stem in self._opponent_model_stems.items():
-                    if stem != "basic_ai":
-                        self.opponent_pool.update_elo("rl_current", stem, rl_won)
+                opp_stems = [s for s in self._opponent_model_stems.values()
+                             if s != "basic_ai"]
+                if opp_stems:
+                    info["opponent_stems"] = opp_stems
 
         return obs, reward, terminated, truncated, info
 

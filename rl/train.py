@@ -315,13 +315,19 @@ class SelfPlayCallback(BaseCallback):
             else:
                 return True  # 课程未到最终阶段，跳过全部自对弈逻辑
 
-        # ── 1. 收集胜率数据 ──
+        # ── 1. 收集胜率数据 + ELO 更新 ──
         infos = self.locals.get("infos", [])
         for info in infos:
             ep_info = info.get("episode")
             if ep_info is not None:
                 winner = info.get("winner")
-                self._episode_wins.append(winner == "rl_0")
+                rl_won = (winner == "rl_0")
+                self._episode_wins.append(rl_won)
+                # 主进程更新 ELO（从 info dict 接收对手标识）
+                opp_stems = info.get("opponent_stems")
+                if opp_stems:
+                    for stem in opp_stems:
+                        self.pool.update_elo("rl_current", stem, rl_won)
 
         # ── 2. 定期检查是否保存 + 退火 ──
         if self.n_calls % self.save_freq == 0:
@@ -338,28 +344,33 @@ class SelfPlayCallback(BaseCallback):
                 self._last_save_step = self.num_timesteps
                 saved = True
 
-            # 2c. 退火（无论是否保存都执行）
-            elapsed = self.num_timesteps - self._activation_step
-            progress = min(elapsed / self.anneal_steps, 1.0)
-            new_prob = self.initial_basic_ai_prob + (
-                self.final_basic_ai_prob - self.initial_basic_ai_prob
-            ) * progress
-            self.pool.basic_ai_prob = new_prob
-            self.training_env.env_method("update_basic_ai_prob", new_prob)
+            # 2c. 退火（坍塌恢复模式下跳过，保持 0.7）
+            if not self._collapse_active:
+                elapsed = self.num_timesteps - self._activation_step
+                progress = min(elapsed / self.anneal_steps, 1.0)
+                new_prob = self.initial_basic_ai_prob + (
+                    self.final_basic_ai_prob - self.initial_basic_ai_prob
+                ) * progress
+                self.pool.basic_ai_prob = new_prob
+                self.training_env.env_method("update_basic_ai_prob", new_prob)
 
             # 2d. 日志
             if self.verbose >= 1:
                 n_models = len(self.pool.get_available_models())
                 wr_str = f"{current_win_rate:.1%}" if current_win_rate is not None else f"N/A (< {self.win_rate_window} episodes)"
                 save_str = "SAVED" if saved else f"SKIPPED (need >= {self.min_win_rate:.0%})"
+                prob_str = f"{self.pool.basic_ai_prob:.1%}"
                 print(
                     f"  [SelfPlay] Step {self.num_timesteps} | "
                     f"Win rate: {wr_str} | {save_str} | "
-                    f"Pool size: {n_models} | BasicAI prob: {new_prob:.1%}"
+                    f"Pool size: {n_models} | BasicAI prob: {prob_str}"
+                    + (" | COLLAPSE MODE" if self._collapse_active else "")
                 )
 
         # ── 3. 坍塔检测 ──
         if self.n_calls % self.collapse_eval_freq == 0 and self._eval_env is not None:
+            # 先清空累积的旧结果（可能由 MaskableEvalCallback 共享 eval_env 产生）
+            self._eval_env.env_method("get_episode_outcomes")
             from sb3_contrib.common.maskable.evaluation import evaluate_policy
             evaluate_policy(
                 self.model, self._eval_env, n_eval_episodes=20,

@@ -398,17 +398,14 @@ class OpponentPool:
         for k in stale_keys:
             del self._model_cache[k]
 
-        # 按 ELO 加权采样（ELO 越高被选中概率越大，保留重试能力）
-        weights = []
-        for p in available:
-            elo = self.elo_scores.get(p.stem, self.elo_default)
-            weights.append(max(elo - 600, 1.0))
-        # 按权重排序（优先尝试高 ELO 模型，保留重试能力）
-        available = [p for _, p in sorted(zip(weights, available), key=lambda x: -x[0])]
-
-        for model_path in available:
-            cache_key = str(model_path)
-            pts_path = model_path.with_suffix(".pts")
+        # 按 ELO 加权随机采样（带重试，防止并发删除）
+        candidates = list(available)
+        while candidates:
+            weights = [max(self.elo_scores.get(p.stem, self.elo_default) - 600, 1.0)
+                       for p in candidates]
+            chosen = random.choices(candidates, weights=weights, k=1)[0]
+            cache_key = str(chosen)
+            pts_path = chosen.with_suffix(".pts")
             pts_key = str(pts_path)
             try:
                 # 优先尝试加载 TorchScript 版本（快路径）
@@ -421,22 +418,22 @@ class OpponentPool:
                         n_stack=self.n_stack,
                         _jit_model=self._model_cache[pts_key],
                     )
-                    return ctrl, model_path.stem
+                    return ctrl, chosen.stem
 
                 # 回退：加载完整 MaskablePPO
                 if cache_key not in self._model_cache:
-                    self._model_cache[cache_key] = MaskablePPO.load(str(model_path))
+                    self._model_cache[cache_key] = MaskablePPO.load(str(chosen))
                 ctrl = OpponentRLController(
                     n_stack=self.n_stack,
                     _model=self._model_cache[cache_key],
                 )
-                return ctrl, model_path.stem
+                return ctrl, chosen.stem
             except (FileNotFoundError, OSError) as e:
                 # 主进程的 _cleanup_old_models 可能在 glob 和 load 之间删除了文件
-                logger.warning("对手模型加载失败（可能已被清理）: %s — %s", model_path, e)
+                logger.warning("对手模型加载失败（可能已被清理）: %s — %s", chosen, e)
                 self._model_cache.pop(cache_key, None)
                 self._model_cache.pop(pts_key, None)
-                continue
+                candidates.remove(chosen)
 
         # 所有模型都加载失败，回退到 BasicAI
         return create_random_ai_controller(player_name="AI"), "basic_ai"
