@@ -398,13 +398,13 @@ class OpponentPool:
         for k in stale_keys:
             del self._model_cache[k]
 
-        # 按 ELO 加权采样（ELO 越高被选中概率越大）
+        # 按 ELO 加权采样（ELO 越高被选中概率越大，保留重试能力）
         weights = []
         for p in available:
             elo = self.elo_scores.get(p.stem, self.elo_default)
             weights.append(max(elo - 600, 1.0))
-        chosen = random.choices(available, weights=weights, k=1)[0]
-        available = [chosen]  # 只尝试加载选中的那个
+        # 按权重排序（优先尝试高 ELO 模型，保留重试能力）
+        available = [p for _, p in sorted(zip(weights, available), key=lambda x: -x[0])]
 
         for model_path in available:
             cache_key = str(model_path)

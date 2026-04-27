@@ -307,6 +307,9 @@ class BadtimeWarEnv(gym.Env):
         # ── 帧堆叠缓冲 ──
         self._obs_stack = np.zeros(OBS_DIM * n_stack, dtype=np.float32)
 
+        # ── 局结果记录（用于坍塌检测的 eval 胜率计算） ──
+        self._episode_outcomes: list[str | None] = []
+
         # ── 内部状态（reset 时初始化）──
         self._state: Optional[GameState] = None
         self._round_manager: Optional[RoundManager] = None
@@ -712,6 +715,7 @@ class BadtimeWarEnv(gym.Env):
 
         if terminated or truncated:
             info["winner"] = self._state.winner
+            self._episode_outcomes.append(self._state.winner)
             # ELO 更新
             if self.opponent_pool is not None:
                 rl_won = (self._state.winner == "rl_0")
@@ -720,6 +724,16 @@ class BadtimeWarEnv(gym.Env):
                         self.opponent_pool.update_elo("rl_current", stem, rl_won)
 
         return obs, reward, terminated, truncated, info
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  局结果追踪（用于坍塌检测）
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def get_episode_outcomes(self) -> list[str | None]:
+        """返回并清空累积的局结果（winner player_id 列表）。"""
+        outcomes = self._episode_outcomes
+        self._episode_outcomes = []
+        return outcomes
 
     # ══════════════════════════════════════════════════════════════════════════
     #  action_masks（MaskablePPO 接口）
