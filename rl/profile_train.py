@@ -255,7 +255,7 @@ def parse_args() -> argparse.Namespace:
     # 课程学习
     p.add_argument("--curriculum", action="store_true")
     p.add_argument("--curriculum-start", type=int, default=1)
-    p.add_argument("--curriculum-threshold", type=float, default=0.40)
+    p.add_argument("--curriculum-threshold", type=float, default=None)
     p.add_argument("--curriculum-thresholds", type=float, nargs="+", default=None)
     p.add_argument("--ent-rebound", type=float, default=0.03)
     p.add_argument("--ent-rebound-decay", type=int, default=200_000)
