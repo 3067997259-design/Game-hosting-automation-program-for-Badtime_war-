@@ -66,6 +66,7 @@ def make_env(
     opponent_pool=None,
     rl_talent: Optional[int] = None,
     enable_talents: bool = True,
+    force_random_talent: bool = False,
 ):
     """返回一个创建 BadtimeWarEnv 的闭包，供 DummyVecEnv 使用。"""
     def _init():
@@ -82,6 +83,7 @@ def make_env(
                     opponent_pool=opponent_pool,
                     rl_talent=rl_talent,
                     enable_talents=enable_talents,
+                    force_random_talent=force_random_talent,
                 )
                 env = Monitor(env)
                 env.reset(seed=seed + rank)
@@ -347,6 +349,29 @@ class SelfPlayCallback(BaseCallback):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  强制随机天赋回调
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class ForceRandomTalentCallback(BaseCallback):
+    """在指定步数之前强制随机分配天赋，之后恢复为 rl_talent 参数控制。"""
+
+    def __init__(self, until_step: int, verbose: int = 0):
+        super().__init__(verbose)
+        self.until_step = until_step
+        self._switched = False
+
+    def _on_step(self) -> bool:
+        if not self._switched and self.num_timesteps >= self.until_step:
+            self.training_env.env_method("set_force_random_talent", False)
+            self._switched = True
+            if self.verbose:
+                print(f"[ForceRandomTalent] 步数 {self.num_timesteps} 达到阈值 "
+                      f"{self.until_step}，关闭强制随机天赋")
+        return True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  训练主函数
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -394,6 +419,7 @@ def train(args: argparse.Namespace):
             opponent_pool.save_current_model(seed_m, step=0)
             del seed_m
 # ── 训练环境 ──────────────────────────────────────────────────
+    force_random = args.force_random_talent_until > 0
     env_fns = [
         make_env(
             num_opponents=initial_opponents,
@@ -404,6 +430,7 @@ def train(args: argparse.Namespace):
             opponent_pool=opponent_pool,
             rl_talent=args.rl_talent,
             enable_talents=args.enable_talents,
+            force_random_talent=force_random,
         )
         for i in range(args.n_envs)
     ]
@@ -524,6 +551,12 @@ def train(args: argparse.Namespace):
 
     if curriculum_cb is not None:
         callback_list.append(curriculum_cb)
+
+    if args.force_random_talent_until > 0:
+        callback_list.append(ForceRandomTalentCallback(
+            until_step=args.force_random_talent_until,
+            verbose=1,
+        ))
 
     if args.self_play and opponent_pool is not None:
         self_play_cb = SelfPlayCallback(
@@ -679,6 +712,8 @@ def parse_args() -> argparse.Namespace:
                 help="启用天赋系统")
     p.add_argument("--no-talents", action="store_false", dest="enable_talents",
                 help="禁用天赋系统（无天赋局）")
+    p.add_argument("--force-random-talent-until", type=int, default=0,
+                help="在此步数之前强制随机分配天赋（0=不强制，由 --rl-talent 控制）")
 
     # 设备支持参数
     p.add_argument("--device", type=str, default="auto",

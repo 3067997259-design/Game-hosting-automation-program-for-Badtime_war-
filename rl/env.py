@@ -275,6 +275,7 @@ class BadtimeWarEnv(gym.Env):
         opponent_pool=None,
         enable_talents: bool = True,
         rl_talent: Optional[int] = None,
+        force_random_talent: bool = False,
     ):
         super().__init__()
 
@@ -295,6 +296,7 @@ class BadtimeWarEnv(gym.Env):
         self.opponent_pool = opponent_pool
         self.enable_talents = enable_talents
         self.rl_talent = rl_talent  # None=随机, 0=无天赋, 1-14=指定天赋
+        self.force_random_talent: bool = force_random_talent
 
         # ── Gym 空间 ──
         self.observation_space = spaces.Box(
@@ -355,6 +357,10 @@ class BadtimeWarEnv(gym.Env):
         """供 SelfPlayCallback 调用，更新对手池的 BasicAI 概率。"""
         if self.opponent_pool is not None:
             self.opponent_pool.basic_ai_prob = new_prob
+
+    def set_force_random_talent(self, value: bool):
+        """供 ForceRandomTalentCallback 调用。"""
+        self.force_random_talent = value
 
     # ══════════════════════════════════════════════════════════════════════════
     #  reset
@@ -517,6 +523,21 @@ class BadtimeWarEnv(gym.Env):
         assert self._rl_controller is not None
 
         taken = getattr(self, '_taken_talents', set())
+
+        # 强制随机分配模式（训练前期探索用）
+        if self.force_random_talent:
+            available = [
+                (n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                if n not in taken
+            ]
+            if available:
+                chosen = available[self.np_random.integers(len(available))]
+                n, name, cls, desc = chosen
+                talent_inst = cls("rl_0", self._state)
+                self._rl_player.talent = talent_inst
+                self._rl_player.talent_name = name
+                talent_inst.on_register()
+            return
 
         # 明确不要天赋
         if self.rl_talent == 0:
