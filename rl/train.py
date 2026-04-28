@@ -155,7 +155,7 @@ class CurriculumCallback(BaseCallback):
         self,
         stages: list[int],
         win_thresholds: list[float] | None = None,
-        win_threshold: float = 0.55,  # fallback default
+        win_threshold: float | None = None,  # None = auto-compute
         window: int = 200,
         verbose: int = 0,
         ent_rebound_coef: float = 0.03,  # stage 升级时的 entropy 回弹值
@@ -172,7 +172,7 @@ class CurriculumCallback(BaseCallback):
         # Per-stage thresholds: one per transition (len = len(stages) - 1)
         if win_thresholds and len(win_thresholds) == len(stages) - 1:
             self.win_thresholds = win_thresholds
-        elif win_threshold != 0.55 or win_thresholds is not None:
+        elif win_threshold is not None:
             # User provided a single global threshold — apply uniformly
             self.win_thresholds = [win_threshold] * (len(stages) - 1)
         else:
@@ -182,8 +182,9 @@ class CurriculumCallback(BaseCallback):
             for i in range(len(stages) - 1):
                 n_opponents = stages[i]
                 random_baseline = 1.0 / (n_opponents + 1)
-                # Threshold = random_baseline * 1.5 (50% above random)
-                self.win_thresholds.append(random_baseline * 1.5)
+                # Threshold = random_baseline * 1.2 (20% above random)
+                # 强制随机天赋时，RL 可能拿到被克制的天赋，1.5x 太高会卡住课程进度
+                self.win_thresholds.append(random_baseline * 1.2)
         self.window = window
         self._current_stage = 0
         self._episode_wins: list[bool] = []
@@ -783,8 +784,8 @@ def parse_args() -> argparse.Namespace:
                 help="启用课程学习（从 --curriculum-start 个对手逐步增加到 --opponents 个）")
     p.add_argument("--curriculum-start", type=int, default=2,
                 help="课程学习起始对手数（默认2，跳过1v1）")
-    p.add_argument("--curriculum-threshold", type=float, default=0.55,
-                help="课程升级胜率阈值（全局，如果未指定 --curriculum-thresholds）")
+    p.add_argument("--curriculum-threshold", type=float, default=None,
+                help="课程升级胜率阈值（全局，如果未指定则自动计算）")
     p.add_argument("--curriculum-thresholds", type=float, nargs="+", default=None,
                 help="每阶段课程升级胜率阈值（例如 0.55 0.40 表示两次升级的阈值）")
     p.add_argument("--ent-rebound", type=float, default=0.03,
