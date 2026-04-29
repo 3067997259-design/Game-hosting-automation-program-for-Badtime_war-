@@ -140,8 +140,8 @@ class ChatManager:
                                 print(f"  [私聊] {ai_name} → {sender}: {reply}")
                         else:
                             self.server.broadcast_sync(reply_msg)
-                            # 房主本地显示 AI 公屏回复
-                            if self._is_local_host(sender):
+                            # 房主本地显示 AI 公屏回复（broadcast 不会到达本地）
+                            if self.lobby.host_plays or self._local_host_name:
                                 print(f"  [公屏] {ai_name}: {reply}")
                 except Exception:
                     pass
