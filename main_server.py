@@ -305,6 +305,21 @@ def _patch_engine_context(game_state, lobby):
 
     ActionTurnManager.execute_action_turn = patched_execute
 
+    # 同样 patch execute_single_action（结界内的简化行动回合）
+    original_single = ActionTurnManager.execute_single_action
+
+    def patched_single(self_atm, player):
+        if isinstance(player.controller, NetworkController):
+            set_current_context(player.controller.client_id, player.name)
+            try:
+                return original_single(self_atm, player)
+            finally:
+                set_current_context(None, None)
+        else:
+            return original_single(self_atm, player)
+
+    ActionTurnManager.execute_single_action = patched_single
+
 
 def _setup_ai_chat(lobby, chat_manager, game_state):
     """为配置了 LLM 的 AI 玩家设置聊天模块。"""

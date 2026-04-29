@@ -148,6 +148,11 @@ class NetworkServer:
         self._clients.pop(client_id, None)
         self._queues.pop(client_id, None)
         self._last_heartbeat.pop(client_id, None)
+        # 唤醒所有挂起的 wait_for_sync 调用，避免游戏线程阻塞 5 分钟
+        for wait_key, evt in list(self._sync_events.items()):
+            if wait_key.startswith(f"{client_id}:"):
+                self._sync_results[wait_key] = {"error": "disconnected"}
+                evt.set()
         print(f"  [Server] 客户端 {client_id} 已断开")
         if self._on_client_disconnect:
             # 在 executor 中执行，避免从 async 上下文调用 broadcast_sync 时死锁
@@ -169,7 +174,7 @@ class NetworkServer:
         try:
             await send_message(writer, msg_dict)
         except (ConnectionError, OSError):
-            self._cleanup_client(client_id)
+            pass  # 由 _handle_client 的 finally 块统一清理
 
     async def _async_broadcast(
         self, msg_dict: Dict[str, Any], exclude: Optional[Set[str]] = None

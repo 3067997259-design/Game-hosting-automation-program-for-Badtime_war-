@@ -51,9 +51,13 @@ def main():
 
 
 def _run_cli_mode(client: NetworkClient, player_name: str):
-    """CLI 模式：简单文本交互。"""
+    """CLI 模式：单线程 stdin，避免多线程竞争输入。"""
     game_started = threading.Event()
     game_finished = threading.Event()
+    # 挂起的服务器请求（由消息处理器填充，主线程消费）
+    pending_request = {"msg": None, "msg_type": None}
+    pending_lock = threading.Lock()
+    pending_event = threading.Event()
 
     # 注册事件处理器
     def on_game_event(msg):
@@ -62,6 +66,7 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
         _print_event(event, args)
         if event == "game_finished":
             game_finished.set()
+            pending_event.set()  # 唤醒主循环
 
     def on_lobby_update(msg):
         state = msg.get("room_state", "")
@@ -85,75 +90,90 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
         action = msg.get("action", "")
         print(f"  [断线] {name}: {action}")
 
+    # 服务器请求统一通过 pending_request 传递给主线程
+    def on_server_request(msg_type):
+        def handler(msg):
+            with pending_lock:
+                pending_request["msg"] = msg
+                pending_request["msg_type"] = msg_type
+            pending_event.set()
+        return handler
+
     client.on(MessageType.GAME_EVENT, on_game_event)
     client.on(MessageType.LOBBY_UPDATE, on_lobby_update)
     client.on(MessageType.CHAT_MESSAGE, on_chat)
     client.on(MessageType.DISCONNECT_NOTICE, on_disconnect)
+    client.on(MessageType.REQUEST_COMMAND, on_server_request(MessageType.REQUEST_COMMAND))
+    client.on(MessageType.REQUEST_CHOOSE, on_server_request(MessageType.REQUEST_CHOOSE))
+    client.on(MessageType.REQUEST_CHOOSE_MULTI, on_server_request(MessageType.REQUEST_CHOOSE_MULTI))
+    client.on(MessageType.REQUEST_CONFIRM, on_server_request(MessageType.REQUEST_CONFIRM))
 
-    # 处理服务器请求的线程
-    def handle_requests():
-        while client.is_connected and not game_finished.is_set():
-            # 等待各种请求
-            for msg_type in [
-                MessageType.REQUEST_COMMAND,
-                MessageType.REQUEST_CHOOSE,
-                MessageType.REQUEST_CHOOSE_MULTI,
-                MessageType.REQUEST_CONFIRM,
-            ]:
-                client._sync_events[msg_type] = threading.Event()
-
-            # 等待任意一个请求
-            for _ in range(50):  # 5 秒检查一次
-                time.sleep(0.1)
-                for msg_type in [
-                    MessageType.REQUEST_COMMAND,
-                    MessageType.REQUEST_CHOOSE,
-                    MessageType.REQUEST_CHOOSE_MULTI,
-                    MessageType.REQUEST_CONFIRM,
-                ]:
-                    if msg_type in client._sync_results:
-                        msg = client._sync_results.pop(msg_type)
-                        _handle_request(client, msg, msg_type, player_name)
-                        break
-                else:
-                    continue
-                break
-
-    req_thread = threading.Thread(target=handle_requests, daemon=True)
-
-    print("  等待游戏开始...")
+    print("  等待游戏开始...（输入 /chat <内容> 发送聊天）")
     game_started.wait()
-    req_thread.start()
 
-    # 主线程处理用户输入
+    # 主线程：唯一的 stdin 读取者
     try:
         while client.is_connected and not game_finished.is_set():
-            try:
-                raw = input().strip()
-            except EOFError:
-                break
-            if raw.startswith("/chat "):
-                client.send_sync({
-                    "type": MessageType.CHAT_SEND,
-                    "sender": player_name,
-                    "content": raw[6:],
-                    "channel": "public",
-                })
-            elif raw.startswith("/whisper "):
-                parts = raw[9:].split(" ", 1)
-                if len(parts) >= 2:
-                    client.send_sync({
-                        "type": MessageType.CHAT_SEND,
-                        "sender": player_name,
-                        "content": parts[1],
-                        "channel": "private",
-                        "target": parts[0],
-                    })
+            # 检查是否有挂起的服务器请求
+            with pending_lock:
+                req_msg = pending_request["msg"]
+                req_type = pending_request["msg_type"]
+                pending_request["msg"] = None
+                pending_request["msg_type"] = None
+
+            if req_msg is not None:
+                _handle_request(client, req_msg, req_type, player_name)
+                pending_event.clear()
+                continue
+
+            # 没有挂起请求时，提示输入（聊天或等待）
+            print("  (等待服务器指令... 输入 /chat <内容> 聊天)")
+            # 用短超时轮询，以便及时响应服务器请求
+            pending_event.wait(timeout=0.5)
+            if pending_event.is_set():
+                pending_event.clear()
+                continue
+
+            # 无挂起请求 → 非阻塞检查 stdin（用 select）
+            import select
+            import sys
+            readable, _, _ = select.select([sys.stdin], [], [], 0.1)
+            if readable:
+                try:
+                    raw = sys.stdin.readline().strip()
+                except EOFError:
+                    break
+                if raw:
+                    _handle_chat_input(client, raw, player_name)
+
     except KeyboardInterrupt:
         pass
     finally:
         client.disconnect()
         print("\n  已断开连接。")
+
+
+def _handle_chat_input(client, raw: str, player_name: str):
+    """处理聊天输入（仅主线程调用）。"""
+    if raw.startswith("/chat "):
+        client.send_sync({
+            "type": MessageType.CHAT_SEND,
+            "sender": player_name,
+            "content": raw[6:],
+            "channel": "public",
+        })
+    elif raw.startswith("/whisper "):
+        parts = raw[9:].split(" ", 1)
+        if len(parts) >= 2:
+            client.send_sync({
+                "type": MessageType.CHAT_SEND,
+                "sender": player_name,
+                "content": parts[1],
+                "channel": "private",
+                "target": parts[0],
+            })
+    else:
+        print("  提示: /chat <内容> 公屏聊天, /whisper <玩家名> <内容> 私聊")
 
 
 def _handle_request(client, msg, msg_type, player_name):
