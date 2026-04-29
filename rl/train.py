@@ -410,7 +410,7 @@ class SelfPlayCallback(BaseCallback):
                     elif self.verbose:
                         print(f"  [SelfPlay] 坍塌恢复中 ({self._collapse_recovery_count}/{self._collapse_recovery_target}), "
                               f"已持续 {duration} 步 (最低 {self._collapse_min_duration})")
-                elif self._collapse_active:
+                elif self._collapse_active and eval_win_rate is not None:
                     self._collapse_recovery_count = 0
 
             if self.collapse_consecutive_fails >= self.collapse_trigger_count and not self._collapse_active:
