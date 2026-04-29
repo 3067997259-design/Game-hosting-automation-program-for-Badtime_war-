@@ -300,6 +300,10 @@ class SelfPlayCallback(BaseCallback):
         self._collapse_active = False
         self._collapse_original_ent_coef: float | None = None
         self._collapse_original_basic_ai_prob: float | None = None
+        self._collapse_enter_step: int = 0
+        self._collapse_min_duration: int = 1_000_000  # 坍塌模式最少持续 1M 步
+        self._collapse_recovery_count: int = 0
+        self._collapse_recovery_target: int = 3  # 连续 3 次达标才退出
         self._eval_env = eval_env if not no_collapse_detection else None
 
     def _on_step(self) -> bool:
@@ -341,7 +345,8 @@ class SelfPlayCallback(BaseCallback):
             # 2b. 质量门控：只有胜率达标才保存（坍塔恢复模式下跳过保存）
             saved = False
             if not self._collapse_active and current_win_rate is not None and current_win_rate >= self.min_win_rate:
-                self.pool.save_current_model(self.model, self.num_timesteps)
+                eval_wr = self._compute_eval_win_rate() if self._eval_env is not None else current_win_rate
+                self.pool.save_current_model(self.model, self.num_timesteps, eval_win_rate=eval_wr)
                 self._last_save_step = self.num_timesteps
                 saved = True
 
@@ -361,15 +366,22 @@ class SelfPlayCallback(BaseCallback):
                 wr_str = f"{current_win_rate:.1%}" if current_win_rate is not None else f"N/A (< {self.win_rate_window} episodes)"
                 save_str = "SAVED" if saved else f"SKIPPED (need >= {self.min_win_rate:.0%})"
                 prob_str = f"{self.pool.basic_ai_prob:.1%}"
+                collapse_str = ""
+                if self._collapse_active:
+                    collapse_str = " | COLLAPSE MODE"
+                elif n_models < 2:
+                    collapse_str = " | 坍塌检测: 未激活(需≥2模型)"
                 print(
                     f"  [SelfPlay] Step {self.num_timesteps} | "
                     f"Win rate: {wr_str} | {save_str} | "
                     f"Pool size: {n_models} | BasicAI prob: {prob_str}"
-                    + (" | COLLAPSE MODE" if self._collapse_active else "")
+                    + collapse_str
                 )
 
         # ── 3. 坍塔检测 ──
-        if self.n_calls % self.collapse_eval_freq == 0 and self._eval_env is not None:
+        pool_size = len(self.pool.get_available_models())
+        collapse_eligible = pool_size >= 2
+        if self.n_calls % self.collapse_eval_freq == 0 and self._eval_env is not None and collapse_eligible:
             # 先清空累积的旧结果（可能由 MaskableEvalCallback 共享 eval_env 产生）
             self._eval_env.env_method("get_episode_outcomes")
             from sb3_contrib.common.maskable.evaluation import evaluate_policy
@@ -387,7 +399,16 @@ class SelfPlayCallback(BaseCallback):
             else:
                 self.collapse_consecutive_fails = 0
                 if self._collapse_active and eval_win_rate is not None and eval_win_rate > self.collapse_wr_threshold * 1.5:
-                    self._exit_collapse_mode()
+                    self._collapse_recovery_count += 1
+                    duration = self.num_timesteps - self._collapse_enter_step
+                    if (self._collapse_recovery_count >= self._collapse_recovery_target
+                            and duration >= self._collapse_min_duration):
+                        self._exit_collapse_mode()
+                    elif self.verbose:
+                        print(f"  [SelfPlay] 坍塌恢复中 ({self._collapse_recovery_count}/{self._collapse_recovery_target}), "
+                              f"已持续 {duration} 步 (最低 {self._collapse_min_duration})")
+                elif self._collapse_active:
+                    self._collapse_recovery_count = 0
 
             if self.collapse_consecutive_fails >= self.collapse_trigger_count and not self._collapse_active:
                 self._enter_collapse_mode()
@@ -417,6 +438,8 @@ class SelfPlayCallback(BaseCallback):
     def _enter_collapse_mode(self):
         """进入坍塔恢复模式：暂停入池、提高 BasicAI 概率、提高熵系数"""
         self._collapse_active = True
+        self._collapse_enter_step = self.num_timesteps
+        self._collapse_recovery_count = 0
         self._collapse_original_ent_coef = self.model.ent_coef
         self._collapse_original_basic_ai_prob = self.pool.basic_ai_prob
 
