@@ -323,18 +323,21 @@ class SelfPlayCallback(BaseCallback):
         if self.force_talent_cb is not None and not self.force_talent_cb._switched:
             return self.min_win_rate_random
 
-        # 记录天赋自选解锁时间点（首次检测到 _switched=True）
-        if self._talent_unlocked_step is None:
-            self._talent_unlocked_step = self.num_timesteps
-
-        # 阶段 2：学习期（解锁后 N 步内）
-        if self.num_timesteps - self._talent_unlocked_step < self.talent_grace_steps:
+        # 阶段 2：学习期（解锁后 N 步内）——解锁时间由 _on_step 记录
+        if (self._talent_unlocked_step is not None
+                and self.num_timesteps - self._talent_unlocked_step < self.talent_grace_steps):
             return self.min_win_rate_random
 
-        # 阶段 3：成熟期
+        # 阶段 3：成熟期（或无 force_talent_cb 时直接使用成熟期阈值）
         return self.min_win_rate_mature
 
     def _on_step(self) -> bool:
+        # 记录天赋自选解锁时间点（每步检查，确保在课程激活前也能记录）
+        if (self.force_talent_cb is not None
+                and self.force_talent_cb._switched
+                and self._talent_unlocked_step is None):
+            self._talent_unlocked_step = self.num_timesteps
+
         # 课程模式下，等待最终阶段才激活
         if not self._activated:
             if (self.curriculum_cb is not None
