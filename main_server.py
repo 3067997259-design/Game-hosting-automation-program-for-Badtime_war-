@@ -282,28 +282,28 @@ def _start_game(server, lobby, chat_manager, host_plays):
 
 def _patch_engine_context(game_state, lobby):
     """
-    在引擎调用 controller 之前设置当前上下文。
-    通过 monkey-patch ActionTurnManager 实现。
+    在引擎执行整个玩家回合期间设置当前上下文。
+    通过 monkey-patch ActionTurnManager.execute_action_turn 实现，
+    确保 show_available_actions / show_player_status 等定向函数
+    在整个回合期间都能正确路由到远程客户端。
     """
     from controllers.network_controller import NetworkController
+    from engine.action_turn import ActionTurnManager
 
-    original_get_command = None
+    original_execute = ActionTurnManager.execute_action_turn
 
-    for pid in game_state.player_order:
-        player = game_state.get_player(pid)
-        if player and isinstance(player.controller, NetworkController):
-            ctrl = player.controller
-            original = ctrl.get_command
+    def patched_execute(self_atm, player):
+        # 如果当前玩家是远程玩家，设置上下文
+        if isinstance(player.controller, NetworkController):
+            set_current_context(player.controller.client_id, player.name)
+            try:
+                return original_execute(self_atm, player)
+            finally:
+                set_current_context(None, None)
+        else:
+            return original_execute(self_atm, player)
 
-            def make_wrapper(c, orig):
-                def wrapper(p, gs, aa, context=None):
-                    set_current_context(c.client_id, p.name)
-                    result = orig(p, gs, aa, context)
-                    set_current_context(None, None)
-                    return result
-                return wrapper
-
-            ctrl.get_command = make_wrapper(ctrl, original)
+    ActionTurnManager.execute_action_turn = patched_execute
 
 
 def _setup_ai_chat(lobby, chat_manager, game_state):

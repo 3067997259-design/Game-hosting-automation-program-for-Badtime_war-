@@ -5,6 +5,7 @@ ChatManager —— 聊天系统（服务端）
 聊天是异步的，不阻塞游戏流程。
 """
 
+import threading
 from typing import Any, Optional, Dict, List
 from network.protocol import MessageType
 
@@ -34,7 +35,13 @@ class ChatManager:
 
         if channel == "public":
             self.server.broadcast_sync(chat_msg)
-            self._trigger_ai_chat(sender, content, is_private=False)
+            # AI 聊天在后台线程中执行，避免阻塞消息处理
+            threading.Thread(
+                target=self._trigger_ai_chat,
+                args=(sender, content),
+                kwargs={"is_private": False},
+                daemon=True,
+            ).start()
         elif channel == "private" and target:
             # 发送给目标
             target_client = self._find_client_by_name(target)
@@ -42,9 +49,13 @@ class ChatManager:
                 self.server.send_to_sync(target_client, chat_msg)
             # 回显给发送者
             self.server.send_to_sync(client_id, chat_msg)
-            self._trigger_ai_chat(
-                sender, content, is_private=True, target_name=target,
-            )
+            # AI 聊天在后台线程中执行
+            threading.Thread(
+                target=self._trigger_ai_chat,
+                args=(sender, content),
+                kwargs={"is_private": True, "target_name": target},
+                daemon=True,
+            ).start()
 
     def _trigger_ai_chat(
         self, sender: str, content: str,

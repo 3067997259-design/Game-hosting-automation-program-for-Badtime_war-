@@ -125,9 +125,11 @@ class NetworkServer:
                     self._sync_events[wait_key].set()
                     continue
 
-                # 通用回调
+                # 通用回调（在 executor 中执行，避免阻塞事件循环）
                 if self._on_message:
-                    self._on_message(client_id, msg)
+                    await self._loop.run_in_executor(
+                        None, self._on_message, client_id, msg,
+                    )
 
                 # 放入队列
                 await self._queues[client_id].put(msg)
@@ -148,7 +150,13 @@ class NetworkServer:
         self._last_heartbeat.pop(client_id, None)
         print(f"  [Server] 客户端 {client_id} 已断开")
         if self._on_client_disconnect:
-            self._on_client_disconnect(client_id)
+            # 在 executor 中执行，避免从 async 上下文调用 broadcast_sync 时死锁
+            if self._loop and self._loop.is_running():
+                self._loop.run_in_executor(
+                    None, self._on_client_disconnect, client_id,
+                )
+            else:
+                self._on_client_disconnect(client_id)
 
     # ──────────────────────────────────────────
     #  异步发送
