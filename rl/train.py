@@ -378,9 +378,11 @@ class SelfPlayCallback(BaseCallback):
                 )
 
         # ── 3. 坍塔检测 ──
-        pool_size = len(self.pool.get_available_models())
-        collapse_eligible = pool_size >= 2
-        if self.n_calls % self.collapse_eval_freq == 0 and self._eval_env is not None and collapse_eligible:
+        if self.n_calls % self.collapse_eval_freq == 0 and self._eval_env is not None:
+            pool_size = len(self.pool.get_available_models())
+            collapse_eligible = pool_size >= 2
+            if not collapse_eligible:
+                return True
             # 先清空累积的旧结果（可能由 MaskableEvalCallback 共享 eval_env 产生）
             self._eval_env.env_method("get_episode_outcomes")
             from sb3_contrib.common.maskable.evaluation import evaluate_policy
