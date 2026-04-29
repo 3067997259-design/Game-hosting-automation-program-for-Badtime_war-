@@ -6,7 +6,9 @@
 """
 
 import argparse
+import platform
 import random
+import select
 import sys
 import threading
 import time
@@ -101,6 +103,30 @@ def main():
         _run_cli_mode(server, lobby, chat_manager, host_plays, monitor)
 
 
+def _handle_host_chat_input(raw: str, chat_manager: ChatManager, lobby):
+    """解析房主的聊天输入并发送。返回 True 表示已处理。"""
+    host_name = "房主"
+    for slot in lobby.slots:
+        if slot.slot_type == SlotType.HUMAN_LOCAL and slot.player_name:
+            host_name = slot.player_name
+            break
+
+    if raw.startswith("/chat "):
+        content = raw[6:].strip()
+        if content:
+            chat_manager.handle_host_chat(host_name, content, "public")
+        return True
+    elif raw.startswith("/whisper "):
+        parts = raw[9:].strip().split(" ", 1)
+        if len(parts) >= 2:
+            target, content = parts[0], parts[1]
+            chat_manager.handle_host_chat(host_name, content, "private", target)
+        else:
+            print("  用法: /whisper <玩家名> <内容>")
+        return True
+    return False
+
+
 def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
     """CLI 模式：简单的命令行交互。"""
     print("\n  ─── 大厅管理（输入命令）───")
@@ -110,6 +136,8 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
     print("    rl <slot> - 设置 RL AI")
     print("    policy <slot> <wait|ai> - 设置断线策略")
     print("    start     - 开始游戏")
+    print("    /chat <内容>           - 公屏聊天")
+    print("    /whisper <玩家名> <内容> - 私聊")
     print("    quit      - 退出")
     print()
 
@@ -121,6 +149,11 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
 
         if not raw:
             continue
+
+        # 拦截聊天命令
+        if _handle_host_chat_input(raw, chat_manager, lobby):
+            continue
+
         parts = raw.split()
         cmd = parts[0].lower()
 
@@ -202,17 +235,80 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
             sys.exit(0)
 
     if lobby.state.value == "waiting":
+        # 注册聊天回调，使 HumanController 在回合中也能处理 /chat、/whisper
+        from controllers.human import set_chat_handler
+        set_chat_handler(lambda raw: _handle_host_chat_input(raw, chat_manager, lobby))
+
         _start_game(server, lobby, chat_manager, host_plays)
 
-    # 等待游戏结束
-    try:
-        while lobby.state.value == "in_game":
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n  游戏被中断。")
-    finally:
-        monitor.stop()
-        server.stop()
+    # 游戏阶段
+    if host_plays:
+        # 房主参与游戏：stdin 由游戏线程的 HumanController 持有，
+        # 聊天命令已通过 set_chat_handler 在 HumanController 中拦截处理。
+        # 主线程仅等待游戏结束。
+        print("\n  ─── 游戏进行中 ───")
+        print("  在你的回合中输入 /chat <内容> 或 /whisper <玩家名> <内容> 即可聊天\n")
+        try:
+            while lobby.state.value == "in_game":
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\n  游戏被中断。")
+        finally:
+            set_chat_handler(None)
+            monitor.stop()
+            server.stop()
+    else:
+        # 房主不参与游戏（观战模式）：主线程可安全读取 stdin
+        print("\n  ─── 游戏进行中 ───")
+        print("  输入 /chat <内容> 公屏聊天，/whisper <玩家名> <内容> 私聊")
+        print("  输入 status 查看状态，Ctrl+C 中断游戏\n")
+        try:
+            while lobby.state.value == "in_game":
+                try:
+                    if platform.system() == "Windows":
+                        import msvcrt
+                        if msvcrt.kbhit():
+                            raw = input().strip()
+                        else:
+                            time.sleep(0.5)
+                            continue
+                    else:
+                        readable, _, _ = select.select([sys.stdin], [], [], 1.0)
+                        if not readable:
+                            continue
+                        raw_line = sys.stdin.readline()
+                        if not raw_line:          # EOF — avoid busy-loop
+                            time.sleep(1)
+                            continue
+                        raw = raw_line.strip()
+                except EOFError:
+                    continue
+
+                if not raw:
+                    continue
+
+                # 聊天命令
+                if _handle_host_chat_input(raw, chat_manager, lobby):
+                    continue
+
+                # 管理命令
+                if raw.lower() == "status":
+                    info = lobby.get_lobby_info()
+                    print(f"\n  游戏状态: {info['room_state']}")
+                    for s in info["slots"]:
+                        print(f"    [{s['slot_id']}] {s['slot_type']:12s} | "
+                              f"{s['player_name'] or '空':10s} | "
+                              f"{'已连接' if s['is_connected'] else '未连接'}")
+                    print()
+                else:
+                    print(f"  未知命令: {raw}（可用: /chat, /whisper, status）")
+
+        except KeyboardInterrupt:
+            print("\n  游戏被中断。")
+        finally:
+            set_chat_handler(None)
+            monitor.stop()
+            server.stop()
 
 
 def _run_with_tui(server, lobby, chat_manager, host_plays, monitor):

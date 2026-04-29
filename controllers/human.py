@@ -5,9 +5,19 @@ HumanController —— 人类玩家控制器
 行为与改动前完全一致，确保人类玩家体验零变化。
 """
 
-from typing import List, Optional, Dict, Any
+from typing import Callable, List, Optional, Dict, Any
 from controllers.base import PlayerController
 from cli import display
+
+# 模块级聊天回调：由 main_server 在游戏启动前注入，
+# 使得 HumanController 可在回合中拦截 /chat 和 /whisper 命令。
+_chat_handler: Optional[Callable[[str], bool]] = None
+
+
+def set_chat_handler(handler: Optional[Callable[[str], bool]]):
+    """注册/注销聊天命令回调。handler(raw) 返回 True 表示已处理。"""
+    global _chat_handler
+    _chat_handler = handler
 
 
 class HumanController(PlayerController):
@@ -24,10 +34,15 @@ class HumanController(PlayerController):
         显示状态，等待人类输入命令。
         注意：available_actions 的展示已经在 _phase_t1 中由
         display.show_available_actions 完成，这里只负责读输入。
+        如果输入是聊天命令（/chat, /whisper），交由 _chat_handler 处理后重新提示。
         """
         display.show_player_status(player, game_state)
-        raw = display.prompt_input(player.name)
-        return raw
+        while True:
+            raw = display.prompt_input(player.name)
+            if _chat_handler and raw.startswith(("/chat ", "/whisper ")):
+                _chat_handler(raw)
+                continue
+            return raw
 
     def choose(
         self,
