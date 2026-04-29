@@ -108,6 +108,7 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
     print("    status    - 查看房间状态")
     print("    ai <slot> [personality] - 设置 AI")
     print("    rl <slot> - 设置 RL AI")
+    print("    policy <slot> <wait|ai> - 设置断线策略")
     print("    start     - 开始游戏")
     print("    quit      - 退出")
     print()
@@ -169,6 +170,25 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
                     print("  设置失败")
             else:
                 print("  RL 不可用（缺少模型或依赖）")
+
+        elif cmd == "policy":
+            if len(parts) < 3:
+                print("  用法: policy <slot_id> <wait|ai>")
+                continue
+            try:
+                slot_id = int(parts[1])
+            except ValueError:
+                print("  无效的 slot_id")
+                continue
+            policy_str = parts[2].lower()
+            if policy_str == "wait":
+                lobby.set_disconnect_policy(slot_id, DisconnectPolicy.WAIT_RECONNECT)
+                print(f"  Slot {slot_id} 断线策略: 等待重连")
+            elif policy_str == "ai":
+                lobby.set_disconnect_policy(slot_id, DisconnectPolicy.AI_TAKEOVER)
+                print(f"  Slot {slot_id} 断线策略: AI 接管")
+            else:
+                print("  可选策略: wait (等待重连), ai (AI接管)")
 
         elif cmd == "start":
             if not lobby.can_start():
@@ -248,7 +268,7 @@ def _start_game(server, lobby, chat_manager, host_plays):
     while True:
         raw = input("  (y/n，默认n)：").strip().lower()
         if raw in ("y", "yes", "是"):
-            _talent_selection(game_state, ai_players_info)
+            _network_talent_selection(game_state, ai_players_info, lobby)
             break
         elif raw in ("n", "no", "否", ""):
             print("  天赋系统未启用。")
@@ -278,6 +298,142 @@ def _start_game(server, lobby, chat_manager, host_plays):
     t = threading.Thread(target=game_thread, daemon=True)
     t.start()
     print("  [Game] 游戏循环已启动")
+
+
+def _network_talent_selection(game_state, ai_players_info, lobby):
+    """联机版天赋选择：远程玩家通过 NetworkController.choose()，本地房主用 input()"""
+    from controllers.network_controller import NetworkController
+    from controllers.human import HumanController
+    from engine.game_setup import (
+        _ai_pick_talent, AI_DISABLED_TALENTS,
+    )
+
+    ai_pids = {info[0] for info in ai_players_info}
+    ai_personality_map = {info[0]: info[2] for info in ai_players_info}
+    taken = set()
+
+    print(f"\n  可选天赋（每个天赋仅能被1人选取）：")
+    for num, name, cls, desc in TALENT_TABLE:
+        print(f"    {num}. 【{name}】{desc}")
+    print(f"    0. 不选天赋")
+
+    for pid in game_state.player_order:
+        player = game_state.get_player(pid)
+        available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                     if n not in taken]
+        if not available:
+            print(f"  所有天赋已被选完，{player.name} 无天赋。")
+            continue
+
+        # AI 自动选择
+        if pid in ai_pids:
+            personality = ai_personality_map.get(pid, "balanced")
+            ai_available = [(n, name, cls, desc) for n, name, cls, desc in available
+                           if n not in AI_DISABLED_TALENTS]
+            if not ai_available:
+                print(f"  {player.name}（AI）无可用天赋（全部被禁用或已选走）。")
+                continue
+            chosen = _ai_pick_talent(personality, ai_available, taken)
+            if chosen is None:
+                print(f"  {player.name}（AI）无可用天赋。")
+                continue
+            n, name, cls = chosen
+            talent_inst = cls(pid, game_state)
+            player.talent = talent_inst
+            player.talent_name = name
+            talent_inst.on_register()
+            talent_inst.show_activation(player_name=player.name, show_lore=True)
+            taken.add(n)
+            print(f"  \U0001f916 {player.name}（AI·{personality}）自动选择天赋【{name}】")
+            continue
+
+        # 远程玩家：通过 controller.choose()
+        if isinstance(player.controller, NetworkController):
+            options = [f"{n}. 【{name}】{desc}" for n, name, cls, desc in available]
+            options.append("0. 不选天赋")
+            choice = player.controller.choose(
+                f"{player.name} 选择天赋",
+                options,
+            )
+            # 解析选择结果
+            choice_num = 0
+            try:
+                choice_num = int(choice.split(".")[0])
+            except (ValueError, IndexError):
+                pass
+
+            if choice_num == 0:
+                print(f"  {player.name} 选择不使用天赋。")
+                continue
+
+            matched = None
+            for n, name, cls, desc in TALENT_TABLE:
+                if n == choice_num and n not in taken:
+                    matched = (n, name, cls)
+                    break
+
+            if matched:
+                n, name, cls = matched
+                talent_inst = cls(pid, game_state)
+                player.talent = talent_inst
+                player.talent_name = name
+                talent_inst.on_register()
+                talent_inst.show_activation(player_name=player.name, show_lore=True)
+                taken.add(n)
+                print(f"  \u2713 {player.name} 获得天赋【{name}】！")
+            else:
+                print(f"  {player.name} 选择无效，跳过天赋。")
+            continue
+
+        # 本地房主：用 input()
+        if isinstance(player.controller, HumanController):
+            print(f"\n  ── {player.name} 选择天赋 ──")
+            for n, name, cls, desc in available:
+                print(f"    {n}. 【{name}】{desc}")
+            print(f"    0. 不选")
+
+            while True:
+                raw = input(f"  [{player.name}] 请输入天赋编号：").strip()
+                if raw == "0":
+                    print(f"  {player.name} 选择不使用天赋。")
+                    break
+                try:
+                    choice_num = int(raw)
+                except ValueError:
+                    print("  请输入有效编号。")
+                    continue
+
+                if choice_num in taken:
+                    print("  该天赋已被其他玩家选走！")
+                    continue
+
+                matched = None
+                for n, name, cls, desc in TALENT_TABLE:
+                    if n == choice_num:
+                        matched = (n, name, cls)
+                        break
+
+                if not matched:
+                    print("  无效编号。")
+                    continue
+
+                n, name, cls = matched
+                talent_inst = cls(pid, game_state)
+                player.talent = talent_inst
+                player.talent_name = name
+                talent_inst.on_register()
+                talent_inst.show_activation(player_name=player.name, show_lore=True)
+                taken.add(n)
+                print(f"  \u2713 {player.name} 获得天赋【{name}】！")
+                break
+
+    # 汇总
+    print(f"\n  ─── 天赋分配结果 ───")
+    for pid in game_state.player_order:
+        p = game_state.get_player(pid)
+        t = p.talent_name if p.talent_name else "无"
+        is_ai = "\U0001f916" if pid in ai_pids else "\U0001f464"
+        print(f"    {is_ai} {p.name}: {t}")
 
 
 def _patch_engine_context(game_state, lobby):
