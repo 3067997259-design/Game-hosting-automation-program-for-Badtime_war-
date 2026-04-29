@@ -5,10 +5,41 @@
 """
 
 import argparse
+import queue
 import sys
 import threading
 import time
 from typing import Optional
+
+
+_STDIN_EOF = None  # sentinel
+
+
+def _start_stdin_reader() -> queue.Queue:
+    """启动后台线程读取 stdin 行，通过 queue 传递给主线程（跨平台）。"""
+    q: queue.Queue = queue.Queue()
+
+    def _reader():
+        try:
+            for line in sys.stdin:
+                q.put(line.rstrip("\n"))
+        except (EOFError, OSError):
+            pass
+        finally:
+            q.put(_STDIN_EOF)
+
+    t = threading.Thread(target=_reader, daemon=True)
+    t.start()
+    return q
+
+
+def _read_line(stdin_q: queue.Queue) -> Optional[str]:
+    """从 stdin queue 读取一行，EOF 时返回 None。"""
+    line = stdin_q.get()
+    if line is _STDIN_EOF:
+        stdin_q.put(_STDIN_EOF)  # 放回哨兵供后续调用者立即感知
+        return None
+    return line
 
 from network.client import NetworkClient
 from network.protocol import MessageType
@@ -108,10 +139,25 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
     client.on(MessageType.REQUEST_CHOOSE_MULTI, on_server_request(MessageType.REQUEST_CHOOSE_MULTI))
     client.on(MessageType.REQUEST_CONFIRM, on_server_request(MessageType.REQUEST_CONFIRM))
 
-    print("  等待游戏开始...（输入 /chat <内容> 发送聊天）")
-    game_started.wait()
+    # 提前启动 stdin reader，避免 game_started.wait() 期间用户输入被
+    # OS 缓冲、之后被误当作游戏指令消费
+    stdin_q = _start_stdin_reader()
 
-    # 主线程：唯一的 stdin 读取者
+    print("  等待游戏开始...（输入 /chat <内容> 发送聊天）")
+    while not game_started.is_set():
+        if game_started.wait(timeout=0.1):
+            break
+        try:
+            raw = stdin_q.get_nowait()
+        except queue.Empty:
+            continue
+        if raw is _STDIN_EOF:
+            client.disconnect()
+            return
+        if raw.strip():
+            _handle_chat_input(client, raw.strip(), player_name)
+
+    idle_prompted = False
     try:
         while client.is_connected and not game_finished.is_set():
             # 检查是否有挂起的服务器请求
@@ -122,29 +168,30 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
                 pending_request["msg_type"] = None
 
             if req_msg is not None:
-                _handle_request(client, req_msg, req_type, player_name)
+                _handle_request(client, req_msg, req_type, player_name, stdin_q)
                 pending_event.clear()
+                idle_prompted = False
                 continue
 
             # 没有挂起请求时，提示输入（聊天或等待）
-            print("  (等待服务器指令... 输入 /chat <内容> 聊天)")
+            if not idle_prompted:
+                print("  (等待服务器指令... 输入 /chat <内容> 聊天)")
+                idle_prompted = True
             # 用短超时轮询，以便及时响应服务器请求
             pending_event.wait(timeout=0.5)
             if pending_event.is_set():
                 pending_event.clear()
                 continue
 
-            # 无挂起请求 → 非阻塞检查 stdin（用 select）
-            import select
-            import sys
-            readable, _, _ = select.select([sys.stdin], [], [], 0.1)
-            if readable:
-                try:
-                    raw = sys.stdin.readline().strip()
-                except EOFError:
-                    break
-                if raw:
-                    _handle_chat_input(client, raw, player_name)
+            # 无挂起请求 → 非阻塞检查 stdin queue
+            try:
+                raw = stdin_q.get_nowait()
+            except queue.Empty:
+                continue
+            if raw is _STDIN_EOF:
+                break
+            if raw.strip():
+                _handle_chat_input(client, raw.strip(), player_name)
 
     except KeyboardInterrupt:
         pass
@@ -176,17 +223,20 @@ def _handle_chat_input(client, raw: str, player_name: str):
         print("  提示: /chat <内容> 公屏聊天, /whisper <玩家名> <内容> 私聊")
 
 
-def _handle_request(client, msg, msg_type, player_name):
-    """处理服务器发来的请求。"""
+def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
+    """处理服务器发来的请求（所有 stdin 读取均通过 stdin_q）。"""
     if msg_type == MessageType.REQUEST_COMMAND:
         print(f"\n  [{player_name}] 请输入指令:")
         actions = msg.get("available_actions", [])
         if actions:
             print(f"  可选行动: {', '.join(actions)}")
-        raw = input(f"  [{player_name}] > ").strip()
+        print(f"  [{player_name}] > ", end="", flush=True)
+        raw = _read_line(stdin_q)
+        if raw is None:
+            raw = "forfeit"
         client.send_sync({
             "type": MessageType.COMMAND_RESPONSE,
-            "command": raw or "forfeit",
+            "command": raw.strip() or "forfeit",
         })
 
     elif msg_type == MessageType.REQUEST_CHOOSE:
@@ -196,7 +246,13 @@ def _handle_request(client, msg, msg_type, player_name):
         for i, opt in enumerate(options, 1):
             print(f"    {i}. {opt}")
         while True:
-            raw = input("  请选择（编号）> ").strip()
+            print("  请选择（编号）> ", end="", flush=True)
+            raw = _read_line(stdin_q)
+            if raw is None:
+                choice = options[0] if options else ""
+                client.send_sync({"type": MessageType.CHOOSE_RESPONSE, "choice": choice})
+                return
+            raw = raw.strip()
             try:
                 idx = int(raw) - 1
                 if 0 <= idx < len(options):
@@ -224,7 +280,11 @@ def _handle_request(client, msg, msg_type, player_name):
             print(f"    {i}. {opt}")
         selected = []
         while len(selected) < max_count:
-            raw = input(f"  选择（已选{len(selected)}/{max_count}，输入0结束）> ").strip()
+            print(f"  选择（已选{len(selected)}/{max_count}，输入0结束）> ", end="", flush=True)
+            raw = _read_line(stdin_q)
+            if raw is None:
+                break
+            raw = raw.strip()
             if raw == "0" and len(selected) >= min_count:
                 break
             try:
@@ -240,7 +300,11 @@ def _handle_request(client, msg, msg_type, player_name):
 
     elif msg_type == MessageType.REQUEST_CONFIRM:
         prompt = msg.get("prompt", "确认？")
-        raw = input(f"  {prompt} (y/n) > ").strip().lower()
+        print(f"  {prompt} (y/n) > ", end="", flush=True)
+        raw = _read_line(stdin_q)
+        if raw is None:
+            raw = "n"
+        raw = raw.strip().lower()
         client.send_sync({
             "type": MessageType.CONFIRM_RESPONSE,
             "result": raw in ("y", "yes", "是"),
