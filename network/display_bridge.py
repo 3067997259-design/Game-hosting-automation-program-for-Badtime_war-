@@ -23,6 +23,10 @@ _current_context = threading.local()
 
 _original_display: dict[str, Any] = {}
 
+# 表示"当前回合属于 AI，不应把定向信息显示到房主控制台，也无需网络发送"。
+# 与 client_id is None（房主自己的回合）和 client_id == <某远程 id>（远程玩家）区分。
+AI_CONTEXT_SENTINEL = "__ai__"
+
 
 def get_current_client_id() -> Optional[str]:
     return getattr(_current_context, "client_id", None)
@@ -109,6 +113,10 @@ class DisplayBroadcaster:
     def _make_directed(self, func_name: str):
         def wrapper(*args, **kwargs):
             client_id = get_current_client_id()
+
+            # AI 回合：既不在房主本地显示（防泄露私密信息），也不通过网络发送
+            if client_id == AI_CONTEXT_SENTINEL:
+                return
 
             # 本地房主：仅当定向目标是房主自己时才本地显示
             original = _original_display.get(func_name)

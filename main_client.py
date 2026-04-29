@@ -139,11 +139,24 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
     client.on(MessageType.REQUEST_CHOOSE_MULTI, on_server_request(MessageType.REQUEST_CHOOSE_MULTI))
     client.on(MessageType.REQUEST_CONFIRM, on_server_request(MessageType.REQUEST_CONFIRM))
 
-    print("  等待游戏开始...（输入 /chat <内容> 发送聊天）")
-    game_started.wait()
-
-    # 后台线程读 stdin，通过 queue 传递完整行（跨平台，不阻塞主循环）
+    # 提前启动 stdin reader，避免 game_started.wait() 期间用户输入被
+    # OS 缓冲、之后被误当作游戏指令消费
     stdin_q = _start_stdin_reader()
+
+    print("  等待游戏开始...（输入 /chat <内容> 发送聊天）")
+    while not game_started.is_set():
+        if game_started.wait(timeout=0.1):
+            break
+        try:
+            raw = stdin_q.get_nowait()
+        except queue.Empty:
+            continue
+        if raw is _STDIN_EOF:
+            client.disconnect()
+            return
+        if raw.strip():
+            _handle_chat_input(client, raw.strip(), player_name)
+
     idle_prompted = False
     try:
         while client.is_connected and not game_finished.is_set():

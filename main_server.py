@@ -286,22 +286,34 @@ def _patch_engine_context(game_state, lobby):
     通过 monkey-patch ActionTurnManager.execute_action_turn 实现，
     确保 show_available_actions / show_player_status 等定向函数
     在整个回合期间都能正确路由到远程客户端。
+
+    上下文语义（见 network/display_bridge.py:_make_directed）：
+    - NetworkController → client_id = 远程客户端 id，定向发送到该客户端
+    - HumanController   → client_id = None，在本地房主控制台显示
+    - 其他（AI）        → client_id = AI_CONTEXT_SENTINEL，既不本地显示也不发送，
+                          避免房主看到 AI 玩家的私密信息（手牌、可选行动等）
     """
     from controllers.network_controller import NetworkController
+    from controllers.human import HumanController
     from engine.action_turn import ActionTurnManager
+    from network.display_bridge import AI_CONTEXT_SENTINEL
+
+    def _context_for(player):
+        if isinstance(player.controller, NetworkController):
+            return (player.controller.client_id, player.name)
+        if isinstance(player.controller, HumanController):
+            return (None, player.name)
+        return (AI_CONTEXT_SENTINEL, player.name)
 
     original_execute = ActionTurnManager.execute_action_turn
 
     def patched_execute(self_atm, player):
-        # 如果当前玩家是远程玩家，设置上下文
-        if isinstance(player.controller, NetworkController):
-            set_current_context(player.controller.client_id, player.name)
-            try:
-                return original_execute(self_atm, player)
-            finally:
-                set_current_context(None, None)
-        else:
+        cid, pname = _context_for(player)
+        set_current_context(cid, pname)
+        try:
             return original_execute(self_atm, player)
+        finally:
+            set_current_context(None, None)
 
     ActionTurnManager.execute_action_turn = patched_execute
 
@@ -309,14 +321,12 @@ def _patch_engine_context(game_state, lobby):
     original_single = ActionTurnManager.execute_single_action
 
     def patched_single(self_atm, player):
-        if isinstance(player.controller, NetworkController):
-            set_current_context(player.controller.client_id, player.name)
-            try:
-                return original_single(self_atm, player)
-            finally:
-                set_current_context(None, None)
-        else:
+        cid, pname = _context_for(player)
+        set_current_context(cid, pname)
+        try:
             return original_single(self_atm, player)
+        finally:
+            set_current_context(None, None)
 
     ActionTurnManager.execute_single_action = patched_single
 
