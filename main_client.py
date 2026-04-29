@@ -5,23 +5,27 @@
 """
 
 import argparse
-import platform
+import queue
 import sys
 import threading
 import time
 from typing import Optional
 
-if platform.system() == "Windows":
-    import msvcrt
 
-    def _stdin_has_input() -> bool:
-        return msvcrt.kbhit()
-else:
-    import select as _select_mod
+def _start_stdin_reader() -> queue.Queue:
+    """启动后台线程读取 stdin 行，通过 queue 传递给主线程（跨平台）。"""
+    q: queue.Queue = queue.Queue()
 
-    def _stdin_has_input() -> bool:
-        readable, _, _ = _select_mod.select([sys.stdin], [], [], 0.1)
-        return bool(readable)
+    def _reader():
+        try:
+            for line in sys.stdin:
+                q.put(line.rstrip("\n"))
+        except (EOFError, OSError):
+            pass
+
+    t = threading.Thread(target=_reader, daemon=True)
+    t.start()
+    return q
 
 from network.client import NetworkClient
 from network.protocol import MessageType
@@ -124,7 +128,8 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
     print("  等待游戏开始...（输入 /chat <内容> 发送聊天）")
     game_started.wait()
 
-    # 主线程：唯一的 stdin 读取者
+    # 后台线程读 stdin，通过 queue 传递完整行（跨平台，不阻塞主循环）
+    stdin_q = _start_stdin_reader()
     idle_prompted = False
     try:
         while client.is_connected and not game_finished.is_set():
@@ -151,14 +156,13 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
                 pending_event.clear()
                 continue
 
-            # 无挂起请求 → 非阻塞检查 stdin（跨平台）
-            if _stdin_has_input():
-                try:
-                    raw = sys.stdin.readline().strip()
-                except EOFError:
-                    break
-                if raw:
-                    _handle_chat_input(client, raw, player_name)
+            # 无挂起请求 → 非阻塞检查 stdin queue
+            try:
+                raw = stdin_q.get_nowait().strip()
+            except queue.Empty:
+                continue
+            if raw:
+                _handle_chat_input(client, raw, player_name)
 
     except KeyboardInterrupt:
         pass
