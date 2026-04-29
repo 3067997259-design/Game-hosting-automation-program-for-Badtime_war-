@@ -15,6 +15,7 @@ class ChatManager:
         self.server = server
         self.lobby = lobby
         self._ai_chat_modules: Dict[str, Any] = {}  # player_name → AIChatModule
+        self._local_host_name: Optional[str] = None  # 本地房主名（由 handle_host_chat 设置）
 
     def register_ai_chatter(self, player_name: str, module: Any):
         self._ai_chat_modules[player_name] = module
@@ -67,6 +68,7 @@ class ChatManager:
     def handle_host_chat(self, host_name: str, content: str,
                          channel: str = "public", target: Optional[str] = None):
         """房主发送聊天（房主没有 client_id，需要单独处理）"""
+        self._local_host_name = host_name
         chat_msg = {
             "type": MessageType.CHAT_MESSAGE,
             "sender": host_name,
@@ -134,12 +136,12 @@ class ChatManager:
                             src_client = self._find_client_by_name(sender)
                             if src_client:
                                 self.server.send_to_sync(src_client, reply_msg)
-                            elif self.lobby.host_plays and self._is_host_name(sender):
+                            elif self._is_local_host(sender):
                                 print(f"  [私聊] {ai_name} → {sender}: {reply}")
                         else:
                             self.server.broadcast_sync(reply_msg)
                             # 房主本地显示 AI 公屏回复
-                            if self.lobby.host_plays:
+                            if self._is_local_host(sender):
                                 print(f"  [公屏] {ai_name}: {reply}")
                 except Exception:
                     pass
@@ -155,3 +157,9 @@ class ChatManager:
             if slot.slot_type.value == "human_local" and slot.player_name == player_name:
                 return True
         return False
+
+    def _is_local_host(self, sender: str) -> bool:
+        """判断 sender 是否为本地房主（参与游戏或观战均适用）"""
+        if self._local_host_name and sender == self._local_host_name:
+            return True
+        return self.lobby.host_plays and self._is_host_name(sender)
