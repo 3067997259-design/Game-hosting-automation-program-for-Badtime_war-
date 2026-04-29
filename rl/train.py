@@ -391,10 +391,11 @@ class SelfPlayCallback(BaseCallback):
             if self.verbose >= 1:
                 n_models = len(self.pool.get_available_models())
                 wr_str = f"{current_win_rate:.1%}" if current_win_rate is not None else f"N/A (< {self.win_rate_window} episodes)"
+                threshold = self.min_win_rate
                 phase = "随机天赋" if (self.force_talent_cb and not self.force_talent_cb._switched) else \
                         "自选学习期" if (self._talent_unlocked_step is not None and self.num_timesteps - self._talent_unlocked_step < self.talent_grace_steps) else \
                         "自选成熟期"
-                save_str = "SAVED" if saved else f"SKIPPED (need >= {self.min_win_rate:.0%}, {phase})"
+                save_str = "SAVED" if saved else f"SKIPPED (need >= {threshold:.0%}, {phase})"
                 prob_str = f"{self.pool.basic_ai_prob:.1%}"
                 collapse_str = ""
                 if self._collapse_active:
