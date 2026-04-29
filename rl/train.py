@@ -265,7 +265,6 @@ class SelfPlayCallback(BaseCallback):
         initial_basic_ai_prob: float = 0.5,
         final_basic_ai_prob: float = 0.1,
         anneal_steps: int = 5_000_000,
-        min_win_rate: float | None = None,
         win_rate_window: int = 200,
         verbose: int = 0,
         curriculum_cb=None,  # CurriculumCallback 引用，None 表示无课程（立即激活）
@@ -273,6 +272,10 @@ class SelfPlayCallback(BaseCallback):
         eval_env=None,  # 评估环境，用于坍塔检测
         collapse_threshold: float = 0.12,
         no_collapse_detection: bool = False,
+        force_talent_cb=None,           # ForceRandomTalentCallback 引用
+        talent_grace_steps: int = 2_000_000,   # 天赋自选学习期步数
+        min_win_rate_random: float | None = None,  # 强制随机期阈值（默认 baseline × 1.1）
+        min_win_rate_mature: float | None = None,  # 成熟期阈值（默认 baseline × 1.3）
     ):
         super().__init__(verbose)
         self.pool = pool
@@ -280,11 +283,18 @@ class SelfPlayCallback(BaseCallback):
         self.initial_basic_ai_prob = initial_basic_ai_prob
         self.final_basic_ai_prob = final_basic_ai_prob
         self.anneal_steps = anneal_steps
-        if min_win_rate is None:
-            random_baseline = 1.0 / (max_opponents + 1)
-            self.min_win_rate = max(random_baseline * 1.5, 0.25)
+        random_baseline = 1.0 / (max_opponents + 1)
+        if min_win_rate_random is None:
+            self.min_win_rate_random = random_baseline * 1.1
         else:
-            self.min_win_rate = min_win_rate
+            self.min_win_rate_random = min_win_rate_random
+        if min_win_rate_mature is None:
+            self.min_win_rate_mature = random_baseline * 1.3
+        else:
+            self.min_win_rate_mature = min_win_rate_mature
+        self.force_talent_cb = force_talent_cb
+        self.talent_grace_steps = talent_grace_steps
+        self._talent_unlocked_step: int | None = None  # 记录天赋自选解锁的步数
         self.win_rate_window = win_rate_window
         self._episode_wins: list[bool] = []
         self._last_save_step: int = 0
@@ -306,6 +316,24 @@ class SelfPlayCallback(BaseCallback):
         self._collapse_recovery_target: int = 3  # 连续 3 次达标才退出
         self._eval_env = eval_env if not no_collapse_detection else None
 
+    @property
+    def min_win_rate(self) -> float:
+        """动态入池阈值：强制随机期/学习期用低阈值，成熟期用高阈值。"""
+        # 阶段 1：强制随机天赋仍在生效
+        if self.force_talent_cb is not None and not self.force_talent_cb._switched:
+            return self.min_win_rate_random
+
+        # 记录天赋自选解锁时间点（首次检测到 _switched=True）
+        if self._talent_unlocked_step is None:
+            self._talent_unlocked_step = self.num_timesteps
+
+        # 阶段 2：学习期（解锁后 N 步内）
+        if self.num_timesteps - self._talent_unlocked_step < self.talent_grace_steps:
+            return self.min_win_rate_random
+
+        # 阶段 3：成熟期
+        return self.min_win_rate_mature
+
     def _on_step(self) -> bool:
         # 课程模式下，等待最终阶段才激活
         if not self._activated:
@@ -316,7 +344,7 @@ class SelfPlayCallback(BaseCallback):
                 self._episode_wins.clear()  # 清空课程阶段积累的无效数据
                 if self.verbose >= 1:
                     print(f"  [SelfPlay] 激活! 课程已到最终阶段 (step {self.num_timesteps})")
-                    print(f"  [SelfPlay] 入池阈值: {self.min_win_rate:.1%}")
+                    print(f"  [SelfPlay] 入池阈值: 随机期={self.min_win_rate_random:.1%}, 成熟期={self.min_win_rate_mature:.1%}")
             else:
                 return True  # 课程未到最终阶段，跳过全部自对弈逻辑
 
@@ -363,7 +391,10 @@ class SelfPlayCallback(BaseCallback):
             if self.verbose >= 1:
                 n_models = len(self.pool.get_available_models())
                 wr_str = f"{current_win_rate:.1%}" if current_win_rate is not None else f"N/A (< {self.win_rate_window} episodes)"
-                save_str = "SAVED" if saved else f"SKIPPED (need >= {self.min_win_rate:.0%})"
+                phase = "随机天赋" if (self.force_talent_cb and not self.force_talent_cb._switched) else \
+                        "自选学习期" if (self._talent_unlocked_step is not None and self.num_timesteps - self._talent_unlocked_step < self.talent_grace_steps) else \
+                        "自选成熟期"
+                save_str = "SAVED" if saved else f"SKIPPED (need >= {self.min_win_rate:.0%}, {phase})"
                 prob_str = f"{self.pool.basic_ai_prob:.1%}"
                 collapse_str = ""
                 if self._collapse_active:
@@ -679,11 +710,13 @@ def train(args: argparse.Namespace):
     if curriculum_cb is not None:
         callback_list.append(curriculum_cb)
 
+    force_talent_cb = None
     if args.force_random_talent_until > 0:
-        callback_list.append(ForceRandomTalentCallback(
+        force_talent_cb = ForceRandomTalentCallback(
             until_step=args.force_random_talent_until,
             verbose=1,
-        ))
+        )
+        callback_list.append(force_talent_cb)
 
     if args.self_play and opponent_pool is not None:
         self_play_cb = SelfPlayCallback(
@@ -692,13 +725,14 @@ def train(args: argparse.Namespace):
             initial_basic_ai_prob=args.initial_basic_ai_prob,
             final_basic_ai_prob=args.final_basic_ai_prob,
             anneal_steps=args.timesteps,
-            min_win_rate=args.min_save_win_rate if args.min_save_win_rate != 0.45 else None,
             verbose=1,
             curriculum_cb=curriculum_cb,
             max_opponents=args.opponents,
             eval_env=eval_env,
             collapse_threshold=args.collapse_threshold,
             no_collapse_detection=args.no_collapse_detection,
+            force_talent_cb=force_talent_cb,
+            talent_grace_steps=args.talent_grace_steps,
         )
         callback_list.append(self_play_cb)
 
@@ -832,8 +866,6 @@ def parse_args() -> argparse.Namespace:
                 help="Self-play 初始 BasicAI 混入概率")
     p.add_argument("--final-basic-ai-prob", type=float, default=0.3,
                 help="Self-play 最终 BasicAI 混入概率（不低于0.3，确保策略多样性）")
-    p.add_argument("--min-save-win-rate", type=float, default=0.45,
-                help="Self-play 质量门控：胜率低于此值时不保存模型到对手池（默认0.45，课程模式下自动计算为 1/(n+1)*1.5）")
     p.add_argument("--collapse-threshold", type=float, default=0.12,
                 help="坍塌检测胜率阈值（低于此值视为坍塌，默认0.12）")
     p.add_argument("--no-collapse-detection", action="store_true",
@@ -848,6 +880,8 @@ def parse_args() -> argparse.Namespace:
                 help="禁用天赋系统（无天赋局）")
     p.add_argument("--force-random-talent-until", type=int, default=0,
                 help="在此步数之前强制随机分配天赋（0=不强制，由 --rl-talent 控制）")
+    p.add_argument("--talent-grace-steps", type=int, default=2_000_000,
+                help="天赋自选解锁后的学习期步数（期间入池阈值保持低值）")
 
     # 设备支持参数
     p.add_argument("--device", type=str, default="auto",
