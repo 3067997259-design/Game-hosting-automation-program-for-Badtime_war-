@@ -108,16 +108,17 @@ class DisplayBroadcaster:
 
     def _make_directed(self, func_name: str):
         def wrapper(*args, **kwargs):
-            # 本地房主
+            client_id = get_current_client_id()
+
+            # 本地房主：仅当定向目标是房主自己时才本地显示
             original = _original_display.get(func_name)
-            if original and self.lobby.host_plays:
+            if original and self.lobby.host_plays and client_id is None:
                 try:
                     original(*args, **kwargs)
                 except Exception:
                     pass
 
-            # 定向发送给当前玩家的客户端
-            client_id = get_current_client_id()
+            # 定向发送给远程客户端
             if client_id:
                 msg = {
                     "type": MessageType.GAME_EVENT,

@@ -5,10 +5,23 @@
 """
 
 import argparse
+import platform
 import sys
 import threading
 import time
 from typing import Optional
+
+if platform.system() == "Windows":
+    import msvcrt
+
+    def _stdin_has_input() -> bool:
+        return msvcrt.kbhit()
+else:
+    import select as _select_mod
+
+    def _stdin_has_input() -> bool:
+        readable, _, _ = _select_mod.select([sys.stdin], [], [], 0.1)
+        return bool(readable)
 
 from network.client import NetworkClient
 from network.protocol import MessageType
@@ -112,6 +125,7 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
     game_started.wait()
 
     # 主线程：唯一的 stdin 读取者
+    idle_prompted = False
     try:
         while client.is_connected and not game_finished.is_set():
             # 检查是否有挂起的服务器请求
@@ -124,21 +138,21 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
             if req_msg is not None:
                 _handle_request(client, req_msg, req_type, player_name)
                 pending_event.clear()
+                idle_prompted = False
                 continue
 
             # 没有挂起请求时，提示输入（聊天或等待）
-            print("  (等待服务器指令... 输入 /chat <内容> 聊天)")
+            if not idle_prompted:
+                print("  (等待服务器指令... 输入 /chat <内容> 聊天)")
+                idle_prompted = True
             # 用短超时轮询，以便及时响应服务器请求
             pending_event.wait(timeout=0.5)
             if pending_event.is_set():
                 pending_event.clear()
                 continue
 
-            # 无挂起请求 → 非阻塞检查 stdin（用 select）
-            import select
-            import sys
-            readable, _, _ = select.select([sys.stdin], [], [], 0.1)
-            if readable:
+            # 无挂起请求 → 非阻塞检查 stdin（跨平台）
+            if _stdin_has_input():
                 try:
                     raw = sys.stdin.readline().strip()
                 except EOFError:
