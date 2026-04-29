@@ -51,6 +51,7 @@ def main():
     parser.add_argument("--port", type=int, default=9527, help="服务器端口（默认 9527）")
     parser.add_argument("--name", type=str, default=None, help="玩家名称")
     parser.add_argument("--tui", action="store_true", help="使用 Textual TUI")
+    parser.add_argument("--reconnect", action="store_true", help="断线重连模式")
     args = parser.parse_args()
 
     player_name = args.name
@@ -69,8 +70,12 @@ def main():
     # 连接服务器
     client = NetworkClient(host=args.host, port=args.port)
     try:
-        client.connect(player_name)
-        print(f"  [Client] 已连接到服务器")
+        if args.reconnect:
+            client.reconnect(player_name)
+            print(f"  [Client] 重连成功")
+        else:
+            client.connect(player_name)
+            print(f"  [Client] 已连接到服务器")
     except ConnectionError as e:
         print(f"  [Client] 连接失败: {e}")
         sys.exit(1)
@@ -78,13 +83,15 @@ def main():
     if args.tui:
         _run_with_tui(client, player_name)
     else:
-        _run_cli_mode(client, player_name)
+        _run_cli_mode(client, player_name, is_reconnect=args.reconnect)
 
 
-def _run_cli_mode(client: NetworkClient, player_name: str):
+def _run_cli_mode(client: NetworkClient, player_name: str, is_reconnect: bool = False):
     """CLI 模式：单线程 stdin，避免多线程竞争输入。"""
     game_started = threading.Event()
     game_finished = threading.Event()
+    if is_reconnect:
+        game_started.set()
     # 挂起的服务器请求（由消息处理器填充，主线程消费）
     pending_request = {"msg": None, "msg_type": None}
     pending_lock = threading.Lock()
@@ -230,13 +237,22 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
         actions = msg.get("available_actions", [])
         if actions:
             print(f"  可选行动: {', '.join(actions)}")
-        print(f"  [{player_name}] > ", end="", flush=True)
-        raw = _read_line(stdin_q)
-        if raw is None:
-            raw = "forfeit"
+        while True:
+            print(f"  [{player_name}] > ", end="", flush=True)
+            raw = _read_line(stdin_q)
+            if raw is None:
+                raw = "forfeit"
+                break
+            raw = raw.strip()
+            if not raw:
+                continue
+            if raw.startswith("/chat ") or raw.startswith("/whisper "):
+                _handle_chat_input(client, raw, player_name)
+                continue
+            break
         client.send_sync({
             "type": MessageType.COMMAND_RESPONSE,
-            "command": raw.strip() or "forfeit",
+            "command": raw or "forfeit",
         })
 
     elif msg_type == MessageType.REQUEST_CHOOSE:
@@ -253,6 +269,9 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
                 client.send_sync({"type": MessageType.CHOOSE_RESPONSE, "choice": choice})
                 return
             raw = raw.strip()
+            if raw.startswith("/chat ") or raw.startswith("/whisper "):
+                _handle_chat_input(client, raw, player_name)
+                continue
             try:
                 idx = int(raw) - 1
                 if 0 <= idx < len(options):
@@ -285,6 +304,9 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
             if raw is None:
                 break
             raw = raw.strip()
+            if raw.startswith("/chat ") or raw.startswith("/whisper "):
+                _handle_chat_input(client, raw, player_name)
+                continue
             if raw == "0" and len(selected) >= min_count:
                 break
             try:
@@ -300,14 +322,20 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
 
     elif msg_type == MessageType.REQUEST_CONFIRM:
         prompt = msg.get("prompt", "确认？")
-        print(f"  {prompt} (y/n) > ", end="", flush=True)
-        raw = _read_line(stdin_q)
-        if raw is None:
-            raw = "n"
-        raw = raw.strip().lower()
+        while True:
+            print(f"  {prompt} (y/n) > ", end="", flush=True)
+            raw = _read_line(stdin_q)
+            if raw is None:
+                raw = "n"
+                break
+            raw = raw.strip()
+            if raw.startswith("/chat ") or raw.startswith("/whisper "):
+                _handle_chat_input(client, raw, player_name)
+                continue
+            break
         client.send_sync({
             "type": MessageType.CONFIRM_RESPONSE,
-            "result": raw in ("y", "yes", "是"),
+            "result": raw.lower() in ("y", "yes", "是"),
         })
 
 

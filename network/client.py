@@ -164,6 +164,49 @@ class NetworkClient:
     def is_connected(self) -> bool:
         return self._connected
 
+    def reconnect(self, player_name: str):
+        """断线重连"""
+        self.player_name = player_name
+        self._running = True
+        self._thread = threading.Thread(target=self._run_loop_reconnect, daemon=True)
+        self._thread.start()
+        deadline = time.time() + 10
+        while not self._connected and time.time() < deadline:
+            time.sleep(0.05)
+        if not self._connected:
+            raise ConnectionError(f"重连失败: 无法连接到 {self.host}:{self.port}")
+
+    def _run_loop_reconnect(self):
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_until_complete(self._main_reconnect())
+
+    async def _main_reconnect(self):
+        """重连模式：发送 RECONNECT 而非 LOBBY_JOIN"""
+        try:
+            self._reader, self._writer = await asyncio.open_connection(
+                self.host, self.port,
+            )
+            self._connected = True
+            await send_message(self._writer, {
+                "type": MessageType.RECONNECT,
+                "player_name": self.player_name,
+            })
+            await asyncio.gather(
+                self._recv_loop(),
+                self._heartbeat_loop(),
+            )
+        except (ConnectionError, OSError) as e:
+            print(f"  [Client] 重连失败: {e}")
+        finally:
+            self._connected = False
+            if self._writer:
+                self._writer.close()
+                try:
+                    await self._writer.wait_closed()
+                except Exception:
+                    pass
+
     def disconnect(self):
         self._running = False
         if self._loop and self._writer:

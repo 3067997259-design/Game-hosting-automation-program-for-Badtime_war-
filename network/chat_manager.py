@@ -35,6 +35,9 @@ class ChatManager:
 
         if channel == "public":
             self.server.broadcast_sync(chat_msg)
+            # 房主本地显示（房主不是网络客户端，broadcast 不会到达）
+            if self.lobby.host_plays:
+                print(f"  [公屏] {sender}: {content}")
             # AI 聊天在后台线程中执行，避免阻塞消息处理
             threading.Thread(
                 target=self._trigger_ai_chat,
@@ -47,6 +50,10 @@ class ChatManager:
             target_client = self._find_client_by_name(target)
             if target_client:
                 self.server.send_to_sync(target_client, chat_msg)
+            else:
+                # 目标可能是房主（无 client_id）
+                if self.lobby.host_plays and self._is_host_name(target):
+                    print(f"  [私聊] {sender} → {target}: {content}")
             # 回显给发送者
             self.server.send_to_sync(client_id, chat_msg)
             # AI 聊天在后台线程中执行
@@ -88,6 +95,9 @@ class ChatManager:
                                 self.server.send_to_sync(src_client, reply_msg)
                         else:
                             self.server.broadcast_sync(reply_msg)
+                            # 房主本地显示 AI 公屏回复
+                            if self.lobby.host_plays:
+                                print(f"  [公屏] {ai_name}: {reply}")
                 except Exception:
                     pass
 
@@ -96,3 +106,9 @@ class ChatManager:
             if slot.player_name == player_name and slot.client_id:
                 return slot.client_id
         return None
+
+    def _is_host_name(self, player_name: str) -> bool:
+        for slot in self.lobby.slots:
+            if slot.slot_type.value == "human_local" and slot.player_name == player_name:
+                return True
+        return False
