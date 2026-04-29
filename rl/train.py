@@ -345,8 +345,7 @@ class SelfPlayCallback(BaseCallback):
             # 2b. 质量门控：只有胜率达标才保存（坍塔恢复模式下跳过保存）
             saved = False
             if not self._collapse_active and current_win_rate is not None and current_win_rate >= self.min_win_rate:
-                eval_wr = self._compute_eval_win_rate() if self._eval_env is not None else current_win_rate
-                self.pool.save_current_model(self.model, self.num_timesteps, eval_win_rate=eval_wr)
+                self.pool.save_current_model(self.model, self.num_timesteps, eval_win_rate=current_win_rate)
                 self._last_save_step = self.num_timesteps
                 saved = True
 
@@ -393,6 +392,8 @@ class SelfPlayCallback(BaseCallback):
 
             if eval_win_rate is not None and eval_win_rate < self.collapse_wr_threshold:
                 self.collapse_consecutive_fails += 1
+                if self._collapse_active:
+                    self._collapse_recovery_count = 0
                 if self.verbose:
                     print(f"  [SelfPlay] \u26a0\ufe0f 坍塔预警 ({self.collapse_consecutive_fails}/{self.collapse_trigger_count}): "
                           f"eval win rate = {eval_win_rate:.1%} < {self.collapse_wr_threshold:.1%}")
