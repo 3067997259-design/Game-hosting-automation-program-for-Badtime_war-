@@ -256,7 +256,11 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
                     readable, _, _ = select.select([sys.stdin], [], [], 1.0)
                     if not readable:
                         continue
-                    raw = sys.stdin.readline().strip()
+                    raw_line = sys.stdin.readline()
+                    if not raw_line:          # EOF — avoid busy-loop
+                        time.sleep(1)
+                        continue
+                    raw = raw_line.strip()
             except EOFError:
                 continue
 
