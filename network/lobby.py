@@ -263,6 +263,12 @@ class LobbyManager:
                 player = self._slot_players.get(slot.slot_id)
                 if player:
                     player.controller = NetworkController(client_id, self.server)
+                # 向重连客户端发送当前房间状态（使其跳过等待游戏开始的循环）
+                self.server.send_to_sync(client_id, {
+                    "type": MessageType.LOBBY_UPDATE,
+                    "room_state": self.state.value,
+                    "slots": [s.to_dict() for s in self.slots],
+                })
                 self.server.broadcast_sync({
                     "type": MessageType.DISCONNECT_NOTICE,
                     "player_name": player_name,
