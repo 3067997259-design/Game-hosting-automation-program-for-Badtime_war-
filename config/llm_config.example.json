@@ -1,0 +1,9 @@
+{
+    "backend": "openai",
+    "api_key": "",
+    "base_url": "",
+    "model": "gpt-3.5-turbo",
+    "_comment_ollama": "若使用 Ollama，将 backend 改为 ollama，设置 host 和 model",
+    "host": "http://localhost:11434",
+    "_comment_model_ollama": "Ollama 模型名，如 llama3, qwen2 等"
+}
