@@ -1,0 +1,334 @@
+"""
+房主服务器入口
+═══════════════
+启动 TCP 服务器 → 显示房主 TUI → 等待玩家加入 → 配置 AI → 开始游戏
+游戏循环在独立线程中运行（与 rl/env.py 的 _run_game 模式一致）
+"""
+
+import argparse
+import random
+import sys
+import threading
+import time
+from typing import Optional
+
+from network.server import NetworkServer
+from network.lobby import LobbyManager, SlotType, DisconnectPolicy
+from network.display_bridge import DisplayBroadcaster, set_current_context
+from network.chat_manager import ChatManager
+from network.disconnect import DisconnectMonitor
+from network.protocol import MessageType
+from engine.round_manager import RoundManager
+from engine.game_setup import (
+    TALENT_TABLE, AI_PERSONALITIES, _talent_selection,
+)
+from ai_chat.llm_backend import create_backend
+from ai_chat.ai_chatter import AIChatModule
+
+
+def main():
+    parser = argparse.ArgumentParser(description="起闯战争 - 房主服务器")
+    parser.add_argument("--port", type=int, default=9527, help="监听端口（默认 9527）")
+    parser.add_argument("--players", type=int, default=2, help="总人数（2-6，默认 2）")
+    parser.add_argument("--no-host-play", action="store_true", help="房主不参与游戏")
+    parser.add_argument("--tui", action="store_true", help="使用 Textual TUI（需安装 textual）")
+    args = parser.parse_args()
+
+    total_players = max(2, min(6, args.players))
+    host_plays = not args.no_host_play
+
+    print(f"\n  ═══════════════════════════════════════")
+    print(f"    起闯战争 - 局域网联机服务器")
+    print(f"  ═══════════════════════════════════════")
+    print(f"  端口: {args.port}")
+    print(f"  人数: {total_players}")
+    print(f"  房主参与: {'是' if host_plays else '否'}")
+    print()
+
+    # 启动网络服务器
+    server = NetworkServer(port=args.port)
+    server.start()
+    print(f"  [Server] 服务器已启动，监听端口 {args.port}")
+
+    # 创建大厅
+    lobby = LobbyManager(total_players, host_plays, server)
+
+    # 创建聊天管理器
+    chat_manager = ChatManager(server, lobby)
+
+    # 处理客户端消息
+    def on_message(client_id: str, msg: dict):
+        msg_type = msg.get("type", "")
+        if msg_type == MessageType.LOBBY_JOIN:
+            name = msg.get("player_name", f"玩家_{client_id}")
+            slot = lobby.on_player_join(client_id, name)
+            if slot:
+                server.set_client_name(client_id, name)
+                print(f"  [Lobby] {name} 加入了房间 (slot {slot.slot_id})")
+            else:
+                server.send_to_sync(client_id, {
+                    "type": MessageType.DISCONNECT_NOTICE,
+                    "reason": "房间已满",
+                })
+        elif msg_type == MessageType.CHAT_SEND:
+            chat_manager.handle_chat(client_id, msg)
+        elif msg_type == MessageType.RECONNECT:
+            name = msg.get("player_name", "")
+            if lobby.handle_reconnect(client_id, name):
+                print(f"  [Lobby] {name} 重连成功")
+            else:
+                print(f"  [Lobby] {name} 重连失败")
+
+    server._on_message = on_message
+
+    # 处理断线
+    def on_disconnect(client_id: str):
+        if lobby.state.value == "in_game":
+            lobby.handle_disconnect(client_id)
+        else:
+            lobby.on_player_leave(client_id)
+
+    server._on_client_disconnect = on_disconnect
+
+    # 断线检测
+    monitor = DisconnectMonitor(server, lobby)
+    monitor.start()
+
+    # 根据是否启用 TUI 决定交互模式
+    if args.tui:
+        _run_with_tui(server, lobby, chat_manager, host_plays, monitor)
+    else:
+        _run_cli_mode(server, lobby, chat_manager, host_plays, monitor)
+
+
+def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
+    """CLI 模式：简单的命令行交互。"""
+    print("\n  ─── 大厅管理（输入命令）───")
+    print("  命令：")
+    print("    status    - 查看房间状态")
+    print("    ai <slot> [personality] - 设置 AI")
+    print("    rl <slot> - 设置 RL AI")
+    print("    start     - 开始游戏")
+    print("    quit      - 退出")
+    print()
+
+    while lobby.state.value == "waiting":
+        try:
+            raw = input("  [房主] > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+
+        if not raw:
+            continue
+        parts = raw.split()
+        cmd = parts[0].lower()
+
+        if cmd == "status":
+            info = lobby.get_lobby_info()
+            print(f"\n  房间状态: {info['room_state']}")
+            for s in info["slots"]:
+                print(f"    [{s['slot_id']}] {s['slot_type']:12s} | "
+                      f"{s['player_name'] or '空':10s} | "
+                      f"{'已连接' if s['is_connected'] else '未连接'}")
+            print()
+
+        elif cmd == "ai":
+            if len(parts) < 2:
+                print("  用法: ai <slot_id> [personality]")
+                continue
+            try:
+                slot_id = int(parts[1])
+            except ValueError:
+                print("  无效的 slot_id")
+                continue
+            personality = parts[2] if len(parts) > 2 else "balanced"
+            if personality not in AI_PERSONALITIES:
+                print(f"  可选性格: {', '.join(AI_PERSONALITIES)}")
+                continue
+            if lobby.set_slot_ai(slot_id, "basic", personality):
+                print(f"  Slot {slot_id} 设为 AI ({personality})")
+            else:
+                print("  设置失败（槽位不可用）")
+
+        elif cmd == "rl":
+            if len(parts) < 2:
+                print("  用法: rl <slot_id>")
+                continue
+            try:
+                slot_id = int(parts[1])
+            except ValueError:
+                print("  无效的 slot_id")
+                continue
+            from network.rl_detect import detect_rl_availability
+            rl_info = detect_rl_availability()
+            if rl_info["available"]:
+                model = rl_info["models"][0] if rl_info["models"] else None
+                if lobby.set_slot_ai(slot_id, "rl", rl_model_path=model):
+                    print(f"  Slot {slot_id} 设为 RL AI")
+                else:
+                    print("  设置失败")
+            else:
+                print("  RL 不可用（缺少模型或依赖）")
+
+        elif cmd == "start":
+            if not lobby.can_start():
+                print("  还有空位未填满，无法开始")
+                continue
+            break
+
+        elif cmd == "quit":
+            server.stop()
+            monitor.stop()
+            sys.exit(0)
+
+    if lobby.state.value == "waiting":
+        _start_game(server, lobby, chat_manager, host_plays)
+
+    # 等待游戏结束
+    try:
+        while lobby.state.value == "in_game":
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n  游戏被中断。")
+    finally:
+        monitor.stop()
+        server.stop()
+
+
+def _run_with_tui(server, lobby, chat_manager, host_plays, monitor):
+    """Textual TUI 模式。"""
+    try:
+        from tui.app import BadtimeWarTUI
+    except ImportError:
+        print("  [错误] 需要安装 textual: pip install textual")
+        _run_cli_mode(server, lobby, chat_manager, host_plays, monitor)
+        return
+
+    app = BadtimeWarTUI(
+        is_host=True,
+        lobby=lobby,
+        server=server,
+    )
+
+    # TUI 运行（阻塞）
+    app.run()
+    monitor.stop()
+    server.stop()
+
+
+def _start_game(server, lobby, chat_manager, host_plays):
+    """启动游戏。"""
+    print("\n  ─── 游戏启动 ───")
+
+    game_state = lobby.start_game()
+
+    # 安装 Display 桥接
+    broadcaster = DisplayBroadcaster(server, lobby)
+    broadcaster.install()
+
+    # 设置 AI 聊天
+    _setup_ai_chat(lobby, chat_manager, game_state)
+
+    # 通知所有客户端游戏开始
+    server.broadcast_sync({
+        "type": MessageType.LOBBY_UPDATE,
+        "room_state": "in_game",
+        "slots": [s.to_dict() for s in lobby.slots],
+    })
+
+    # 天赋选择
+    ai_players_info = []
+    for slot in lobby.slots:
+        if slot.slot_type in (SlotType.BASIC_AI, SlotType.RL_AI):
+            pid = f"p{slot.slot_id}"
+            personality = slot.personality or "balanced"
+            ai_players_info.append((pid, slot.player_name, personality))
+
+    print("  是否启用天赋系统？")
+    while True:
+        raw = input("  (y/n，默认n)：").strip().lower()
+        if raw in ("y", "yes", "是"):
+            _talent_selection(game_state, ai_players_info)
+            break
+        elif raw in ("n", "no", "否", ""):
+            print("  天赋系统未启用。")
+            break
+
+    # 在独立线程中运行游戏循环
+    round_mgr = RoundManager(game_state)
+    lobby.round_manager = round_mgr
+
+    def game_thread():
+        try:
+            # 设置 NetworkController 的上下文
+            _patch_engine_context(game_state, lobby)
+            round_mgr.run_game_loop()
+        except Exception as e:
+            print(f"  [Game] 游戏异常: {e}")
+        finally:
+            broadcaster.uninstall()
+            lobby.state = lobby.state.__class__("finished")
+            server.broadcast_sync({
+                "type": MessageType.GAME_EVENT,
+                "event": "game_finished",
+                "args": [],
+                "kwargs": {},
+            })
+
+    t = threading.Thread(target=game_thread, daemon=True)
+    t.start()
+    print("  [Game] 游戏循环已启动")
+
+
+def _patch_engine_context(game_state, lobby):
+    """
+    在引擎调用 controller 之前设置当前上下文。
+    通过 monkey-patch ActionTurnManager 实现。
+    """
+    from controllers.network_controller import NetworkController
+
+    original_get_command = None
+
+    for pid in game_state.player_order:
+        player = game_state.get_player(pid)
+        if player and isinstance(player.controller, NetworkController):
+            ctrl = player.controller
+            original = ctrl.get_command
+
+            def make_wrapper(c, orig):
+                def wrapper(p, gs, aa, context=None):
+                    set_current_context(c.client_id, p.name)
+                    result = orig(p, gs, aa, context)
+                    set_current_context(None, None)
+                    return result
+                return wrapper
+
+            ctrl.get_command = make_wrapper(ctrl, original)
+
+
+def _setup_ai_chat(lobby, chat_manager, game_state):
+    """为配置了 LLM 的 AI 玩家设置聊天模块。"""
+    backend = create_backend()
+    if backend is None:
+        return
+
+    from controllers.ai_basic import BasicAIController
+
+    for slot in lobby.slots:
+        if slot.slot_type == SlotType.BASIC_AI:
+            pid = f"p{slot.slot_id}"
+            player = game_state.get_player(pid)
+            if player and isinstance(player.controller, BasicAIController):
+                module = AIChatModule(
+                    player_name=slot.player_name or f"AI-{slot.slot_id}",
+                    personality=slot.personality or "balanced",
+                    backend=backend,
+                    controller=player.controller,
+                )
+                chat_manager.register_ai_chatter(
+                    slot.player_name or f"AI-{slot.slot_id}", module,
+                )
+
+
+if __name__ == "__main__":
+    main()
