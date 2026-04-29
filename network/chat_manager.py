@@ -93,6 +93,8 @@ class ChatManager:
             if target_client:
                 self.server.send_to_sync(target_client, chat_msg)
                 print(f"  [私聊] {host_name} → {target}: {content}")
+            elif target in self._ai_chat_modules:
+                print(f"  [私聊] {host_name} → {target}: {content}")
             else:
                 print(f"  [私聊] 找不到玩家: {target}")
             # 触发 AI 聊天
@@ -132,6 +134,8 @@ class ChatManager:
                             src_client = self._find_client_by_name(sender)
                             if src_client:
                                 self.server.send_to_sync(src_client, reply_msg)
+                            elif self.lobby.host_plays and self._is_host_name(sender):
+                                print(f"  [私聊] {ai_name} → {sender}: {reply}")
                         else:
                             self.server.broadcast_sync(reply_msg)
                             # 房主本地显示 AI 公屏回复
