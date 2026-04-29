@@ -187,6 +187,22 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
     ai_personality_map = {info[0]: info[2] for info in ai_players_info}
     taken: set[int] = set()
 
+    # RL random 模式：先选，确保均匀分布
+    if rl_pid is not None and rl_talent_mode == "random":
+        rl_player = game_state.get_player(rl_pid)
+        available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                     if n not in AI_DISABLED_TALENTS]
+        if available and rl_player is not None:
+            chosen = random.choice(available)
+            n, name, cls, desc = chosen
+            talent_inst = cls(rl_pid, game_state)
+            rl_player.talent = talent_inst
+            rl_player.talent_name = name
+            talent_inst.on_register()
+            taken.add(n)
+        if rl_controller is not None and rl_player is not None:
+            rl_controller.set_player_ref(rl_player, game_state)
+
     for pid in game_state.player_order:
         player = game_state.get_player(pid)
         if player is None:
@@ -194,7 +210,12 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
 
         # RL 玩家天赋分配
         if pid == rl_pid:
-            if rl_talent_mode == "0":
+            if rl_talent_mode == "random":
+                # 已在循环前分配
+                if rl_controller is not None:
+                    rl_controller.set_player_ref(player, game_state)
+                continue
+            elif rl_talent_mode == "0":
                 # 不选天赋
                 pass
             elif rl_talent_mode == "model":
@@ -220,18 +241,6 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
                                 talent_inst.on_register()
                                 taken.add(n)
                                 break
-            elif rl_talent_mode == "random":
-                # 均匀随机：从可用天赋中等概率选一个
-                available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
-                             if n not in taken and n not in AI_DISABLED_TALENTS]
-                if available:
-                    chosen = random.choice(available)
-                    n, name, cls, desc = chosen
-                    talent_inst = cls(pid, game_state)
-                    player.talent = talent_inst
-                    player.talent_name = name
-                    talent_inst.on_register()
-                    taken.add(n)
             else:
                 # 指定天赋编号
                 try:

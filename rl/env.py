@@ -410,6 +410,8 @@ class BadtimeWarEnv(gym.Env):
         for p in all_players:
             self._state.add_player(p)
 
+        self._rl_talent_assigned = False
+
         # ── 天赋分配 ──
         if self.enable_talents:
             self._assign_talents(ai_personalities)
@@ -481,6 +483,24 @@ class BadtimeWarEnv(gym.Env):
 
         taken: set = set()
 
+        # 强制随机模式下，RL 先选（确保均匀分布，不受 AI 偏好影响）
+        if self.force_random_talent:
+            rl_player = self._state.get_player("rl_0")
+            if rl_player is not None:
+                all_available = [
+                    (n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                ]
+                if all_available:
+                    chosen = all_available[self.np_random.integers(len(all_available))]
+                    n, name, cls, desc = chosen
+                    talent_inst = cls("rl_0", self._state)
+                    rl_player.talent = talent_inst
+                    rl_player.talent_name = name
+                    talent_inst.on_register()
+                    taken.add(n)
+                # 标记 RL 已分配
+                self._rl_talent_assigned = True
+
         for pid in self._state.player_order:
             player = self._state.get_player(pid)
             if player is None:
@@ -494,9 +514,10 @@ class BadtimeWarEnv(gym.Env):
             if not available:
                 continue
 
-            # ── RL 玩家：延迟到游戏线程中通过 choose 同步分配 ──
+            # ── RL 玩家 ──
             if pid == "rl_0":
-                # 记录当前已被选走的天赋，供后续 _assign_rl_talent 使用
+                # 如果已在上面分配过（force_random_talent），跳过
+                # 否则延迟到游戏线程中通过 choose 同步分配
                 continue
 
             # ── AI 对手 ──
@@ -536,6 +557,11 @@ class BadtimeWarEnv(gym.Env):
         assert self._state is not None
         assert self._rl_player is not None
         assert self._rl_controller is not None
+
+        # 如果 _assign_talents 中已经分配过（force_random_talent 模式），跳过
+        if getattr(self, '_rl_talent_assigned', False):
+            self._rl_talent_assigned = False  # 重置标记
+            return
 
         taken = getattr(self, '_taken_talents', set())
 
