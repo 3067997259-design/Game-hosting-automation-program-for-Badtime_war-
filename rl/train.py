@@ -634,7 +634,7 @@ def train(args: argparse.Namespace):
     sys.stderr.flush()
 
     # ── 模型 ─────────────────────────────────────────────────────
-    sys.stderr.write(f"[TRAIN] loading model from {args.resume}...\n")
+    sys.stderr.write(f"[TRAIN] resume={args.resume}, preparing model...\n")
     sys.stderr.flush()
     if args.resume:
         print(f"从 {args.resume} 恢复训练")
