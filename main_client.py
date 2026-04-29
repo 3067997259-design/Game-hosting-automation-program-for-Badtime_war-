@@ -12,6 +12,9 @@ import time
 from typing import Optional
 
 
+_STDIN_EOF = None  # sentinel
+
+
 def _start_stdin_reader() -> queue.Queue:
     """启动后台线程读取 stdin 行，通过 queue 传递给主线程（跨平台）。"""
     q: queue.Queue = queue.Queue()
@@ -22,10 +25,21 @@ def _start_stdin_reader() -> queue.Queue:
                 q.put(line.rstrip("\n"))
         except (EOFError, OSError):
             pass
+        finally:
+            q.put(_STDIN_EOF)
 
     t = threading.Thread(target=_reader, daemon=True)
     t.start()
     return q
+
+
+def _read_line(stdin_q: queue.Queue) -> Optional[str]:
+    """从 stdin queue 读取一行，EOF 时返回 None。"""
+    line = stdin_q.get()
+    if line is _STDIN_EOF:
+        stdin_q.put(_STDIN_EOF)  # 放回哨兵供后续调用者立即感知
+        return None
+    return line
 
 from network.client import NetworkClient
 from network.protocol import MessageType
@@ -158,11 +172,13 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
 
             # 无挂起请求 → 非阻塞检查 stdin queue
             try:
-                raw = stdin_q.get_nowait().strip()
+                raw = stdin_q.get_nowait()
             except queue.Empty:
                 continue
-            if raw:
-                _handle_chat_input(client, raw, player_name)
+            if raw is _STDIN_EOF:
+                break
+            if raw.strip():
+                _handle_chat_input(client, raw.strip(), player_name)
 
     except KeyboardInterrupt:
         pass
@@ -202,10 +218,12 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
         if actions:
             print(f"  可选行动: {', '.join(actions)}")
         print(f"  [{player_name}] > ", end="", flush=True)
-        raw = stdin_q.get().strip()
+        raw = _read_line(stdin_q)
+        if raw is None:
+            raw = "forfeit"
         client.send_sync({
             "type": MessageType.COMMAND_RESPONSE,
-            "command": raw or "forfeit",
+            "command": raw.strip() or "forfeit",
         })
 
     elif msg_type == MessageType.REQUEST_CHOOSE:
@@ -216,7 +234,12 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
             print(f"    {i}. {opt}")
         while True:
             print("  请选择（编号）> ", end="", flush=True)
-            raw = stdin_q.get().strip()
+            raw = _read_line(stdin_q)
+            if raw is None:
+                if options:
+                    client.send_sync({"type": MessageType.CHOOSE_RESPONSE, "choice": options[0]})
+                return
+            raw = raw.strip()
             try:
                 idx = int(raw) - 1
                 if 0 <= idx < len(options):
@@ -245,7 +268,10 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
         selected = []
         while len(selected) < max_count:
             print(f"  选择（已选{len(selected)}/{max_count}，输入0结束）> ", end="", flush=True)
-            raw = stdin_q.get().strip()
+            raw = _read_line(stdin_q)
+            if raw is None:
+                break
+            raw = raw.strip()
             if raw == "0" and len(selected) >= min_count:
                 break
             try:
@@ -262,7 +288,10 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
     elif msg_type == MessageType.REQUEST_CONFIRM:
         prompt = msg.get("prompt", "确认？")
         print(f"  {prompt} (y/n) > ", end="", flush=True)
-        raw = stdin_q.get().strip().lower()
+        raw = _read_line(stdin_q)
+        if raw is None:
+            raw = "n"
+        raw = raw.strip().lower()
         client.send_sync({
             "type": MessageType.CONFIRM_RESPONSE,
             "result": raw in ("y", "yes", "是"),
