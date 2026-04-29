@@ -83,13 +83,15 @@ def main():
     if args.tui:
         _run_with_tui(client, player_name)
     else:
-        _run_cli_mode(client, player_name)
+        _run_cli_mode(client, player_name, is_reconnect=args.reconnect)
 
 
-def _run_cli_mode(client: NetworkClient, player_name: str):
+def _run_cli_mode(client: NetworkClient, player_name: str, is_reconnect: bool = False):
     """CLI 模式：单线程 stdin，避免多线程竞争输入。"""
     game_started = threading.Event()
     game_finished = threading.Event()
+    if is_reconnect:
+        game_started.set()
     # 挂起的服务器请求（由消息处理器填充，主线程消费）
     pending_request = {"msg": None, "msg_type": None}
     pending_lock = threading.Lock()
