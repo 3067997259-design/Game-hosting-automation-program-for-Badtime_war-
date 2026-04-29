@@ -236,8 +236,8 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
             print("  请选择（编号）> ", end="", flush=True)
             raw = _read_line(stdin_q)
             if raw is None:
-                if options:
-                    client.send_sync({"type": MessageType.CHOOSE_RESPONSE, "choice": options[0]})
+                choice = options[0] if options else ""
+                client.send_sync({"type": MessageType.CHOOSE_RESPONSE, "choice": choice})
                 return
             raw = raw.strip()
             try:
