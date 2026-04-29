@@ -94,7 +94,7 @@ def make_env(
             finally:
                 sys.stdout = old_stdout
                 devnull.close()
-            faulthandler.cancel_dump_traceback_later()
+                faulthandler.cancel_dump_traceback_later()
             return env
     return _init
 
