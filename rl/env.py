@@ -76,6 +76,11 @@ def _silence_display():
     if hasattr(_display_module, "prompt_secret"):
         _original_display["prompt_secret"] = _display_module.prompt_secret
         _display_module.prompt_secret = lambda *a, **kw: ""
+    # monkey-patch builtins.input 防止任何未守卫的 input() 阻塞子进程
+    import builtins
+    if not hasattr(builtins, '_original_input'):
+        builtins._original_input = builtins.input
+    builtins.input = lambda *a, **kw: ""
 
 
 def _restore_display():
@@ -83,6 +88,10 @@ def _restore_display():
     for name, func in _original_display.items():
         setattr(_display_module, name, func)
     _original_display.clear()
+    # 恢复 builtins.input
+    import builtins
+    if hasattr(builtins, '_original_input'):
+        builtins.input = builtins._original_input
 
 _original_pm_output = None
 
@@ -451,7 +460,11 @@ class BadtimeWarEnv(gym.Env):
         self._game_thread.start()
 
         # 等待第一个 RL 决策点（get_command 或 choose）
-        self._obs_event.wait()
+        if not self._obs_event.wait(timeout=30.0):
+            raise RuntimeError(
+                "Game thread did not reach first RL decision point within 30s. "
+                "Possible cause: unguarded input() call in game engine code."
+            )
         self._obs_event.clear()
 
         # 初始化奖励追踪器基线
@@ -688,7 +701,11 @@ class BadtimeWarEnv(gym.Env):
         self._action_event.set()
 
         # 等待下一个 RL 决策点（get_command 或 choose）或游戏结束
-        self._obs_event.wait()
+        if not self._obs_event.wait(timeout=30.0):
+            raise RuntimeError(
+                "Game thread did not reach RL decision point within 30s. "
+                "Possible cause: unguarded input() call in game engine code."
+            )
         self._obs_event.clear()
 
         # 读取上一次动作结果（仅 get_command 模式有意义）
