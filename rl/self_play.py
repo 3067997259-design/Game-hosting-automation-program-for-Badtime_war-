@@ -344,7 +344,7 @@ class OpponentPool:
 
         removable = models[:-3] if len(models) > 3 else []
         # 按 eval 胜率排序，最低的优先淘汰
-        removable_with_wr = [(m, self._model_eval_wr.get(m.stem, 1.0)) for m in removable]
+        removable_with_wr = [(m, self._model_eval_wr.get(m.stem, 0.0)) for m in removable]
         removable_with_wr.sort(key=lambda x: x[1])
 
         while len(models) > self.max_pool_size and removable_with_wr:
