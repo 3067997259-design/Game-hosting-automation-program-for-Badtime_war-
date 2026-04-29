@@ -580,6 +580,8 @@ def train(args: argparse.Namespace):
             seed_m = _MaskablePPO.load(args.seed_model)
             opponent_pool.save_current_model(seed_m, step=0)
             del seed_m
+            sys.stderr.write("[TRAIN] seed model saved to opponent pool\n")
+            sys.stderr.flush()
 # ── 训练环境 ──────────────────────────────────────────────────
     force_random = args.force_random_talent_until > 0
     env_fns = [
@@ -596,10 +598,14 @@ def train(args: argparse.Namespace):
         )
         for i in range(args.n_envs)
     ]
+    sys.stderr.write(f"[TRAIN] creating train env (n_envs={args.n_envs}, method=spawn)...\n")
+    sys.stderr.flush()
     if args.n_envs > 1:
         train_env = SubprocVecEnv(env_fns, start_method="spawn")   # type: ignore
     else:
         train_env = DummyVecEnv(env_fns) # type: ignore
+    sys.stderr.write(f"[TRAIN] train env created successfully\n")
+    sys.stderr.flush()
 
     # ── 评估环境（多进程并行）──────────────────────────────────────
     n_eval_envs = args.n_eval_envs if args.n_eval_envs is not None else args.n_envs
@@ -618,12 +624,18 @@ def train(args: argparse.Namespace):
         )
         for i in range(n_eval_envs)
     ]
+    sys.stderr.write(f"[TRAIN] creating eval env (n_eval_envs={n_eval_envs}, method=spawn)...\n")
+    sys.stderr.flush()
     if n_eval_envs > 1:
         eval_env = SubprocVecEnv(eval_env_fns, start_method="spawn")
     else:
         eval_env = DummyVecEnv(eval_env_fns)
+    sys.stderr.write(f"[TRAIN] eval env created successfully\n")
+    sys.stderr.flush()
 
     # ── 模型 ─────────────────────────────────────────────────────
+    sys.stderr.write(f"[TRAIN] loading model from {args.resume}...\n")
+    sys.stderr.flush()
     if args.resume:
         print(f"从 {args.resume} 恢复训练")
         model = MaskablePPO.load(
@@ -643,6 +655,8 @@ def train(args: argparse.Namespace):
         model.clip_range = lambda _: args.clip_range
         print(f"  超参数已覆盖: n_steps={args.n_steps}, batch_size={args.batch_size}, "
               f"n_epochs={args.n_epochs}, ent_coef={args.ent_coef}")
+        sys.stderr.write("[TRAIN] model loaded and hyperparams overridden\n")
+        sys.stderr.flush()
     else:
         model = MaskablePPO(
             policy="MlpPolicy",
@@ -741,6 +755,8 @@ def train(args: argparse.Namespace):
         callback_list.append(self_play_cb)
 
     callbacks = CallbackList(callback_list)
+    sys.stderr.write(f"[TRAIN] all callbacks created ({len(callback_list)} callbacks)\n")
+    sys.stderr.flush()
 
     # ── 训练 ─────────────────────────────────────────────────────
     print(f"开始训练: {run_name}")
