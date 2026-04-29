@@ -119,7 +119,8 @@ class NetworkServer:
                     continue
 
                 # 同步等待的消息
-                wait_key = f"{client_id}:{msg_type}"
+                raw_type = msg_type.value if hasattr(msg_type, 'value') else msg_type
+                wait_key = f"{client_id}:{raw_type}"
                 if wait_key in self._sync_events:
                     self._sync_results[wait_key] = msg
                     self._sync_events[wait_key].set()
@@ -215,7 +216,8 @@ class NetworkServer:
         msg_type: str,
         timeout: float = 300.0,
     ) -> Dict[str, Any]:
-        wait_key = f"{client_id}:{msg_type}"
+        raw_type = msg_type.value if hasattr(msg_type, 'value') else str(msg_type)
+        wait_key = f"{client_id}:{raw_type}"
         evt = threading.Event()
         self._sync_events[wait_key] = evt
         self._sync_results.pop(wait_key, None)
