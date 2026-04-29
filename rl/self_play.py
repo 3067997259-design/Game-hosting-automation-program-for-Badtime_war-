@@ -307,7 +307,7 @@ class OpponentPool:
         self.elo_game_counts[model_stem] = self.elo_game_counts.get(model_stem, 0) + 1
         self.elo_game_counts[opponent_stem] = self.elo_game_counts.get(opponent_stem, 0) + 1
 
-    def save_current_model(self, model: BaseAlgorithm, step: int):
+    def save_current_model(self, model: BaseAlgorithm, step: int, eval_win_rate: float | None = None):
         """保存当前模型到对手池，同时导出 TorchScript 快推理版本。"""
         path = self.pool_dir / f"opponent_step_{step}"
         model.save(str(path))
@@ -325,30 +325,32 @@ class OpponentPool:
         self.elo_scores[stem] = self.elo_default
         self.elo_game_counts[stem] = 0
 
+        # 记录入池时的 eval 胜率快照
+        if not hasattr(self, '_model_eval_wr'):
+            self._model_eval_wr: Dict[str, float] = {}
+        if eval_win_rate is not None:
+            self._model_eval_wr[stem] = eval_win_rate
+
         # 如果超出池大小，删除最旧的
         self._cleanup_old_models()
 
     def _cleanup_old_models(self):
-        """淘汰低 ELO 模型，保留最新的 max_pool_size 个。"""
+        """淘汰模型，优先淘汰 eval 胜率最低的，保留最新的 max_pool_size 个。"""
         models = sorted(self.pool_dir.glob("opponent_step_*.zip"), key=lambda p: p.stat().st_mtime)
 
-        # 先淘汰 ELO 低于阈值且对战局数足够的模型
-        to_remove = []
-        for m in models[:-3]:  # 至少保留最新 3 个
-            stem = m.stem
-            games = self.elo_game_counts.get(stem, 0)
-            elo = self.elo_scores.get(stem, self.elo_default)
-            if games >= self.elo_min_games and elo < self.elo_cull_threshold:
-                to_remove.append(m)
+        # 先淘汰 eval 胜率最低的模型（至少保留最新 3 个）
+        if not hasattr(self, '_model_eval_wr'):
+            self._model_eval_wr = {}
 
-        for m in to_remove:
-            self._remove_model(m)
-            models.remove(m)
+        removable = models[:-3] if len(models) > 3 else []
+        # 按 eval 胜率排序，最低的优先淘汰
+        removable_with_wr = [(m, self._model_eval_wr.get(m.stem, 0.0)) for m in removable]
+        removable_with_wr.sort(key=lambda x: x[1])
 
-        # 然后按原有逻辑：超出 max_pool_size 时删除最旧的
-        while len(models) > self.max_pool_size:
-            oldest = models.pop(0)
-            self._remove_model(oldest)
+        while len(models) > self.max_pool_size and removable_with_wr:
+            worst, wr = removable_with_wr.pop(0)
+            self._remove_model(worst)
+            models.remove(worst)
 
     def _remove_model(self, model_path: Path):
         """从磁盘和缓存中移除一个模型。"""
@@ -363,6 +365,7 @@ class OpponentPool:
         stem = model_path.stem
         self.elo_scores.pop(stem, None)
         self.elo_game_counts.pop(stem, None)
+        self._model_eval_wr.pop(stem, None) if hasattr(self, '_model_eval_wr') else None
         model_path.unlink(missing_ok=True)
         if pts_file.exists():
             pts_file.unlink()
@@ -441,6 +444,6 @@ class OpponentPool:
     def __getstate__(self):
         state = self.__dict__.copy()
         state['_model_cache'] = {}  # 不序列化模型缓存
-        # elo_scores 和 elo_game_counts 保留（轻量级，可序列化）
+        # elo_scores、elo_game_counts、_model_eval_wr 保留（轻量级，可序列化）
         return state
 
