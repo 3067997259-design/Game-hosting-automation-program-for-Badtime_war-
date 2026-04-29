@@ -64,6 +64,45 @@ class ChatManager:
                 daemon=True,
             ).start()
 
+    def handle_host_chat(self, host_name: str, content: str,
+                         channel: str = "public", target: Optional[str] = None):
+        """房主发送聊天（房主没有 client_id，需要单独处理）"""
+        chat_msg = {
+            "type": MessageType.CHAT_MESSAGE,
+            "sender": host_name,
+            "content": content,
+            "channel": channel,
+            "target": target,
+        }
+
+        if channel == "public":
+            # 广播给所有远程客户端
+            self.server.broadcast_sync(chat_msg)
+            # 房主本地回显
+            print(f"  [公屏] {host_name}: {content}")
+            # 触发 AI 聊天
+            threading.Thread(
+                target=self._trigger_ai_chat,
+                args=(host_name, content),
+                kwargs={"is_private": False},
+                daemon=True,
+            ).start()
+        elif channel == "private" and target:
+            # 发送给目标客户端
+            target_client = self._find_client_by_name(target)
+            if target_client:
+                self.server.send_to_sync(target_client, chat_msg)
+                print(f"  [私聊] {host_name} → {target}: {content}")
+            else:
+                print(f"  [私聊] 找不到玩家: {target}")
+            # 触发 AI 聊天
+            threading.Thread(
+                target=self._trigger_ai_chat,
+                args=(host_name, content),
+                kwargs={"is_private": True, "target_name": target},
+                daemon=True,
+            ).start()
+
     def _trigger_ai_chat(
         self, sender: str, content: str,
         is_private: bool = False, target_name: Optional[str] = None,
