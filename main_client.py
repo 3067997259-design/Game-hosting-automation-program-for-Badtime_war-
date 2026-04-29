@@ -141,7 +141,7 @@ def _run_cli_mode(client: NetworkClient, player_name: str):
                 pending_request["msg_type"] = None
 
             if req_msg is not None:
-                _handle_request(client, req_msg, req_type, player_name)
+                _handle_request(client, req_msg, req_type, player_name, stdin_q)
                 pending_event.clear()
                 idle_prompted = False
                 continue
@@ -194,14 +194,15 @@ def _handle_chat_input(client, raw: str, player_name: str):
         print("  提示: /chat <内容> 公屏聊天, /whisper <玩家名> <内容> 私聊")
 
 
-def _handle_request(client, msg, msg_type, player_name):
-    """处理服务器发来的请求。"""
+def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
+    """处理服务器发来的请求（所有 stdin 读取均通过 stdin_q）。"""
     if msg_type == MessageType.REQUEST_COMMAND:
         print(f"\n  [{player_name}] 请输入指令:")
         actions = msg.get("available_actions", [])
         if actions:
             print(f"  可选行动: {', '.join(actions)}")
-        raw = input(f"  [{player_name}] > ").strip()
+        print(f"  [{player_name}] > ", end="", flush=True)
+        raw = stdin_q.get().strip()
         client.send_sync({
             "type": MessageType.COMMAND_RESPONSE,
             "command": raw or "forfeit",
@@ -214,7 +215,8 @@ def _handle_request(client, msg, msg_type, player_name):
         for i, opt in enumerate(options, 1):
             print(f"    {i}. {opt}")
         while True:
-            raw = input("  请选择（编号）> ").strip()
+            print("  请选择（编号）> ", end="", flush=True)
+            raw = stdin_q.get().strip()
             try:
                 idx = int(raw) - 1
                 if 0 <= idx < len(options):
@@ -242,7 +244,8 @@ def _handle_request(client, msg, msg_type, player_name):
             print(f"    {i}. {opt}")
         selected = []
         while len(selected) < max_count:
-            raw = input(f"  选择（已选{len(selected)}/{max_count}，输入0结束）> ").strip()
+            print(f"  选择（已选{len(selected)}/{max_count}，输入0结束）> ", end="", flush=True)
+            raw = stdin_q.get().strip()
             if raw == "0" and len(selected) >= min_count:
                 break
             try:
@@ -258,7 +261,8 @@ def _handle_request(client, msg, msg_type, player_name):
 
     elif msg_type == MessageType.REQUEST_CONFIRM:
         prompt = msg.get("prompt", "确认？")
-        raw = input(f"  {prompt} (y/n) > ").strip().lower()
+        print(f"  {prompt} (y/n) > ", end="", flush=True)
+        raw = stdin_q.get().strip().lower()
         client.send_sync({
             "type": MessageType.CONFIRM_RESPONSE,
             "result": raw in ("y", "yes", "是"),
