@@ -80,6 +80,7 @@ class BadtimeWarTUI(App):
         self.server = server
         self.start_game_callback = start_game_callback
         self.chat_manager = chat_manager
+        self._game_starting = False
         self._input_widget: Optional[CommandInput] = None
         self._chat_panel: Optional[ChatPanel] = None
 
@@ -249,7 +250,8 @@ class BadtimeWarTUI(App):
         if event.action == "start_game" and self.lobby:
             try:
                 log = self.query_one("#game-log", GameLogWidget)
-                if self.lobby.can_start() and self.lobby.state.value == "waiting":
+                if self.lobby.can_start() and self.lobby.state.value == "waiting" and not self._game_starting:
+                    self._game_starting = True
                     log.write("  [系统] 游戏即将开始...")
                     if self.start_game_callback:
                         threading.Thread(

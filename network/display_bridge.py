@@ -117,10 +117,10 @@ class DisplayBroadcaster:
                             return options[idx]
                     except ValueError:
                         pass
-                    if raw in options:
+                    if raw and raw in options:
                         return raw
                     for opt in options:
-                        if raw.lower() in opt.lower():
+                        if raw and raw.lower() in opt.lower():
                             return opt
                     self._tui_callback({
                         "event": "show_error",
