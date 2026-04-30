@@ -353,36 +353,36 @@ def _start_game_tui(server, lobby, chat_manager, host_plays, app):
     broadcaster.set_tui_callback(app.push_game_event, app=app)
     broadcaster.install()
 
-    # 设置 AI 聊天
-    _setup_ai_chat(lobby, chat_manager, game_state)
-
-    # 通知所有客户端游戏开始
-    server.broadcast_sync({
-        "type": MessageType.LOBBY_UPDATE,
-        "room_state": "in_game",
-        "slots": [s.to_dict() for s in lobby.slots],
-    })
-
-    # 天赋选择（TUI 版本）
-    ai_players_info = []
-    for slot in lobby.slots:
-        if slot.slot_type in (SlotType.BASIC_AI, SlotType.RL_AI):
-            pid = f"p{slot.slot_id}"
-            personality = slot.personality or "balanced"
-            ai_players_info.append((pid, slot.player_name, personality))
-
-    # 通过 TUI 询问是否启用天赋
-    app.push_game_event({"event": "show_info", "args": ["是否启用天赋系统？在输入框输入 y 或 n"]})
-    cmd_input = app.query_one("#cmd-input")
-    raw = cmd_input.wait_for_input(timeout=120)
-    if raw.lower() in ("y", "yes", "是"):
-        _network_talent_selection_tui(game_state, ai_players_info, lobby, app)
-
-    # 游戏循环
-    round_mgr = RoundManager(game_state)
-    lobby.round_manager = round_mgr
-
     try:
+        # 设置 AI 聊天
+        _setup_ai_chat(lobby, chat_manager, game_state)
+
+        # 通知所有客户端游戏开始
+        server.broadcast_sync({
+            "type": MessageType.LOBBY_UPDATE,
+            "room_state": "in_game",
+            "slots": [s.to_dict() for s in lobby.slots],
+        })
+
+        # 天赋选择（TUI 版本）
+        ai_players_info = []
+        for slot in lobby.slots:
+            if slot.slot_type in (SlotType.BASIC_AI, SlotType.RL_AI):
+                pid = f"p{slot.slot_id}"
+                personality = slot.personality or "balanced"
+                ai_players_info.append((pid, slot.player_name, personality))
+
+        # 通过 TUI 询问是否启用天赋
+        app.push_game_event({"event": "show_info", "args": ["是否启用天赋系统？在输入框输入 y 或 n"]})
+        cmd_input = app.query_one("#cmd-input")
+        raw = cmd_input.wait_for_input(timeout=120)
+        if raw.lower() in ("y", "yes", "是"):
+            _network_talent_selection_tui(game_state, ai_players_info, lobby, app)
+
+        # 游戏循环
+        round_mgr = RoundManager(game_state)
+        lobby.round_manager = round_mgr
+
         _patch_engine_context(game_state, lobby)
         round_mgr.run_game_loop()
     except Exception as e:

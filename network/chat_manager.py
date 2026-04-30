@@ -115,7 +115,10 @@ class ChatManager:
             elif target in self._ai_chat_modules:
                 self._host_display(host_name, content, "private", target)
             else:
-                self._host_display(host_name, f"找不到玩家: {target}", "private")
+                if self._tui_chat_callback:
+                    self._tui_chat_callback("[系统]", f"找不到玩家: {target}", "public")
+                else:
+                    print(f"  [私聊] 找不到玩家: {target}")
             # 触发 AI 聊天
             threading.Thread(
                 target=self._trigger_ai_chat,

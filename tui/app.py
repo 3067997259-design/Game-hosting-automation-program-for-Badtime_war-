@@ -260,6 +260,8 @@ class BadtimeWarTUI(App):
                         ).start()
                 elif self.lobby.state.value != "waiting":
                     log.write("  [系统] 游戏已在进行中")
+                elif self._game_starting:
+                    log.write("  [系统] 游戏正在启动中...")
                 else:
                     log.write("  [系统] 还有空位未填满，无法开始")
             except NoMatches:
