@@ -69,6 +69,8 @@ class BadtimeWarTUI(App):
         lobby: Any = None,
         client: Any = None,
         server: Any = None,
+        start_game_callback: Any = None,
+        chat_manager: Any = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -76,6 +78,9 @@ class BadtimeWarTUI(App):
         self.lobby = lobby
         self.client = client
         self.server = server
+        self.start_game_callback = start_game_callback
+        self.chat_manager = chat_manager
+        self._game_starting = False
         self._input_widget: Optional[CommandInput] = None
         self._chat_panel: Optional[ChatPanel] = None
 
@@ -174,6 +179,24 @@ class BadtimeWarTUI(App):
             pass
 
     # ──────────────────────────────────────────
+    #  外部线程推送接口
+    # ──────────────────────────────────────────
+
+    def push_game_event(self, msg: dict):
+        """从外部线程推送游戏事件到 TUI"""
+        self.call_from_thread(self._handle_game_event, msg)
+
+    def push_chat_message(self, sender: str, content: str,
+                          channel: str = "public", target: str = None):
+        """从外部线程推送聊天消息到 TUI"""
+        self.call_from_thread(self._handle_chat, {
+            "sender": sender,
+            "content": content,
+            "channel": channel,
+            "target": target,
+        })
+
+    # ──────────────────────────────────────────
     #  命令处理
     # ──────────────────────────────────────────
 
@@ -195,19 +218,29 @@ class BadtimeWarTUI(App):
         if self.client:
             self.client.send_sync(msg)
         elif self.server:
-            # 房主直接通过 ChatManager 处理
-            from network.chat_manager import ChatManager
-            # 广播
-            chat_msg = {
-                "type": MessageType.CHAT_MESSAGE,
-                "sender": "房主",
-                "content": content,
-                "channel": channel,
-                "target": target,
-            }
-            self.server.broadcast_sync(chat_msg)
-            if self._chat_panel:
-                self._chat_panel.add_message("房主", content, channel, target)
+            # 房主通过 ChatManager 处理（触发 AI 聊天 + 广播）
+            host_name = "房主"
+            if self.lobby:
+                from network.lobby import SlotType
+                for slot in self.lobby.slots:
+                    if slot.slot_type == SlotType.HUMAN_LOCAL and slot.player_name:
+                        host_name = slot.player_name
+                        break
+            if self.chat_manager:
+                self.chat_manager.handle_host_chat(
+                    host_name, content, channel, target,
+                )
+            else:
+                chat_msg = {
+                    "type": MessageType.CHAT_MESSAGE,
+                    "sender": host_name,
+                    "content": content,
+                    "channel": channel,
+                    "target": target,
+                }
+                self.server.broadcast_sync(chat_msg)
+            if self._chat_panel and not self.chat_manager:
+                self._chat_panel.add_message(host_name, content, channel, target)
 
     # ──────────────────────────────────────────
     #  房主管理
@@ -217,8 +250,18 @@ class BadtimeWarTUI(App):
         if event.action == "start_game" and self.lobby:
             try:
                 log = self.query_one("#game-log", GameLogWidget)
-                if self.lobby.can_start():
+                if self.lobby.can_start() and self.lobby.state.value == "waiting" and not self._game_starting:
+                    self._game_starting = True
                     log.write("  [系统] 游戏即将开始...")
+                    if self.start_game_callback:
+                        threading.Thread(
+                            target=self.start_game_callback,
+                            daemon=True,
+                        ).start()
+                elif self.lobby.state.value != "waiting":
+                    log.write("  [系统] 游戏已在进行中")
+                elif self._game_starting:
+                    log.write("  [系统] 游戏正在启动中...")
                 else:
                     log.write("  [系统] 还有空位未填满，无法开始")
             except NoMatches:

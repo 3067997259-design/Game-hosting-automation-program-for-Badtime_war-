@@ -41,6 +41,13 @@ class DisplayBroadcaster:
     def __init__(self, server: Any, lobby: Any):
         self.server = server
         self.lobby = lobby
+        self._tui_callback = None
+        self._tui_app = None
+
+    def set_tui_callback(self, callback, app=None):
+        """设置 TUI 回调，替代 print() 进行房主本地显示"""
+        self._tui_callback = callback
+        self._tui_app = app
 
     def install(self):
         # 广播类函数
@@ -79,7 +86,60 @@ class DisplayBroadcaster:
                 _original_display[name] = getattr(_display_module, name)
                 setattr(_display_module, name, func)
 
-        # prompt 函数不替换 —— 由 NetworkController 处理
+        # TUI 模式下替换 prompt 函数，让房主输入通过 TUI 输入框获取
+        if self._tui_callback and self._tui_app:
+            for pname in ("prompt_input", "prompt_choice", "prompt_secret"):
+                if hasattr(_display_module, pname):
+                    _original_display[pname] = getattr(_display_module, pname)
+
+            def tui_prompt_input(player_name):
+                self._tui_callback({
+                    "event": "show_prompt",
+                    "args": [f"[{player_name}] 请输入指令 >"],
+                })
+                cmd_input = self._tui_app.query_one("#cmd-input")
+                return cmd_input.wait_for_input(timeout=300)
+
+            def tui_prompt_choice(prompt_text, options):
+                lines = [f"  {prompt_text}"]
+                for i, opt in enumerate(options, 1):
+                    lines.append(f"    {i}. {opt}")
+                self._tui_callback({
+                    "event": "show_info",
+                    "args": ["\n".join(lines)],
+                })
+                cmd_input = self._tui_app.query_one("#cmd-input")
+                while True:
+                    raw = cmd_input.wait_for_input(timeout=300)
+                    try:
+                        idx = int(raw) - 1
+                        if 0 <= idx < len(options):
+                            return options[idx]
+                    except ValueError:
+                        pass
+                    if raw and raw in options:
+                        return raw
+                    for opt in options:
+                        if raw and raw.lower() in opt.lower():
+                            return opt
+                    self._tui_callback({
+                        "event": "show_error",
+                        "args": ["请输入有效的选项。"],
+                    })
+
+            def tui_prompt_secret(prompt_text):
+                self._tui_callback({
+                    "event": "show_prompt",
+                    "args": [f"🔒 {prompt_text} >"],
+                })
+                cmd_input = self._tui_app.query_one("#cmd-input")
+                return cmd_input.wait_for_input(timeout=300)
+
+            setattr(_display_module, "prompt_input", tui_prompt_input)
+            setattr(_display_module, "prompt_choice", tui_prompt_choice)
+            setattr(_display_module, "prompt_secret", tui_prompt_secret)
+
+        # 非 TUI 模式下 prompt 函数不替换 —— 由 NetworkController 处理
 
     def uninstall(self):
         for name, func in _original_display.items():
@@ -89,12 +149,20 @@ class DisplayBroadcaster:
     def _make_broadcast(self, func_name: str):
         def wrapper(*args, **kwargs):
             # 本地房主也能看到
-            original = _original_display.get(func_name)
-            if original and self.lobby.host_plays:
-                try:
-                    original(*args, **kwargs)
-                except Exception:
-                    pass
+            if self.lobby.host_plays:
+                if self._tui_callback:
+                    self._tui_callback({
+                        "event": func_name,
+                        "args": _serialize_args(args),
+                        "kwargs": _serialize_kwargs(kwargs),
+                    })
+                else:
+                    original = _original_display.get(func_name)
+                    if original:
+                        try:
+                            original(*args, **kwargs)
+                        except Exception:
+                            pass
 
             # 网络广播
             msg = {
@@ -119,15 +187,24 @@ class DisplayBroadcaster:
                 return
 
             # 本地房主：仅当定向目标是房主自己时才本地显示
-            original = _original_display.get(func_name)
-            if original and self.lobby.host_plays and client_id is None:
-                try:
-                    original(*args, **kwargs)
-                except Exception:
-                    pass
+            if self.lobby.host_plays and client_id is None:
+                if self._tui_callback:
+                    self._tui_callback({
+                        "event": func_name,
+                        "args": _serialize_args(args),
+                        "kwargs": _serialize_kwargs(kwargs),
+                        "directed": True,
+                    })
+                else:
+                    original = _original_display.get(func_name)
+                    if original:
+                        try:
+                            original(*args, **kwargs)
+                        except Exception:
+                            pass
 
             # 定向发送给远程客户端
-            if client_id:
+            if client_id and client_id != AI_CONTEXT_SENTINEL:
                 msg = {
                     "type": MessageType.GAME_EVENT,
                     "event": func_name,
