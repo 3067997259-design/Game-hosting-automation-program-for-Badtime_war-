@@ -48,7 +48,31 @@ class GameLogWidget(RichLog):
                 return f"  {args[0].get('status', '')}"
             return ""
         elif func == "show_available_actions":
-            return ""  # 不在日志中显示
+            if args:
+                if isinstance(args[0], list):
+                    items = args[0]
+                    if items and isinstance(items[0], dict):
+                        lines = ["  可执行的行动："]
+                        for i, act in enumerate(items, 1):
+                            usage = act.get("usage", "")
+                            desc = act.get("description", "")
+                            lines.append(f"    {i}. {usage:30s} - {desc}")
+                        lines.append("    status | allstatus | police | help")
+                        return "\n".join(lines)
+                    else:
+                        lines = ["  可执行的行动："]
+                        for i, action in enumerate(items, 1):
+                            lines.append(f"    {i}. {action}")
+                        return "\n".join(lines)
+                elif isinstance(args[0], str):
+                    return f"  {args[0]}"
+            return ""
+        elif func == "show_prompt":
+            return f"  {args[0]}" if args else ""
+        elif func == "show_warning":
+            return f"  [警告] {args[0]}" if args else ""
+        elif func == "show_critical":
+            return f"  [严重] {args[0]}" if args else ""
         elif func == "clear_screen":
             return ""
         else:

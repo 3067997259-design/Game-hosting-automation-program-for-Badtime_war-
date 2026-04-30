@@ -16,6 +16,23 @@ class ChatManager:
         self.lobby = lobby
         self._ai_chat_modules: Dict[str, Any] = {}  # player_name → AIChatModule
         self._local_host_name: Optional[str] = None  # 本地房主名（由 handle_host_chat 设置）
+        self._tui_chat_callback = None
+
+    def set_tui_callback(self, callback):
+        """设置 TUI 聊天回调"""
+        self._tui_chat_callback = callback
+
+    def _host_display(self, sender: str, content: str,
+                      channel: str = "public", target: Optional[str] = None):
+        """房主本地显示聊天消息（自动选择 TUI 或 print）"""
+        if self._tui_chat_callback:
+            self._tui_chat_callback(sender, content, channel, target)
+        else:
+            prefix = "[私聊]" if channel == "private" else "[公屏]"
+            if channel == "private" and target:
+                print(f"  {prefix} {sender} → {target}: {content}")
+            else:
+                print(f"  {prefix} {sender}: {content}")
 
     def register_ai_chatter(self, player_name: str, module: Any):
         self._ai_chat_modules[player_name] = module
@@ -38,7 +55,7 @@ class ChatManager:
             self.server.broadcast_sync(chat_msg)
             # 房主本地显示（房主不是网络客户端，broadcast 不会到达）
             if self.lobby.host_plays:
-                print(f"  [公屏] {sender}: {content}")
+                self._host_display(sender, content, "public")
             # AI 聊天在后台线程中执行，避免阻塞消息处理
             threading.Thread(
                 target=self._trigger_ai_chat,
@@ -54,7 +71,7 @@ class ChatManager:
             else:
                 # 目标可能是房主（无 client_id）
                 if self.lobby.host_plays and self._is_host_name(target):
-                    print(f"  [私聊] {sender} → {target}: {content}")
+                    self._host_display(sender, content, "private", target)
             # 回显给发送者
             self.server.send_to_sync(client_id, chat_msg)
             # AI 聊天在后台线程中执行
@@ -81,7 +98,7 @@ class ChatManager:
             # 广播给所有远程客户端
             self.server.broadcast_sync(chat_msg)
             # 房主本地回显
-            print(f"  [公屏] {host_name}: {content}")
+            self._host_display(host_name, content, "public")
             # 触发 AI 聊天
             threading.Thread(
                 target=self._trigger_ai_chat,
@@ -94,11 +111,11 @@ class ChatManager:
             target_client = self._find_client_by_name(target)
             if target_client:
                 self.server.send_to_sync(target_client, chat_msg)
-                print(f"  [私聊] {host_name} → {target}: {content}")
+                self._host_display(host_name, content, "private", target)
             elif target in self._ai_chat_modules:
-                print(f"  [私聊] {host_name} → {target}: {content}")
+                self._host_display(host_name, content, "private", target)
             else:
-                print(f"  [私聊] 找不到玩家: {target}")
+                self._host_display(host_name, f"找不到玩家: {target}", "private")
             # 触发 AI 聊天
             threading.Thread(
                 target=self._trigger_ai_chat,
@@ -137,12 +154,12 @@ class ChatManager:
                             if src_client:
                                 self.server.send_to_sync(src_client, reply_msg)
                             elif self._is_local_host(sender):
-                                print(f"  [私聊] {ai_name} → {sender}: {reply}")
+                                self._host_display(ai_name, reply, "private", sender)
                         else:
                             self.server.broadcast_sync(reply_msg)
                             # 房主本地显示 AI 公屏回复（broadcast 不会到达本地）
                             if self.lobby.host_plays or self._local_host_name:
-                                print(f"  [公屏] {ai_name}: {reply}")
+                                self._host_display(ai_name, reply, "public")
                 except Exception:
                     pass
 

@@ -320,16 +320,230 @@ def _run_with_tui(server, lobby, chat_manager, host_plays, monitor):
         _run_cli_mode(server, lobby, chat_manager, host_plays, monitor)
         return
 
+    app = None
+
+    def start_game_callback():
+        """TUI 中点击"开始游戏"时的回调"""
+        nonlocal app
+        _start_game_tui(server, lobby, chat_manager, host_plays, app)
+
     app = BadtimeWarTUI(
         is_host=True,
         lobby=lobby,
         server=server,
+        start_game_callback=start_game_callback,
+        chat_manager=chat_manager,
     )
+
+    # 注册 ChatManager 的 TUI 回调
+    chat_manager.set_tui_callback(app.push_chat_message)
 
     # TUI 运行（阻塞）
     app.run()
     monitor.stop()
     server.stop()
+
+
+def _start_game_tui(server, lobby, chat_manager, host_plays, app):
+    """TUI 模式下的游戏启动逻辑（在后台线程中运行）"""
+    game_state = lobby.start_game()
+
+    # 安装 Display 桥接（TUI 模式）
+    broadcaster = DisplayBroadcaster(server, lobby)
+    broadcaster.set_tui_callback(app.push_game_event, app=app)
+    broadcaster.install()
+
+    # 设置 AI 聊天
+    _setup_ai_chat(lobby, chat_manager, game_state)
+
+    # 通知所有客户端游戏开始
+    server.broadcast_sync({
+        "type": MessageType.LOBBY_UPDATE,
+        "room_state": "in_game",
+        "slots": [s.to_dict() for s in lobby.slots],
+    })
+
+    # 天赋选择（TUI 版本）
+    ai_players_info = []
+    for slot in lobby.slots:
+        if slot.slot_type in (SlotType.BASIC_AI, SlotType.RL_AI):
+            pid = f"p{slot.slot_id}"
+            personality = slot.personality or "balanced"
+            ai_players_info.append((pid, slot.player_name, personality))
+
+    # 通过 TUI 询问是否启用天赋
+    app.push_game_event({"event": "show_info", "args": ["是否启用天赋系统？在输入框输入 y 或 n"]})
+    cmd_input = app.query_one("#cmd-input")
+    raw = cmd_input.wait_for_input(timeout=120)
+    if raw.lower() in ("y", "yes", "是"):
+        _network_talent_selection_tui(game_state, ai_players_info, lobby, app)
+
+    # 游戏循环
+    round_mgr = RoundManager(game_state)
+    lobby.round_manager = round_mgr
+
+    try:
+        _patch_engine_context(game_state, lobby)
+        round_mgr.run_game_loop()
+    except Exception as e:
+        app.push_game_event({"event": "show_error", "args": [f"游戏异常: {e}"]})
+    finally:
+        broadcaster.uninstall()
+        lobby.state = lobby.state.__class__("finished")
+        server.broadcast_sync({
+            "type": MessageType.GAME_EVENT,
+            "event": "game_finished",
+            "args": [],
+            "kwargs": {},
+        })
+
+
+def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
+    """TUI 版天赋选择：远程玩家通过 NetworkController.choose()，本地房主用 TUI 输入"""
+    from controllers.network_controller import NetworkController
+    from controllers.human import HumanController
+    from engine.game_setup import (
+        _ai_pick_talent, AI_DISABLED_TALENTS,
+    )
+
+    ai_pids = {info[0] for info in ai_players_info}
+    ai_personality_map = {info[0]: info[2] for info in ai_players_info}
+    taken = set()
+
+    lines = ["\n  可选天赋（每个天赋仅能被1人选取）："]
+    for num, name, cls, desc in TALENT_TABLE:
+        lines.append(f"    {num}. 【{name}】{desc}")
+    lines.append("    0. 不选天赋")
+    app.push_game_event({"event": "show_info", "args": ["\n".join(lines)]})
+
+    for pid in game_state.player_order:
+        player = game_state.get_player(pid)
+        available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                     if n not in taken]
+        if not available:
+            app.push_game_event({"event": "show_info",
+                                 "args": [f"  所有天赋已被选完，{player.name} 无天赋。"]})
+            continue
+
+        # AI 自动选择
+        if pid in ai_pids:
+            personality = ai_personality_map.get(pid, "balanced")
+            ai_available = [(n, name, cls, desc) for n, name, cls, desc in available
+                           if n not in AI_DISABLED_TALENTS]
+            if not ai_available:
+                app.push_game_event({"event": "show_info",
+                                     "args": [f"  {player.name}（AI）无可用天赋。"]})
+                continue
+            chosen = _ai_pick_talent(personality, ai_available, taken)
+            if chosen is None:
+                app.push_game_event({"event": "show_info",
+                                     "args": [f"  {player.name}（AI）无可用天赋。"]})
+                continue
+            n, name, cls = chosen
+            talent_inst = cls(pid, game_state)
+            player.talent = talent_inst
+            player.talent_name = name
+            talent_inst.on_register()
+            talent_inst.show_activation(player_name=player.name, show_lore=True)
+            taken.add(n)
+            app.push_game_event({"event": "show_info",
+                                 "args": [f"  \U0001f916 {player.name}（AI·{personality}）自动选择天赋【{name}】"]})
+            continue
+
+        # 远程玩家：通过 controller.choose()
+        if isinstance(player.controller, NetworkController):
+            options = [f"{n}. 【{name}】{desc}" for n, name, cls, desc in available]
+            options.append("0. 不选天赋")
+            choice = player.controller.choose(
+                f"{player.name} 选择天赋",
+                options,
+            )
+            choice_num = 0
+            try:
+                choice_num = int(choice.split(".")[0])
+            except (ValueError, IndexError):
+                pass
+
+            if choice_num == 0:
+                app.push_game_event({"event": "show_info",
+                                     "args": [f"  {player.name} 选择不使用天赋。"]})
+                continue
+
+            matched = None
+            for n, name, cls, desc in TALENT_TABLE:
+                if n == choice_num and n not in taken:
+                    matched = (n, name, cls)
+                    break
+
+            if matched:
+                n, name, cls = matched
+                talent_inst = cls(pid, game_state)
+                player.talent = talent_inst
+                player.talent_name = name
+                talent_inst.on_register()
+                talent_inst.show_activation(player_name=player.name, show_lore=True)
+                taken.add(n)
+                app.push_game_event({"event": "show_info",
+                                     "args": [f"  \u2713 {player.name} 获得天赋【{name}】！"]})
+            else:
+                app.push_game_event({"event": "show_info",
+                                     "args": [f"  {player.name} 选择无效，跳过天赋。"]})
+            continue
+
+        # 本地房主：用 TUI 输入
+        if isinstance(player.controller, HumanController):
+            sel_lines = [f"\n  ── {player.name} 选择天赋 ──"]
+            for n, name, cls, desc in available:
+                sel_lines.append(f"    {n}. 【{name}】{desc}")
+            sel_lines.append("    0. 不选")
+            app.push_game_event({"event": "show_info", "args": ["\n".join(sel_lines)]})
+
+            cmd_input = app.query_one("#cmd-input")
+            while True:
+                raw = cmd_input.wait_for_input(timeout=300)
+                if raw == "0":
+                    app.push_game_event({"event": "show_info",
+                                         "args": [f"  {player.name} 选择不使用天赋。"]})
+                    break
+                try:
+                    choice_num = int(raw)
+                except ValueError:
+                    app.push_game_event({"event": "show_error", "args": ["请输入有效编号。"]})
+                    continue
+
+                if choice_num in taken:
+                    app.push_game_event({"event": "show_error", "args": ["该天赋已被其他玩家选走！"]})
+                    continue
+
+                matched = None
+                for n, name, cls, desc in TALENT_TABLE:
+                    if n == choice_num:
+                        matched = (n, name, cls)
+                        break
+
+                if not matched:
+                    app.push_game_event({"event": "show_error", "args": ["无效编号。"]})
+                    continue
+
+                n, name, cls = matched
+                talent_inst = cls(pid, game_state)
+                player.talent = talent_inst
+                player.talent_name = name
+                talent_inst.on_register()
+                talent_inst.show_activation(player_name=player.name, show_lore=True)
+                taken.add(n)
+                app.push_game_event({"event": "show_info",
+                                     "args": [f"  \u2713 {player.name} 获得天赋【{name}】！"]})
+                break
+
+    # 汇总
+    summary_lines = ["\n  ─── 天赋分配结果 ───"]
+    for pid in game_state.player_order:
+        p = game_state.get_player(pid)
+        t = p.talent_name if p.talent_name else "无"
+        is_ai = "\U0001f916" if pid in ai_pids else "\U0001f464"
+        summary_lines.append(f"    {is_ai} {p.name}: {t}")
+    app.push_game_event({"event": "show_info", "args": ["\n".join(summary_lines)]})
 
 
 def _start_game(server, lobby, chat_manager, host_plays):
