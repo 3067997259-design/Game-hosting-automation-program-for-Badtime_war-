@@ -346,14 +346,15 @@ def _run_with_tui(server, lobby, chat_manager, host_plays, monitor):
 
 def _start_game_tui(server, lobby, chat_manager, host_plays, app):
     """TUI 模式下的游戏启动逻辑（在后台线程中运行）"""
-    game_state = lobby.start_game()
-
-    # 安装 Display 桥接（TUI 模式）
-    broadcaster = DisplayBroadcaster(server, lobby)
-    broadcaster.set_tui_callback(app.push_game_event, app=app)
-    broadcaster.install()
-
+    broadcaster = None
     try:
+        game_state = lobby.start_game()
+
+        # 安装 Display 桥接（TUI 模式）
+        broadcaster = DisplayBroadcaster(server, lobby)
+        broadcaster.set_tui_callback(app.push_game_event, app=app)
+        broadcaster.install()
+
         # 设置 AI 聊天
         _setup_ai_chat(lobby, chat_manager, game_state)
 
@@ -388,8 +389,10 @@ def _start_game_tui(server, lobby, chat_manager, host_plays, app):
     except Exception as e:
         app.push_game_event({"event": "show_error", "args": [f"游戏异常: {e}"]})
     finally:
-        broadcaster.uninstall()
+        if broadcaster:
+            broadcaster.uninstall()
         lobby.state = lobby.state.__class__("finished")
+        app._game_starting = False
         server.broadcast_sync({
             "type": MessageType.GAME_EVENT,
             "event": "game_finished",
