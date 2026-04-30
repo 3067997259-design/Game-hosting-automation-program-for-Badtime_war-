@@ -519,8 +519,10 @@ class BadtimeWarEnv(gym.Env):
                     rl_player.talent = talent_inst
                     rl_player.talent_name = name
                     self._pre_game_phase = True
-                    talent_inst.on_register()
-                    self._pre_game_phase = False
+                    try:
+                        talent_inst.on_register()
+                    finally:
+                        self._pre_game_phase = False
                     taken.add(n)
                 # 标记 RL 已分配
                 self._rl_talent_assigned = True
