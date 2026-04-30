@@ -185,6 +185,12 @@ class _SyncRLController(RLController):
         if self._env._game_over_flag:
             return options[0] if options else ""
 
+        # 预游戏阶段（on_register 中的 choose 调用）：游戏线程未启动，
+        # 事件同步不可用，直接返回随机选择
+        if self._env._pre_game_phase:
+            idx = self._env.np_random.integers(len(options))
+            return options[idx]
+
         # 设置 choose 模式
         self._env._choose_mode = True
         self._env._choose_options = list(options)
@@ -336,6 +342,9 @@ class BadtimeWarEnv(gym.Env):
         # ── 临时引用（由 _SyncRLController 写入）──
         self._current_player = None
         self._current_game_state = None
+
+        # ── 预游戏阶段标志（on_register 中的 choose 调用跳过事件同步）──
+        self._pre_game_phase: bool = False
 
         # ── choose 同步状态 ──
         self._choose_mode: bool = False
@@ -509,7 +518,9 @@ class BadtimeWarEnv(gym.Env):
                     talent_inst = cls("rl_0", self._state)
                     rl_player.talent = talent_inst
                     rl_player.talent_name = name
+                    self._pre_game_phase = True
                     talent_inst.on_register()
+                    self._pre_game_phase = False
                     taken.add(n)
                 # 标记 RL 已分配
                 self._rl_talent_assigned = True

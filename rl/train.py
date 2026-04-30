@@ -70,10 +70,6 @@ def make_env(
 ):
     """返回一个创建 BadtimeWarEnv 的闭包，供 DummyVecEnv 使用。"""
     def _init():
-            import faulthandler
-            import sys as _sys
-            faulthandler.dump_traceback_later(45, file=_sys.stderr, exit=True)
-
             import os, sys
             # Suppress prompt_manager initialization prints
             devnull = open(os.devnull, 'w')
@@ -94,7 +90,6 @@ def make_env(
             finally:
                 sys.stdout = old_stdout
                 devnull.close()
-                faulthandler.cancel_dump_traceback_later()
             return env
     return _init
 
