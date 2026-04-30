@@ -249,13 +249,15 @@ class BadtimeWarTUI(App):
         if event.action == "start_game" and self.lobby:
             try:
                 log = self.query_one("#game-log", GameLogWidget)
-                if self.lobby.can_start():
+                if self.lobby.can_start() and self.lobby.state.value == "waiting":
                     log.write("  [系统] 游戏即将开始...")
                     if self.start_game_callback:
                         threading.Thread(
                             target=self.start_game_callback,
                             daemon=True,
                         ).start()
+                elif self.lobby.state.value != "waiting":
+                    log.write("  [系统] 游戏已在进行中")
                 else:
                     log.write("  [系统] 还有空位未填满，无法开始")
             except NoMatches:
