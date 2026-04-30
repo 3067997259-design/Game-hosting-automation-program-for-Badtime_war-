@@ -8,6 +8,7 @@ ChatManager —— 聊天系统（服务端）
 import threading
 from typing import Any, Optional, Dict, List
 from network.protocol import MessageType
+from cli.async_output import async_print
 
 
 class ChatManager:
@@ -24,15 +25,15 @@ class ChatManager:
 
     def _host_display(self, sender: str, content: str,
                       channel: str = "public", target: Optional[str] = None):
-        """房主本地显示聊天消息（自动选择 TUI 或 print）"""
+        """房主本地显示聊天消息（自动选择 TUI 或 async_print）"""
         if self._tui_chat_callback:
             self._tui_chat_callback(sender, content, channel, target)
         else:
             prefix = "[私聊]" if channel == "private" else "[公屏]"
             if channel == "private" and target:
-                print(f"  {prefix} {sender} → {target}: {content}")
+                async_print(f"  {prefix} {sender} → {target}: {content}")
             else:
-                print(f"  {prefix} {sender}: {content}")
+                async_print(f"  {prefix} {sender}: {content}")
 
     def register_ai_chatter(self, player_name: str, module: Any):
         self._ai_chat_modules[player_name] = module
@@ -118,7 +119,7 @@ class ChatManager:
                 if self._tui_chat_callback:
                     self._tui_chat_callback("[系统]", f"找不到玩家: {target}", "public")
                 else:
-                    print(f"  [私聊] 找不到玩家: {target}")
+                    async_print(f"  [私聊] 找不到玩家: {target}")
             # 触发 AI 聊天
             threading.Thread(
                 target=self._trigger_ai_chat,

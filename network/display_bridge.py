@@ -130,7 +130,7 @@ class DisplayBroadcaster:
             def tui_prompt_secret(prompt_text):
                 self._tui_callback({
                     "event": "show_prompt",
-                    "args": [f"🔒 {prompt_text} >"],
+                    "args": [f"\U0001f512 {prompt_text} >"],
                 })
                 cmd_input = self._tui_app.query_one("#cmd-input")
                 return cmd_input.wait_for_input(timeout=300)
@@ -160,7 +160,16 @@ class DisplayBroadcaster:
                     original = _original_display.get(func_name)
                     if original:
                         try:
-                            original(*args, **kwargs)
+                            import cli.async_output as _ao
+                            import sys as _sys
+                            with _ao._lock:
+                                if _ao._current_prompt:
+                                    _sys.stdout.write("\r\033[K")
+                                    _sys.stdout.flush()
+                                original(*args, **kwargs)
+                                if _ao._current_prompt:
+                                    _sys.stdout.write(_ao._current_prompt)
+                                    _sys.stdout.flush()
                         except Exception:
                             pass
 
