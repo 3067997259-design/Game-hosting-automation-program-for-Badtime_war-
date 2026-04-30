@@ -26,6 +26,7 @@ from engine.game_setup import (
 )
 from ai_chat.llm_backend import create_backend
 from ai_chat.ai_chatter import AIChatModule
+from cli.async_output import async_print, set_current_prompt, clear_current_prompt
 
 
 def main():
@@ -33,7 +34,7 @@ def main():
     parser.add_argument("--port", type=int, default=9527, help="监听端口（默认 9527）")
     parser.add_argument("--players", type=int, default=2, help="总人数（2-6，默认 2）")
     parser.add_argument("--no-host-play", action="store_true", help="房主不参与游戏")
-    parser.add_argument("--tui", action="store_true", help="使用 Textual TUI（需安装 textual）")
+    parser.add_argument("--cli", action="store_true", help="使用纯 CLI 模式（默认使用 Textual TUI）")
     args = parser.parse_args()
 
     total_players = max(2, min(6, args.players))
@@ -97,10 +98,10 @@ def main():
     monitor.start()
 
     # 根据是否启用 TUI 决定交互模式
-    if args.tui:
-        _run_with_tui(server, lobby, chat_manager, host_plays, monitor)
-    else:
+    if args.cli:
         _run_cli_mode(server, lobby, chat_manager, host_plays, monitor)
+    else:
+        _run_with_tui(server, lobby, chat_manager, host_plays, monitor)
 
 
 def _handle_host_chat_input(raw: str, chat_manager: ChatManager, lobby):
@@ -316,7 +317,7 @@ def _run_with_tui(server, lobby, chat_manager, host_plays, monitor):
     try:
         from tui.app import BadtimeWarTUI
     except ImportError:
-        print("  [错误] 需要安装 textual: pip install textual")
+        print("  [提示] textual 未安装，自动切换到 CLI 模式（安装: pip install textual）")
         _run_cli_mode(server, lobby, chat_manager, host_plays, monitor)
         return
 
