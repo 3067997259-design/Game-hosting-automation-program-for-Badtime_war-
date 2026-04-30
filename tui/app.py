@@ -238,7 +238,7 @@ class BadtimeWarTUI(App):
                     "target": target,
                 }
                 self.server.broadcast_sync(chat_msg)
-            if self._chat_panel:
+            if self._chat_panel and not self.chat_manager:
                 self._chat_panel.add_message(host_name, content, channel, target)
 
     # ──────────────────────────────────────────
