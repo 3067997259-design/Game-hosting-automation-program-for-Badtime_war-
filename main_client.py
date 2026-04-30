@@ -84,7 +84,7 @@ def main():
     if args.cli:
         _run_cli_mode(client, player_name, is_reconnect=args.reconnect)
     else:
-        _run_with_tui(client, player_name)
+        _run_with_tui(client, player_name, is_reconnect=args.reconnect)
 
 
 def _run_cli_mode(client: NetworkClient, player_name: str, is_reconnect: bool = False):
@@ -387,13 +387,13 @@ def _print_event(func: str, args: list):
         async_print("\n  [系统] 游戏结束！")
 
 
-def _run_with_tui(client, player_name):
+def _run_with_tui(client, player_name, is_reconnect=False):
     """Textual TUI 模式。"""
     try:
         from tui.app import BadtimeWarTUI
     except ImportError:
         print("  [提示] textual 未安装，自动切换到 CLI 模式（安装: pip install textual）")
-        _run_cli_mode(client, player_name)
+        _run_cli_mode(client, player_name, is_reconnect=is_reconnect)
         return
 
     app = BadtimeWarTUI(
