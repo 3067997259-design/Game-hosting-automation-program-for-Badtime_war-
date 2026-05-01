@@ -44,6 +44,8 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
     def __init__(self, player_id, game_state):
         super().__init__(player_id, game_state)
 
+        self.initial_player_count = len(self.state.player_order)
+
         # === 追忆 ===
         self.reminiscence = 0
         self.max_reminiscence = 24       # V1.92: 首次24，之后降为12
@@ -165,11 +167,12 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         if round_num <= 1:
             return
 
-        # V1.92: 追忆积攒速度调整（未行动 +0.5，行动了 +1）
+        # V1.92: 追忆积攒速度：未行动 +0.5；行动了 +0.5(≤4人) / +1.0(≥5人)
         if not self.acted_last_round or self.only_extra_turn:
             gain = 0.5        # 未行动/仅额外行动 +0.5
         else:
-            gain = 0.5      # 行动了 +1
+            # 行动了：≤4人局 +0.5，≥5人局 +1.0（与手册一致）
+            gain = 1.0 if self.initial_player_count >= 5 else 0.5
 
         old = self.reminiscence
         self.reminiscence = min(self.max_reminiscence, self.reminiscence + gain)

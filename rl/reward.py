@@ -259,13 +259,11 @@ def _talent_potential(talent, cls: str, player, game_state) -> float:
 
     # ── G5 涟漪 ──
     elif cls == "Ripple":
-        # 追忆积累有价值
-        phi += getattr(talent, 'reminiscence', 0) * 1.5
         # 锚定激活中有高价值（正在执行锚定 = 即将获得强力效果）
         if getattr(talent, 'anchor_active', False):
             phi += 15 + getattr(talent, 'anchor_variance', 0) * 3
-        # 已发动次数（经验积累）
-        phi += getattr(talent, 'total_uses', 0) * 5
+        # 删除：reminiscence * 1.5（被动增长，鼓励龟缩）
+        # 删除：total_uses * 5（被动增长，无条件奖励）
 
     # ── G6 要有笑声 ──
     elif cls == "CutawayJoke":

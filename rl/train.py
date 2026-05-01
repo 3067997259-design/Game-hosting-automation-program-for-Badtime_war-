@@ -373,10 +373,12 @@ class SelfPlayCallback(BaseCallback):
                 recent = self._episode_wins[-self.win_rate_window:]
                 current_win_rate = sum(recent) / len(recent)
 
-            # 2b. 质量门控：只有胜率达标才保存（坍塔恢复模式下跳过保存）
+            # 2b. 质量门控：优先用 eval 胜率，回退到训练胜率
             saved = False
-            if not self._collapse_active and current_win_rate is not None and current_win_rate >= self.min_win_rate:
-                self.pool.save_current_model(self.model, self.num_timesteps, eval_win_rate=current_win_rate)
+            eval_wr = self._compute_eval_win_rate() if self._eval_env is not None else None
+            gate_wr = eval_wr if eval_wr is not None else current_win_rate
+            if not self._collapse_active and gate_wr is not None and gate_wr >= self.min_win_rate:
+                self.pool.save_current_model(self.model, self.num_timesteps, eval_win_rate=gate_wr)
                 self._last_save_step = self.num_timesteps
                 saved = True
 
@@ -393,7 +395,8 @@ class SelfPlayCallback(BaseCallback):
             # 2d. 日志
             if self.verbose >= 1:
                 n_models = len(self.pool.get_available_models())
-                wr_str = f"{current_win_rate:.1%}" if current_win_rate is not None else f"N/A (< {self.win_rate_window} episodes)"
+                train_wr_str = f"{current_win_rate:.1%}" if current_win_rate is not None else "N/A"
+                eval_wr_str = f"{eval_wr:.1%}" if eval_wr is not None else "N/A"
                 threshold = self.min_win_rate
                 phase = "随机天赋" if (self.force_talent_cb and not self.force_talent_cb._switched) else \
                         "自选学习期" if (self._talent_unlocked_step is not None and self.num_timesteps - self._talent_unlocked_step < self.talent_grace_steps) else \
@@ -407,7 +410,8 @@ class SelfPlayCallback(BaseCallback):
                     collapse_str = " | 坍塌检测: 未激活(需≥2模型)"
                 print(
                     f"  [SelfPlay] Step {self.num_timesteps} | "
-                    f"Win rate: {wr_str} | {save_str} | "
+                    f"Train WR: {train_wr_str} | Eval WR: {eval_wr_str} | "
+                    f"{save_str} | "
                     f"Pool size: {n_models} | BasicAI prob: {prob_str}"
                     + collapse_str
                 )
