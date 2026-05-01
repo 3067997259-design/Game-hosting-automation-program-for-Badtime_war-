@@ -61,6 +61,7 @@ class BadtimeWarTUI(App):
 
     BINDINGS = [
         ("ctrl+q", "quit", "退出"),
+        ("f1", "show_help", "帮助"),
     ]
 
     def __init__(
@@ -113,6 +114,30 @@ class BadtimeWarTUI(App):
             self.client.on(MessageType.CHAT_MESSAGE, self._on_chat_message)
             self.client.on(MessageType.LOBBY_UPDATE, self._on_lobby_update)
             self.client.on(MessageType.DISCONNECT_NOTICE, self._on_disconnect_notice)
+
+        # 写入初始帮助信息
+        try:
+            log = self.query_one("#game-log", GameLogWidget)
+            log.write("  ═══════════════════════════════════════")
+            log.write("  起闯战争 - 局域网联机")
+            log.write("  ═══════════════════════════════════════")
+            log.write("")
+            log.write("  指令提示：")
+            log.write("    /chat <内容>           - 公屏聊天")
+            log.write("    /whisper <玩家名> <内容> - 私聊")
+            log.write("    help                   - 查看完整指令帮助")
+            log.write("    status                 - 查看自己状态")
+            log.write("    allstatus              - 查看全场状态")
+            log.write("    police                 - 查看警察状态")
+            log.write("")
+            if self.is_host:
+                log.write("  房主操作：")
+                log.write("    点击右侧「开始游戏」按钮启动游戏")
+                log.write("    点击「刷新」查看玩家连接状态")
+                log.write("")
+            log.write("  等待游戏开始...")
+        except NoMatches:
+            pass
 
     # ──────────────────────────────────────────
     #  游戏事件处理
@@ -183,18 +208,25 @@ class BadtimeWarTUI(App):
     # ──────────────────────────────────────────
 
     def push_game_event(self, msg: dict):
-        """从外部线程推送游戏事件到 TUI"""
-        self.call_from_thread(self._handle_game_event, msg)
+        """推送游戏事件到 TUI（自动判断线程）"""
+        if self._thread_id == threading.get_ident():
+            self._handle_game_event(msg)
+        else:
+            self.call_from_thread(self._handle_game_event, msg)
 
     def push_chat_message(self, sender: str, content: str,
                           channel: str = "public", target: str = None):
-        """从外部线程推送聊天消息到 TUI"""
-        self.call_from_thread(self._handle_chat, {
+        """推送聊天消息到 TUI（自动判断线程）"""
+        chat_data = {
             "sender": sender,
             "content": content,
             "channel": channel,
             "target": target,
-        })
+        }
+        if self._thread_id == threading.get_ident():
+            self._handle_chat(chat_data)
+        else:
+            self.call_from_thread(self._handle_chat, chat_data)
 
     # ──────────────────────────────────────────
     #  命令处理
@@ -268,12 +300,46 @@ class BadtimeWarTUI(App):
                 pass
 
     # ──────────────────────────────────────────
+    #  帮助
+    # ──────────────────────────────────────────
+
+    def action_show_help(self):
+        """F1 显示帮助"""
+        try:
+            log = self.query_one("#game-log", GameLogWidget)
+            log.write("")
+            log.write("  ─── 指令帮助 ───")
+            log.write("  游戏指令（在你的行动回合输入）：")
+            log.write("    move <地点>              - 移动到其他地点")
+            log.write("    interact <项目名>         - 与当前地点交互")
+            log.write("    lock <玩家名>             - 锁定目标（远程前置）")
+            log.write("    find <玩家名>             - 找到目标（近战前置）")
+            log.write("    attack <目标> <武器> [层 属性] - 攻击")
+            log.write("    special <操作名>          - 特殊操作")
+            log.write("    forfeit                  - 放弃行动")
+            log.write("  警察系统：")
+            log.write("    report / assemble / track / recruit / election / designate / split / study")
+            log.write("  查看（不消耗行动）：")
+            log.write("    status / allstatus / police / help")
+            log.write("  聊天：")
+            log.write("    /chat <内容>             - 公屏聊天")
+            log.write("    /whisper <玩家名> <内容>   - 私聊")
+            log.write("  快捷键：F1 帮助 | Ctrl+Q 退出")
+            log.write("")
+        except NoMatches:
+            pass
+
+    # ──────────────────────────────────────────
     #  外部日志写入
     # ──────────────────────────────────────────
 
     def write_log(self, text: str):
+        """写入日志到游戏日志区（自动判断线程）"""
         try:
             log = self.query_one("#game-log", GameLogWidget)
-            self.call_from_thread(log.write, text)
+            if self._thread_id == threading.get_ident():
+                log.write(text)
+            else:
+                self.call_from_thread(log.write, text)
         except NoMatches:
             pass
