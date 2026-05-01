@@ -378,6 +378,9 @@ def watch_all(
         action = int(action)
 
         desc = action_name_with_context(action, player, state, env)
+        # 记录本步 choose 状态，用于检测 choose 完成事件
+        _cur_choose_mode = env._choose_mode
+        _cur_choose_situation = env._choose_context.get("situation", "unknown") if _cur_choose_mode else None
 
         if verbose:
             # 打印 RL 状态
@@ -445,6 +448,10 @@ def watch_all(
         obs, reward, terminated, truncated, info = env.step(action)
         done = terminated or truncated
         step_num += 1
+
+        # 检测 choose 完成事件：step 前在 choose 模式，step 后退出
+        if verbose and _cur_choose_mode and not env._choose_mode:
+            print(f"    [Choose 结果] situation={_cur_choose_situation} → {desc}")
 
         if verbose:
             print(f"    奖励: {reward:.2f}")

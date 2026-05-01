@@ -81,14 +81,35 @@ class AnchorMixin:
         ]
         display.show_info("\n".join(lines))
 
+        from engine.anchor_resolver import AnchorVerifier
+        verifier = AnchorVerifier(self.state)
+
+        # 动态构建可用的锚定类型
+        options = []
+        others = [p for p in self.state.alive_players()
+                  if p.player_id != player.player_id]
+
+        # 击杀：至少有一个可行目标才暴露
+        if any(verifier.verify_kill(player, p).feasible for p in others):
+            options.append("击杀目标玩家")
+
+        # 护甲破坏：至少有一个有护甲的目标才暴露
+        if any(hasattr(p, 'armor') and p.armor and self._get_target_armor_names(p)
+               for p in others):
+            options.append("破坏目标护甲层")
+
+        # 获取和到达：始终可用（自动通过 DM 验证）
+        options.append("获取指定物品或权能")
+        options.append("到达指定地点")
+        options.append("取消")
+
+        if len(options) == 1:  # 只有"取消"
+            display.show_info("当前没有可用的锚定类型。")
+            return None
+
         # ══ CONTROLLER 改动 2：选锚定事件类型 ══
         event_type = player.controller.choose(
-            "选择锚定事件类型：",
-            ["击杀目标玩家",
-             "破坏目标护甲层",
-             "获取指定物品或权能",
-             "到达指定地点",
-             "取消"],
+            "选择锚定事件类型：", options,
             context={"phase": "T0", "situation": "ripple_anchor_type"}
         )
         # ══ CONTROLLER 改动 2 结束 ══
@@ -110,13 +131,16 @@ class AnchorMixin:
     # ================================================================
 
     def _anchor_kill(self, player):
+        from engine.anchor_resolver import AnchorVerifier
+        verifier = AnchorVerifier(self.state)
         others = [p for p in self.state.alive_players()
-                  if p.player_id != player.player_id]
+                  if p.player_id != player.player_id
+                  and verifier.verify_kill(player, p).feasible]
         if not others:
             display.show_info(
                 prompt_manager.get_prompt(
-                    "talent", "g5ripple.no_targets",
-                    default="没有可锚定的目标。"
+                    "talent", "g5ripple.no_feasible_kill_targets",
+                    default="没有可锚定击杀的目标（假人系统验证均不可行）。"
                 )
             )
             return None
@@ -141,7 +165,8 @@ class AnchorMixin:
 
     def _anchor_break_armor(self, player):
         others = [p for p in self.state.alive_players()
-                  if p.player_id != player.player_id]
+                  if p.player_id != player.player_id
+                  and hasattr(p, 'armor') and p.armor and self._get_target_armor_names(p)]
         if not others:
             display.show_info(
                 prompt_manager.get_prompt(
