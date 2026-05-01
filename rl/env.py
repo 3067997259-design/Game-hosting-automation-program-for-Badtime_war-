@@ -40,7 +40,7 @@ from engine.game_state import GameState
 from engine.round_manager import RoundManager
 from models.player import Player
 from cli import display as _display_module
-from controllers.ai_basic import create_random_ai_controller
+from controllers.ai_basic import create_ai_controller
 from engine.prompt_manager import prompt_manager as _prompt_manager
 
 # 天赋系统导入
@@ -415,7 +415,7 @@ class BadtimeWarEnv(gym.Env):
                 personality = "balanced"  # self-play 对手无人格概念
             else:
                 personality = random.choice(AI_PERSONALITIES)
-                ctrl = create_random_ai_controller(player_name=f"AI_{i}")
+                ctrl = create_ai_controller(personality=personality, player_name=f"AI_{i}")
                 model_stem = "basic_ai"
             p = Player(f"ai_{i}", f"AI_{i}", ctrl)
             ai_players.append(p)
