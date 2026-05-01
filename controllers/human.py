@@ -8,6 +8,7 @@ HumanController —— 人类玩家控制器
 from typing import Callable, List, Optional, Dict, Any
 from controllers.base import PlayerController
 from cli import display
+from cli.async_output import set_current_prompt, clear_current_prompt
 
 # 模块级聊天回调：由 main_server 在游戏启动前注入，
 # 使得 HumanController 可在回合中拦截 /chat 和 /whisper 命令。
@@ -38,7 +39,10 @@ class HumanController(PlayerController):
         """
         display.show_player_status(player, game_state)
         while True:
+            prompt_text = f"\n  [{player.name}] 请输入指令 > "
+            set_current_prompt(prompt_text)
             raw = display.prompt_input(player.name)
+            clear_current_prompt()
             if _chat_handler and raw.startswith(("/chat ", "/whisper ")):
                 _chat_handler(raw)
                 continue
@@ -54,7 +58,11 @@ class HumanController(PlayerController):
         向人类展示选项列表，等待选择。
         直接调用 display.prompt_choice。
         """
-        return display.prompt_choice(prompt, options)
+        prompt_text = "  请选择（输入编号或名称）> "
+        set_current_prompt(prompt_text)
+        result = display.prompt_choice(prompt, options)
+        clear_current_prompt()
+        return result
 
     def choose_multi(
         self,
@@ -76,10 +84,13 @@ class HumanController(PlayerController):
             else:
                 remaining_with_done = list(remaining)
 
+            prompt_text = "  请选择（输入编号或名称）> "
+            set_current_prompt(prompt_text)
             choice = display.prompt_choice(
                 f"{prompt} (已选{len(selected)}/{max_count})",
                 remaining_with_done
             )
+            clear_current_prompt()
 
             if choice == "跳过":
                 break
@@ -98,5 +109,8 @@ class HumanController(PlayerController):
         """
         是/否确认。
         """
+        prompt_text = "  请选择（输入编号或名称）> "
+        set_current_prompt(prompt_text)
         choice = display.prompt_choice(prompt, ["是", "否"])
+        clear_current_prompt()
         return choice == "是"

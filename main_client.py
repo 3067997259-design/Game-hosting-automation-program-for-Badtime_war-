@@ -43,6 +43,7 @@ def _read_line(stdin_q: queue.Queue) -> Optional[str]:
 
 from network.client import NetworkClient
 from network.protocol import MessageType
+from cli.async_output import async_print, set_current_prompt, clear_current_prompt
 
 
 def main():
@@ -50,7 +51,7 @@ def main():
     parser.add_argument("--host", type=str, default="127.0.0.1", help="服务器地址")
     parser.add_argument("--port", type=int, default=9527, help="服务器端口（默认 9527）")
     parser.add_argument("--name", type=str, default=None, help="玩家名称")
-    parser.add_argument("--tui", action="store_true", help="使用 Textual TUI")
+    parser.add_argument("--cli", action="store_true", help="使用纯 CLI 模式（默认使用 Textual TUI）")
     parser.add_argument("--reconnect", action="store_true", help="断线重连模式")
     args = parser.parse_args()
 
@@ -80,10 +81,10 @@ def main():
         print(f"  [Client] 连接失败: {e}")
         sys.exit(1)
 
-    if args.tui:
-        _run_with_tui(client, player_name)
-    else:
+    if args.cli:
         _run_cli_mode(client, player_name, is_reconnect=args.reconnect)
+    else:
+        _run_with_tui(client, player_name, is_reconnect=args.reconnect)
 
 
 def _run_cli_mode(client: NetworkClient, player_name: str, is_reconnect: bool = False):
@@ -121,12 +122,12 @@ def _run_cli_mode(client: NetworkClient, player_name: str, is_reconnect: bool = 
         content = msg.get("content", "")
         channel = msg.get("channel", "public")
         prefix = "[私聊]" if channel == "private" else "[公屏]"
-        print(f"  {prefix} {sender}: {content}")
+        async_print(f"  {prefix} {sender}: {content}")
 
     def on_disconnect(msg):
         name = msg.get("player_name", "")
         action = msg.get("action", "")
-        print(f"  [断线] {name}: {action}")
+        async_print(f"  [断线] {name}: {action}")
 
     # 服务器请求统一通过 pending_request 传递给主线程
     def on_server_request(msg_type):
@@ -238,8 +239,11 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
         if actions:
             print(f"  可选行动: {', '.join(actions)}")
         while True:
-            print(f"  [{player_name}] > ", end="", flush=True)
+            prompt_text = f"  [{player_name}] > "
+            set_current_prompt(prompt_text)
+            print(prompt_text, end="", flush=True)
             raw = _read_line(stdin_q)
+            clear_current_prompt()
             if raw is None:
                 raw = "forfeit"
                 break
@@ -262,8 +266,11 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
         for i, opt in enumerate(options, 1):
             print(f"    {i}. {opt}")
         while True:
-            print("  请选择（编号）> ", end="", flush=True)
+            prompt_text = "  请选择（编号）> "
+            set_current_prompt(prompt_text)
+            print(prompt_text, end="", flush=True)
             raw = _read_line(stdin_q)
+            clear_current_prompt()
             if raw is None:
                 choice = options[0] if options else ""
                 client.send_sync({"type": MessageType.CHOOSE_RESPONSE, "choice": choice})
@@ -299,8 +306,11 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
             print(f"    {i}. {opt}")
         selected = []
         while len(selected) < max_count:
-            print(f"  选择（已选{len(selected)}/{max_count}，输入0结束）> ", end="", flush=True)
+            prompt_text = f"  选择（已选{len(selected)}/{max_count}，输入0结束）> "
+            set_current_prompt(prompt_text)
+            print(prompt_text, end="", flush=True)
             raw = _read_line(stdin_q)
+            clear_current_prompt()
             if raw is None:
                 break
             raw = raw.strip()
@@ -323,8 +333,11 @@ def _handle_request(client, msg, msg_type, player_name, stdin_q: queue.Queue):
     elif msg_type == MessageType.REQUEST_CONFIRM:
         prompt = msg.get("prompt", "确认？")
         while True:
-            print(f"  {prompt} (y/n) > ", end="", flush=True)
+            prompt_text = f"  {prompt} (y/n) > "
+            set_current_prompt(prompt_text)
+            print(prompt_text, end="", flush=True)
             raw = _read_line(stdin_q)
+            clear_current_prompt()
             if raw is None:
                 raw = "n"
                 break
@@ -343,44 +356,44 @@ def _print_event(func: str, args: list):
     """在 CLI 中打印游戏事件。"""
     if func == "show_round_header":
         rn = args[0] if args else "?"
-        print(f"\n{'='*50}\n  全局轮次 {rn}\n{'='*50}")
+        async_print(f"\n{'='*50}\n  全局轮次 {rn}\n{'='*50}")
     elif func == "show_phase":
-        print(f"\n--- {args[0] if args else ''} ---")
+        async_print(f"\n--- {args[0] if args else ''} ---")
     elif func == "show_action_turn_header":
         name = args[0] if args else "?"
-        print(f"\n{'─'*40}\n  轮到 {name} 行动\n{'─'*40}")
+        async_print(f"\n{'─'*40}\n  轮到 {name} 行动\n{'─'*40}")
     elif func == "show_result":
         if args:
-            print(f"  {args[0]}")
+            async_print(f"  {args[0]}")
     elif func == "show_info":
         if args:
-            print(f"  {args[0]}")
+            async_print(f"  {args[0]}")
     elif func == "show_error":
         if args:
-            print(f"  [错误] {args[0]}")
+            async_print(f"  [错误] {args[0]}")
     elif func == "show_victory":
         name = args[0] if args else "?"
-        print(f"\n  {name} 获得了最终胜利！")
+        async_print(f"\n  {name} 获得了最终胜利！")
     elif func == "show_death":
         name = args[0] if args else "?"
         cause = args[1] if len(args) > 1 else "未知"
-        print(f"  {name} 死亡！原因：{cause}")
+        async_print(f"  {name} 死亡！原因：{cause}")
     elif func == "show_player_status":
         if args and isinstance(args[0], dict):
-            print(f"  {args[0].get('status', '')}")
+            async_print(f"  {args[0].get('status', '')}")
     elif func == "clear_screen":
         pass
     elif func == "game_finished":
-        print("\n  [系统] 游戏结束！")
+        async_print("\n  [系统] 游戏结束！")
 
 
-def _run_with_tui(client, player_name):
+def _run_with_tui(client, player_name, is_reconnect=False):
     """Textual TUI 模式。"""
     try:
         from tui.app import BadtimeWarTUI
     except ImportError:
-        print("  [错误] 需要安装 textual: pip install textual")
-        _run_cli_mode(client, player_name)
+        print("  [提示] textual 未安装，自动切换到 CLI 模式（安装: pip install textual）")
+        _run_cli_mode(client, player_name, is_reconnect=is_reconnect)
         return
 
     app = BadtimeWarTUI(
