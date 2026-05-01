@@ -82,6 +82,7 @@ class BadtimeWarTUI(App):
         self.start_game_callback = start_game_callback
         self.chat_manager = chat_manager
         self._game_starting = False
+        self._game_help_shown = False
         self._input_widget: Optional[CommandInput] = None
         self._chat_panel: Optional[ChatPanel] = None
 
@@ -122,20 +123,17 @@ class BadtimeWarTUI(App):
             log.write("  起闯战争 - 局域网联机")
             log.write("  ═══════════════════════════════════════")
             log.write("")
-            log.write("  指令提示：")
+            log.write("  聊天指令：")
             log.write("    /chat <内容>           - 公屏聊天")
             log.write("    /whisper <玩家名> <内容> - 私聊")
-            log.write("    help                   - 查看完整指令帮助")
-            log.write("    status                 - 查看自己状态")
-            log.write("    allstatus              - 查看全场状态")
-            log.write("    police                 - 查看警察状态")
             log.write("")
             if self.is_host:
                 log.write("  房主操作：")
-                log.write("    点击右侧「开始游戏」按钮启动游戏")
-                log.write("    点击「刷新」查看玩家连接状态")
+                log.write("    在右侧面板中设置 AI、断线策略")
+                log.write("    所有位置就绪后点击「开始游戏」")
                 log.write("")
             log.write("  等待游戏开始...")
+            log.write("  （游戏开始后输入 help 或按 F1 查看游戏指令）")
         except NoMatches:
             pass
 
@@ -147,6 +145,23 @@ class BadtimeWarTUI(App):
         self.call_from_thread(self._handle_game_event, msg)
 
     def _handle_game_event(self, msg: dict):
+        # 第一次收到游戏事件时显示指令提示
+        if not self._game_help_shown:
+            self._game_help_shown = True
+            try:
+                log = self.query_one("#game-log", GameLogWidget)
+                log.write("")
+                log.write("  ─── 游戏已开始 ───")
+                log.write("  你的回合时可用指令：move / interact / attack / lock / find / special / forfeit")
+                log.write("  查看类（不消耗行动）：status / allstatus / police / help")
+                log.write("  聊天：/chat <内容> | /whisper <玩家名> <内容>")
+                log.write("  按 F1 查看完整帮助")
+                log.write("")
+            except NoMatches:
+                pass
+            # 更新输入框 placeholder
+            if self._input_widget:
+                self._input_widget.update_placeholder_for_game()
         try:
             info = self.query_one("#game-info", GameInfoWidget)
             info.update_from_event(msg)
