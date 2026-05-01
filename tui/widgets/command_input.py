@@ -30,7 +30,7 @@ class CommandInput(Input):
     """
 
     def __init__(self, **kwargs):
-        super().__init__(placeholder="输入命令...", **kwargs)
+        super().__init__(placeholder="游戏指令 | /chat 公屏聊天 | /whisper <玩家> 私聊 | help 查看帮助", **kwargs)
         self._pending_event = threading.Event()
         self._pending_value = ""
 

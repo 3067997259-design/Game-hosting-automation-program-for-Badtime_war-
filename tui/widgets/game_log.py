@@ -73,6 +73,28 @@ class GameLogWidget(RichLog):
             return f"  [警告] {args[0]}" if args else ""
         elif func == "show_critical":
             return f"  [严重] {args[0]}" if args else ""
+        elif func == "show_help":
+            try:
+                from engine.prompt_manager import prompt_manager
+                return prompt_manager.get_prompt("help", "main", default="输入 help 查看帮助")
+            except Exception:
+                return "  输入 help 查看指令帮助"
+        elif func == "show_all_players_status":
+            if args and isinstance(args[0], str):
+                return args[0]
+            return ""
+        elif func == "show_police_status":
+            if args and isinstance(args[0], str):
+                return args[0]
+            return ""
+        elif func == "show_virus_status":
+            if args and isinstance(args[0], str):
+                return args[0]
+            return ""
+        elif func == "show_virus_deaths":
+            if args and isinstance(args[0], str):
+                return args[0]
+            return ""
         elif func == "clear_screen":
             return ""
         else:
