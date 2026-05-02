@@ -67,6 +67,7 @@ def make_env(
     rl_talent: Optional[int] = None,
     enable_talents: bool = True,
     force_random_talent: bool = False,
+    max_per_model: int = 1,
 ):
     """返回一个创建 BadtimeWarEnv 的闭包，供 DummyVecEnv 使用。"""
     def _init():
@@ -84,6 +85,7 @@ def make_env(
                     rl_talent=rl_talent,
                     enable_talents=enable_talents,
                     force_random_talent=force_random_talent,
+                    max_per_model=max_per_model,
                 )
                 env = Monitor(env)
                 env.reset(seed=seed + rank)
@@ -316,6 +318,11 @@ class SelfPlayCallback(BaseCallback):
         self._collapse_recovery_target: int = 3  # 连续 3 次达标才退出
         self._eval_env = eval_env if not no_collapse_detection else None
 
+        # 训练-评估偏差检测
+        self._divergence_threshold = 2.0  # train_wr / eval_wr > 2.0 视为偏差
+        self._divergence_consecutive = 0
+        self._divergence_trigger_count = 3  # 连续 3 次偏差触发坍塌
+
     @property
     def min_win_rate(self) -> float:
         """动态入池阈值：强制随机期/学习期用低阈值，成熟期用高阈值。"""
@@ -392,6 +399,21 @@ class SelfPlayCallback(BaseCallback):
                 self.pool.basic_ai_prob = new_prob
                 self.training_env.env_method("update_basic_ai_prob", new_prob)
 
+            # 2cc. 训练-评估偏差检测
+            if (current_win_rate is not None and eval_wr is not None
+                    and eval_wr > 0 and current_win_rate / eval_wr > self._divergence_threshold):
+                self._divergence_consecutive += 1
+                if self.verbose:
+                    ratio = current_win_rate / eval_wr
+                    print(f"  [SelfPlay] \u26a0\ufe0f 训练-评估偏差 ({self._divergence_consecutive}/{self._divergence_trigger_count}): "
+                          f"Train={current_win_rate:.1%} / Eval={eval_wr:.1%} = {ratio:.1f}x")
+                if self._divergence_consecutive >= self._divergence_trigger_count and not self._collapse_active:
+                    if self.verbose:
+                        print(f"  [SelfPlay] \U0001f6a8 偏差持续触发坍塌恢复模式!")
+                    self._enter_collapse_mode()
+            elif current_win_rate is not None and eval_wr is not None:
+                self._divergence_consecutive = 0
+
             # 2d. 日志
             if self.verbose >= 1:
                 n_models = len(self.pool.get_available_models())
@@ -406,8 +428,10 @@ class SelfPlayCallback(BaseCallback):
                 collapse_str = ""
                 if self._collapse_active:
                     collapse_str = " | COLLAPSE MODE"
-                elif n_models < 2:
-                    collapse_str = " | 坍塌检测: 未激活(需≥2模型)"
+                elif n_models < 1:
+                    collapse_str = " | 坍塌检测: 未激活(需≥1模型)"
+                if self._divergence_consecutive > 0:
+                    collapse_str += f" | 偏差: {self._divergence_consecutive}/{self._divergence_trigger_count}"
                 print(
                     f"  [SelfPlay] Step {self.num_timesteps} | "
                     f"Train WR: {train_wr_str} | Eval WR: {eval_wr_str} | "
@@ -419,7 +443,7 @@ class SelfPlayCallback(BaseCallback):
         # ── 3. 坍塔检测 ──
         if self.n_calls % self.collapse_eval_freq == 0 and self._eval_env is not None:
             pool_size = len(self.pool.get_available_models())
-            collapse_eligible = pool_size >= 2
+            collapse_eligible = pool_size >= 1
             if not collapse_eligible:
                 return True
             # 先清空累积的旧结果（可能由 MaskableEvalCallback 共享 eval_env 产生）
@@ -599,6 +623,7 @@ def train(args: argparse.Namespace):
             rl_talent=args.rl_talent,
             enable_talents=args.enable_talents,
             force_random_talent=force_random,
+            max_per_model=args.max_per_model,
         )
         for i in range(args.n_envs)
     ]
@@ -625,6 +650,7 @@ def train(args: argparse.Namespace):
             n_stack=args.n_stack,
             rl_talent=args.rl_talent,
             enable_talents=args.enable_talents,
+            max_per_model=args.max_per_model,
         )
         for i in range(n_eval_envs)
     ]
@@ -894,6 +920,8 @@ def parse_args() -> argparse.Namespace:
                 help="坍塌检测胜率阈值（低于此值视为坍塌，默认0.12）")
     p.add_argument("--no-collapse-detection", action="store_true",
                 help="禁用策略坍塌检测")
+    p.add_argument("--max-per-model", type=int, default=1,
+                help="同一个对手池模型最多作为几个对手出现（默认1，即不重复）")
 
     # 天赋选择参数
     p.add_argument("--rl-talent", type=int, default=None,

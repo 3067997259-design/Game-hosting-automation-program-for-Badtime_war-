@@ -64,9 +64,9 @@ class DiagnosticEnv(BadtimeWarEnv):
         if self.opponent_pool is not None:
             original_sample = self.opponent_pool.sample_opponent_controller
 
-            def timed_sample():
+            def timed_sample(*args, **kwargs):
                 st = time.perf_counter()
-                result = original_sample()
+                result = original_sample(*args, **kwargs)
                 elapsed = time.perf_counter() - st
                 ctrl = result[0] if isinstance(result, tuple) else result
                 ctrl_type = type(ctrl).__name__
