@@ -35,9 +35,21 @@ class BadtimeWarTUI(App):
         border: solid blue;
         padding: 0 1;
     }
+    /* 主内容区：游戏开始前显示 host-area（房主）或 game-log（远程客户端）；
+       游戏开始后隐藏 host-area，显示 game-log。 */
+    #host-area {
+        height: 1fr;
+        display: none;
+    }
+    #host-area.lobby-mode {
+        display: block;
+    }
     #game-log {
         height: 1fr;
         border: solid white;
+    }
+    #game-log.lobby-mode-hidden {
+        display: none;
     }
     #bottom-area {
         height: 12;
@@ -45,13 +57,6 @@ class BadtimeWarTUI(App):
     #chat-area {
         width: 1fr;
         border: solid yellow;
-    }
-    #host-area {
-        width: 40;
-        display: none;
-    }
-    #host-area.visible {
-        display: block;
     }
     CommandInput {
         dock: bottom;
@@ -89,10 +94,11 @@ class BadtimeWarTUI(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield GameInfoWidget(id="game-info")
+        # host-area 与 game-log 共享主内容区（通过 CSS class 切换显示）
+        yield HostPanel(lobby=self.lobby, id="host-area")
         yield GameLogWidget(id="game-log")
         with Horizontal(id="bottom-area"):
             yield ChatPanel(id="chat-area")
-            yield HostPanel(lobby=self.lobby, id="host-area")
         yield CommandInput(id="cmd-input")
         yield Footer()
 
@@ -101,13 +107,18 @@ class BadtimeWarTUI(App):
         self._chat_panel = self.query_one("#chat-area", ChatPanel)
 
         if self.is_host and self.lobby:
-            host_area = self.query_one("#host-area")
-            host_area.add_class("visible")
+            # 房主：游戏开始前 host panel 占据主内容区，游戏日志暂时隐藏
             try:
+                host_area = self.query_one("#host-area")
+                host_area.add_class("lobby-mode")
+                game_log = self.query_one("#game-log", GameLogWidget)
+                game_log.add_class("lobby-mode-hidden")
                 host_panel = self.query_one(HostPanel)
                 host_panel.refresh_slots()
             except NoMatches:
                 pass
+            if self._input_widget:
+                self._input_widget.update_placeholder_for_host_lobby()
 
         # 如果是客户端，注册消息处理器
         if self.client:
@@ -128,11 +139,17 @@ class BadtimeWarTUI(App):
             log.write("    /whisper <玩家名> <内容> - 私聊")
             log.write("")
             if self.is_host:
-                log.write("  房主操作：")
-                log.write("    在右侧面板中设置 AI、断线策略")
-                log.write("    所有位置就绪后点击「开始游戏」")
-                log.write("")
-            log.write("  等待游戏开始...")
+                log.write("  房主操作（游戏开始前）：")
+                log.write("    在主区面板中查看槽位状态，或在下方输入框中使用：")
+                log.write("      ai <slot号> [性格]         - 设置基础 AI")
+                log.write("      rl <slot号>                - 设置 RL AI")
+                log.write("      policy <slot号> <wait|ai>  - 设置断线策略")
+                log.write("      status                     - 刷新状态")
+                log.write("    所有位置就绪后点击「开始游戏」按钮")
+            else:
+                log.write("  等待房主开始游戏...")
+                log.write("  你可以使用 /chat 和 /whisper 与其他玩家聊天")
+            log.write("")
             log.write("  （游戏开始后输入 help 或按 F1 查看游戏指令）")
         except NoMatches:
             pass
@@ -145,9 +162,10 @@ class BadtimeWarTUI(App):
         self.call_from_thread(self._handle_game_event, msg)
 
     def _handle_game_event(self, msg: dict):
-        # 第一次收到游戏事件时显示指令提示
+        # 第一次收到游戏事件时显示指令提示并切换到游戏布局
         if not self._game_help_shown:
             self._game_help_shown = True
+            self._switch_to_game_mode()
             try:
                 log = self.query_one("#game-log", GameLogWidget)
                 log.write("")
@@ -252,6 +270,8 @@ class BadtimeWarTUI(App):
             self._send_chat(event.value, "public")
         elif event.cmd_type == "whisper":
             self._send_chat(event.value, "private", event.target)
+        elif event.cmd_type == "management":
+            self._handle_management_cmd(event.value)
         # game 命令由 CommandInput 的同步等待机制处理
 
     def _send_chat(self, content: str, channel: str, target: str = None):
@@ -292,6 +312,162 @@ class BadtimeWarTUI(App):
     # ──────────────────────────────────────────
     #  房主管理
     # ──────────────────────────────────────────
+
+    # ──────────────────────────────────────────
+    #  房主管理命令（游戏开始前）
+    # ──────────────────────────────────────────
+
+    def _handle_management_cmd(self, raw: str):
+        """处理房主管理命令（ai/rl/policy/status）"""
+        if not self.is_host or not self.lobby:
+            self._log_to_game("  [管理] 非房主或大厅未就绪，无法执行管理命令")
+            return
+
+        parts = raw.split()
+        if not parts:
+            return
+        cmd = parts[0].lower()
+
+        if cmd == "status":
+            self._refresh_host_panel()
+            info = self.lobby.get_lobby_info()
+            self._log_to_game(f"  房间状态: {info['room_state']}")
+
+        elif cmd == "ai":
+            if len(parts) < 2:
+                self._log_to_game("  用法: ai <slot_id> [性格]")
+                return
+            try:
+                slot_id = int(parts[1])
+            except ValueError:
+                self._log_to_game("  无效的 slot_id")
+                return
+            try:
+                from engine.game_setup import AI_PERSONALITIES
+            except Exception:
+                AI_PERSONALITIES = (
+                    "balanced", "aggressive", "defensive",
+                    "political", "assassin", "builder",
+                )
+            personality = parts[2] if len(parts) >= 3 else "balanced"
+            if personality not in AI_PERSONALITIES:
+                self._log_to_game(f"  可选性格: {', '.join(AI_PERSONALITIES)}")
+                return
+            try:
+                ok = self.lobby.set_slot_ai(slot_id, "basic", personality)
+            except Exception as e:
+                self._log_to_game(f"  ✗ 设置失败: {e}")
+                return
+            if ok:
+                self._refresh_host_panel()
+                self._log_to_game(f"  ✓ Slot {slot_id} 设为 AI ({personality})")
+            else:
+                self._log_to_game("  ✗ 设置失败（槽位不可用）")
+
+        elif cmd == "rl":
+            if len(parts) < 2:
+                self._log_to_game("  用法: rl <slot_id>")
+                return
+            try:
+                slot_id = int(parts[1])
+            except ValueError:
+                self._log_to_game("  无效的 slot_id")
+                return
+            try:
+                from network.rl_detect import detect_rl_availability
+                rl_info = detect_rl_availability()
+            except Exception as e:
+                self._log_to_game(f"  ✗ RL 检测失败: {e}")
+                return
+            if not rl_info["available"]:
+                self._log_to_game("  ✗ RL 不可用（缺少模型或依赖）")
+                return
+            model = rl_info["models"][0] if rl_info["models"] else None
+            try:
+                ok = self.lobby.set_slot_ai(slot_id, "rl", rl_model_path=model)
+            except Exception as e:
+                self._log_to_game(f"  ✗ 设置失败: {e}")
+                return
+            if ok:
+                self._refresh_host_panel()
+                self._log_to_game(f"  ✓ Slot {slot_id} 设为 RL AI")
+            else:
+                self._log_to_game("  ✗ 设置失败（槽位不可用）")
+
+        elif cmd == "policy":
+            if len(parts) < 3:
+                self._log_to_game("  用法: policy <slot_id> <wait|ai>")
+                return
+            try:
+                slot_id = int(parts[1])
+            except ValueError:
+                self._log_to_game("  无效的 slot_id")
+                return
+            try:
+                from network.lobby import DisconnectPolicy
+            except Exception as e:
+                self._log_to_game(f"  ✗ 导入失败: {e}")
+                return
+            policy_str = parts[2].lower()
+            if policy_str == "wait":
+                try:
+                    self.lobby.set_disconnect_policy(slot_id, DisconnectPolicy.WAIT_RECONNECT)
+                except Exception as e:
+                    self._log_to_game(f"  ✗ 设置失败: {e}")
+                    return
+                self._refresh_host_panel()
+                self._log_to_game(f"  ✓ Slot {slot_id} 断线策略: 等待重连")
+            elif policy_str == "ai":
+                try:
+                    self.lobby.set_disconnect_policy(slot_id, DisconnectPolicy.AI_TAKEOVER)
+                except Exception as e:
+                    self._log_to_game(f"  ✗ 设置失败: {e}")
+                    return
+                self._refresh_host_panel()
+                self._log_to_game(f"  ✓ Slot {slot_id} 断线策略: AI 接管")
+            else:
+                self._log_to_game("  可选策略: wait (等待重连), ai (AI接管)")
+
+        else:
+            self._log_to_game(f"  未知管理命令: {raw}")
+            self._log_to_game(
+                "  可用: ai <slot> [性格] | rl <slot> | policy <slot> <wait|ai> | status"
+            )
+
+    def _refresh_host_panel(self):
+        try:
+            host_panel = self.query_one(HostPanel)
+            host_panel.refresh_slots()
+        except NoMatches:
+            pass
+
+    def _log_to_game(self, text: str):
+        """写入命令反馈：游戏日志区 + 房主面板（大厅模式下日志区被隐藏）。"""
+        try:
+            log = self.query_one("#game-log", GameLogWidget)
+            log.write(text)
+        except NoMatches:
+            pass
+        # 大厅模式下游戏日志区被隐藏，把反馈也写到房主面板上
+        if self.is_host:
+            try:
+                host_panel = self.query_one(HostPanel)
+                host_panel.log_feedback(text)
+            except NoMatches:
+                pass
+
+    def _switch_to_game_mode(self):
+        """游戏开始后切换布局：隐藏 host panel，显示 game log。"""
+        try:
+            host_area = self.query_one("#host-area")
+            host_area.remove_class("lobby-mode")
+        except NoMatches:
+            pass
+        try:
+            game_log = self.query_one("#game-log", GameLogWidget)
+            game_log.remove_class("lobby-mode-hidden")
+        except NoMatches:
+            pass
 
     def on_slot_config_request(self, event: SlotConfigRequest):
         if event.action == "start_game" and self.lobby:
