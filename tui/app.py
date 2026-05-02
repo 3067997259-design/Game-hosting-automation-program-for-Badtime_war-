@@ -410,6 +410,13 @@ class BadtimeWarTUI(App):
                 })
                 return
 
+            if user_input == "0":
+                # 用户尝试结束选择但还没达到 min_count，给出针对性提示
+                self._log_to_game(
+                    f"  至少需要选择 {min_count} 个，当前已选 {len(self._multi_selected)} 个"
+                )
+                return
+
             try:
                 idx = int(user_input) - 1
                 if 0 <= idx < len(options) and options[idx] not in self._multi_selected:
