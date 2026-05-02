@@ -495,11 +495,10 @@ class BadtimeWarTUI(App):
                 pending = self._pending_request
             if pending and self.client:
                 self._respond_to_pending(pending, event.value)
-            else:
-                # 服务端 TUI 的同步等待机制（wait_for_input）
-                if self._input_widget:
-                    self._input_widget._pending_value = event.value
-                    self._input_widget._pending_event.set()
+            # 否则：服务端 TUI 的同步等待已由 CommandInput.on_input_submitted
+            # 在 post_message 时同步唤醒（_pending_value / _pending_event）。
+            # 这里不再重复 set，避免对非消耗回合的 status/help/allstatus 等
+            # 在游戏线程已重新进入 wait_for_input 后被异步重复触发。
 
     def _send_chat(self, content: str, channel: str, target: str = None):
         msg = {
