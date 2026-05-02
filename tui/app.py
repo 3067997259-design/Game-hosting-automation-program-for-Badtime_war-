@@ -402,8 +402,8 @@ class BadtimeWarTUI(App):
             if user_input == "0" and len(self._multi_selected) >= min_count:
                 with self._pending_request_lock:
                     self._pending_request = None
-                selected = list(self._multi_selected)
-                self._multi_selected = []
+                    selected = list(self._multi_selected)
+                    self._multi_selected = []
                 self.client.send_sync({
                     "type": MessageType.CHOOSE_MULTI_RESPONSE,
                     "choices": selected,
@@ -427,8 +427,8 @@ class BadtimeWarTUI(App):
                     if len(self._multi_selected) >= max_count:
                         with self._pending_request_lock:
                             self._pending_request = None
-                        selected = list(self._multi_selected)
-                        self._multi_selected = []
+                            selected = list(self._multi_selected)
+                            self._multi_selected = []
                         self.client.send_sync({
                             "type": MessageType.CHOOSE_MULTI_RESPONSE,
                             "choices": selected,
