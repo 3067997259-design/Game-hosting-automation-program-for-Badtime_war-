@@ -128,9 +128,12 @@ class NetworkServer:
 
                 # 通用回调（在 executor 中执行，避免阻塞事件循环）
                 if self._on_message:
-                    await self._loop.run_in_executor(
-                        None, self._on_message, client_id, msg,
-                    )
+                    try:
+                        await self._loop.run_in_executor(
+                            None, self._on_message, client_id, msg,
+                        )
+                    except Exception as e:
+                        print(f"  [Server] 处理消息时出错 (client={client_id}, type={msg_type}): {e}")
 
                 # 放入队列
                 await self._queues[client_id].put(msg)

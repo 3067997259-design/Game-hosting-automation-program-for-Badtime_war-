@@ -30,9 +30,17 @@ class CommandInput(Input):
     """
 
     def __init__(self, **kwargs):
-        super().__init__(placeholder="游戏指令 | /chat 公屏聊天 | /whisper <玩家> 私聊 | help 查看帮助", **kwargs)
+        super().__init__(placeholder="/chat <内容> 公屏聊天 | /whisper <玩家名> <内容> 私聊", **kwargs)
         self._pending_event = threading.Event()
         self._pending_value = ""
+
+    def update_placeholder_for_game(self):
+        """游戏开始后更新 placeholder"""
+        self.placeholder = "游戏指令 | /chat 聊天 | /whisper <玩家> 私聊 | help 帮助 | F1 完整帮助"
+
+    def update_placeholder_for_lobby(self):
+        """大厅阶段的 placeholder"""
+        self.placeholder = "/chat <内容> 公屏聊天 | /whisper <玩家名> <内容> 私聊"
 
     def on_input_submitted(self, event: Input.Submitted):
         raw = event.value.strip()
