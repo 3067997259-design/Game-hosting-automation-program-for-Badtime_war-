@@ -1,8 +1,12 @@
-"""命令输入框 —— 支持游戏命令和聊天前缀"""
+"""命令输入框 —— 支持游戏命令、管理命令和聊天前缀"""
 
 import threading
 from textual.widgets import Input
 from textual.message import Message
+
+
+# 房主大厅阶段可用的管理命令前缀
+_MANAGEMENT_CMDS = ("ai", "rl", "policy", "status")
 
 
 class CommandSubmitted(Message):
@@ -10,7 +14,8 @@ class CommandSubmitted(Message):
     def __init__(self, value: str, cmd_type: str = "game", target: str = None):
         super().__init__()
         self.value = value
-        self.cmd_type = cmd_type  # "game", "chat", "whisper"
+        # cmd_type: "game" / "chat" / "whisper" / "management"
+        self.cmd_type = cmd_type
         self.target = target
 
 
@@ -20,6 +25,7 @@ class CommandInput(Input):
     - 直接输入 = 游戏命令
     - /chat <内容> = 公屏聊天
     - /whisper <玩家名> <内容> = 私聊
+    - 房主大厅阶段：ai / rl / policy / status = 房间管理命令
     """
 
     DEFAULT_CSS = """
@@ -42,6 +48,10 @@ class CommandInput(Input):
         """大厅阶段的 placeholder"""
         self.placeholder = "/chat <内容> 公屏聊天 | /whisper <玩家名> <内容> 私聊"
 
+    def update_placeholder_for_host_lobby(self):
+        """房主大厅阶段的 placeholder（包含管理命令提示）"""
+        self.placeholder = "ai/rl/policy/status 管理 | /chat 聊天 | /whisper <玩家> 私聊"
+
     def on_input_submitted(self, event: Input.Submitted):
         raw = event.value.strip()
         if not raw:
@@ -63,6 +73,9 @@ class CommandInput(Input):
                 self.post_message(
                     CommandSubmitted(raw, cmd_type="game")
                 )
+        elif self._is_host_lobby_phase() and self._is_management_cmd(raw):
+            # 房主大厅阶段：转发为管理命令，不唤醒游戏线程
+            self.post_message(CommandSubmitted(raw, cmd_type="management"))
         else:
             self.post_message(CommandSubmitted(raw, cmd_type="game"))
 
@@ -75,3 +88,28 @@ class CommandInput(Input):
         self._pending_value = ""
         self._pending_event.wait(timeout=timeout)
         return self._pending_value
+
+    # ──────────────────────────────────────────
+    #  辅助
+    # ──────────────────────────────────────────
+
+    def _is_management_cmd(self, raw: str) -> bool:
+        first = raw.split(" ", 1)[0].lower()
+        return first in _MANAGEMENT_CMDS
+
+    def _is_host_lobby_phase(self) -> bool:
+        """仅在「房主 + 大厅等待中」时把管理命令拦截下来。"""
+        try:
+            app = self.app
+            if not getattr(app, "is_host", False):
+                return False
+            lobby = getattr(app, "lobby", None)
+            if lobby is None:
+                return False
+            state = getattr(lobby, "state", None)
+            if state is None:
+                return False
+            value = getattr(state, "value", None)
+            return value == "waiting"
+        except Exception:
+            return False

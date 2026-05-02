@@ -15,6 +15,8 @@ class ChatPanel(Static):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._private_tabs: dict[str, RichLog] = {}
+        # 用递增序号生成合法 widget ID（Textual 仅允许 ASCII 字母/数字/下划线/连字符）
+        self._tab_counter: int = 0
 
     def compose(self):
         with TabbedContent():
@@ -36,10 +38,11 @@ class ChatPanel(Static):
 
     def _add_private_tab(self, player_name: str):
         tabs = self.query_one(TabbedContent)
-        tab_id = f"tab-private-{player_name}"
-        log_id = f"chat-private-{player_name}"
-        pane = TabPane(f"私聊:{player_name}", id=tab_id)
+        self._tab_counter += 1
+        # widget ID 仅使用合法字符（数字后缀），玩家名仍作为 Tab 标题展示
+        tab_id = f"tab-private-{self._tab_counter}"
+        log_id = f"chat-private-{self._tab_counter}"
         log = RichLog(id=log_id, wrap=True, markup=True)
-        pane._nodes.append(log)
+        pane = TabPane(f"私聊:{player_name}", log, id=tab_id)
         tabs.add_pane(pane)
         self._private_tabs[player_name] = log
