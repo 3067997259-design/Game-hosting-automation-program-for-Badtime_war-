@@ -42,9 +42,12 @@ class HostPanel(Static):
     }
     #host-buttons {
         height: 3;
+        align: center middle;
     }
     #host-buttons Button {
         margin-right: 2;
+        min-width: 12;
+        max-width: 16;
     }
     """
 
@@ -70,6 +73,7 @@ class HostPanel(Static):
                 "    rl <slot号>                - 设置 RL AI（需检测到模型）\n"
                 "    policy <slot号> <wait|ai>  - 设置断线策略\n"
                 "    status                     - 刷新状态\n"
+                "    start                      - 开始游戏\n"
                 "\n"
                 f"  可选 AI 性格：{personalities}\n"
                 "\n"
