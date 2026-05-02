@@ -471,24 +471,21 @@ class BadtimeWarTUI(App):
 
     def on_slot_config_request(self, event: SlotConfigRequest):
         if event.action == "start_game" and self.lobby:
-            try:
-                log = self.query_one("#game-log", GameLogWidget)
-                if self.lobby.can_start() and self.lobby.state.value == "waiting" and not self._game_starting:
-                    self._game_starting = True
-                    log.write("  [系统] 游戏即将开始...")
-                    if self.start_game_callback:
-                        threading.Thread(
-                            target=self.start_game_callback,
-                            daemon=True,
-                        ).start()
-                elif self.lobby.state.value != "waiting":
-                    log.write("  [系统] 游戏已在进行中")
-                elif self._game_starting:
-                    log.write("  [系统] 游戏正在启动中...")
-                else:
-                    log.write("  [系统] 还有空位未填满，无法开始")
-            except NoMatches:
-                pass
+            # 注意：大厅模式下 #game-log 被隐藏，必须用 _log_to_game 把消息也送到房主面板
+            if self.lobby.can_start() and self.lobby.state.value == "waiting" and not self._game_starting:
+                self._game_starting = True
+                self._log_to_game("  [系统] 游戏即将开始...")
+                if self.start_game_callback:
+                    threading.Thread(
+                        target=self.start_game_callback,
+                        daemon=True,
+                    ).start()
+            elif self.lobby.state.value != "waiting":
+                self._log_to_game("  [系统] 游戏已在进行中")
+            elif self._game_starting:
+                self._log_to_game("  [系统] 游戏正在启动中...")
+            else:
+                self._log_to_game("  [系统] 还有空位未填满，无法开始")
 
     # ──────────────────────────────────────────
     #  帮助
