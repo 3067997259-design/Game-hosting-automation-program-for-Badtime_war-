@@ -90,6 +90,10 @@ class BadtimeWarTUI(App):
         self._game_help_shown = False
         self._input_widget: Optional[CommandInput] = None
         self._chat_panel: Optional[ChatPanel] = None
+        # 客户端模式下，服务器主动请求（REQUEST_*）的待响应状态
+        self._pending_request = None  # (msg_type_str, msg_data)
+        self._pending_request_lock = threading.Lock()
+        self._multi_selected: list = []
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -126,6 +130,11 @@ class BadtimeWarTUI(App):
             self.client.on(MessageType.CHAT_MESSAGE, self._on_chat_message)
             self.client.on(MessageType.LOBBY_UPDATE, self._on_lobby_update)
             self.client.on(MessageType.DISCONNECT_NOTICE, self._on_disconnect_notice)
+            # 服务器请求类消息（天赋选择、行动指令、确认等）
+            self.client.on(MessageType.REQUEST_COMMAND, self._on_request_command)
+            self.client.on(MessageType.REQUEST_CHOOSE, self._on_request_choose)
+            self.client.on(MessageType.REQUEST_CHOOSE_MULTI, self._on_request_choose_multi)
+            self.client.on(MessageType.REQUEST_CONFIRM, self._on_request_confirm)
 
         # 写入初始帮助信息
         try:
@@ -145,7 +154,8 @@ class BadtimeWarTUI(App):
                 log.write("      rl <slot号>                - 设置 RL AI")
                 log.write("      policy <slot号> <wait|ai>  - 设置断线策略")
                 log.write("      status                     - 刷新状态")
-                log.write("    所有位置就绪后点击「开始游戏」按钮")
+                log.write("      start                      - 开始游戏（与按钮等效）")
+                log.write("    所有位置就绪后点击「开始游戏」按钮或输入 start")
             else:
                 log.write("  等待房主开始游戏...")
                 log.write("  你可以使用 /chat 和 /whisper 与其他玩家聊天")
@@ -237,6 +247,212 @@ class BadtimeWarTUI(App):
             pass
 
     # ──────────────────────────────────────────
+    #  服务器请求处理（客户端模式：天赋选择、行动指令、确认等）
+    # ──────────────────────────────────────────
+
+    def _on_request_command(self, msg: dict):
+        """服务器请求游戏指令。"""
+        with self._pending_request_lock:
+            self._pending_request = ("command", msg)
+        if self._thread_id == threading.get_ident():
+            self._show_command_request(msg)
+        else:
+            self.call_from_thread(self._show_command_request, msg)
+
+    def _show_command_request(self, msg: dict):
+        player_name = msg.get("player_name", "")
+        actions = msg.get("available_actions", [])
+        hp = msg.get("hp", "?")
+        max_hp = msg.get("max_hp", "?")
+        location = msg.get("location", "?")
+        try:
+            log = self.query_one("#game-log", GameLogWidget)
+            log.write("")
+            log.write(f"  ▶ 轮到你行动 [{player_name}]")
+            log.write(f"  HP: {hp}/{max_hp} | 位置: {location}")
+            if actions:
+                log.write(f"  可选行动: {', '.join(actions)}")
+            log.write("  请在下方输入框中输入指令（输入 help 查看帮助）")
+        except NoMatches:
+            pass
+        except Exception:
+            pass
+
+    def _on_request_choose(self, msg: dict):
+        """服务器请求选择。"""
+        with self._pending_request_lock:
+            self._pending_request = ("choose", msg)
+        if self._thread_id == threading.get_ident():
+            self._show_choose_request(msg)
+        else:
+            self.call_from_thread(self._show_choose_request, msg)
+
+    def _show_choose_request(self, msg: dict):
+        prompt = msg.get("prompt", "请选择")
+        options = msg.get("options", [])
+        try:
+            log = self.query_one("#game-log", GameLogWidget)
+            log.write("")
+            log.write(f"  {prompt}")
+            for i, opt in enumerate(options, 1):
+                log.write(f"    {i}. {opt}")
+            log.write("  请在下方输入框中输入编号")
+        except NoMatches:
+            pass
+        except Exception:
+            pass
+
+    def _on_request_choose_multi(self, msg: dict):
+        """服务器请求多选。"""
+        with self._pending_request_lock:
+            self._pending_request = ("choose_multi", msg)
+            self._multi_selected = []
+        if self._thread_id == threading.get_ident():
+            self._show_choose_multi_request(msg)
+        else:
+            self.call_from_thread(self._show_choose_multi_request, msg)
+
+    def _show_choose_multi_request(self, msg: dict):
+        prompt = msg.get("prompt", "请选择")
+        options = msg.get("options", [])
+        max_count = msg.get("max_count", 1)
+        min_count = msg.get("min_count", 0)
+        try:
+            log = self.query_one("#game-log", GameLogWidget)
+            log.write("")
+            log.write(f"  {prompt} (选 {min_count}~{max_count} 个，输入 0 结束选择)")
+            for i, opt in enumerate(options, 1):
+                log.write(f"    {i}. {opt}")
+        except NoMatches:
+            pass
+        except Exception:
+            pass
+
+    def _on_request_confirm(self, msg: dict):
+        """服务器请求确认。"""
+        with self._pending_request_lock:
+            self._pending_request = ("confirm", msg)
+        if self._thread_id == threading.get_ident():
+            self._show_confirm_request(msg)
+        else:
+            self.call_from_thread(self._show_confirm_request, msg)
+
+    def _show_confirm_request(self, msg: dict):
+        prompt = msg.get("prompt", "确认？")
+        try:
+            log = self.query_one("#game-log", GameLogWidget)
+            log.write("")
+            log.write(f"  {prompt}")
+            log.write("  请输入 y 或 n")
+        except NoMatches:
+            pass
+        except Exception:
+            pass
+
+    def _respond_to_pending(self, pending, user_input: str):
+        """根据 pending request 类型向服务器发送响应。"""
+        req_type, msg_data = pending
+
+        if req_type == "command":
+            # 允许在行动回合中发聊天，不消耗行动
+            if user_input.startswith("/chat ") or user_input.startswith("/whisper "):
+                self._send_chat_from_input(user_input)
+                return
+            with self._pending_request_lock:
+                self._pending_request = None
+            self.client.send_sync({
+                "type": MessageType.COMMAND_RESPONSE,
+                "command": user_input or "forfeit",
+            })
+
+        elif req_type == "choose":
+            if user_input.startswith("/chat ") or user_input.startswith("/whisper "):
+                self._send_chat_from_input(user_input)
+                return
+            with self._pending_request_lock:
+                self._pending_request = None
+            options = msg_data.get("options", [])
+            choice = options[0] if options else ""
+            try:
+                idx = int(user_input) - 1
+                if 0 <= idx < len(options):
+                    choice = options[idx]
+            except (ValueError, IndexError):
+                if user_input in options:
+                    choice = user_input
+            self.client.send_sync({
+                "type": MessageType.CHOOSE_RESPONSE,
+                "choice": choice,
+            })
+
+        elif req_type == "choose_multi":
+            if user_input.startswith("/chat ") or user_input.startswith("/whisper "):
+                self._send_chat_from_input(user_input)
+                return
+            options = msg_data.get("options", [])
+            max_count = msg_data.get("max_count", 1)
+            min_count = msg_data.get("min_count", 0)
+            if not isinstance(getattr(self, "_multi_selected", None), list):
+                self._multi_selected = []
+
+            if user_input == "0" and len(self._multi_selected) >= min_count:
+                with self._pending_request_lock:
+                    self._pending_request = None
+                selected = list(self._multi_selected)
+                self._multi_selected = []
+                self.client.send_sync({
+                    "type": MessageType.CHOOSE_MULTI_RESPONSE,
+                    "choices": selected,
+                })
+                return
+
+            try:
+                idx = int(user_input) - 1
+                if 0 <= idx < len(options) and options[idx] not in self._multi_selected:
+                    self._multi_selected.append(options[idx])
+                    self._log_to_game(
+                        f"  已选: {options[idx]} ({len(self._multi_selected)}/{max_count})"
+                    )
+                    if len(self._multi_selected) >= max_count:
+                        with self._pending_request_lock:
+                            self._pending_request = None
+                        selected = list(self._multi_selected)
+                        self._multi_selected = []
+                        self.client.send_sync({
+                            "type": MessageType.CHOOSE_MULTI_RESPONSE,
+                            "choices": selected,
+                        })
+                        return
+                else:
+                    self._log_to_game("  无效选择，请重试")
+            except (ValueError, IndexError):
+                self._log_to_game("  无效选择，请重试")
+            # 不清除 pending，继续等待更多选择
+
+        elif req_type == "confirm":
+            if user_input.startswith("/chat ") or user_input.startswith("/whisper "):
+                self._send_chat_from_input(user_input)
+                return
+            with self._pending_request_lock:
+                self._pending_request = None
+            result = user_input.lower() in ("y", "yes", "是")
+            self.client.send_sync({
+                "type": MessageType.CONFIRM_RESPONSE,
+                "result": result,
+            })
+
+    def _send_chat_from_input(self, raw: str):
+        """从游戏指令输入中解析聊天命令（不消耗行动）。"""
+        if raw.startswith("/chat "):
+            content = raw[6:].strip()
+            if content:
+                self._send_chat(content, "public")
+        elif raw.startswith("/whisper "):
+            parts = raw[9:].strip().split(" ", 1)
+            if len(parts) >= 2:
+                self._send_chat(parts[1], "private", parts[0])
+
+    # ──────────────────────────────────────────
     #  外部线程推送接口
     # ──────────────────────────────────────────
 
@@ -272,7 +488,18 @@ class BadtimeWarTUI(App):
             self._send_chat(event.value, "private", event.target)
         elif event.cmd_type == "management":
             self._handle_management_cmd(event.value)
-        # game 命令由 CommandInput 的同步等待机制处理
+        else:
+            # "game" 类型命令
+            # 客户端模式：优先响应来自服务器的 pending request
+            with self._pending_request_lock:
+                pending = self._pending_request
+            if pending and self.client:
+                self._respond_to_pending(pending, event.value)
+            else:
+                # 服务端 TUI 的同步等待机制（wait_for_input）
+                if self._input_widget:
+                    self._input_widget._pending_value = event.value
+                    self._input_widget._pending_event.set()
 
     def _send_chat(self, content: str, channel: str, target: str = None):
         msg = {
@@ -428,10 +655,14 @@ class BadtimeWarTUI(App):
             else:
                 self._log_to_game("  可选策略: wait (等待重连), ai (AI接管)")
 
+        elif cmd == "start":
+            # 与「开始游戏」按钮等价：触发 SlotConfigRequest(action="start_game")
+            self.post_message(SlotConfigRequest(slot_id=0, action="start_game"))
+
         else:
             self._log_to_game(f"  未知管理命令: {raw}")
             self._log_to_game(
-                "  可用: ai <slot> [性格] | rl <slot> | policy <slot> <wait|ai> | status"
+                "  可用: ai <slot> [性格] | rl <slot> | policy <slot> <wait|ai> | status | start"
             )
 
     def _refresh_host_panel(self):
