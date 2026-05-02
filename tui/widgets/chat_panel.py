@@ -24,12 +24,22 @@ class ChatPanel(Static):
                 yield RichLog(id="chat-public", wrap=True, markup=True)
 
     def add_message(self, sender: str, content: str, channel: str = "public",
-                    target: str = None):
+                    target: str = None, self_name: str = None):
         if channel == "public":
             log = self.query_one("#chat-public", RichLog)
             log.write(f"[bold]{sender}[/bold]: {content}")
         elif channel == "private":
-            label = target or sender
+            # 私聊频道用「对方」作为 Tab 标题；当 self_name 已知时，
+            # 自己发送方向显示对方名（target），自己接收方向也显示对方名（sender）。
+            if self_name and sender == self_name:
+                label = target or sender
+            elif self_name and target == self_name:
+                label = sender
+            else:
+                # 兜底：旧行为 —— 优先 target
+                label = target or sender
+            if not label:
+                return
             if label not in self._private_tabs:
                 self._add_private_tab(label)
             log = self._private_tabs.get(label)

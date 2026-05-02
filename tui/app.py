@@ -211,7 +211,23 @@ class BadtimeWarTUI(App):
                 content=msg.get("content", ""),
                 channel=msg.get("channel", "public"),
                 target=msg.get("target"),
+                self_name=self._self_name(),
             )
+
+    def _self_name(self) -> str:
+        """当前 TUI 视角下「我」的玩家名（用于私聊频道标题区分主体）。"""
+        if self.client and getattr(self.client, "player_name", None):
+            return self.client.player_name
+        if self.is_host and self.lobby:
+            try:
+                from network.lobby import SlotType
+                for slot in self.lobby.slots:
+                    if slot.slot_type == SlotType.HUMAN_LOCAL and slot.player_name:
+                        return slot.player_name
+            except Exception:
+                pass
+            return "房主"
+        return ""
 
     def _on_lobby_update(self, msg: dict):
         self.call_from_thread(self._handle_lobby_update, msg)
@@ -355,8 +371,8 @@ class BadtimeWarTUI(App):
 
         if req_type == "command":
             # 允许在行动回合中发聊天，不消耗行动
-            if user_input.startswith("/chat ") or user_input.startswith("/whisper "):
-                self._send_chat_from_input(user_input)
+            if self._is_chat_input(user_input):
+                self._dispatch_inline_chat(user_input, "行动指令")
                 return
             with self._pending_request_lock:
                 self._pending_request = None
@@ -366,8 +382,8 @@ class BadtimeWarTUI(App):
             })
 
         elif req_type == "choose":
-            if user_input.startswith("/chat ") or user_input.startswith("/whisper "):
-                self._send_chat_from_input(user_input)
+            if self._is_chat_input(user_input):
+                self._dispatch_inline_chat(user_input, "选择")
                 return
             options = msg_data.get("options", [])
             choice = None
@@ -390,8 +406,8 @@ class BadtimeWarTUI(App):
             })
 
         elif req_type == "choose_multi":
-            if user_input.startswith("/chat ") or user_input.startswith("/whisper "):
-                self._send_chat_from_input(user_input)
+            if self._is_chat_input(user_input):
+                self._dispatch_inline_chat(user_input, "多选")
                 return
             options = msg_data.get("options", [])
             max_count = msg_data.get("max_count", 1)
@@ -441,8 +457,8 @@ class BadtimeWarTUI(App):
             # 不清除 pending，继续等待更多选择
 
         elif req_type == "confirm":
-            if user_input.startswith("/chat ") or user_input.startswith("/whisper "):
-                self._send_chat_from_input(user_input)
+            if self._is_chat_input(user_input):
+                self._dispatch_inline_chat(user_input, "确认")
                 return
             with self._pending_request_lock:
                 self._pending_request = None
@@ -452,16 +468,56 @@ class BadtimeWarTUI(App):
                 "result": result,
             })
 
-    def _send_chat_from_input(self, raw: str):
-        """从游戏指令输入中解析聊天命令（不消耗行动）。"""
-        if raw.startswith("/chat "):
-            content = raw[6:].strip()
-            if content:
-                self._send_chat(content, "public")
-        elif raw.startswith("/whisper "):
-            parts = raw[9:].strip().split(" ", 1)
-            if len(parts) >= 2:
-                self._send_chat(parts[1], "private", parts[0])
+    @staticmethod
+    def _is_chat_input(raw: str) -> bool:
+        """识别 /chat 与 /whisper（含「裸命令」与「带参数」两种写法）。"""
+        if raw == "/chat" or raw == "/whisper":
+            return True
+        return raw.startswith("/chat ") or raw.startswith("/whisper ")
+
+    def _send_chat_from_input(self, raw: str) -> bool:
+        """从游戏指令输入中解析聊天命令（不消耗行动）。
+
+        返回 True 表示成功发送，False 表示输入格式错误（已在 game-log
+        打印提示，pending request 应保留以便用户重试）。
+        """
+        if raw.startswith("/chat"):
+            # 兼容 "/chat" 与 "/chat <内容>"
+            content = raw[len("/chat"):].lstrip()
+            if not content:
+                self._log_to_game("  ⚠ /chat 需要内容，例如：/chat 你好")
+                return False
+            self._send_chat(content, "public")
+            return True
+        if raw.startswith("/whisper"):
+            rest = raw[len("/whisper"):].lstrip()
+            if not rest:
+                self._log_to_game(
+                    "  ⚠ /whisper 需要目标和内容，例如：/whisper 玩家名 你好"
+                )
+                return False
+            parts = rest.split(" ", 1)
+            if len(parts) < 2 or not parts[1].strip():
+                self._log_to_game(
+                    f"  ⚠ /whisper 需要内容，例如：/whisper {parts[0]} 你好"
+                )
+                return False
+            target = parts[0].strip()
+            content = parts[1].strip()
+            if not target:
+                self._log_to_game(
+                    "  ⚠ /whisper 需要目标，例如：/whisper 玩家名 你好"
+                )
+                return False
+            self._send_chat(content, "private", target)
+            return True
+        return False
+
+    def _dispatch_inline_chat(self, raw: str, action_label: str) -> None:
+        """在 pending REQUEST_* 期间处理 /chat 或 /whisper：发送聊天并打印反馈。"""
+        ok = self._send_chat_from_input(raw)
+        if ok:
+            self._log_to_game(f"  [聊天已发送，{action_label}仍在等候你输入]")
 
     # ──────────────────────────────────────────
     #  外部线程推送接口
@@ -544,7 +600,10 @@ class BadtimeWarTUI(App):
                 }
                 self.server.broadcast_sync(chat_msg)
             if self._chat_panel and not self.chat_manager:
-                self._chat_panel.add_message(host_name, content, channel, target)
+                self._chat_panel.add_message(
+                    host_name, content, channel, target,
+                    self_name=self._self_name(),
+                )
 
     # ──────────────────────────────────────────
     #  房主管理
