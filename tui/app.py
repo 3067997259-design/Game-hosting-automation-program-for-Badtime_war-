@@ -369,17 +369,21 @@ class BadtimeWarTUI(App):
             if user_input.startswith("/chat ") or user_input.startswith("/whisper "):
                 self._send_chat_from_input(user_input)
                 return
-            with self._pending_request_lock:
-                self._pending_request = None
             options = msg_data.get("options", [])
-            choice = options[0] if options else ""
+            choice = None
             try:
                 idx = int(user_input) - 1
                 if 0 <= idx < len(options):
                     choice = options[idx]
-            except (ValueError, IndexError):
+            except ValueError:
                 if user_input in options:
                     choice = user_input
+            if choice is None:
+                # 无效选择：保留 pending，提示用户重试
+                self._log_to_game("  无效选择，请重试")
+                return
+            with self._pending_request_lock:
+                self._pending_request = None
             self.client.send_sync({
                 "type": MessageType.CHOOSE_RESPONSE,
                 "choice": choice,
