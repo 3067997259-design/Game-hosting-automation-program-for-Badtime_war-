@@ -374,7 +374,10 @@ class OpponentPool:
         """返回池中所有可用的模型路径。"""
         return sorted(self.pool_dir.glob("opponent_step_*.zip"))
 
-    def sample_opponent_controller(self) -> tuple[PlayerController, str]:
+    def sample_opponent_controller(
+        self,
+        exclude_stems: set[str] | None = None,
+    ) -> tuple[PlayerController, str]:
         """
         从对手池中采样一个控制器。
 
@@ -382,12 +385,18 @@ class OpponentPool:
         否则按 ELO 加权从历史模型中采样。
         如果池为空，总是返回 BasicAI。
 
+        若提供 ``exclude_stems``，候选列表中匹配这些 stem 的模型会被剔除；
+        当所有可用模型都被剔除时自动回退到 BasicAI。
+
         返回 (controller, model_stem)，model_stem 用于 ELO 更新。
         BasicAI 返回 "basic_ai"。
         """
         from controllers.ai_basic import create_random_ai_controller
 
         available = self.get_available_models()
+
+        if exclude_stems:
+            available = [p for p in available if p.stem not in exclude_stems]
 
         # 池为空或随机选择 BasicAI
         if not available or random.random() < self.basic_ai_prob:

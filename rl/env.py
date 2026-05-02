@@ -291,6 +291,7 @@ class BadtimeWarEnv(gym.Env):
         enable_talents: bool = True,
         rl_talent: Optional[int] = None,
         force_random_talent: bool = False,
+        max_per_model: int = 1,
     ):
         super().__init__()
 
@@ -312,6 +313,7 @@ class BadtimeWarEnv(gym.Env):
         self.enable_talents = enable_talents
         self.rl_talent = rl_talent  # None=随机, 0=无天赋, 1-14=指定天赋
         self.force_random_talent: bool = force_random_talent
+        self.max_per_model = max_per_model
 
         # ── Gym 空间 ──
         self.observation_space = spaces.Box(
@@ -407,9 +409,18 @@ class BadtimeWarEnv(gym.Env):
         ai_players = []
         ai_personalities = {}  # pid → personality
         self._opponent_model_stems: Dict[str, str] = {}  # pid → model_stem（用于 ELO）
+        model_usage_count: Dict[str, int] = {}
         for i in range(self.num_opponents):
             if self.opponent_pool is not None:
-                ctrl, model_stem = self.opponent_pool.sample_opponent_controller()
+                # 构建排除集合：已达到 max_per_model 上限的模型
+                over_limit_stems = {
+                    stem for stem, count in model_usage_count.items()
+                    if count >= self.max_per_model and stem != "basic_ai"
+                }
+                ctrl, model_stem = self.opponent_pool.sample_opponent_controller(
+                    exclude_stems=over_limit_stems if over_limit_stems else None
+                )
+                model_usage_count[model_stem] = model_usage_count.get(model_stem, 0) + 1
                 if hasattr(ctrl, 'reset_stack'):
                     ctrl.reset_stack()
                 personality = "balanced"  # self-play 对手无人格概念
