@@ -548,11 +548,29 @@ class BadtimeWarTUI(App):
     #  命令处理
     # ──────────────────────────────────────────
 
+    _PENDING_ACTION_LABELS = {
+        "command": "行动指令",
+        "choose": "选择",
+        "choose_multi": "多选",
+        "confirm": "确认",
+    }
+
+    def _log_pending_chat_feedback(self) -> None:
+        """聊天/私聊期间若仍有待响应请求，给出「不消耗行动」反馈。"""
+        with self._pending_request_lock:
+            pending = self._pending_request
+        if not (pending and self.client):
+            return
+        label = self._PENDING_ACTION_LABELS.get(pending[0], pending[0])
+        self._log_to_game(f"  [聊天已发送，{label}仍在等候你输入]")
+
     def on_command_submitted(self, event: CommandSubmitted):
         if event.cmd_type == "chat":
             self._send_chat(event.value, "public")
+            self._log_pending_chat_feedback()
         elif event.cmd_type == "whisper":
             self._send_chat(event.value, "private", event.target)
+            self._log_pending_chat_feedback()
         elif event.cmd_type == "management":
             self._handle_management_cmd(event.value)
         else:
