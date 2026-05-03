@@ -323,6 +323,9 @@ class SelfPlayCallback(BaseCallback):
         self._divergence_consecutive = 0
         self._divergence_trigger_count = 3  # 连续 3 次偏差触发坍塌
 
+        # 缓存最近一次入池门控计算的 eval WR，供坍塌检测复用（~200 局样本）
+        self._latest_eval_wr: float | None = None
+
     @property
     def min_win_rate(self) -> float:
         """动态入池阈值：强制随机期/学习期用低阈值，成熟期用高阈值。"""
@@ -383,6 +386,7 @@ class SelfPlayCallback(BaseCallback):
             # 2b. 质量门控：优先用 eval 胜率，回退到训练胜率
             saved = False
             eval_wr = self._compute_eval_win_rate() if self._eval_env is not None else None
+            self._latest_eval_wr = eval_wr  # 缓存给坍塌检测复用
             gate_wr = eval_wr if eval_wr is not None else current_win_rate
             if not self._collapse_active and gate_wr is not None and gate_wr >= self.min_win_rate:
                 self.pool.save_current_model(self.model, self.num_timesteps, eval_win_rate=gate_wr)
@@ -446,14 +450,11 @@ class SelfPlayCallback(BaseCallback):
             collapse_eligible = pool_size >= 1
             if not collapse_eligible:
                 return True
-            # 先清空累积的旧结果（可能由 MaskableEvalCallback 共享 eval_env 产生）
-            self._eval_env.env_method("get_episode_outcomes")
-            from sb3_contrib.common.maskable.evaluation import evaluate_policy
-            evaluate_policy(
-                self.model, self._eval_env, n_eval_episodes=20,
-                deterministic=True, use_masking=True,
-            )
-            eval_win_rate = self._compute_eval_win_rate()
+
+            # 使用入池门控已计算的 eval WR（~200 局样本），不再单独跑 20 局
+            # 避免 20 局小样本方差过大导致频繁误触发，并保证日志中坍塌
+            # 预警与 SelfPlay 行的 Eval WR 数字一致。
+            eval_win_rate = self._latest_eval_wr
 
             if eval_win_rate is not None and eval_win_rate < self.collapse_wr_threshold:
                 self.collapse_consecutive_fails += 1
