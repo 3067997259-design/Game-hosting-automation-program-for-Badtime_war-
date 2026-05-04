@@ -38,12 +38,372 @@ AI不是一个人不精进自己能力的借口，但它能帮助一个还没有
 
 废话少叙，祝玩得开心
 
-请注意，V1.92是一个堪称2.0的大改动，很多修改暂时没有实现。全部完成后，我会更新readme去除这句话
 
 
+## 程序使用方法
 
-游玩方式（需安装Python3.8+）
-在集成终端运行main.py即可
+本项目需要 Python 3.8+。根据使用场景不同，提供以下入口脚本：
+
+### 一、本地游戏（单机热座）
+
+```bash
+python main.py
+```
+
+启动交互式命令行游戏。程序会依次引导你完成：
+1. 选择调试模式（0-3级，默认关闭）
+2. 选择游戏模式（全人类 / 人机混合 / 全AI观战）
+3. 设置玩家人数（2-6人）与AI人格（balanced / aggressive / defensive / political / assassin / builder）
+4. 是否启用天赋系统（14个天赋，每个天赋仅能被1人选取）
+5. 是否启用日志记录
+6. 演示速度（含AI时可选逐步/慢速/中速/全速）
+
+---
+
+### 二、局域网联机
+
+#### 房主（服务器端）
+
+```bash
+python main_server.py [选项]
+```
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--port` | 监听端口 | 9527 |
+| `--players` | 总人数（2-6） | 2 |
+| `--no-host-play` | 房主不参与游戏（观战模式） | 否 |
+| `--cli` | 使用纯CLI模式（默认使用Textual TUI） | 否 |
+
+启动后进入大厅管理，可用命令：
+- `status` — 查看房间状态
+- `ai <slot> [personality]` — 将某个槽位设为BasicAI（可选人格）
+- `rl <slot>` — 将某个槽位设为RL AI（需要已训练的模型）
+- `policy <slot> <wait|ai>` — 设置断线策略（等待重连 / AI接管）
+- `start` — 开始游戏
+- `/chat <内容>` — 公屏聊天
+- `/whisper <玩家名> <内容>` — 私聊
+
+#### 客户端（玩家端）
+
+```bash
+python main_client.py [选项]
+```
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--host` | 服务器地址 | 127.0.0.1 |
+| `--port` | 服务器端口 | 9527 |
+| `--name` | 玩家名称 | 交互输入 |
+| `--cli` | 使用纯CLI模式（默认使用Textual TUI） | 否 |
+| `--reconnect` | 断线重连模式 | 否 |
+
+> **TUI 说明**：服务器和客户端默认使用 Textual TUI 界面。若未安装 `textual`（`pip install textual`），会自动回退到纯 CLI 模式。
+
+---
+
+### 三、自动胜率统计
+
+```bash
+python stats_runner.py [选项]
+```
+
+运行全AI对局并输出天赋胜率、人格胜率、校正胜率等统计表格。
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--players` | 每局玩家人数（2-6） | 6 |
+| `--games` | 总局数 | 5000 |
+| `--model` | RL模型路径（.zip），启用后一个AI席位替换为RL | 无 |
+| `--rl-talent` | RL天赋选择模式：`model`=模型自选, `random`=均匀随机, 数字=指定天赋编号, `0`=无天赋 | random |
+| `--n-stack` | RL帧堆叠数量（需与训练时一致） | 30 |
+
+示例：
+```bash
+# 纯BasicAI统计
+python stats_runner.py --players 6 --games 5000
+
+# 加入RL模型对比
+python stats_runner.py --players 6 --games 1000 --model checkpoints/best_model.zip --rl-talent random
+```
+
+---
+
+### 四、RL 训练系统
+
+训练系统基于 MaskablePPO（sb3-contrib），使用 GRU 特征提取器处理帧堆叠观测。完整的训练流程如下：
+
+#### 4.1 行为克隆数据收集
+
+```bash
+python -m rl.bc_collector [选项]
+```
+
+运行全AI对局，记录 BasicAI 的决策数据 `(obs, action_idx, mask)` 用于行为克隆预训练。
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--games` | 游戏局数 | 5000 |
+| `--players` | 每局玩家数 | 6 |
+| `--output` | 输出目录 | bc_data/g7 |
+| `--talent` | 收集哪个天赋的数据（`all`=所有天赋轮流, 数字=只收集指定天赋） | all |
+
+```bash
+# 收集全天赋数据
+python -m rl.bc_collector --games 5000 --players 6 --talent all --output bc_data/all
+
+# 只收集G7（星野）天赋数据
+python -m rl.bc_collector --games 5000 --players 6 --talent 14 --output bc_data/g7
+```
+
+#### 4.2 行为克隆预训练
+
+```bash
+python -m rl.bc_pretrain [选项]
+```
+
+读取 `.npz` 数据训练 MLP 策略网络，产出可用于后续 PPO 微调的权重。
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--data` | BC数据 `.npz` 路径 | **必填** |
+| `--output` | 输出checkpoint路径（生成 `_best.pt` 和 `_final.pt`） | pretrained/g7_bc.zip |
+| `--epochs` | 训练轮数 | 50 |
+| `--batch-size` | 批大小 | 256 |
+| `--lr` | 学习率 | 1e-3 |
+| `--device` | 训练设备（auto/cpu/cuda） | auto |
+| `--val-split` | 验证集比例 | 0.2 |
+
+```bash
+python -m rl.bc_pretrain --data bc_data/g7/t14_bc_data.npz --epochs 50 --output pretrained/g7_bc.zip
+```
+
+#### 4.3 BC权重迁移到PPO模型
+
+```bash
+python -m rl.bc_migrate [选项]
+```
+
+将 BC 预训练的 `.pt` 权重迁移到 MaskablePPO 的 `.zip` 模型中（后两层形状匹配可直接复制）。
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--bc-weights` | BC预训练权重路径（.pt） | **必填** |
+| `--output` | 输出MaskablePPO模型路径（.zip） | pretrained/g7_warmstart.zip |
+| `--n-stack` | 帧堆叠数量（必须与训练时一致） | 30 |
+| `--device` | 设备（cpu/cuda） | cpu |
+
+```bash
+python -m rl.bc_migrate --bc-weights pretrained/g7_bc_best.pt --output pretrained/g7_warmstart.zip
+```
+
+#### 4.4 PPO 训练（主训练脚本）
+
+```bash
+python -m rl.train [选项]
+```
+
+核心训练参数：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--opponents` | 对手数量（1-5） | 3 |
+| `--timesteps` | 总训练步数 | 1,000,000 |
+| `--n-envs` | 并行环境数（>1时使用SubprocVecEnv多进程） | 1 |
+| `--max-rounds` | 每局最大轮数（默认动态计算：人数×50） | 动态 |
+| `--seed` | 随机种子 | 42 |
+| `--resume` | 从已有模型恢复训练（.zip路径） | 无 |
+| `--device` | 训练设备（auto/cpu/cuda） | auto |
+
+PPO 超参数：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--lr` | 学习率 | 3e-4 |
+| `--n-steps` | 每次rollout步数 | 2048 |
+| `--batch-size` | Mini-batch大小 | 256 |
+| `--n-epochs` | 每次更新epoch数 | 10 |
+| `--gamma` | 折扣因子 | 0.99 |
+| `--gae-lambda` | GAE lambda | 0.95 |
+| `--clip-range` | PPO clip range | 0.2 |
+| `--ent-coef` | 熵系数 | 0.01 |
+| `--n-stack` | 帧堆叠数量（GRU处理最近N帧） | 30 |
+
+课程学习：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--curriculum` | 启用课程学习（从少量对手逐步增加） | 否 |
+| `--curriculum-start` | 课程起始对手数 | 2 |
+| `--curriculum-threshold` | 课程升级胜率阈值（全局） | 自动计算 |
+| `--curriculum-thresholds` | 每阶段升级阈值（空格分隔） | 自动计算 |
+| `--ent-rebound` | 课程升级时entropy回弹系数 | 0.03 |
+| `--ent-rebound-decay` | entropy回弹衰减步数 | 200,000 |
+
+Self-play：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--self-play` | 启用self-play训练 | 否 |
+| `--seed-model` | Self-play种子模型路径（.zip） | 无 |
+| `--pool-size` | 对手池最大模型数量 | 20 |
+| `--self-play-save-freq` | 模型保存频率（步数） | 500,000 |
+| `--initial-basic-ai-prob` | 初始BasicAI混入概率 | 0.5 |
+| `--final-basic-ai-prob` | 最终BasicAI混入概率 | 0.3 |
+| `--collapse-threshold` | 坍塌检测胜率阈值 | 0.12 |
+| `--no-collapse-detection` | 禁用策略坍塌检测 | 否 |
+| `--max-per-model` | 同一对手池模型最多出现几次 | 1 |
+
+天赋选择：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--rl-talent` | RL天赋编号（None=RL自选, 0=无天赋, 1-14=指定） | None |
+| `--no-talents` | 禁用天赋系统 | 否 |
+| `--force-random-talent-until` | 在此步数之前强制随机分配天赋 | 0 |
+| `--talent-grace-steps` | 天赋自选解锁后的学习期步数 | 2,000,000 |
+
+典型训练流程示例：
+
+```bash
+# 1. 收集BC数据
+python -m rl.bc_collector --games 5000 --players 6 --talent 14
+
+# 2. BC预训练
+python -m rl.bc_pretrain --data bc_data/g7/t14_bc_data.npz --epochs 50
+
+# 3. 权重迁移
+python -m rl.bc_migrate --bc-weights pretrained/g7_bc_best.pt
+
+# 4. 带课程学习和self-play的PPO训练
+python -m rl.train \
+    --resume pretrained/g7_warmstart.zip \
+    --opponents 5 \
+    --timesteps 20000000 \
+    --n-envs 16 \
+    --curriculum --curriculum-start 2 \
+    --self-play --seed-model pretrained/g7_warmstart.zip \
+    --force-random-talent-until 5000000 \
+    --device auto
+```
+
+#### 4.5 模型导出（TorchScript）
+
+```bash
+python -m rl.export_torchscript --model <模型.zip> --output <输出.pts> [--n-stack 30] [--no-verify]
+```
+
+将训练好的 MaskablePPO 策略导出为 TorchScript（`.pts`），用于 self-play 对手推理，推理速度提升 2-5 倍。默认会验证导出模型与原模型的 logits 一致性。
+
+#### 4.6 观战脚本
+
+```bash
+python -m rl.watch_all [选项]
+```
+
+可视化 RL 智能体与 BasicAI 的对局过程，显示每步决策、天赋状态、对手行动等详细信息。
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--model` | 模型路径（.zip） | **必填** |
+| `--opponents` | 对手数量 | 1 |
+| `--max-rounds` | 最大轮数 | 动态 |
+| `--n-stack` | 帧堆叠数量 | 30 |
+| `--no-talents` | 关闭天赋系统 | 否 |
+| `--rl-talent` | RL天赋（None=自选, 0=无, 1-14=指定, random=随机） | None |
+| `--games` | 连续跑多局并汇总统计 | 1 |
+
+```bash
+# 单局详细观战
+python -m rl.watch_all --model checkpoints/best_model.zip --opponents 3
+
+# 多局批量统计
+python -m rl.watch_all --model checkpoints/best_model.zip --opponents 5 --games 20 --rl-talent random
+```
+
+#### 4.7 诊断工具
+
+**训练性能诊断**：分析 rollout 收集与 PPO update 各阶段耗时。
+
+```bash
+python -u -m rl.profile_train \
+    --resume pretrained/g7_warmstart.zip \
+    --opponents 5 --n-envs 16 --timesteps 200000
+```
+
+**Self-play 多进程性能诊断**：对比单进程与多进程模式的性能差异。
+
+```bash
+python -m rl.diagnose_selfplay \
+    --seed-model pretrained/g7_warmstart.zip \
+    --opponents 5 --n-envs 16 --n-steps 200
+```
+
+**单局自对弈诊断**：直接用游戏引擎跑一局，对每个玩家的每次调用进行精确计时。
+
+```bash
+python -m rl.diagnose_single_game \
+    --model checkpoints/model.zip \
+    --opponents 5 --rl-opponents 3 --n-stack 30
+```
+
+---
+
+### 五、LLM 聊天功能（联机模式）
+
+在联机模式下，AI 玩家可以通过 LLM 参与游戏内聊天。此功能完全可选——未配置时 AI 不参与聊天。
+
+#### 配置方法
+
+将 `config/llm_config.example.json` 复制为 `config/llm_config.json`，填入你的 LLM 配置：
+
+**OpenAI / 兼容API**：
+```json
+{
+    "backend": "openai",
+    "api_key": "你的API密钥",
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-3.5-turbo"
+}
+```
+
+**Ollama 本地模型**：
+```json
+{
+    "backend": "ollama",
+    "host": "http://localhost:11434",
+    "model": "llama3"
+}
+```
+
+配置完成后，启动 `main_server.py` 联机服务器时会自动为 BasicAI 玩家加载聊天模块。AI 会根据其人格（aggressive / defensive / political 等）生成符合角色性格的聊天回复。
+
+---
+
+### 六、配置文件
+
+| 文件 | 说明 |
+|------|------|
+| `config/game_config.json` | 游戏配置，可设置 AI 禁用天赋列表（编号或名称） |
+| `config/llm_config.json` | LLM 聊天后端配置（需从 `.example.json` 复制创建） |
+| `config/prompt_config.json` | 提示文本配置 |
+
+`game_config.json` 示例：
+```json
+{
+    "ai_disabled_talents": [10, 12],
+    "_comment": "填入天赋编号(1-14)或天赋名来禁止AI选用"
+}
+```
+
+---
+
+### 依赖说明
+
+- **基础游戏**（`main.py`）：仅需 Python 标准库
+- **联机模式**（`main_server.py` / `main_client.py`）：可选安装 `textual`（TUI界面）
+- **LLM 聊天**：可选安装 `openai` 或 `requests`（Ollama）
+- **RL 训练**：需要 `torch`、`stable-baselines3`、`sb3-contrib`、`gymnasium`、`numpy`
 
 
 
