@@ -68,12 +68,12 @@ python main.py
 python main_server.py [选项]
 ```
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--port` | 监听端口 | 9527 |
-| `--players` | 总人数（2-6） | 2 |
-| `--no-host-play` | 房主不参与游戏（观战模式） | 否 |
-| `--cli` | 使用纯CLI模式（默认使用Textual TUI） | 否 |
+| 参数             | 说明                                 | 默认值 |
+|------------------|--------------------------------------|--------|
+| `--port`         | 监听端口                             | 9527   |
+| `--players`      | 总人数（2-6）                        | 2      |
+| `--no-host-play` | 房主不参与游戏（观战模式）           | 否     |
+| `--cli`          | 使用纯CLI模式（默认使用Textual TUI） | 否     |
 
 启动后进入大厅管理，可用命令：
 - `status` — 查看房间状态
@@ -90,13 +90,13 @@ python main_server.py [选项]
 python main_client.py [选项]
 ```
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--host` | 服务器地址 | 127.0.0.1 |
-| `--port` | 服务器端口 | 9527 |
-| `--name` | 玩家名称 | 交互输入 |
-| `--cli` | 使用纯CLI模式（默认使用Textual TUI） | 否 |
-| `--reconnect` | 断线重连模式 | 否 |
+| 参数          | 说明                                 | 默认值    |
+|---------------|--------------------------------------|-----------|
+| `--host`      | 服务器地址                           | 127.0.0.1 |
+| `--port`      | 服务器端口                           | 9527      |
+| `--name`      | 玩家名称                             | 交互输入  |
+| `--cli`       | 使用纯CLI模式（默认使用Textual TUI） | 否        |
+| `--reconnect` | 断线重连模式                         | 否        |
 
 > **TUI 说明**：服务器和客户端默认使用 Textual TUI 界面。若未安装 `textual`（`pip install textual`），会自动回退到纯 CLI 模式。
 
@@ -110,13 +110,13 @@ python stats_runner.py [选项]
 
 运行全AI对局并输出天赋胜率、人格胜率、校正胜率等统计表格。
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--players` | 每局玩家人数（2-6） | 6 |
-| `--games` | 总局数 | 5000 |
-| `--model` | RL模型路径（.zip），启用后一个AI席位替换为RL | 无 |
+| 参数          | 说明                                                                               | 默认值 |
+|---------------|------------------------------------------------------------------------------------|--------|
+| `--players`   | 每局玩家人数（2-6）                                                                | 6      |
+| `--games`     | 总局数                                                                             | 5000   |
+| `--model`     | RL模型路径（.zip），启用后一个AI席位替换为RL                                       | 无     |
 | `--rl-talent` | RL天赋选择模式：`model`=模型自选, `random`=均匀随机, 数字=指定天赋编号, `0`=无天赋 | random |
-| `--n-stack` | RL帧堆叠数量（需与训练时一致） | 30 |
+| `--n-stack`   | RL帧堆叠数量（需与训练时一致）                                                     | 30     |
 
 示例：
 ```bash
@@ -141,12 +141,12 @@ python -m rl.bc_collector [选项]
 
 运行全AI对局，记录 BasicAI 的决策数据 `(obs, action_idx, mask)` 用于行为克隆预训练。
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--games` | 游戏局数 | 5000 |
-| `--players` | 每局玩家数 | 6 |
-| `--output` | 输出目录 | bc_data/g7 |
-| `--talent` | 收集哪个天赋的数据（`all`=所有天赋轮流, 数字=只收集指定天赋） | all |
+| 参数        | 说明                                                          | 默认值     |
+|-------------|---------------------------------------------------------------|------------|
+| `--games`   | 游戏局数                                                      | 5000       |
+| `--players` | 每局玩家数                                                    | 6          |
+| `--output`  | 输出目录                                                      | bc_data/g7 |
+| `--talent`  | 收集哪个天赋的数据（`all`=所有天赋轮流, 数字=只收集指定天赋） | all        |
 
 ```bash
 # 收集全天赋数据
@@ -164,15 +164,15 @@ python -m rl.bc_pretrain [选项]
 
 读取 `.npz` 数据训练 MLP 策略网络，产出可用于后续 PPO 微调的权重。
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--data` | BC数据 `.npz` 路径 | **必填** |
-| `--output` | 输出checkpoint路径（生成 `_best.pt` 和 `_final.pt`） | pretrained/g7_bc.zip |
-| `--epochs` | 训练轮数 | 50 |
-| `--batch-size` | 批大小 | 256 |
-| `--lr` | 学习率 | 1e-3 |
-| `--device` | 训练设备（auto/cpu/cuda） | auto |
-| `--val-split` | 验证集比例 | 0.2 |
+| 参数           | 说明                                                 | 默认值               |
+|----------------|------------------------------------------------------|----------------------|
+| `--data`       | BC数据 `.npz` 路径                                   | **必填**             |
+| `--output`     | 输出checkpoint路径（生成 `_best.pt` 和 `_final.pt`） | pretrained/g7_bc.zip |
+| `--epochs`     | 训练轮数                                             | 50                   |
+| `--batch-size` | 批大小                                               | 256                  |
+| `--lr`         | 学习率                                               | 1e-3                 |
+| `--device`     | 训练设备（auto/cpu/cuda）                            | auto                 |
+| `--val-split`  | 验证集比例                                           | 0.2                  |
 
 ```bash
 python -m rl.bc_pretrain --data bc_data/g7/t14_bc_data.npz --epochs 50 --output pretrained/g7_bc.zip
@@ -186,12 +186,12 @@ python -m rl.bc_migrate [选项]
 
 将 BC 预训练的 `.pt` 权重迁移到 MaskablePPO 的 `.zip` 模型中（后两层形状匹配可直接复制）。
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--bc-weights` | BC预训练权重路径（.pt） | **必填** |
-| `--output` | 输出MaskablePPO模型路径（.zip） | pretrained/g7_warmstart.zip |
-| `--n-stack` | 帧堆叠数量（必须与训练时一致） | 30 |
-| `--device` | 设备（cpu/cuda） | cpu |
+| 参数           | 说明                            | 默认值                      |
+|----------------|---------------------------------|-----------------------------|
+| `--bc-weights` | BC预训练权重路径（.pt）         | **必填**                    |
+| `--output`     | 输出MaskablePPO模型路径（.zip） | pretrained/g7_warmstart.zip |
+| `--n-stack`    | 帧堆叠数量（必须与训练时一致）  | 30                          |
+| `--device`     | 设备（cpu/cuda）                | cpu                         |
 
 ```bash
 python -m rl.bc_migrate --bc-weights pretrained/g7_bc_best.pt --output pretrained/g7_warmstart.zip
@@ -205,63 +205,63 @@ python -m rl.train [选项]
 
 核心训练参数：
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--opponents` | 对手数量（1-5） | 3 |
-| `--timesteps` | 总训练步数 | 1,000,000 |
-| `--n-envs` | 并行环境数（>1时使用SubprocVecEnv多进程） | 1 |
-| `--max-rounds` | 每局最大轮数（默认动态计算：人数×50） | 动态 |
-| `--seed` | 随机种子 | 42 |
-| `--resume` | 从已有模型恢复训练（.zip路径） | 无 |
-| `--device` | 训练设备（auto/cpu/cuda） | auto |
+| 参数           | 说明                                      | 默认值    |
+|----------------|-------------------------------------------|-----------|
+| `--opponents`  | 对手数量（1-5）                           | 3         |
+| `--timesteps`  | 总训练步数                                | 1,000,000 |
+| `--n-envs`     | 并行环境数（>1时使用SubprocVecEnv多进程） | 1         |
+| `--max-rounds` | 每局最大轮数（默认动态计算：人数×50）     | 动态      |
+| `--seed`       | 随机种子                                  | 42        |
+| `--resume`     | 从已有模型恢复训练（.zip路径）            | 无        |
+| `--device`     | 训练设备（auto/cpu/cuda）                 | auto      |
 
 PPO 超参数：
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--lr` | 学习率 | 3e-4 |
-| `--n-steps` | 每次rollout步数 | 2048 |
-| `--batch-size` | Mini-batch大小 | 256 |
-| `--n-epochs` | 每次更新epoch数 | 10 |
-| `--gamma` | 折扣因子 | 0.99 |
-| `--gae-lambda` | GAE lambda | 0.95 |
-| `--clip-range` | PPO clip range | 0.2 |
-| `--ent-coef` | 熵系数 | 0.01 |
-| `--n-stack` | 帧堆叠数量（GRU处理最近N帧） | 30 |
+| 参数           | 说明                         | 默认值 |
+|----------------|------------------------------|--------|
+| `--lr`         | 学习率                       | 3e-4   |
+| `--n-steps`    | 每次rollout步数              | 2048   |
+| `--batch-size` | Mini-batch大小               | 256    |
+| `--n-epochs`   | 每次更新epoch数              | 10     |
+| `--gamma`      | 折扣因子                     | 0.99   |
+| `--gae-lambda` | GAE lambda                   | 0.95   |
+| `--clip-range` | PPO clip range               | 0.2    |
+| `--ent-coef`   | 熵系数                       | 0.01   |
+| `--n-stack`    | 帧堆叠数量（GRU处理最近N帧） | 30     |
 
 课程学习：
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--curriculum` | 启用课程学习（从少量对手逐步增加） | 否 |
-| `--curriculum-start` | 课程起始对手数 | 2 |
-| `--curriculum-threshold` | 课程升级胜率阈值（全局） | 自动计算 |
-| `--curriculum-thresholds` | 每阶段升级阈值（空格分隔） | 自动计算 |
-| `--ent-rebound` | 课程升级时entropy回弹系数 | 0.03 |
-| `--ent-rebound-decay` | entropy回弹衰减步数 | 200,000 |
+| 参数                      | 说明                               | 默认值   |
+|---------------------------|------------------------------------|----------|
+| `--curriculum`            | 启用课程学习（从少量对手逐步增加） | 否       |
+| `--curriculum-start`      | 课程起始对手数                     | 2        |
+| `--curriculum-threshold`  | 课程升级胜率阈值（全局）           | 自动计算 |
+| `--curriculum-thresholds` | 每阶段升级阈值（空格分隔）         | 自动计算 |
+| `--ent-rebound`           | 课程升级时entropy回弹系数          | 0.03     |
+| `--ent-rebound-decay`     | entropy回弹衰减步数                | 200,000  |
 
 Self-play：
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--self-play` | 启用self-play训练 | 否 |
-| `--seed-model` | Self-play种子模型路径（.zip） | 无 |
-| `--pool-size` | 对手池最大模型数量 | 20 |
-| `--self-play-save-freq` | 模型保存频率（步数） | 500,000 |
-| `--initial-basic-ai-prob` | 初始BasicAI混入概率 | 0.5 |
-| `--final-basic-ai-prob` | 最终BasicAI混入概率 | 0.3 |
-| `--collapse-threshold` | 坍塌检测胜率阈值 | 0.12 |
-| `--no-collapse-detection` | 禁用策略坍塌检测 | 否 |
-| `--max-per-model` | 同一对手池模型最多出现几次 | 1 |
+| 参数                      | 说明                          | 默认值  |
+|---------------------------|-------------------------------|---------|
+| `--self-play`             | 启用self-play训练             | 否      |
+| `--seed-model`            | Self-play种子模型路径（.zip） | 无      |
+| `--pool-size`             | 对手池最大模型数量            | 20      |
+| `--self-play-save-freq`   | 模型保存频率（步数）          | 500,000 |
+| `--initial-basic-ai-prob` | 初始BasicAI混入概率           | 0.5     |
+| `--final-basic-ai-prob`   | 最终BasicAI混入概率           | 0.3     |
+| `--collapse-threshold`    | 坍塌检测胜率阈值              | 0.12    |
+| `--no-collapse-detection` | 禁用策略坍塌检测              | 否      |
+| `--max-per-model`         | 同一对手池模型最多出现几次    | 1       |
 
 天赋选择：
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--rl-talent` | RL天赋编号（None=RL自选, 0=无天赋, 1-14=指定） | None |
-| `--no-talents` | 禁用天赋系统 | 否 |
-| `--force-random-talent-until` | 在此步数之前强制随机分配天赋 | 0 |
-| `--talent-grace-steps` | 天赋自选解锁后的学习期步数 | 2,000,000 |
+| 参数                          | 说明                                           | 默认值    |
+|-------------------------------|------------------------------------------------|-----------|
+| `--rl-talent`                 | RL天赋编号（None=RL自选, 0=无天赋, 1-14=指定） | None      |
+| `--no-talents`                | 禁用天赋系统                                   | 否        |
+| `--force-random-talent-until` | 在此步数之前强制随机分配天赋                   | 0         |
+| `--talent-grace-steps`        | 天赋自选解锁后的学习期步数                     | 2,000,000 |
 
 典型训练流程示例：
 
@@ -303,15 +303,15 @@ python -m rl.watch_all [选项]
 
 可视化 RL 智能体与 BasicAI 的对局过程，显示每步决策、天赋状态、对手行动等详细信息。
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--model` | 模型路径（.zip） | **必填** |
-| `--opponents` | 对手数量 | 1 |
-| `--max-rounds` | 最大轮数 | 动态 |
-| `--n-stack` | 帧堆叠数量 | 30 |
-| `--no-talents` | 关闭天赋系统 | 否 |
-| `--rl-talent` | RL天赋（None=自选, 0=无, 1-14=指定, random=随机） | None |
-| `--games` | 连续跑多局并汇总统计 | 1 |
+| 参数           | 说明                                              | 默认值   |
+|----------------|---------------------------------------------------|----------|
+| `--model`      | 模型路径（.zip）                                  | **必填** |
+| `--opponents`  | 对手数量                                          | 1        |
+| `--max-rounds` | 最大轮数                                          | 动态     |
+| `--n-stack`    | 帧堆叠数量                                        | 30       |
+| `--no-talents` | 关闭天赋系统                                      | 否       |
+| `--rl-talent`  | RL天赋（None=自选, 0=无, 1-14=指定, random=随机） | None     |
+| `--games`      | 连续跑多局并汇总统计                              | 1        |
 
 ```bash
 # 单局详细观战
@@ -382,11 +382,11 @@ python -m rl.diagnose_single_game \
 
 ### 六、配置文件
 
-| 文件 | 说明 |
-|------|------|
-| `config/game_config.json` | 游戏配置，可设置 AI 禁用天赋列表（编号或名称） |
-| `config/llm_config.json` | LLM 聊天后端配置（需从 `.example.json` 复制创建） |
-| `config/prompt_config.json` | 提示文本配置 |
+| 文件                        | 说明                                              |
+|-----------------------------|---------------------------------------------------|
+| `config/game_config.json`   | 游戏配置，可设置 AI 禁用天赋列表（编号或名称）    |
+| `config/llm_config.json`    | LLM 聊天后端配置（需从 `.example.json` 复制创建） |
+| `config/prompt_config.json` | 提示文本配置                                      |
 
 `game_config.json` 示例：
 ```json
