@@ -6,6 +6,7 @@ AIRI 连接测试工具
 用法：
   python test_airi_connection.py
   python test_airi_connection.py ws://localhost:6121/ws
+  python test_airi_connection.py wss://localhost:6121/ws
 """
 import asyncio
 import json
@@ -26,20 +27,40 @@ async def test():
 
     print(f"  正在连接 AIRI: {url}")
 
+    connect_kwargs = {}
+    if url.startswith("wss://"):
+        import ssl as _ssl
+        ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = _ssl.CERT_NONE
+        connect_kwargs["ssl"] = ssl_ctx
+
     try:
-        async with websockets.connect(url) as ws:
+        async with websockets.connect(url, **connect_kwargs) as ws:
             print("  ✓ WebSocket 连接成功！")
 
             # 发送模块注册
+            instance_id = f"connection-test-{uuid.uuid4().hex[:8]}"
             announce = {
                 "type": "module:announce",
                 "data": {
-                    "moduleId": "connection-test",
-                    "type": "external",
                     "name": "Connection Test",
+                    "identity": {
+                        "id": instance_id,
+                        "kind": "plugin",
+                        "plugin": {
+                            "id": "connection-test",
+                        },
+                    },
                 },
                 "metadata": {
-                    "source": {"moduleId": "connection-test", "type": "external"},
+                    "source": {
+                        "id": instance_id,
+                        "kind": "plugin",
+                        "plugin": {
+                            "id": "connection-test",
+                        },
+                    },
                     "event": {"id": str(uuid.uuid4())},
                 },
             }
@@ -51,7 +72,13 @@ async def test():
                 "type": "input:text",
                 "data": {"text": "你好，这是一条测试消息。请回复任意内容。"},
                 "metadata": {
-                    "source": {"moduleId": "connection-test", "type": "external"},
+                    "source": {
+                        "id": instance_id,
+                        "kind": "plugin",
+                        "plugin": {
+                            "id": "connection-test",
+                        },
+                    },
                     "event": {"id": str(uuid.uuid4())},
                 },
             }
