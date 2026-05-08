@@ -133,13 +133,31 @@ class AIChatModule:
         if game_state is not None:
             self._update_player_ref(game_state)
 
-        system_prompt = self._build_system_prompt(game_state)
+        # AIRI 后端：不塞 system prompt 到 chat() 调用——AIRI 有自己的
+        # 角色卡和记忆系统，游戏的 system prompt 会覆盖其人设并以可见
+        # 文本出现在聊天窗口。改为通过 context:update 推送游戏状态、
+        # spark:notify 推送游戏事件；chat() 只发送玩家的实际聊天内容。
+        is_airi = bool(getattr(self.backend, "is_airi", False))
 
-        # AIRI 后端：不加 [私聊]/[公屏] 渠道前缀（AIRI 有自己的上下文管理，
-        # 渠道信息已通过 system prompt 中的状态段或独立 notify 推送）。
-        # 其他后端：保留前缀，帮助 LLM 区分聊天渠道。
-        from ai_chat.airi_backend import AiriBackend
-        if isinstance(self.backend, AiriBackend):
+        if is_airi:
+            # 通过 context:update 推送游戏状态（替代塞进 system prompt）
+            if game_state is not None and self._player_ref is not None:
+                try:
+                    from ai_chat.state_narrator import narrate_state
+                    narration = narrate_state(
+                        self._player_ref, game_state, self.controller,
+                    )
+                    dec = (
+                        self._build_decision_context()
+                        if self.controller else ""
+                    )
+                    push = getattr(self.backend, "push_game_state", None)
+                    if narration and callable(push):
+                        push(narration, dec)
+                except Exception:
+                    pass
+
+            # AIRI 模式：history 中不加 [公屏]/[私聊] 前缀
             self._history.append({
                 "role": "user",
                 "content": f"{sender}: {message}",
@@ -154,10 +172,15 @@ class AIChatModule:
         if len(self._history) > self.HISTORY_MAX:
             self._history = self._history[-self.HISTORY_TRIM_TO:]
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            *self._history,
-        ]
+        if is_airi:
+            # 不加 system prompt：AIRI 用自己的角色卡 + context:update
+            messages = list(self._history)
+        else:
+            system_prompt = self._build_system_prompt(game_state)
+            messages = [
+                {"role": "system", "content": system_prompt},
+                *self._history,
+            ]
 
         try:
             raw = self.backend.chat(messages, temperature=0.8)
