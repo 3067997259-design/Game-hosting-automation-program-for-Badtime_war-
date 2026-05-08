@@ -28,6 +28,7 @@ class MessageType(str, Enum):
     DISCONNECT_NOTICE = "disconnect_notice"
     GAME_STATE_SNAPSHOT = "game_state_snapshot"
     HEARTBEAT_ACK = "heartbeat_ack"
+    TYPING_INDICATOR = "typing_indicator"
 
     # Client → Server
     COMMAND_RESPONSE = "command_response"

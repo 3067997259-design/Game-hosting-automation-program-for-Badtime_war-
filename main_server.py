@@ -35,10 +35,17 @@ def main():
     parser.add_argument("--players", type=int, default=2, help="总人数（2-6，默认 2）")
     parser.add_argument("--no-host-play", action="store_true", help="房主不参与游戏")
     parser.add_argument("--cli", action="store_true", help="使用纯 CLI 模式（默认使用 Textual TUI）")
+    parser.add_argument("--debug", type=int, default=0, choices=[0, 1, 2, 3],
+                        help="调试级别（0=关闭, 1=基本, 2=详细, 3=完整）")
     args = parser.parse_args()
 
     total_players = max(2, min(6, args.players))
     host_plays = not args.no_host_play
+
+    # 设置调试模式
+    if args.debug > 0:
+        from engine.debug_config import DebugConfig
+        DebugConfig.set_debug_mode(True, args.debug)
 
     print(f"\n  ═══════════════════════════════════════")
     print(f"    起闯战争 - 局域网联机服务器")
@@ -46,6 +53,8 @@ def main():
     print(f"  端口: {args.port}")
     print(f"  人数: {total_players}")
     print(f"  房主参与: {'是' if host_plays else '否'}")
+    if args.debug > 0:
+        print(f"  调试级别: {args.debug}")
     print()
 
     # 启动网络服务器
@@ -338,6 +347,21 @@ def _run_with_tui(server, lobby, chat_manager, host_plays, monitor):
 
     # 注册 ChatManager 的 TUI 回调
     chat_manager.set_tui_callback(app.push_chat_message)
+
+    # 注册 typing indicator 回调
+    def _tui_typing(player_name, is_typing):
+        if app._thread_id == threading.get_ident():
+            app._handle_typing({
+                "player_name": player_name,
+                "is_typing": is_typing,
+            })
+        else:
+            app.call_from_thread(
+                app._handle_typing,
+                {"player_name": player_name, "is_typing": is_typing},
+            )
+
+    chat_manager.set_tui_typing_callback(_tui_typing)
 
     # TUI 运行（阻塞）
     app.run()

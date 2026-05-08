@@ -17,6 +17,8 @@ class ChatPanel(Static):
         self._private_tabs: dict[str, RichLog] = {}
         # 用递增序号生成合法 widget ID（Textual 仅允许 ASCII 字母/数字/下划线/连字符）
         self._tab_counter: int = 0
+        # 当前正在输入回复的玩家集合
+        self._typing_set: set = set()
 
     def compose(self):
         with TabbedContent():
@@ -56,3 +58,18 @@ class ChatPanel(Static):
         pane = TabPane(f"私聊:{player_name}", log, id=tab_id)
         tabs.add_pane(pane)
         self._private_tabs[player_name] = log
+
+    def set_typing(self, player_name: str, is_typing: bool):
+        """显示/隐藏 typing indicator"""
+        try:
+            if is_typing:
+                self._typing_set.add(player_name)
+            else:
+                self._typing_set.discard(player_name)
+            if self._typing_set:
+                names_str = "、".join(sorted(self._typing_set))
+                self.border_subtitle = f"💭 {names_str} 正在回复中..."
+            else:
+                self.border_subtitle = ""
+        except Exception:
+            pass
