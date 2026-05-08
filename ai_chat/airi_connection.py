@@ -22,7 +22,8 @@ class AiriConnection:
 
     def __init__(self, ws_url: str, module_id: str, auth_token: str = ""):
         self.ws_url = ws_url
-        self.module_id = module_id
+        self.module_id = module_id  # 作为 plugin.id（稳定标识）
+        self.instance_id = f"{module_id}-{uuid.uuid4().hex[:8]}"  # 实例 ID（每次运行唯一）
         self.auth_token = auth_token
         self._ws = None  # websockets 连接对象
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -59,8 +60,16 @@ class AiriConnection:
         # 在事件循环中创建 Queue，确保绑定到正确的循环
         self._response_queue = asyncio.Queue()
 
+        connect_kwargs = {}
+        if self.ws_url.startswith("wss://"):
+            import ssl as _ssl
+            ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = _ssl.CERT_NONE
+            connect_kwargs["ssl"] = ssl_ctx
+
         try:
-            async with websockets.connect(self.ws_url) as ws:
+            async with websockets.connect(self.ws_url, **connect_kwargs) as ws:
                 self._ws = ws
                 self._connected = True
                 log.info(f"已连接到 AIRI: {self.ws_url}")
@@ -73,10 +82,14 @@ class AiriConnection:
 
                 # 注册模块
                 await self._send_event("module:announce", {
-                    "moduleId": self.module_id,
-                    "type": "external",
                     "name": "Badtime War Bridge",
-                    "capabilities": ["input", "context"],
+                    "identity": {
+                        "id": self.instance_id,
+                        "kind": "plugin",
+                        "plugin": {
+                            "id": self.module_id,
+                        },
+                    },
                 })
 
                 # 接收循环
@@ -125,8 +138,11 @@ class AiriConnection:
             "data": data,
             "metadata": {
                 "source": {
-                    "moduleId": self.module_id,
-                    "type": "external",
+                    "id": self.instance_id,
+                    "kind": "plugin",
+                    "plugin": {
+                        "id": self.module_id,
+                    },
                 },
                 "event": {
                     "id": str(uuid.uuid4()),
