@@ -17,6 +17,16 @@ class LLMBackend(ABC):
     def chat(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
         ...
 
+    @property
+    def is_airi(self) -> bool:
+        """是否是 AIRI 后端（有状态、有自己的角色卡）。
+
+        默认 False；AiriBackend 会覆盖为 True。AIChatModule 用此属性
+        决定是否要塞 system prompt 到 chat() 调用中——AIRI 不应该收到
+        system prompt（它有自己的人设和记忆系统），普通 LLM 则需要。
+        """
+        return False
+
 
 class OpenAIBackend(LLMBackend):
     """OpenAI 兼容后端（支持 Ollama 的 OpenAI 兼容端点）。"""

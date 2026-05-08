@@ -54,6 +54,25 @@ class ChatManager:
     def register_ai_chatter(self, player_name: str, module: Any):
         self._ai_chat_modules[player_name] = module
 
+    def notify_game_event(self, event_text: str):
+        """向所有使用 AIRI 后端的 AI 推送游戏事件通知。
+
+        AIRI 是有状态的对话 AI——游戏事件（轮次开始、玩家死亡、战斗结果等）
+        通过 spark:notify 推送给它，让它实时感知进展。普通 LLM 后端是无状态的
+        无需推送（事件信息会随下一次 system prompt 一起带入）。
+        """
+        for module in self._ai_chat_modules.values():
+            backend = getattr(module, "backend", None)
+            if backend is None or not getattr(backend, "is_airi", False):
+                continue
+            push = getattr(backend, "push_game_event", None)
+            if not callable(push):
+                continue
+            try:
+                push(event_text)
+            except Exception:
+                pass
+
     def handle_chat(self, client_id: str, msg: Dict[str, Any]):
         sender = msg.get("sender", "未知")
         content = msg.get("content", "")
