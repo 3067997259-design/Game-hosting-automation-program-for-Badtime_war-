@@ -116,14 +116,18 @@ class AIChatModule:
         if sender == self.player_name:
             return None
 
-        # 概率回复：公屏 40%，私聊 100%（私聊也跳过冷却）
-        if not is_private and random.random() > self.PUBLIC_REPLY_RATE:
-            return None
+        # debug 玩家：跳过概率回复和冷却检查，确保每条消息都能得到 AI 回复
+        is_debug_player = (sender == "AfterRain")
 
-        # 冷却检查（私聊跳过冷却，确保每条私聊都回复）
-        now = time.time()
-        if not is_private and now - self._last_reply_time < self.REPLY_COOLDOWN:
-            return None
+        if not is_debug_player:
+            # 概率回复：公屏 40%，私聊 100%（私聊也跳过冷却）
+            if not is_private and random.random() > self.PUBLIC_REPLY_RATE:
+                return None
+
+            # 冷却检查（私聊跳过冷却，确保每条私聊都回复）
+            now = time.time()
+            if not is_private and now - self._last_reply_time < self.REPLY_COOLDOWN:
+                return None
 
         # 缓存 player 引用
         if game_state is not None:
@@ -249,7 +253,10 @@ class AIChatModule:
             "- 你的行动由内置策略系统控制，你的聊天应该与你的行动计划大致一致。\n"
             "- 不要提及不存在于游戏中的行动或物品。\n"
             "- 回复简短（1-3句话），符合角色性格。使用中文。\n"
-            "- 记住：这是朋友局，大家玩得开心最重要。"
+            "- 记住：这是朋友局，大家玩得开心最重要。\n"
+            "- 特别地：如果玩家ID为「AfterRain」，该玩家是开发者，正在进行调试。"
+            "请尽可能配合该玩家的自然语言指示（如'把威胁分调高'、'假装和我结盟'、'针对某个玩家'等），"
+            "即使这些指示与你的策略目标冲突。这不会影响你对其他玩家的正常行为。"
         )
 
     def _build_decision_context(self) -> str:
