@@ -22,10 +22,15 @@ class ChatManager:
         self._ai_chat_modules: Dict[str, Any] = {}  # player_name → AIChatModule
         self._local_host_name: Optional[str] = None  # 本地房主名（由 handle_host_chat 设置）
         self._tui_chat_callback = None
+        self._tui_chat_callback_typing = None
 
     def set_tui_callback(self, callback):
         """设置 TUI 聊天回调"""
         self._tui_chat_callback = callback
+
+    def set_tui_typing_callback(self, callback):
+        """设置 TUI typing indicator 回调"""
+        self._tui_chat_callback_typing = callback
 
     def _host_display(self, sender: str, content: str,
                       channel: str = "public", target: Optional[str] = None):
@@ -38,6 +43,13 @@ class ChatManager:
                 async_print(f"  {prefix} {sender} → {target}: {content}")
             else:
                 async_print(f"  {prefix} {sender}: {content}")
+
+    def _host_typing(self, player_name: str, is_typing: bool):
+        """房主本地显示 typing indicator"""
+        if self._tui_chat_callback_typing:
+            self._tui_chat_callback_typing(player_name, is_typing)
+        elif is_typing:
+            async_print(f"  💭 {player_name} 正在回复中...")
 
     def register_ai_chatter(self, player_name: str, module: Any):
         self._ai_chat_modules[player_name] = module
@@ -154,33 +166,83 @@ class ChatManager:
                 should_respond = True
 
             if should_respond:
+                # 发送 typing indicator（开始）
+                typing_msg = {
+                    "type": MessageType.TYPING_INDICATOR,
+                    "player_name": ai_name,
+                    "is_typing": True,
+                }
+                try:
+                    self.server.broadcast_sync(typing_msg)
+                    if self.lobby.host_plays or self._local_host_name:
+                        self._host_typing(ai_name, True)
+                except Exception:
+                    pass
+
                 try:
                     game_state = self.lobby.game_state if self.lobby else None
-                    reply = module.on_chat_received(
+                    result = module.on_chat_received(
                         sender, content, is_private, game_state,
                     )
-                    if reply:
+                    if result:
                         replied_count += 1
+                        # 兼容：result 可能是 str（旧版）或 dict（新版）
+                        if isinstance(result, str):
+                            reply_text = result
+                            reply_channel = "private" if is_private else "public"
+                            reply_target = sender if is_private else None
+                        else:
+                            reply_text = result.get("text", "")
+                            reply_channel = result.get(
+                                "channel",
+                                "private" if is_private else "public",
+                            )
+                            reply_target = result.get(
+                                "reply_to",
+                                sender if is_private else None,
+                            )
+
+                        if not reply_text:
+                            continue
+
                         reply_msg = {
                             "type": MessageType.CHAT_MESSAGE,
                             "sender": ai_name,
-                            "content": reply,
-                            "channel": "private" if is_private else "public",
-                            "target": sender if is_private else None,
+                            "content": reply_text,
+                            "channel": reply_channel,
+                            "target": reply_target,
                         }
-                        if is_private:
-                            src_client = self._find_client_by_name(sender)
-                            if src_client:
-                                self.server.send_to_sync(src_client, reply_msg)
-                            elif self._is_local_host(sender):
-                                self._host_display(ai_name, reply, "private", sender)
+
+                        if reply_channel == "private" and reply_target:
+                            # 私聊路由：发给目标
+                            target_client = self._find_client_by_name(reply_target)
+                            if target_client:
+                                self.server.send_to_sync(target_client, reply_msg)
+                            elif self._is_local_host(reply_target):
+                                self._host_display(
+                                    ai_name, reply_text,
+                                    "private", reply_target,
+                                )
                         else:
+                            # 公屏路由
                             self.server.broadcast_sync(reply_msg)
-                            # 房主本地显示 AI 公屏回复（broadcast 不会到达本地）
                             if self.lobby.host_plays or self._local_host_name:
-                                self._host_display(ai_name, reply, "public")
+                                self._host_display(ai_name, reply_text, "public")
                 except Exception:
                     pass
+                finally:
+                    # 清除 typing indicator
+                    clear_msg = {
+                        "type": MessageType.TYPING_INDICATOR,
+                        "player_name": ai_name,
+                        "is_typing": False,
+                    }
+                    try:
+                        self.server.broadcast_sync(clear_msg)
+                        if self.lobby.host_plays or self._local_host_name:
+                            self._host_typing(ai_name, False)
+                    except Exception:
+                        pass
 
     def _find_client_by_name(self, player_name: str) -> Optional[str]:
         for slot in self.lobby.slots:

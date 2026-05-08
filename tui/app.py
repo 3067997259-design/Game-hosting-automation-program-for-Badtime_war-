@@ -130,6 +130,7 @@ class BadtimeWarTUI(App):
             self.client.on(MessageType.CHAT_MESSAGE, self._on_chat_message)
             self.client.on(MessageType.LOBBY_UPDATE, self._on_lobby_update)
             self.client.on(MessageType.DISCONNECT_NOTICE, self._on_disconnect_notice)
+            self.client.on(MessageType.TYPING_INDICATOR, self._on_typing_indicator)
             # 服务器请求类消息（天赋选择、行动指令、确认等）
             self.client.on(MessageType.REQUEST_COMMAND, self._on_request_command)
             self.client.on(MessageType.REQUEST_CHOOSE, self._on_request_choose)
@@ -247,6 +248,18 @@ class BadtimeWarTUI(App):
 
     def _on_disconnect_notice(self, msg: dict):
         self.call_from_thread(self._handle_disconnect, msg)
+
+    def _on_typing_indicator(self, msg: dict):
+        if self._thread_id == threading.get_ident():
+            self._handle_typing(msg)
+        else:
+            self.call_from_thread(self._handle_typing, msg)
+
+    def _handle_typing(self, msg: dict):
+        player_name = msg.get("player_name", "")
+        is_typing = msg.get("is_typing", False)
+        if self._chat_panel:
+            self._chat_panel.set_typing(player_name, is_typing)
 
     def _handle_disconnect(self, msg: dict):
         name = msg.get("player_name", "")
