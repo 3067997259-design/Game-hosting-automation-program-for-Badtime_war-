@@ -21,8 +21,15 @@ class LLMBackend(ABC):
 class OpenAIBackend(LLMBackend):
     """OpenAI 兼容后端（支持 Ollama 的 OpenAI 兼容端点）。"""
 
-    def __init__(self, api_key: str = "", base_url: str = "", model: str = "gpt-3.5-turbo"):
+    def __init__(
+        self,
+        api_key: str = "",
+        base_url: str = "",
+        model: str = "gpt-3.5-turbo",
+        max_tokens: int = 512,
+    ):
         self.model = model
+        self.max_tokens = max_tokens
         self._client = None
         try:
             import openai
@@ -41,7 +48,7 @@ class OpenAIBackend(LLMBackend):
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=256,
+                max_tokens=self.max_tokens,
             )
             return resp.choices[0].message.content or ""
         except Exception:
@@ -51,9 +58,15 @@ class OpenAIBackend(LLMBackend):
 class OllamaBackend(LLMBackend):
     """Ollama REST API 后端。"""
 
-    def __init__(self, host: str = "http://localhost:11434", model: str = "llama3"):
+    def __init__(
+        self,
+        host: str = "http://localhost:11434",
+        model: str = "llama3",
+        max_tokens: int = 512,
+    ):
         self.host = host.rstrip("/")
         self.model = model
+        self.max_tokens = max_tokens
 
     def chat(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
         try:
@@ -66,7 +79,10 @@ class OllamaBackend(LLMBackend):
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "options": {"temperature": temperature},
+            "options": {
+                "temperature": temperature,
+                "num_predict": self.max_tokens,
+            },
         }
         try:
             resp = requests.post(url, json=payload, timeout=30)
@@ -98,15 +114,18 @@ def create_backend(config: Optional[Dict[str, Any]] = None) -> Optional[LLMBacke
         return None
 
     backend_type = config.get("backend", "openai")
+    max_tokens = int(config.get("max_tokens", 512))
     if backend_type == "openai":
         return OpenAIBackend(
             api_key=config.get("api_key", ""),
             base_url=config.get("base_url", ""),
             model=config.get("model", "gpt-3.5-turbo"),
+            max_tokens=max_tokens,
         )
     elif backend_type == "ollama":
         return OllamaBackend(
             host=config.get("host", "http://localhost:11434"),
             model=config.get("model", "llama3"),
+            max_tokens=max_tokens,
         )
     return None

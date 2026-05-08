@@ -107,6 +107,42 @@ class BasicAIController(
 
 
     # ════════════════════════════════════════════════════════
+    #  对外只读决策上下文（供 LLM 战略社交模块读取）
+    # ════════════════════════════════════════════════════════
+
+    def get_decision_context(self) -> Dict[str, Any]:
+        """供 LLM 读取的决策上下文（只读，不影响 AI 行为）。
+
+        所有可变集合都会做浅拷贝/转列表，确保外部修改不会影响内部状态。
+        """
+        combat_target_name = None
+        if self._combat_target is not None:
+            combat_target_name = getattr(self._combat_target, "name", None)
+
+        candidates: List[str] = []
+        if hasattr(self, "_candidates") and self._candidates:
+            try:
+                candidates = list(self._candidates)
+            except Exception:
+                candidates = []
+
+        return {
+            "personality": self.personality,
+            "current_phase": self._current_phase,
+            "in_combat": self._in_combat,
+            "combat_target": combat_target_name,
+            "danger_mode": self._danger_mode,
+            "threat_scores": dict(self._threat_scores),
+            "last_action": self._last_action,
+            "candidates": candidates,
+            "develop_plan": list(self._develop_plan),
+            "consecutive_forfeits": self._consecutive_forfeits,
+            "my_kills": self._my_kills,
+            "been_attacked_by": list(self._been_attacked_by),
+        }
+
+
+    # ════════════════════════════════════════════════════════
     #  接口实现：get_command (原 lines 282-308)
     # ════════════════════════════════════════════════════════
 

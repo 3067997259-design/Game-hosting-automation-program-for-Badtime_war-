@@ -5,10 +5,14 @@ ChatManager —— 聊天系统（服务端）
 聊天是异步的，不阻塞游戏流程。
 """
 
+import random
 import threading
 from typing import Any, Optional, Dict, List
 from network.protocol import MessageType
 from cli.async_output import async_print
+
+# 公屏消息最多允许多少个 AI 回复（防止刷屏）
+_MAX_PUBLIC_AI_REPLIES = 2
 
 
 class ChatManager:
@@ -132,7 +136,17 @@ class ChatManager:
         self, sender: str, content: str,
         is_private: bool = False, target_name: Optional[str] = None,
     ):
-        for ai_name, module in self._ai_chat_modules.items():
+        # 公屏消息：随机打乱顺序，避免总是同一个 AI 先回复，并限制最多回复数量
+        ai_items: List = list(self._ai_chat_modules.items())
+        if not is_private:
+            random.shuffle(ai_items)
+
+        replied_count = 0
+        for ai_name, module in ai_items:
+            # 公屏消息：达到上限后停止（避免多 AI 刷屏）
+            if not is_private and replied_count >= _MAX_PUBLIC_AI_REPLIES:
+                break
+
             should_respond = False
             if not is_private:
                 should_respond = True
@@ -146,6 +160,7 @@ class ChatManager:
                         sender, content, is_private, game_state,
                     )
                     if reply:
+                        replied_count += 1
                         reply_msg = {
                             "type": MessageType.CHAT_MESSAGE,
                             "sender": ai_name,
