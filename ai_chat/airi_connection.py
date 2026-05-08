@@ -81,16 +81,15 @@ class AiriConnection:
                     })
 
                 # 注册模块
+                identity = {
+                    "id": f"{self.module_id}-instance",
+                    "kind": "plugin",
+                    "plugin": {"id": self.module_id},
+                }
                 await self._send_event("module:announce", {
                     "name": "Badtime War Bridge",
-                    "identity": {
-                        "id": self.instance_id,
-                        "kind": "plugin",
-                        "plugin": {
-                            "id": self.module_id,
-                        },
-                    },
-                })
+                    "identity": identity,
+                }, source_override=identity)
 
                 # 接收循环
                 async for raw_msg in ws:
@@ -100,6 +99,10 @@ class AiriConnection:
                         log.warning(f"收到非 JSON 消息: {str(raw_msg)[:100]}")
                         continue
 
+                    # SuperJSON 解包
+                    if "json" in msg and isinstance(msg["json"], dict):
+                        msg = msg["json"]
+
                     msg_type = msg.get("type", "")
 
                     # 处理 AI 回复
@@ -107,7 +110,12 @@ class AiriConnection:
                         "output:gen-ai:chat:message",
                         "output:gen-ai:chat:complete",
                     ):
-                        text = msg.get("data", {}).get("text", "")
+                        # 优先从 message.content 提取实际回复
+                        message_obj = msg.get("data", {}).get("message", {})
+                        text = message_obj.get("content", "") if isinstance(message_obj, dict) else ""
+                        if not text:
+                            # 降级：尝试 data.text（兼容旧版本）
+                            text = msg.get("data", {}).get("text", "")
                         if text:
                             await self._response_queue.put(text)
 
@@ -131,19 +139,18 @@ class AiriConnection:
             self._connected = False
             self._ws = None
 
-    async def _send_event(self, event_type: str, data: dict):
+    async def _send_event(self, event_type: str, data: dict, source_override: Optional[dict] = None):
         """发送 AIRI 格式的事件消息。"""
+        source = source_override or {
+            "id": f"{self.module_id}-instance",
+            "kind": "plugin",
+            "plugin": {"id": self.module_id},
+        }
         msg = {
             "type": event_type,
             "data": data,
             "metadata": {
-                "source": {
-                    "id": self.instance_id,
-                    "kind": "plugin",
-                    "plugin": {
-                        "id": self.module_id,
-                    },
-                },
+                "source": source,
                 "event": {
                     "id": str(uuid.uuid4()),
                 },
