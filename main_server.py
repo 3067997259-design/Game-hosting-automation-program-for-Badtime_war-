@@ -376,10 +376,29 @@ def _start_game_tui(server, lobby, chat_manager, host_plays, app):
 
         # 通过 TUI 询问是否启用天赋
         app.push_game_event({"event": "show_info", "args": ["是否启用天赋系统？在输入框输入 y 或 n"]})
+        # 通知远程客户端正在等待房主决定
+        server.broadcast_sync({
+            "type": MessageType.GAME_EVENT,
+            "event": "show_info",
+            "args": ["  \u23f3 等待房主决定是否启用天赋系统..."],
+        })
         cmd_input = app.query_one("#cmd-input")
         raw = cmd_input.wait_for_input(timeout=120)
         if raw.lower() in ("y", "yes", "是"):
+            app.push_game_event({"event": "show_info", "args": ["  天赋系统已启用，开始选择天赋..."]})
+            server.broadcast_sync({
+                "type": MessageType.GAME_EVENT,
+                "event": "show_info",
+                "args": ["  天赋系统已启用，开始选择天赋..."],
+            })
             _network_talent_selection_tui(game_state, ai_players_info, lobby, app)
+        else:
+            app.push_game_event({"event": "show_info", "args": ["  天赋系统未启用。"]})
+            server.broadcast_sync({
+                "type": MessageType.GAME_EVENT,
+                "event": "show_info",
+                "args": ["  天赋系统未启用。"],
+            })
 
         # 游戏循环
         round_mgr = RoundManager(game_state)
@@ -403,12 +422,43 @@ def _start_game_tui(server, lobby, chat_manager, host_plays, app):
 
 
 def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
-    """TUI 版天赋选择：远程玩家通过 NetworkController.choose()，本地房主用 TUI 输入"""
+    """TUI 版天赋选择：远程玩家通过 NetworkController.choose()，本地房主用 TUI 输入
+
+    所有结果性消息（天赋列表、轮到谁、谁选了什么、汇总）会同时广播给
+    房主 TUI 和所有远程客户端；输入错误等仅对当事人有意义的提示只发给本人。
+    """
     from controllers.network_controller import NetworkController
     from controllers.human import HumanController
     from engine.game_setup import (
         _ai_pick_talent, AI_DISABLED_TALENTS,
     )
+
+    server = lobby.server
+
+    def _broadcast_all(event_msg):
+        """向房主 TUI + 所有远程客户端广播游戏事件"""
+        app.push_game_event(event_msg)
+        network_msg = dict(event_msg)
+        network_msg["type"] = MessageType.GAME_EVENT
+        server.broadcast_sync(network_msg)
+
+    def _send_to_client(client_id, event_msg):
+        """向特定远程客户端发送游戏事件"""
+        network_msg = dict(event_msg)
+        network_msg["type"] = MessageType.GAME_EVENT
+        server.send_to_sync(client_id, network_msg)
+
+    def _notify_others_waiting(active_pid, active_name):
+        """向其他远程玩家发送等待提示"""
+        for other_pid in game_state.player_order:
+            if other_pid == active_pid:
+                continue
+            other = game_state.get_player(other_pid)
+            if isinstance(other.controller, NetworkController):
+                _send_to_client(other.controller.client_id, {
+                    "event": "show_info",
+                    "args": [f"  \u23f3 等待 {active_name} 选择天赋..."],
+                })
 
     ai_pids = {info[0] for info in ai_players_info}
     ai_personality_map = {info[0]: info[2] for info in ai_players_info}
@@ -418,16 +468,22 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
     for num, name, cls, desc in TALENT_TABLE:
         lines.append(f"    {num}. 【{name}】{desc}")
     lines.append("    0. 不选天赋")
-    app.push_game_event({"event": "show_info", "args": ["\n".join(lines)]})
+    _broadcast_all({"event": "show_info", "args": ["\n".join(lines)]})
 
     for pid in game_state.player_order:
         player = game_state.get_player(pid)
         available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
                      if n not in taken]
         if not available:
-            app.push_game_event({"event": "show_info",
-                                 "args": [f"  所有天赋已被选完，{player.name} 无天赋。"]})
+            _broadcast_all({"event": "show_info",
+                            "args": [f"  所有天赋已被选完，{player.name} 无天赋。"]})
             continue
+
+        # 广播：轮到谁选择
+        _broadcast_all({
+            "event": "show_info",
+            "args": [f"\n  \u2550\u2550 轮到 {player.name} 选择天赋 \u2550\u2550"],
+        })
 
         # AI 自动选择
         if pid in ai_pids:
@@ -435,13 +491,13 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
             ai_available = [(n, name, cls, desc) for n, name, cls, desc in available
                            if n not in AI_DISABLED_TALENTS]
             if not ai_available:
-                app.push_game_event({"event": "show_info",
-                                     "args": [f"  {player.name}（AI）无可用天赋。"]})
+                _broadcast_all({"event": "show_info",
+                                "args": [f"  {player.name}（AI）无可用天赋。"]})
                 continue
             chosen = _ai_pick_talent(personality, ai_available, taken)
             if chosen is None:
-                app.push_game_event({"event": "show_info",
-                                     "args": [f"  {player.name}（AI）无可用天赋。"]})
+                _broadcast_all({"event": "show_info",
+                                "args": [f"  {player.name}（AI）无可用天赋。"]})
                 continue
             n, name, cls = chosen
             talent_inst = cls(pid, game_state)
@@ -450,12 +506,15 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
             talent_inst.on_register()
             talent_inst.show_activation(player_name=player.name, show_lore=True)
             taken.add(n)
-            app.push_game_event({"event": "show_info",
-                                 "args": [f"  \U0001f916 {player.name}（AI·{personality}）自动选择天赋【{name}】"]})
+            _broadcast_all({"event": "show_info",
+                            "args": [f"  \U0001f916 {player.name}（AI·{personality}）自动选择天赋【{name}】"]})
             continue
 
         # 远程玩家：通过 controller.choose()
         if isinstance(player.controller, NetworkController):
+            # 通知其他远程玩家正在等待
+            _notify_others_waiting(pid, player.name)
+
             options = [f"{n}. 【{name}】{desc}" for n, name, cls, desc in available]
             options.append("0. 不选天赋")
             choice = player.controller.choose(
@@ -469,8 +528,12 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
                 pass
 
             if choice_num == 0:
-                app.push_game_event({"event": "show_info",
-                                     "args": [f"  {player.name} 选择不使用天赋。"]})
+                _broadcast_all({"event": "show_info",
+                                "args": [f"  {player.name} 选择不使用天赋。"]})
+                _send_to_client(player.controller.client_id, {
+                    "event": "show_info",
+                    "args": ["  你选择了不使用天赋。"],
+                })
                 continue
 
             matched = None
@@ -487,35 +550,46 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
                 talent_inst.on_register()
                 talent_inst.show_activation(player_name=player.name, show_lore=True)
                 taken.add(n)
-                app.push_game_event({"event": "show_info",
-                                     "args": [f"  \u2713 {player.name} 获得天赋【{name}】！"]})
+                _broadcast_all({"event": "show_info",
+                                "args": [f"  \u2713 {player.name} 获得天赋【{name}】！"]})
+                # 额外给选择者本人发一条确认
+                _send_to_client(player.controller.client_id, {
+                    "event": "show_info",
+                    "args": [f"  \u2705 你已成功选择天赋【{name}】"],
+                })
             else:
-                app.push_game_event({"event": "show_info",
-                                     "args": [f"  {player.name} 选择无效，跳过天赋。"]})
+                _broadcast_all({"event": "show_info",
+                                "args": [f"  {player.name} 选择无效，跳过天赋。"]})
             continue
 
         # 本地房主：用 TUI 输入
         if isinstance(player.controller, HumanController):
+            # 通知其他远程玩家正在等待
+            _notify_others_waiting(pid, player.name)
+
             sel_lines = [f"\n  ── {player.name} 选择天赋 ──"]
             for n, name, cls, desc in available:
                 sel_lines.append(f"    {n}. 【{name}】{desc}")
             sel_lines.append("    0. 不选")
+            # 这条只给房主看（远程客户端已收到上方完整列表 + 等待提示）
             app.push_game_event({"event": "show_info", "args": ["\n".join(sel_lines)]})
 
             cmd_input = app.query_one("#cmd-input")
             while True:
                 raw = cmd_input.wait_for_input(timeout=300)
                 if raw == "0":
-                    app.push_game_event({"event": "show_info",
-                                         "args": [f"  {player.name} 选择不使用天赋。"]})
+                    _broadcast_all({"event": "show_info",
+                                    "args": [f"  {player.name} 选择不使用天赋。"]})
                     break
                 try:
                     choice_num = int(raw)
                 except ValueError:
+                    # 仅给房主看的输入错误
                     app.push_game_event({"event": "show_error", "args": ["请输入有效编号。"]})
                     continue
 
                 if choice_num in taken:
+                    # 仅给房主看的输入错误
                     app.push_game_event({"event": "show_error", "args": ["该天赋已被其他玩家选走！"]})
                     continue
 
@@ -526,6 +600,7 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
                         break
 
                 if not matched:
+                    # 仅给房主看的输入错误
                     app.push_game_event({"event": "show_error", "args": ["无效编号。"]})
                     continue
 
@@ -536,8 +611,8 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
                 talent_inst.on_register()
                 talent_inst.show_activation(player_name=player.name, show_lore=True)
                 taken.add(n)
-                app.push_game_event({"event": "show_info",
-                                     "args": [f"  \u2713 {player.name} 获得天赋【{name}】！"]})
+                _broadcast_all({"event": "show_info",
+                                "args": [f"  \u2713 {player.name} 获得天赋【{name}】！"]})
                 break
 
     # 汇总
@@ -547,7 +622,7 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
         t = p.talent_name if p.talent_name else "无"
         is_ai = "\U0001f916" if pid in ai_pids else "\U0001f464"
         summary_lines.append(f"    {is_ai} {p.name}: {t}")
-    app.push_game_event({"event": "show_info", "args": ["\n".join(summary_lines)]})
+    _broadcast_all({"event": "show_info", "args": ["\n".join(summary_lines)]})
 
 
 def _start_game(server, lobby, chat_manager, host_plays):
