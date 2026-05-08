@@ -1,6 +1,7 @@
 # 起闯战争 Badtime_war — 电子DM
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/3067997259-design/Game-hosting-automation-program-for-Badtime_war-)
 
 ## 写在最前面
 
