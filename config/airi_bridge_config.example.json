@@ -1,0 +1,11 @@
+{
+    "airi_ws_url": "ws://localhost:6121/ws",
+    "airi_auth_token": "",
+    "module_id": "badtime-war-bridge",
+    "game_server_host": "127.0.0.1",
+    "game_server_port": 9527,
+    "bot_name": "AIRI_Bot",
+    "action_timeout": 60,
+    "chat_reply_timeout": 30,
+    "_comment": "airi_auth_token 留空表示不认证；action_timeout 是等待 AIRI 回复行动指令的超时秒数"
+}
