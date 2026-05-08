@@ -135,10 +135,20 @@ class AIChatModule:
 
         system_prompt = self._build_system_prompt(game_state)
 
-        self._history.append({
-            "role": "user",
-            "content": f"{'[私聊]' if is_private else '[公屏]'} {sender}: {message}",
-        })
+        # AIRI 后端：不加 [私聊]/[公屏] 渠道前缀（AIRI 有自己的上下文管理，
+        # 渠道信息已通过 system prompt 中的状态段或独立 notify 推送）。
+        # 其他后端：保留前缀，帮助 LLM 区分聊天渠道。
+        from ai_chat.airi_backend import AiriBackend
+        if isinstance(self.backend, AiriBackend):
+            self._history.append({
+                "role": "user",
+                "content": f"{sender}: {message}",
+            })
+        else:
+            self._history.append({
+                "role": "user",
+                "content": f"{'[私聊]' if is_private else '[公屏]'} {sender}: {message}",
+            })
 
         # 不再每条截断；只在极端情况下兜底裁剪
         if len(self._history) > self.HISTORY_MAX:
