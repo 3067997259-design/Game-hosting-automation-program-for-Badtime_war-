@@ -43,11 +43,16 @@ class DisplayBroadcaster:
         self.lobby = lobby
         self._tui_callback = None
         self._tui_app = None
+        self._airi_backend: Any = None
 
     def set_tui_callback(self, callback, app=None):
         """设置 TUI 回调，替代 print() 进行房主本地显示"""
         self._tui_callback = callback
         self._tui_app = app
+
+    def set_airi_backend(self, backend: Any):
+        """设置 AIRI 后端引用，广播游戏事件时同步推送给 AIRI。"""
+        self._airi_backend = backend
 
     def install(self):
         # 广播类函数
@@ -185,7 +190,38 @@ class DisplayBroadcaster:
             except Exception:
                 pass
 
+            # AIRI 事件转发：让 AIRI 实时感知游戏进展
+            if self._airi_backend is not None and hasattr(
+                self._airi_backend, "notify",
+            ):
+                event_text = self._format_event_for_airi(func_name, args)
+                if event_text:
+                    try:
+                        self._airi_backend.notify(event_text)
+                    except Exception:
+                        pass
+
         return wrapper
+
+    def _format_event_for_airi(self, func_name: str, args: tuple):
+        """将游戏事件格式化为发送给 AIRI 的自然语言通知。"""
+        if func_name == "show_round_header":
+            return f"=== 第 {args[0] if args else '?'} 轮 ==="
+        if func_name == "show_phase":
+            return f"--- {args[0] if args else ''} ---"
+        if func_name == "show_action_turn_header":
+            return f"轮到 {args[0] if args else '?'} 行动"
+        if func_name == "show_result":
+            return str(args[0]) if args else ""
+        if func_name == "show_info":
+            return str(args[0]) if args else ""
+        if func_name == "show_death":
+            name = args[0] if args else "?"
+            cause = args[1] if len(args) > 1 else "未知"
+            return f"{name} 死亡！原因：{cause}"
+        if func_name == "show_victory":
+            return f"{args[0] if args else '?'} 获得了最终胜利！"
+        return None
 
     def _make_directed(self, func_name: str):
         def wrapper(*args, **kwargs):

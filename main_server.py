@@ -356,8 +356,10 @@ def _start_game_tui(server, lobby, chat_manager, host_plays, app):
         broadcaster.set_tui_callback(app.push_game_event, app=app)
         broadcaster.install()
 
-        # 设置 AI 聊天
-        _setup_ai_chat(lobby, chat_manager, game_state)
+        # 设置 AI 聊天（可能返回 AIRI 后端引用）
+        airi_backend = _setup_ai_chat(lobby, chat_manager, game_state)
+        if airi_backend is not None:
+            broadcaster.set_airi_backend(airi_backend)
 
         # 通知所有客户端游戏开始
         server.broadcast_sync({
@@ -635,8 +637,10 @@ def _start_game(server, lobby, chat_manager, host_plays):
     broadcaster = DisplayBroadcaster(server, lobby)
     broadcaster.install()
 
-    # 设置 AI 聊天
-    _setup_ai_chat(lobby, chat_manager, game_state)
+    # 设置 AI 聊天（可能返回 AIRI 后端引用）
+    airi_backend = _setup_ai_chat(lobby, chat_manager, game_state)
+    if airi_backend is not None:
+        broadcaster.set_airi_backend(airi_backend)
 
     # 通知所有客户端游戏开始
     server.broadcast_sync({
@@ -877,27 +881,117 @@ def _patch_engine_context(game_state, lobby):
 
 
 def _setup_ai_chat(lobby, chat_manager, game_state):
-    """为配置了 LLM 的 AI 玩家设置聊天模块。"""
-    backend = create_backend()
-    if backend is None:
-        return
+    """为 AI 玩家设置聊天模块。支持普通 LLM 和 AIRI 后端。
 
+    返回 (airi_backend) —— 若启用了 AIRI，则返回该后端引用，供事件转发使用；
+    否则返回 None。
+    """
     from controllers.ai_basic import BasicAIController
+    from ai_chat.llm_backend import load_llm_config
+
+    config = load_llm_config()
+
+    # 检查是否有 AIRI 配置
+    airi_config = _load_airi_config()
+    airi_slot_id = airi_config.get("airi_slot_id") if airi_config else None
+    airi_backend = None
+
+    # 如果有 AIRI 配置，为指定 slot 创建 AiriBackend
+    if airi_config and airi_slot_id is not None:
+        try:
+            from ai_chat.airi_backend import AiriBackend
+            target_slot = None
+            for slot in lobby.slots:
+                if (
+                    slot.slot_id == airi_slot_id
+                    and slot.slot_type == SlotType.BASIC_AI
+                ):
+                    target_slot = slot
+                    break
+
+            if target_slot:
+                player_name = (
+                    target_slot.player_name or f"AI-{airi_slot_id}"
+                )
+                personality = target_slot.personality or "balanced"
+                airi_backend = AiriBackend(
+                    ws_url=airi_config.get(
+                        "airi_ws_url", "ws://localhost:6121/ws",
+                    ),
+                    auth_token=airi_config.get("airi_auth_token", ""),
+                    module_id=airi_config.get(
+                        "module_id", "badtime-war-bridge",
+                    ),
+                    player_name=player_name,
+                    personality=personality,
+                    chat_timeout=int(airi_config.get("chat_timeout", 30)),
+                )
+                airi_backend.connect()
+                print(
+                    f"  [AIRI] 已连接，绑定到 slot "
+                    f"{airi_slot_id} ({player_name})"
+                )
+            else:
+                print(
+                    f"  [AIRI] slot {airi_slot_id} 不是 BASIC_AI 类型，"
+                    "跳过 AIRI 绑定"
+                )
+        except Exception as e:
+            print(
+                f"  [AIRI] 连接失败: {e}，该 slot 将使用普通 LLM 后端"
+            )
+            airi_backend = None
+
+    # 普通 LLM 后端（用于非 AIRI 的 AI slot）
+    if config and config.get("backend") != "airi":
+        normal_backend = create_backend(config)
+    else:
+        normal_backend = None
 
     for slot in lobby.slots:
-        if slot.slot_type == SlotType.BASIC_AI:
-            pid = f"p{slot.slot_id}"
-            player = game_state.get_player(pid)
-            if player and isinstance(player.controller, BasicAIController):
-                module = AIChatModule(
-                    player_name=slot.player_name or f"AI-{slot.slot_id}",
-                    personality=slot.personality or "balanced",
-                    backend=backend,
-                    controller=player.controller,
-                )
-                chat_manager.register_ai_chatter(
-                    slot.player_name or f"AI-{slot.slot_id}", module,
-                )
+        if slot.slot_type != SlotType.BASIC_AI:
+            continue
+        pid = f"p{slot.slot_id}"
+        player = game_state.get_player(pid)
+        if not player or not isinstance(player.controller, BasicAIController):
+            continue
+
+        player_name = slot.player_name or f"AI-{slot.slot_id}"
+        personality = slot.personality or "balanced"
+
+        # 选择后端：AIRI slot 用 airi_backend，其他用 normal_backend
+        if airi_backend and slot.slot_id == airi_slot_id:
+            backend = airi_backend
+        elif normal_backend:
+            backend = normal_backend
+        else:
+            continue
+
+        module = AIChatModule(
+            player_name=player_name,
+            personality=personality,
+            backend=backend,
+            controller=player.controller,
+        )
+        chat_manager.register_ai_chatter(player_name, module)
+
+    # 返回 airi_backend 引用，供事件转发使用
+    return airi_backend
+
+
+def _load_airi_config():
+    """加载 AIRI 配置（config/airi_config.json）。"""
+    import os
+    import json
+    paths = ["config/airi_config.json"]
+    for path in paths:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return None
 
 
 if __name__ == "__main__":

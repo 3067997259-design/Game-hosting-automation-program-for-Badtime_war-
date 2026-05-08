@@ -1,0 +1,8 @@
+{
+    "airi_ws_url": "ws://localhost:6121/ws",
+    "airi_auth_token": "",
+    "module_id": "badtime-war-bridge",
+    "airi_slot_id": 2,
+    "chat_timeout": 30,
+    "_comment": "airi_slot_id 指定哪个 BasicAI slot 使用 AIRI 作为聊天后端。该 slot 必须先通过 ai 命令设为 BasicAI。"
+}

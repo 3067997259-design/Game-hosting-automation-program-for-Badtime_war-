@@ -115,7 +115,23 @@ def create_backend(config: Optional[Dict[str, Any]] = None) -> Optional[LLMBacke
 
     backend_type = config.get("backend", "openai")
     max_tokens = int(config.get("max_tokens", 512))
-    if backend_type == "openai":
+    if backend_type == "airi":
+        try:
+            from ai_chat.airi_backend import AiriBackend
+            backend = AiriBackend(
+                ws_url=config.get("airi_ws_url", "ws://localhost:6121/ws"),
+                auth_token=config.get("airi_auth_token", ""),
+                module_id=config.get("module_id", "badtime-war-bridge"),
+                chat_timeout=int(config.get("chat_timeout", 30)),
+                # player_name 和 personality 由 _setup_ai_chat() 在创建专用
+                # 后端实例时设置；通过 create_backend() 创建的是无角色信息的
+                # 通用实例，主要用于配置统一了 backend=airi 的情况。
+            )
+            backend.connect()
+            return backend
+        except Exception:
+            return None
+    elif backend_type == "openai":
         return OpenAIBackend(
             api_key=config.get("api_key", ""),
             base_url=config.get("base_url", ""),

@@ -371,15 +371,33 @@ python -m rl.diagnose_single_game \
 
 配置完成后，启动 `main_server.py` 联机服务器时会自动为 BasicAI 玩家加载聊天模块。AI 会根据其人格（aggressive / defensive / political 等）生成符合角色性格的聊天回复。
 
+#### AIRI 接入（两种模式）
+
+游戏支持接入 [AIRI](https://github.com/moeru-ai/airi) 作为 AI 角色。共两种接入模式：
+
+**模式 1（推荐）：AIRI 作为 BasicAI 的"聊天皮肤"**
+- 游戏决策由 BasicAI 处理，AIRI 只负责社交聊天。
+- AIRI 的回复中可包含 `[ADJUST]` JSON，反过来调整 BasicAI 的威胁评分、盟友列表与攻击倾向。
+- 配置：把 `config/airi_config.example.json` 复制为 `config/airi_config.json`，并在其中通过 `airi_slot_id` 指定哪个 BasicAI slot 使用 AIRI 作为聊天后端。
+- 启动：先启动 AIRI，然后正常 `python main_server.py`，将对应 slot 设为 BasicAI（`ai <slot> <personality>`）。
+- 见 [docs/airi_bridge.md](docs/airi_bridge.md)。
+
+**模式 2：AIRI 作为独立玩家（bot_bridge）**
+- AIRI 自己做所有游戏决策（行动、选择、确认）。
+- 配置：`config/airi_bridge_config.json`。
+- 启动：`python bot_bridge.py`（需要先启动 AIRI 与游戏服务器）。
+
 ---
 
 ### 六、配置文件
 
-| 文件                        | 说明                                              |
-|-----------------------------|---------------------------------------------------|
-| `config/game_config.json`   | 游戏配置，可设置 AI 禁用天赋列表（编号或名称）    |
-| `config/llm_config.json`    | LLM 聊天后端配置（需从 `.example.json` 复制创建） |
-| `config/prompt_config.json` | 提示文本配置                                      |
+| 文件                                | 说明                                                              |
+|-------------------------------------|-------------------------------------------------------------------|
+| `config/game_config.json`           | 游戏配置，可设置 AI 禁用天赋列表（编号或名称）                    |
+| `config/llm_config.json`            | LLM 聊天后端配置（需从 `.example.json` 复制创建）                 |
+| `config/airi_config.json`           | AIRI 作为 BasicAI 聊天皮肤的配置（需从 `.example.json` 复制创建） |
+| `config/airi_bridge_config.json`    | AIRI 作为独立玩家的桥接配置（需从 `.example.json` 复制创建）      |
+| `config/prompt_config.json`         | 提示文本配置                                                      |
 
 `game_config.json` 示例：
 ```json
