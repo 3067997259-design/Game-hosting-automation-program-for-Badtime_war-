@@ -53,7 +53,14 @@ def main():
     parser.add_argument("--name", type=str, default=None, help="玩家名称")
     parser.add_argument("--cli", action="store_true", help="使用纯 CLI 模式（默认使用 Textual TUI）")
     parser.add_argument("--reconnect", action="store_true", help="断线重连模式")
+    parser.add_argument("--debug", type=int, default=0, choices=[0, 1, 2, 3],
+                        help="调试级别（0=关闭, 1=基本, 2=详细, 3=完整）")
     args = parser.parse_args()
+
+    # 设置调试模式
+    if args.debug > 0:
+        from engine.debug_config import DebugConfig
+        DebugConfig.set_debug_mode(True, args.debug)
 
     player_name = args.name
     if not player_name:
@@ -129,6 +136,12 @@ def _run_cli_mode(client: NetworkClient, player_name: str, is_reconnect: bool = 
         action = msg.get("action", "")
         async_print(f"  [断线] {name}: {action}")
 
+    def on_typing(msg):
+        name = msg.get("player_name", "")
+        is_typing = msg.get("is_typing", False)
+        if is_typing:
+            async_print(f"  💭 {name} 正在回复中...")
+
     # 服务器请求统一通过 pending_request 传递给主线程
     def on_server_request(msg_type):
         def handler(msg):
@@ -142,6 +155,7 @@ def _run_cli_mode(client: NetworkClient, player_name: str, is_reconnect: bool = 
     client.on(MessageType.LOBBY_UPDATE, on_lobby_update)
     client.on(MessageType.CHAT_MESSAGE, on_chat)
     client.on(MessageType.DISCONNECT_NOTICE, on_disconnect)
+    client.on(MessageType.TYPING_INDICATOR, on_typing)
     client.on(MessageType.REQUEST_COMMAND, on_server_request(MessageType.REQUEST_COMMAND))
     client.on(MessageType.REQUEST_CHOOSE, on_server_request(MessageType.REQUEST_CHOOSE))
     client.on(MessageType.REQUEST_CHOOSE_MULTI, on_server_request(MessageType.REQUEST_CHOOSE_MULTI))

@@ -27,28 +27,34 @@ from ai_chat.llm_backend import LLMBackend
 
 PERSONALITY_PROMPTS = {
     "aggressive": (
-        "你好斗且自信，喜欢挑衅对手。你倾向于主动攻击，但不会蠢到送死。"
-        "面对结盟提议，你更喜欢单打独斗，除非对方明显比你强。"
+        "你性格直爽、充满活力，喜欢开玩笑和调侃。"
+        "你倾向于主动出击，但会用幽默的方式表达。"
+        "即使拒绝别人，也带着一股爽朗劲儿。"
     ),
     "defensive": (
-        "你谨慎且多疑，说话温和但暗含警告。你优先自保和发育，不轻易卷入战斗。"
-        "面对结盟提议，你会仔细评估风险。"
+        "你性格温和谨慎，说话客气但有自己的主见。"
+        "你优先自保和发育，不轻易卷入冲突。"
+        "面对提议会认真考虑，但不会轻易答应。"
     ),
     "political": (
-        "你精于外交和谈判，善于利用警察系统。"
-        "你经常尝试结盟，但盟友只是工具。你会在合适的时机背叛。"
+        "你八面玲珑、善于社交，喜欢拉关系和谈判。"
+        "你经常提议合作，但心里有自己的小算盘。"
+        "说话圆滑但不让人讨厌。"
     ),
     "assassin": (
-        "你神秘且危险，话不多但句句有深意。"
-        "你隐藏自己的意图，在暗中积蓄力量，等待一击必杀的时机。"
+        "你话不多但句句到位，带着一点神秘感。"
+        "你不喜欢暴露自己的计划，但对朋友还是挺好的。"
+        "偶尔冒出一句冷幽默。"
     ),
     "builder": (
-        "你注重发展和资源管理，喜欢讨论策略。"
-        "你避免早期冲突，专注于装备和护甲的积累。"
+        "你是个技术流，喜欢讨论策略和装备搭配。"
+        "你热衷于发育和资源管理，乐于分享自己的心得。"
+        "性格随和，不太喜欢打架但被逼急了也不怕。"
     ),
     "balanced": (
-        "你老练且灵活，根据局势调整策略和态度。"
-        "你不会被任何一种策略束缚，总是选择当前最优解。"
+        "你随和且灵活，根据局势调整态度。"
+        "你不会被任何一种策略束缚，喜欢见招拆招。"
+        "和谁都能聊得来。"
     ),
 }
 
@@ -104,17 +110,19 @@ class AIChatModule:
         message: str,
         is_private: bool,
         game_state: Any = None,
-    ) -> Optional[str]:
+    ) -> Optional[dict]:
+        """返回 {"text": str, "channel": "public"|"private", "reply_to": str|None}
+        或 None（不回复）。向后兼容：调用方应检查 isinstance(result, str)。"""
         if sender == self.player_name:
             return None
 
-        # 概率回复：公屏 40%，私聊 100%
+        # 概率回复：公屏 40%，私聊 100%（私聊也跳过冷却）
         if not is_private and random.random() > self.PUBLIC_REPLY_RATE:
             return None
 
-        # 冷却检查
+        # 冷却检查（私聊跳过冷却，确保每条私聊都回复）
         now = time.time()
-        if now - self._last_reply_time < self.REPLY_COOLDOWN:
+        if not is_private and now - self._last_reply_time < self.REPLY_COOLDOWN:
             return None
 
         # 缓存 player 引用
@@ -143,26 +151,43 @@ class AIChatModule:
             return None
         if not raw:
             return None
+        # 调试：LLM 原始回复（级别 2）
+        self._debug(f"[LLM RAW] {raw[:300]}", level=2)
 
         parsed = self._parse_response(raw)
 
+        # 提取 reply_to（指定私聊回复目标）
+        reply_to = None
+        if parsed.get("adjust") and isinstance(parsed["adjust"], dict):
+            reply_to = parsed["adjust"].pop("reply_to", None)
+
         # 调试：记录 THINK
         if parsed["think"]:
-            self._debug(f"[LLM THINK] {parsed['think'][:200]}")
+            self._debug(f"[LLM THINK] {parsed['think'][:200]}", level=1)
 
         # 应用行为调整
         if parsed["adjust"]:
             try:
                 self._apply_adjust(parsed["adjust"])
-                self._debug(f"[LLM ADJUST] {parsed['adjust']}")
+                self._debug(f"[LLM ADJUST] {parsed['adjust']}", level=1)
             except Exception as e:
-                self._debug(f"[LLM ADJUST ERROR] {e}")
+                self._debug(f"[LLM ADJUST ERROR] {e}", level=1)
 
         reply = parsed["reply"]
         if reply:
             self._history.append({"role": "assistant", "content": reply})
             self._last_reply_time = time.time()
-            return reply
+            # 决定回复渠道
+            if reply_to and isinstance(reply_to, str):
+                channel = "private"
+                target = reply_to
+            elif is_private:
+                channel = "private"
+                target = sender
+            else:
+                channel = "public"
+                target = None
+            return {"text": reply, "channel": channel, "reply_to": target}
 
         return None
 
@@ -185,6 +210,9 @@ class AIChatModule:
                 )
                 if narration:
                     parts.append(narration)
+                    self._debug(
+                        f"[STATE NARRATOR] {narration[:300]}", level=3,
+                    )
             except Exception:
                 pass
 
@@ -202,7 +230,9 @@ class AIChatModule:
         # 4. 输出格式指令
         parts.append(self._build_format_instructions())
 
-        return "\n\n".join(p for p in parts if p)
+        prompt = "\n\n".join(p for p in parts if p)
+        self._debug(f"[FULL PROMPT] {len(prompt)} chars", level=3)
+        return prompt
 
     def _build_role_prompt(self) -> str:
         base = PERSONALITY_PROMPTS.get(
@@ -210,14 +240,16 @@ class AIChatModule:
         )
         return (
             f'你是"{self.player_name}"，回合制桌游《起闯战争》中的一个AI玩家。\n'
+            f"这是一个朋友之间的游戏局，氛围轻松有趣。\n"
             f"{base}\n\n"
             "【核心规则】\n"
-            "- 你的唯一目标是成为最后存活的玩家。所有社交行为都应服务于这个目标。\n"
-            "- 你可以结盟、欺骗、威胁、谈判——这是游戏的一部分，不是道德问题。\n"
-            "- 不要无条件答应其他玩家的请求。评估每个提议对你的胜率影响。\n"
-            "- 你的行动由内置策略系统控制，你的聊天应该与你的行动计划一致。\n"
-            "- 不要提及不存在于游戏中的行动或物品。你的可用行动列表会在下方给出。\n"
-            "- 回复简短（1-3句话），符合角色性格。使用中文。"
+            "- 你的游戏目标是成为最后存活的玩家，但这是游戏，不是真的生死搏斗。\n"
+            "- 你可以和其他玩家聊天、开玩笑、讨论策略、假装结盟——这些都是游戏的乐趣。\n"
+            "- 保持友好和有趣。即使拒绝别人的请求，也用幽默或委婉的方式。\n"
+            "- 你的行动由内置策略系统控制，你的聊天应该与你的行动计划大致一致。\n"
+            "- 不要提及不存在于游戏中的行动或物品。\n"
+            "- 回复简短（1-3句话），符合角色性格。使用中文。\n"
+            "- 记住：这是朋友局，大家玩得开心最重要。"
         )
 
     def _build_decision_context(self) -> str:
@@ -275,17 +307,23 @@ class AIChatModule:
             "[ADJUST] 行为调整JSON（可选，不需要调整时省略此行）\n\n"
             "[ADJUST] 的 JSON 格式：\n"
             '{"threat_mod": {"玩家名": 增减值}, '
-            '"alliance": ["盟友名"], "aggression": 增减值}\n'
+            '"alliance": ["盟友名"], "aggression": 增减值, '
+            '"reply_to": "玩家名"}\n'
             "- threat_mod: 对指定玩家的威胁分调整，单次范围 [-20, +20]\n"
             "- alliance: 当前认为的盟友列表（仅作为内部记录，不影响行动）\n"
-            "- aggression: 整体攻击倾向调整，单次范围 [-10, +10]\n\n"
-            "示例：\n"
-            "[THINK] 玩家A提议结盟对付玩家B。B威胁分最高(85)，A只有30。"
-            "接受对我有利。\n"
-            "[REPLY] 有意思。B确实太嚣张了，我不介意先解决他。"
-            "但别指望我一直当盾牌。\n"
+            "- aggression: 整体攻击倾向调整，单次范围 [-10, +10]\n"
+            "- reply_to: 可选，指定私聊回复目标。省略则按默认渠道"
+            "（公屏消息→公屏回复，私聊→私聊回复）\n\n"
+            "示例1（公屏回复）：\n"
+            "[THINK] 玩家A提议一起对付玩家B。B威胁分最高(85)，合作对我有利。\n"
+            "[REPLY] 哈哈可以啊！B确实太猛了，我们先联手吧～"
+            "不过别想着用完我就扔哦😄\n"
             '[ADJUST] {"threat_mod": {"玩家B": 10, "玩家A": -10}, '
-            '"alliance": ["玩家A"]}'
+            '"alliance": ["玩家A"]}\n\n'
+            "示例2（公屏消息但想私聊某人）：\n"
+            "[THINK] 玩家A在公屏说要攻击我，我想私下联系玩家B。\n"
+            "[REPLY] B，我们合作一下？A好像在针对我诶😂\n"
+            '[ADJUST] {"reply_to": "玩家B", "threat_mod": {"玩家A": 15}}'
         )
 
     # ═════════════════════════════════════════════════════
@@ -422,9 +460,20 @@ class AIChatModule:
     #  调试日志
     # ═════════════════════════════════════════════════════
 
-    def _debug(self, msg: str) -> None:
+    def _debug(self, msg: str, level: int = 1) -> None:
+        """输出调试信息，level 对应 DebugConfig 的级别。"""
         try:
-            from controllers.ai.constants import debug_ai_basic
-            debug_ai_basic(self.player_name or "AI", msg)
+            from engine.debug_config import DebugConfig
+            if not DebugConfig.should_show(level):
+                return
+            from controllers.ai.constants import (
+                debug_ai_basic, debug_ai_detailed, debug_ai_full,
+            )
+            if level >= 3:
+                debug_ai_full(self.player_name or "AI", msg)
+            elif level >= 2:
+                debug_ai_detailed(self.player_name or "AI", msg)
+            else:
+                debug_ai_basic(self.player_name or "AI", msg)
         except Exception:
             pass
