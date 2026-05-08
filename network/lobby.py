@@ -53,6 +53,7 @@ class PlayerSlot:
     disconnect_policy: DisconnectPolicy = DisconnectPolicy.WAIT_RECONNECT
     personality: Optional[str] = None  # AI 用
     rl_model_path: Optional[str] = None  # RL AI 用
+    chat_backend: Optional[str] = None  # "airi" / "llm" / "off" / None(自动)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -62,6 +63,7 @@ class PlayerSlot:
             "is_connected": self.is_connected,
             "disconnect_policy": self.disconnect_policy.value,
             "personality": self.personality,
+            "chat_backend": self.chat_backend,
         }
 
 
@@ -153,6 +155,17 @@ class LobbyManager:
         if slot:
             slot.disconnect_policy = policy
             self._broadcast_lobby_update()
+
+    def set_chat_backend(self, slot_id: int, backend: Optional[str]) -> bool:
+        """设置 AI slot 的聊天后端。backend: 'airi' / 'llm' / 'off' / None"""
+        slot = self._get_slot(slot_id)
+        if slot is None:
+            return False
+        if slot.slot_type not in (SlotType.BASIC_AI, SlotType.RL_AI):
+            return False
+        slot.chat_backend = backend
+        self._broadcast_lobby_update()
+        return True
 
     # ──────────────────────────────────────────
     #  游戏启动

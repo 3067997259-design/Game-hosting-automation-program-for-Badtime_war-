@@ -72,6 +72,7 @@ class HostPanel(Static):
                 "    ai <slot号> [性格]         - 设置基础 AI\n"
                 "    rl <slot号>                - 设置 RL AI（需检测到模型）\n"
                 "    policy <slot号> <wait|ai>  - 设置断线策略\n"
+                "    chatmode <slot号> <airi|llm|off> - 设置聊天后端\n"
                 "    status                     - 刷新状态\n"
                 "    start                      - 开始游戏\n"
                 "\n"
@@ -97,8 +98,11 @@ class HostPanel(Static):
             stype = slot.slot_type.value
             name = slot.player_name or "空"
             policy = slot.disconnect_policy.value
+            chat_label = ""
+            if slot.chat_backend:
+                chat_label = f" | 聊天: {slot.chat_backend}"
             log.write(
-                f"  [{slot.slot_id}] {stype:12s} | {name:10s} | {status} | 断线策略: {policy}"
+                f"  [{slot.slot_id}] {stype:12s} | {name:10s} | {status} | 断线策略: {policy}{chat_label}"
             )
 
     def log_feedback(self, text: str):

@@ -755,6 +755,28 @@ class BadtimeWarTUI(App):
             else:
                 self._log_to_game("  可选策略: wait (等待重连), ai (AI接管)")
 
+        elif cmd == "chatmode":
+            if len(parts) < 3:
+                self._log_to_game("  用法: chatmode <slot_id> <airi|llm|off>")
+                self._log_to_game("    airi - 使用 AIRI WebSocket 后端")
+                self._log_to_game("    llm  - 使用普通 LLM 后端")
+                self._log_to_game("    off  - 该 AI 不参与聊天")
+                return
+            try:
+                slot_id = int(parts[1])
+            except ValueError:
+                self._log_to_game("  无效的 slot_id")
+                return
+            backend_choice = parts[2].lower()
+            if backend_choice not in ("airi", "llm", "off"):
+                self._log_to_game("  可选: airi / llm / off")
+                return
+            if self.lobby.set_chat_backend(slot_id, backend_choice):
+                self._refresh_host_panel()
+                self._log_to_game(f"  ✓ Slot {slot_id} 聊天后端设为: {backend_choice}")
+            else:
+                self._log_to_game("  ✗ 设置失败（槽位不是 AI 类型）")
+
         elif cmd == "start":
             # 与「开始游戏」按钮等价：触发 SlotConfigRequest(action="start_game")
             self.post_message(SlotConfigRequest(slot_id=0, action="start_game"))
@@ -762,7 +784,7 @@ class BadtimeWarTUI(App):
         else:
             self._log_to_game(f"  未知管理命令: {raw}")
             self._log_to_game(
-                "  可用: ai <slot> [性格] | rl <slot> | policy <slot> <wait|ai> | status | start"
+                "  可用: ai <slot> [性格] | rl <slot> | policy <slot> <wait|ai> | chatmode <slot> <airi|llm|off> | status | start"
             )
 
     def _refresh_host_panel(self):
