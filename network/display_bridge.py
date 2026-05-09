@@ -44,6 +44,7 @@ class DisplayBroadcaster:
         self._tui_callback = None
         self._tui_app = None
         self._airi_backend: Any = None
+        self._chat_manager = None
 
     def set_tui_callback(self, callback, app=None):
         """设置 TUI 回调，替代 print() 进行房主本地显示"""
@@ -53,6 +54,10 @@ class DisplayBroadcaster:
     def set_airi_backend(self, backend: Any):
         """设置 AIRI 后端引用，广播游戏事件时同步推送给 AIRI。"""
         self._airi_backend = backend
+
+    def set_chat_manager(self, chat_manager):
+        """设置 ChatManager 引用，用于将游戏事件通知给 AI 聊天模块。"""
+        self._chat_manager = chat_manager
 
     def install(self):
         # 广播类函数
@@ -198,6 +203,17 @@ class DisplayBroadcaster:
                 if event_text:
                     try:
                         self._airi_backend.notify(event_text)
+                    except Exception:
+                        pass
+
+            # 通知 AI 聊天模块游戏事件
+            if self._chat_manager is not None and hasattr(
+                self._chat_manager, "notify_game_event",
+            ):
+                event_text = self._format_event_for_airi(func_name, args)
+                if event_text:
+                    try:
+                        self._chat_manager.notify_game_event(event_text)
                     except Exception:
                         pass
 

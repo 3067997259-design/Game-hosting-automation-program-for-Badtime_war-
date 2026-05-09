@@ -401,6 +401,7 @@ def _start_game_tui(server, lobby, chat_manager, host_plays, app):
         broadcaster = DisplayBroadcaster(server, lobby)
         broadcaster.set_tui_callback(app.push_game_event, app=app)
         broadcaster.install()
+        broadcaster.set_chat_manager(chat_manager)
 
         # 设置 AI 聊天（可能返回 AIRI 后端引用）
         airi_backend = _setup_ai_chat(lobby, chat_manager, game_state)
@@ -682,6 +683,7 @@ def _start_game(server, lobby, chat_manager, host_plays):
     # 安装 Display 桥接
     broadcaster = DisplayBroadcaster(server, lobby)
     broadcaster.install()
+    broadcaster.set_chat_manager(chat_manager)
 
     # 设置 AI 聊天（可能返回 AIRI 后端引用）
     airi_backend = _setup_ai_chat(lobby, chat_manager, game_state)
