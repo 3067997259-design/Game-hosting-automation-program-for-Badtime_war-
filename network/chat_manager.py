@@ -60,11 +60,18 @@ class ChatManager:
         AIRI 是有状态的对话 AI——游戏事件（轮次开始、玩家死亡、战斗结果等）
         通过 spark:notify 推送给它，让它实时感知进展。普通 LLM 后端是无状态的
         无需推送（事件信息会随下一次 system prompt 一起带入）。
+
+        多个 AI 槽位可能共享同一个 AIRI 后端实例（_setup_ai_chat 复用 backend），
+        此处按 id() 去重，避免对同一 WebSocket 连接重复推送。
         """
+        seen_backends: set = set()
         for module in self._ai_chat_modules.values():
             backend = getattr(module, "backend", None)
             if backend is None or not getattr(backend, "is_airi", False):
                 continue
+            if id(backend) in seen_backends:
+                continue
+            seen_backends.add(id(backend))
             push = getattr(backend, "push_game_event", None)
             if not callable(push):
                 continue
