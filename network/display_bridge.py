@@ -195,18 +195,10 @@ class DisplayBroadcaster:
             except Exception:
                 pass
 
-            # AIRI 事件转发：让 AIRI 实时感知游戏进展
-            if self._airi_backend is not None and hasattr(
-                self._airi_backend, "notify",
-            ):
-                event_text = self._format_event_for_airi(func_name, args)
-                if event_text:
-                    try:
-                        self._airi_backend.notify(event_text)
-                    except Exception:
-                        pass
-
-            # 通知 AI 聊天模块游戏事件
+            # 游戏事件转发：优先走 chat_manager（统一入口，覆盖 AIRI 与未来扩展），
+            # 仅在 chat_manager 未设置时回退到直接 AIRI 通知，避免对同一 AIRI
+            # 连接重复推送（chat_manager.notify_game_event 内部已遍历模块并调用
+            # AiriBackend.push_game_event → notify）。
             if self._chat_manager is not None and hasattr(
                 self._chat_manager, "notify_game_event",
             ):
@@ -214,6 +206,15 @@ class DisplayBroadcaster:
                 if event_text:
                     try:
                         self._chat_manager.notify_game_event(event_text)
+                    except Exception:
+                        pass
+            elif self._airi_backend is not None and hasattr(
+                self._airi_backend, "notify",
+            ):
+                event_text = self._format_event_for_airi(func_name, args)
+                if event_text:
+                    try:
+                        self._airi_backend.notify(event_text)
                     except Exception:
                         pass
 
