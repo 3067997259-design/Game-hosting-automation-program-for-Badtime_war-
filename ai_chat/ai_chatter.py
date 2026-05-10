@@ -13,12 +13,28 @@ AI 聊天模块（战略社交版）
 """
 
 import json
+import os
 import random
 import re
 import time
 from typing import Optional, Any, List, Dict
 
 from ai_chat.llm_backend import LLMBackend
+
+
+# ─────────────────────────────────────────────────────────
+#  环境变量：公屏回复概率
+# ─────────────────────────────────────────────────────────
+#  通过 AIRI_PUBLIC_REPLY_RATE 控制 AI 在公屏的回复概率（0.0-1.0）。
+#  默认 1.0（100% 回复）。也可由 main_server._get_airi_backend 根据
+#  config/airi_config.json 的 `public_reply_rate` 字段在启动时设置；
+#  AIChatModule 实例化时会从环境变量读取最新值。
+try:
+    _PUBLIC_REPLY_RATE_ENV = float(
+        os.environ.get("AIRI_PUBLIC_REPLY_RATE", "1.0")
+    )
+except (TypeError, ValueError):
+    _PUBLIC_REPLY_RATE_ENV = 1.0
 
 
 # ─────────────────────────────────────────────────────────
@@ -75,8 +91,8 @@ _AGGRESSION_TOTAL_CLAMP = 20  # _llm_aggression_mod 累计限幅
 class AIChatModule:
     """AI 聊天模块：为一个 AI 玩家生成战略性聊天回复。"""
 
-    # 公屏回复概率
-    PUBLIC_REPLY_RATE = 0.4
+    # 公屏回复概率（来自环境变量 AIRI_PUBLIC_REPLY_RATE，默认 1.0）
+    PUBLIC_REPLY_RATE = _PUBLIC_REPLY_RATE_ENV
     # 本地最小回复间隔（秒）
     REPLY_COOLDOWN = 5.0
     # 历史保留上限（防止极端情况）
@@ -119,8 +135,19 @@ class AIChatModule:
         # debug 玩家：跳过概率回复和冷却检查，确保每条消息都能得到 AI 回复
         is_debug_player = (sender == "AfterRain")
 
+        # 缓存 player 引用（无论是否回复都先更新）
+        if game_state is not None:
+            self._update_player_ref(game_state)
+
+        # AIRI 后端：游戏状态推送与回复概率解耦——即使本次决定不回复，
+        # 也通过 context:update 把当前 GameState 推给 AIRI，确保它实时感知
+        # 游戏进展（轮次、HP、装备、威胁等），而不是等到下一次触发回复。
+        is_airi = bool(getattr(self.backend, "is_airi", False))
+        if is_airi:
+            self._maybe_push_state(game_state)
+
         if not is_debug_player:
-            # 概率回复：公屏 40%，私聊 100%（私聊也跳过冷却）
+            # 概率回复：公屏受 PUBLIC_REPLY_RATE 控制，私聊 100%（也跳过冷却）
             if not is_private and random.random() > self.PUBLIC_REPLY_RATE:
                 return None
 
@@ -129,34 +156,11 @@ class AIChatModule:
             if not is_private and now - self._last_reply_time < self.REPLY_COOLDOWN:
                 return None
 
-        # 缓存 player 引用
-        if game_state is not None:
-            self._update_player_ref(game_state)
-
         # AIRI 后端：不塞 system prompt 到 chat() 调用——AIRI 有自己的
         # 角色卡和记忆系统，游戏的 system prompt 会覆盖其人设并以可见
         # 文本出现在聊天窗口。改为通过 context:update 推送游戏状态、
         # spark:notify 推送游戏事件；chat() 只发送玩家的实际聊天内容。
-        is_airi = bool(getattr(self.backend, "is_airi", False))
-
         if is_airi:
-            # 通过 context:update 推送游戏状态（替代塞进 system prompt）
-            if game_state is not None and self._player_ref is not None:
-                try:
-                    from ai_chat.state_narrator import narrate_state
-                    narration = narrate_state(
-                        self._player_ref, game_state, self.controller,
-                    )
-                    dec = (
-                        self._build_decision_context()
-                        if self.controller else ""
-                    )
-                    push = getattr(self.backend, "push_game_state", None)
-                    if narration and callable(push):
-                        push(narration, dec)
-                except Exception:
-                    pass
-
             # AIRI 模式：history 中不加 [公屏]/[私聊] 前缀
             self._history.append({
                 "role": "user",
@@ -483,6 +487,51 @@ class AIChatModule:
     # ═════════════════════════════════════════════════════
     #  Player 引用缓存
     # ═════════════════════════════════════════════════════
+
+    def _maybe_push_state(self, game_state: Any) -> None:
+        """尝试通过 context:update 把当前游戏状态推送给 AIRI，记录详细日志。
+
+        在 on_chat_received 中提前调用，与回复概率/冷却解耦——即使本次
+        消息不回复，AIRI 仍能感知最新的游戏进展。每个分支都会输出 level=1
+        的调试信息以便排查推送失败原因。
+        """
+        is_airi = bool(getattr(self.backend, "is_airi", False))
+        if not is_airi:
+            return
+
+        if game_state is None:
+            self._debug("[AIRI STATE] game_state is None (大厅阶段)", level=1)
+            return
+
+        if self._player_ref is None:
+            self._debug("[AIRI STATE] _player_ref is None (可能已死亡)", level=1)
+            return
+
+        try:
+            from ai_chat.state_narrator import narrate_state
+            narration = narrate_state(
+                self._player_ref, game_state, self.controller,
+            )
+            if not narration:
+                self._debug("[AIRI STATE] narrate_state 返回空", level=1)
+                return
+
+            dec = (
+                self._build_decision_context() if self.controller else ""
+            )
+            push = getattr(self.backend, "push_game_state", None)
+            if not callable(push):
+                self._debug(
+                    "[AIRI STATE] backend.push_game_state 不可用", level=1,
+                )
+                return
+
+            push(narration, dec)
+            self._debug(
+                f"[AIRI STATE] 推送成功 ({len(narration)} chars)", level=1,
+            )
+        except Exception as e:
+            self._debug(f"[AIRI STATE ERROR] {e}", level=1)
 
     def _update_player_ref(self, game_state: Any) -> None:
         """缓存当前 player 对象引用，供 state_narrator 使用"""
