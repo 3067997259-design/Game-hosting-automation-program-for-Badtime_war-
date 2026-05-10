@@ -20,7 +20,14 @@ log = logging.getLogger("airi_connection")
 class AiriConnection:
     """管理与 AIRI WebSocket 服务器的连接。"""
 
-    def __init__(self, ws_url: str, module_id: str, auth_token: str = ""):
+    def __init__(
+        self,
+        ws_url: str,
+        module_id: str,
+        auth_token: str = "",
+        heartbeat_interval: int = 30,
+        max_reconnect_attempts: int = 10,
+    ):
         self.ws_url = ws_url
         self.module_id = module_id  # 作为 plugin.id（稳定标识）
         self.instance_id = f"{module_id}-{uuid.uuid4().hex[:8]}"  # 实例 ID（每次运行唯一）
@@ -31,16 +38,36 @@ class AiriConnection:
         self._connected = False
         self._response_queue: Optional[asyncio.Queue] = None
         self._message_handlers: Dict[str, Callable] = {}
+        # 心跳与重连
+        self._heartbeat_interval = max(1, int(heartbeat_interval))
+        self._max_reconnect_attempts = max(0, int(max_reconnect_attempts))
+        self._reconnect_delay = 5  # 重连退避（秒）
+        self._should_reconnect = True
 
     def connect(self):
         """在后台线程启动 asyncio 事件循环，连接 AIRI。"""
+        self._should_reconnect = True
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         deadline = time.time() + 15
         while not self._connected and time.time() < deadline:
             time.sleep(0.1)
         if not self._connected:
+            # 首次连接失败：停止后台重连，避免事件循环常驻
+            self._should_reconnect = False
             raise ConnectionError(f"无法连接到 AIRI: {self.ws_url}")
+
+    def disconnect(self):
+        """主动断开连接并停止重连。"""
+        self._should_reconnect = False
+        ws = self._ws
+        loop = self._loop
+        if ws is not None and loop is not None and loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(ws.close(), loop)
+            except Exception:
+                pass
+        self._connected = False
 
     def _run_loop(self):
         self._loop = asyncio.new_event_loop()
@@ -57,9 +84,6 @@ class AiriConnection:
             log.error("缺少 websockets 库，请运行: pip install websockets")
             return
 
-        # 在事件循环中创建 Queue，确保绑定到正确的循环
-        self._response_queue = asyncio.Queue()
-
         connect_kwargs = {}
         if self.ws_url.startswith("wss://"):
             import ssl as _ssl
@@ -68,76 +92,151 @@ class AiriConnection:
             ssl_ctx.verify_mode = _ssl.CERT_NONE
             connect_kwargs["ssl"] = ssl_ctx
 
-        try:
-            async with websockets.connect(self.ws_url, **connect_kwargs) as ws:
-                self._ws = ws
-                self._connected = True
-                log.info(f"已连接到 AIRI: {self.ws_url}")
+        reconnect_attempts = 0
 
-                # 认证（如果配置了 token）
-                if self.auth_token:
-                    await self._send_event("module:authenticate", {
-                        "token": self.auth_token,
-                    })
+        while self._should_reconnect and reconnect_attempts <= self._max_reconnect_attempts:
+            try:
+                # 每次连接重建 Queue，避免历史回复污染新会话
+                self._response_queue = asyncio.Queue()
 
-                # 注册模块
-                identity = {
-                    "id": f"{self.module_id}-instance",
-                    "kind": "plugin",
-                    "plugin": {"id": self.module_id},
-                }
-                await self._send_event("module:announce", {
-                    "name": "Badtime War Bridge",
-                    "identity": identity,
-                }, source_override=identity)
+                async with websockets.connect(self.ws_url, **connect_kwargs) as ws:
+                    self._ws = ws
+                    self._connected = True
+                    if reconnect_attempts > 0:
+                        log.info(f"AIRI 重连成功: {self.ws_url}")
+                    else:
+                        log.info(f"已连接到 AIRI: {self.ws_url}")
+                    reconnect_attempts = 0  # 连接成功后清零
 
-                # 接收循环
-                async for raw_msg in ws:
+                    # 认证（如果配置了 token）
+                    if self.auth_token:
+                        await self._send_event("module:authenticate", {
+                            "token": self.auth_token,
+                        })
+
+                    # 注册模块
+                    identity = {
+                        "id": f"{self.module_id}-instance",
+                        "kind": "plugin",
+                        "plugin": {"id": self.module_id},
+                    }
+                    await self._send_event("module:announce", {
+                        "name": "Badtime War Bridge",
+                        "identity": identity,
+                    }, source_override=identity)
+
+                    # 同时运行接收循环和心跳循环；任意一个先结束就取消另一个
+                    recv_task = asyncio.ensure_future(self._recv_loop(ws))
+                    hb_task = asyncio.ensure_future(self._heartbeat_loop())
                     try:
-                        msg = json.loads(raw_msg)
-                    except json.JSONDecodeError:
-                        log.warning(f"收到非 JSON 消息: {str(raw_msg)[:100]}")
-                        continue
+                        done, pending = await asyncio.wait(
+                            [recv_task, hb_task],
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                    finally:
+                        for task in (recv_task, hb_task):
+                            if not task.done():
+                                task.cancel()
+                        # 等待取消完成，避免协程泄漏
+                        for task in (recv_task, hb_task):
+                            try:
+                                await task
+                            except (asyncio.CancelledError, Exception):
+                                pass
+                    # 把先结束那个任务的异常抛出，交给外层重连逻辑
+                    for task in done:
+                        exc = task.exception()
+                        if exc is not None:
+                            raise exc
 
-                    # SuperJSON 解包
-                    if "json" in msg and isinstance(msg["json"], dict):
-                        msg = msg["json"]
+            except Exception as e:
+                log.error(f"AIRI 连接异常: {e}")
+            finally:
+                self._connected = False
+                self._ws = None
 
-                    msg_type = msg.get("type", "")
+            if not self._should_reconnect:
+                break
 
-                    # 处理 AI 回复
-                    if msg_type in (
-                        "output:gen-ai:chat:message",
-                        "output:gen-ai:chat:complete",
-                    ):
-                        # 优先从 message.content 提取实际回复
-                        message_obj = msg.get("data", {}).get("message", {})
-                        text = message_obj.get("content", "") if isinstance(message_obj, dict) else ""
-                        if not text:
-                            # 降级：尝试 data.text（兼容旧版本）
-                            text = msg.get("data", {}).get("text", "")
-                        if text:
-                            await self._response_queue.put(text)
+            reconnect_attempts += 1
+            if reconnect_attempts > self._max_reconnect_attempts:
+                log.error(
+                    f"AIRI 已达到最大重连次数 ({self._max_reconnect_attempts})，停止重连"
+                )
+                break
 
-                    # 处理 AIRI 主动发起的命令（类似 Minecraft 的 spark:command）
-                    if msg_type == "spark:command":
-                        command = msg.get("data", {}).get("command", "")
-                        if command:
-                            await self._response_queue.put(f"COMMAND:{command}")
+            log.info(
+                f"{self._reconnect_delay} 秒后尝试重连 AIRI "
+                f"({reconnect_attempts}/{self._max_reconnect_attempts})"
+            )
+            try:
+                await asyncio.sleep(self._reconnect_delay)
+            except asyncio.CancelledError:
+                break
 
-                    # 自定义处理器
-                    handler = self._message_handlers.get(msg_type)
-                    if handler:
-                        try:
-                            handler(msg)
-                        except Exception as e:
-                            log.warning(f"自定义处理器异常 ({msg_type}): {e}")
+    async def _recv_loop(self, ws):
+        """接收循环：消费 AIRI 推送的消息。"""
+        async for raw_msg in ws:
+            try:
+                msg = json.loads(raw_msg)
+            except json.JSONDecodeError:
+                log.warning(f"收到非 JSON 消息: {str(raw_msg)[:100]}")
+                continue
 
-        except Exception as e:
-            log.error(f"AIRI 连接异常: {e}")
-        finally:
-            self._connected = False
-            self._ws = None
+            # SuperJSON 解包
+            if "json" in msg and isinstance(msg["json"], dict):
+                msg = msg["json"]
+
+            msg_type = msg.get("type", "")
+
+            # 处理 AI 回复
+            if msg_type in (
+                "output:gen-ai:chat:message",
+                "output:gen-ai:chat:complete",
+            ):
+                # 优先从 message.content 提取实际回复
+                message_obj = msg.get("data", {}).get("message", {})
+                text = message_obj.get("content", "") if isinstance(message_obj, dict) else ""
+                if not text:
+                    # 降级：尝试 data.text（兼容旧版本）
+                    text = msg.get("data", {}).get("text", "")
+                if text and self._response_queue is not None:
+                    await self._response_queue.put(text)
+
+            # 处理 AIRI 主动发起的命令（类似 Minecraft 的 spark:command）
+            if msg_type == "spark:command":
+                command = msg.get("data", {}).get("command", "")
+                if command and self._response_queue is not None:
+                    await self._response_queue.put(f"COMMAND:{command}")
+
+            # 自定义处理器
+            handler = self._message_handlers.get(msg_type)
+            if handler:
+                try:
+                    handler(msg)
+                except Exception as e:
+                    log.warning(f"自定义处理器异常 ({msg_type}): {e}")
+
+    async def _heartbeat_loop(self):
+        """心跳循环：定期发送应用层 ping 保持连接活性。
+
+        websockets 库自身有 WebSocket 协议级别的 ping/pong；这里发送的
+        是 AIRI 应用层事件，用于让对端在收不到任何业务消息的空闲期
+        仍然知道我们是活的（部分中间件会因长时间无任何数据而断开）。
+        AIRI 若不识别该事件类型可安全忽略。
+        """
+        while True:
+            try:
+                await asyncio.sleep(self._heartbeat_interval)
+                if self._ws is None:
+                    break
+                await self._send_event("ping", {})
+                log.debug("[AIRI] 已发送心跳 ping")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.warning(f"[AIRI] 心跳发送失败: {e}")
+                break
 
     async def _send_event(self, event_type: str, data: dict, source_override: Optional[dict] = None):
         """发送 AIRI 格式的事件消息。"""
@@ -161,27 +260,44 @@ class AiriConnection:
 
     def send_text(self, text: str):
         """从外部线程向 AIRI 发送文本消息（input:text）。"""
-        if self._loop and self._connected:
-            asyncio.run_coroutine_threadsafe(
-                self._send_event("input:text", {"text": text}),
-                self._loop,
-            )
+        if not self._connected:
+            preview = text[:50] + ("..." if len(text) > 50 else "")
+            log.warning(f"[AIRI] 连接已断开，丢弃文本消息: {preview}")
+            return
+        if self._loop is None:
+            log.warning("[AIRI] 事件循环未运行，无法发送文本消息")
+            return
+        asyncio.run_coroutine_threadsafe(
+            self._send_event("input:text", {"text": text}),
+            self._loop,
+        )
 
     def send_context(self, context: dict):
         """向 AIRI 推送游戏上下文（context:update）。"""
-        if self._loop and self._connected:
-            asyncio.run_coroutine_threadsafe(
-                self._send_event("context:update", context),
-                self._loop,
-            )
+        if not self._connected:
+            log.warning("[AIRI] 连接已断开，丢弃 context:update")
+            return
+        if self._loop is None:
+            log.warning("[AIRI] 事件循环未运行，无法推送上下文")
+            return
+        asyncio.run_coroutine_threadsafe(
+            self._send_event("context:update", context),
+            self._loop,
+        )
 
     def send_notify(self, message: str):
         """向 AIRI 发送通知（spark:notify）。"""
-        if self._loop and self._connected:
-            asyncio.run_coroutine_threadsafe(
-                self._send_event("spark:notify", {"message": message}),
-                self._loop,
-            )
+        if not self._connected:
+            preview = message[:50] + ("..." if len(message) > 50 else "")
+            log.warning(f"[AIRI] 连接已断开，丢弃通知: {preview}")
+            return
+        if self._loop is None:
+            log.warning("[AIRI] 事件循环未运行，无法发送通知")
+            return
+        asyncio.run_coroutine_threadsafe(
+            self._send_event("spark:notify", {"message": message}),
+            self._loop,
+        )
 
     def wait_for_response(self, timeout: float = 60.0) -> Optional[str]:
         """同步等待 AIRI 的下一条回复。"""

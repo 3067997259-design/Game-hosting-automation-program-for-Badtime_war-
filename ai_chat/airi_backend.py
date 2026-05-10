@@ -31,8 +31,16 @@ class AiriBackend(LLMBackend):
         player_name: str = "AI",
         personality: str = "balanced",
         chat_timeout: int = 30,
+        heartbeat_interval: int = 30,
+        max_reconnect_attempts: int = 10,
     ):
-        self._conn = AiriConnection(ws_url, module_id, auth_token)
+        self._conn = AiriConnection(
+            ws_url,
+            module_id,
+            auth_token,
+            heartbeat_interval=heartbeat_interval,
+            max_reconnect_attempts=max_reconnect_attempts,
+        )
         self._chat_timeout = chat_timeout
         self._player_name = player_name
         self._personality = personality

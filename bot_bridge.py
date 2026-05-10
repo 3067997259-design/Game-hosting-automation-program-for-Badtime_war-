@@ -172,6 +172,10 @@ class BotBridge:
             ws_url=config.get("airi_ws_url", "ws://localhost:6121/ws"),
             module_id=config.get("module_id", "badtime-war-bridge"),
             auth_token=config.get("airi_auth_token", ""),
+            heartbeat_interval=int(config.get("heartbeat_interval", 30)),
+            max_reconnect_attempts=int(
+                config.get("max_reconnect_attempts", 10)
+            ),
         )
 
         # 游戏状态追踪

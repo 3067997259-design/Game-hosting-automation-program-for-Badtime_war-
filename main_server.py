@@ -973,6 +973,12 @@ def _setup_ai_chat(lobby, chat_manager, game_state):
                 player_name=player_name,
                 personality=personality,
                 chat_timeout=int(airi_config.get("chat_timeout", 30)),
+                heartbeat_interval=int(
+                    airi_config.get("heartbeat_interval", 30)
+                ),
+                max_reconnect_attempts=int(
+                    airi_config.get("max_reconnect_attempts", 10)
+                ),
             )
             airi_backend.connect()
             print(f"  [AIRI] 已连接 ({player_name})")
