@@ -285,8 +285,31 @@ class AiriConnection:
             self._loop,
         )
 
-    def send_notify(self, message: str):
-        """向 AIRI 发送通知（spark:notify）。"""
+    def send_notify(
+        self,
+        message: str,
+        kind: str = "ping",
+        urgency: str = "immediate",
+        headline: Optional[str] = None,
+        destinations: Optional[List[str]] = None,
+    ):
+        """向 AIRI 发送通知（spark:notify）。
+
+        AIRI 协议要求 spark:notify payload 至少包含：
+        - id / eventId: 本次事件的唯一 ID（重试时 eventId 可保持不变）
+        - kind: "alarm"（紧急）/"ping"（普通通知）/"reminder"（提醒）
+        - urgency: "immediate"/"soon"/"later"
+        - headline: 简短标题（最多 100 字符）
+        - note: 详细内容（可选）
+        - destinations: 路由目标，例如 ["character"] 路由到角色模块
+
+        Args:
+            message: 通知详细内容，会作为 ``note`` 字段发送。
+            kind: 事件类型，默认 ``ping``；非法值会回落到 ``ping``。
+            urgency: 紧急程度，默认 ``immediate``；非法值回落到 ``immediate``。
+            headline: 简短标题。若为 None 则取 ``message`` 第一行并截至 100 字符。
+            destinations: 路由列表。默认 ``["character"]``。
+        """
         if not self._connected:
             preview = message[:50] + ("..." if len(message) > 50 else "")
             log.warning(f"[AIRI] 连接已断开，丢弃通知: {preview}")
@@ -294,8 +317,29 @@ class AiriConnection:
         if self._loop is None:
             log.warning("[AIRI] 事件循环未运行，无法发送通知")
             return
+
+        valid_kinds = {"alarm", "ping", "reminder"}
+        if kind not in valid_kinds:
+            kind = "ping"
+        valid_urgency = {"immediate", "soon", "later"}
+        if urgency not in valid_urgency:
+            urgency = "immediate"
+
+        if headline is None:
+            first_line = message.split("\n", 1)[0].strip()
+            headline = (first_line or message)[:100]
+
+        payload = {
+            "id": str(uuid.uuid4()),
+            "eventId": str(uuid.uuid4()),
+            "kind": kind,
+            "urgency": urgency,
+            "headline": headline,
+            "note": message,
+            "destinations": destinations or ["character"],
+        }
         asyncio.run_coroutine_threadsafe(
-            self._send_event("spark:notify", {"message": message}),
+            self._send_event("spark:notify", payload),
             self._loop,
         )
 

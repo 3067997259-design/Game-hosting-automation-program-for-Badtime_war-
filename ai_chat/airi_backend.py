@@ -15,6 +15,7 @@ AIRI 只负责社交聊天，其回复中的 [ADJUST] 段可以反过来影响 B
 """
 
 import logging
+import uuid
 from typing import Any, Dict, List
 
 from ai_chat.llm_backend import LLMBackend
@@ -48,6 +49,9 @@ class AiriBackend(LLMBackend):
         self._player_name = player_name
         self._personality = personality
         self._connected = False
+        # 稳定的 contextId：每次 push_game_state 共用同一个，配合
+        # strategy="replace-self" 表示新状态覆盖旧状态（最新快照胜出）。
+        self._game_state_context_id = str(uuid.uuid4())
 
     @property
     def is_airi(self) -> bool:
@@ -122,12 +126,27 @@ class AiriBackend(LLMBackend):
 
         与 system prompt 不同，context:update 是结构化的副通道——AIRI 会
         把它当作背景信息使用，而不是会显示在聊天窗口里的指令文本。
+
+        AIRI 协议要求 context:update payload 至少包含：
+        - id: 本次推送的唯一 ID
+        - contextId: 同一逻辑上下文的 ID（使用 replace-self 时复用以覆盖旧值）
+        - strategy: "replace-self"（新状态覆盖旧状态）或 "append-self"（追加）
+        - text: 实际的上下文文本
         """
         if not self._connected:
             return
-        context: Dict[str, Any] = {"game_state": state_narration}
+
+        text = state_narration
         if decision_context:
-            context["strategy"] = decision_context
+            text = f"{state_narration}\n\n{decision_context}"
+
+        context: Dict[str, Any] = {
+            "id": str(uuid.uuid4()),
+            "contextId": self._game_state_context_id,
+            "strategy": "replace-self",
+            "text": text,
+            "lane": "game-state",
+        }
         self._conn.send_context(context)
 
     def push_game_event(self, event_text: str):
