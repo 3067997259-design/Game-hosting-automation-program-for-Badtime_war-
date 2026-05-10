@@ -14,10 +14,13 @@ AIRI 只负责社交聊天，其回复中的 [ADJUST] 段可以反过来影响 B
 4. chat() 只把当前玩家的最新一条聊天内容通过 input:text 发给 AIRI。
 """
 
+import logging
 from typing import Any, Dict, List
 
 from ai_chat.llm_backend import LLMBackend
 from ai_chat.airi_connection import AiriConnection
+
+log = logging.getLogger("airi_backend")
 
 
 class AiriBackend(LLMBackend):
@@ -51,10 +54,23 @@ class AiriBackend(LLMBackend):
         return True
 
     def connect(self):
-        """连接 AIRI 并发送一次性的游戏背景说明。"""
-        self._conn.connect()
+        """连接 AIRI 并发送一次性的游戏背景说明。
+
+        如果连接失败或角色设定发送失败，抛出 ConnectionError。
+        """
+        try:
+            self._conn.connect()
+        except Exception as e:
+            self._connected = False
+            raise ConnectionError(f"AIRI WebSocket 连接失败: {e}") from e
+
+        try:
+            self._send_role_setup()
+        except Exception as e:
+            self._connected = False
+            raise ConnectionError(f"AIRI 角色设定发送失败: {e}") from e
+
         self._connected = True
-        self._send_role_setup()
 
     def chat(
         self,
@@ -69,6 +85,11 @@ class AiriBackend(LLMBackend):
         - 本方法只把玩家的最新一条聊天内容通过 input:text 发给 AIRI。
         """
         if not self._connected:
+            log.warning("[AIRI] 后端未连接，跳过聊天")
+            return ""
+        if not self._conn.is_connected:
+            log.warning("[AIRI] WebSocket 连接已断开，跳过聊天")
+            self._connected = False
             return ""
 
         text = self._format_messages(messages)
