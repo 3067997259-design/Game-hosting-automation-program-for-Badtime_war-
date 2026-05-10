@@ -999,8 +999,14 @@ def _setup_ai_chat(lobby, chat_manager, game_state):
                 "airi_ws_url", "ws://localhost:6121/ws",
             )
             print(f"  [AIRI] 连接失败: {e}")
-            print(f"        WebSocket 地址: {ws_url}")
-            print("        请确认 AIRI 服务正在运行并允许连接。")
+            print(f"  [AIRI] 请检查：")
+            print(
+                f"    1. AIRI 是否正在运行（WebSocket 地址: {ws_url}）"
+            )
+            print(
+                "    2. config/airi_config.json 中的 airi_auth_token 是否正确"
+            )
+            print("    3. AIRI 的 WebSocket 服务是否需要认证")
             airi_backend = None
             return None
 

@@ -22,6 +22,12 @@ from typing import Optional, Any, List, Dict
 from ai_chat.llm_backend import LLMBackend
 
 
+# debug 玩家名称：该玩家发送的聊天会跳过概率回复和冷却检查，
+# 确保每条消息都能得到 AI 回复。可通过环境变量自定义，默认包含
+# "AfterRain" 和 "房主"。
+_DEBUG_PLAYER_NAME = os.environ.get("DEBUG_PLAYER_NAME", "")
+
+
 # ─────────────────────────────────────────────────────────
 #  环境变量：公屏回复概率
 # ─────────────────────────────────────────────────────────
@@ -133,7 +139,11 @@ class AIChatModule:
             return None
 
         # debug 玩家：跳过概率回复和冷却检查，确保每条消息都能得到 AI 回复
-        is_debug_player = (sender == "AfterRain")
+        is_debug_player = (
+            sender == "AfterRain"
+            or sender == "房主"
+            or (bool(_DEBUG_PLAYER_NAME) and sender == _DEBUG_PLAYER_NAME)
+        )
 
         # 缓存 player 引用（无论是否回复都先更新）
         if game_state is not None:

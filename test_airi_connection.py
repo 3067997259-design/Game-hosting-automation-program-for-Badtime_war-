@@ -150,11 +150,33 @@ def main():
     )
     parser.add_argument(
         "--token",
-        default=os.environ.get("AIRI_AUTH_TOKEN", ""),
-        help="AIRI 认证 token（也可通过 AIRI_AUTH_TOKEN 环境变量提供）",
+        default=None,
+        help=(
+            "AIRI 认证 token（优先级：命令行 > AIRI_AUTH_TOKEN 环境变量"
+            " > config/airi_config.json）"
+        ),
     )
     args = parser.parse_args()
-    asyncio.run(test(args.url, args.token))
+
+    # token 优先级：命令行参数 > 环境变量 > 配置文件
+    token = args.token
+    if not token:
+        token = os.environ.get("AIRI_AUTH_TOKEN", "")
+    if not token:
+        try:
+            with open(
+                "config/airi_config.json", "r", encoding="utf-8",
+            ) as f:
+                config = json.load(f)
+                token = config.get("airi_auth_token", "")
+            if token:
+                print("  [提示] 从 config/airi_config.json 读取 token")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"  [警告] 读取 config/airi_config.json 失败: {e}")
+
+    asyncio.run(test(args.url, token))
 
 
 if __name__ == "__main__":
