@@ -758,7 +758,6 @@ class BotBridge:
         "wake",
         "assemble",
         "track",       # parser 接受 track，并映射到 track_guide
-        "track_guide",
         "recruit",
         "election",
         "study",
