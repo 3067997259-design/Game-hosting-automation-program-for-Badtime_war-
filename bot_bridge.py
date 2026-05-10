@@ -209,6 +209,12 @@ class CommandIntentExplainer:
             "作为举报人引导警察立刻追踪目标到达其位置；用于关键时刻"
             "快速锁敌。"
         ),
+        # 服务器端注册的内部 action 名是 track_guide（cli/parser.py 把 track 映射到
+        # track_guide），这里同时收录两种 key，避免 build_intent_block 漏掉。
+        "track_guide": (
+            "作为举报人引导警察立刻追踪目标到达其位置；用于关键时刻"
+            "快速锁敌。"
+        ),
         "recruit": (
             "在警察局加入警队（无犯罪记录、无既有警察时可用），"
             "换取三选二奖励、获得警察身份与执法资格。"
@@ -227,6 +233,27 @@ class CommandIntentExplainer:
         "special": (
             "使用角色专属/特殊操作（天赋技能等）；具体效果取决于当前"
             "角色，通常是改变战局的高价值操作。"
+        ),
+        "split": (
+            "作为队长拆分警队（split <警队ID>）：把一支警队拆成两支独立警队，"
+            "用于扩大警力覆盖、分散兵力或解除原警队的纠缠状态。"
+        ),
+        # 队长操控警察。命令前缀同时有 police 和 police_command 两种来源：
+        # - 服务器 _get_available_actions 返回 action 名 "police_command"
+        # - 玩家输入是 "police move/equip/attack ..."
+        # 两个 key 都收录，确保 INTENT_MAP 命中。
+        "police": (
+            "队长专属：直接操控警察执行 move/equip/attack 等子命令；"
+            "用于亲自调度警队、配装、指定打击目标。"
+        ),
+        "police_command": (
+            "队长专属：直接操控警察执行 move/equip/attack 等子命令；"
+            "用于亲自调度警队、配装、指定打击目标。"
+        ),
+        # 唤醒处于 debuff 的警察单位（wake_police <警察ID>）；
+        # 玩家也可以用 wake <警察ID> 触发同一行为。
+        "wake_police": (
+            "唤醒处于 debuff 状态的同地点警察单位，使其恢复行动能力。"
         ),
     }
 
@@ -617,15 +644,17 @@ class BotBridge:
         round_no = context.get("round", "?")
         phase = context.get("phase", "")
         location = msg.get("location", "")
-        hp = msg.get("hp", "")
-        max_hp = msg.get("max_hp", "")
+        hp = msg.get("hp")
+        max_hp = msg.get("max_hp")
 
         situation_lines: List[str] = [f"当前轮次：第 {round_no} 轮"]
         if phase:
             situation_lines.append(f"阶段：{phase}")
         if location:
             situation_lines.append(f"你的位置：{location}")
-        if hp != "" and max_hp != "":
+        # 这里使用 is not None 而不是 != ''，避免 hp/max_hp 是 0 或空串时的
+        # 类型混淆；NetworkController 下发的是 int，但旧路径也可能是 None。
+        if hp is not None and max_hp is not None and max_hp != "":
             situation_lines.append(f"生命值：{hp}/{max_hp}")
         situation = "\n".join(situation_lines)
 
@@ -646,7 +675,7 @@ class BotBridge:
                 "必须回复一行以 ACTION: 开头的指令，紧跟一个合法行动前缀。\n"
                 "合法前缀只能是：move / attack / interact / lock / find / "
                 "forfeit / wake / report / assemble / track / recruit / "
-                "election / designate / study / special。\n"
+                "election / designate / study / special / split / police。\n"
                 "示例：ACTION: forfeit"
             )
         else:
@@ -722,6 +751,19 @@ class BotBridge:
                     prefixes.append(prefix)
         return prefixes
 
+    # 这些指令前缀在 cli/parser.py 中允许「无参数」直接解析成功；fallback 只能从
+    # 这个集合里挑「裸前缀」回复，否则游戏服务器会因 "len(parts) < 2" 而拒绝指令。
+    _BARE_OK_PREFIXES = frozenset({
+        "forfeit",
+        "wake",
+        "assemble",
+        "track",       # parser 接受 track，并映射到 track_guide
+        "track_guide",
+        "recruit",
+        "election",
+        "study",
+    })
+
     def _smart_fallback_command(
         self,
         msg: dict,
@@ -731,12 +773,18 @@ class BotBridge:
         """智能 fallback：在 AIRI 全部回复都无法解析时，根据当前上下文
         选择一个相对稳妥的默认行动，而不是无脑 forfeit 卡死局面。
 
+        关键约束：服务器解析器要求 move/interact/attack/lock/find/report/designate
+        /special/split/police_command/wake_police 等指令必须带参数，否则会被
+        直接拒绝。因此 fallback 只能返回：
+          - 一个完整的「带参指令」（例如 "move 医院"），或
+          - 一个属于 _BARE_OK_PREFIXES 的无参指令（forfeit / wake / ...）。
+
         优先级：
         1. 若尚未起床：wake（起床），让自己进入可行动状态。
-        2. 若指令前缀里只有一个非 forfeit 选项：直接选它。
-        3. 若血量低且可以 move：move 医院。
-        4. 若可以 interact 且当前在补给/强化型地点：尝试 interact。
-        5. 否则 forfeit（避免做出可能反噬的攻击）。
+        2. 若血量低且可以 move：move 医院（带参，安全）。
+        3. 若在补给/强化型地点且可以 interact：interact <默认项目>（带参）。
+        4. 若 _BARE_OK_PREFIXES 中存在唯一非 forfeit 的可选项：直接选它。
+        5. 否则 forfeit。
 
         hp / max_hp / location 从顶层 msg 读取（NetworkController 在那里下发），
         不是从 context。
@@ -749,11 +797,7 @@ class BotBridge:
         if "wake" in prefixes:
             return "wake"
 
-        non_forfeit = [p for p in prefixes if p != "forfeit"]
-        if len(non_forfeit) == 1:
-            return non_forfeit[0]
-
-        # 血量危险且可移动：去医院
+        # 血量危险且可移动：去医院（带参，安全）
         try:
             if (hp is not None and max_hp not in (None, 0)
                     and float(hp) / float(max_hp) <= 0.4
@@ -763,17 +807,41 @@ class BotBridge:
         except (TypeError, ValueError):
             pass
 
-        # 在补给/强化型地点且可 interact：尝试交互
-        if "interact" in prefixes and location in (
-            "商店", "医院", "军事基地", "魔法所", "警察局",
-        ):
-            return "interact"
+        # 在补给/强化型地点且可 interact：用一个该地点的默认交互项目
+        # （bare "interact" 会被 cli/parser.py:38-39 拒绝）。
+        if "interact" in prefixes:
+            default_item = self._default_interact_item_for(location)
+            if default_item:
+                return f"interact {default_item}"
+
+        # 在 _BARE_OK_PREFIXES 内挑一个唯一的非 forfeit 选项；带参指令不能裸返回。
+        bare_ok_non_forfeit = [
+            p for p in prefixes
+            if p != "forfeit" and p in self._BARE_OK_PREFIXES
+        ]
+        if len(bare_ok_non_forfeit) == 1:
+            return bare_ok_non_forfeit[0]
 
         if "forfeit" in prefixes:
             return "forfeit"
-        if non_forfeit:
-            return non_forfeit[0]
+        # 走到这里说明服务器没下发 forfeit（极少见，比如 wake-only 状态），
+        # 此时只能从允许裸返回的前缀里硬挑一个，避免发出会被拒绝的带参指令。
+        if bare_ok_non_forfeit:
+            return bare_ok_non_forfeit[0]
         return "forfeit"
+
+    @staticmethod
+    def _default_interact_item_for(location: str) -> str:
+        """给 interact 选一个该地点最可能成功的默认项目；未知地点返回空串。"""
+        # 仅给出最稳妥的兜底；不试图穷举所有项目，避免误用罕见交互。
+        defaults = {
+            "医院": "治疗",
+            "商店": "补给",
+            "军事基地": "训练",
+            "魔法所": "研究",
+            "警察局": "举报",
+        }
+        return defaults.get(location, "")
 
     def _handle_choose_request(self, msg: dict):
         """处理选择请求（如天赋选择）：渐进式提示 + 强健的 fallback。"""
