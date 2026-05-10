@@ -146,6 +146,133 @@ class ResponseParser:
 
 
 # ══════════════════════════════════════════════════════════════════
+#  指令战略意图解释器
+# ══════════════════════════════════════════════════════════════════
+
+class CommandIntentExplainer:
+    """将游戏指令映射为人类可读的战略意图说明。
+
+    目标：
+    - 让 AIRI 不只看到"可选: move/attack/forfeit"这种孤立列表，
+      还能理解每个指令在《起闯战争》游戏规则下的战略意义。
+    - 避免 AIRI 因为不懂规则而产生胡乱选择或误解（例如把 forfeit
+      理解为投降）。
+
+    属性克制（来源：README §8.2）：
+        普通 → 魔法（有效）
+        魔法 → 科技（有效）
+        科技 → 普通（有效）
+        同属性相互有效
+        若武器属性被护甲属性克制，攻击无效（护甲不消耗）。
+    即三种属性形成循环克制 普通 → 魔法 → 科技 → 普通；同属性互克。
+    """
+
+    # 指令前缀（小写）→ 简短战略意图说明
+    INTENT_MAP: Dict[str, str] = {
+        "move": (
+            "移动到指定地点；用于接近目标、跑去关键设施（商店、医院、"
+            "军事基地、警察局等）或脱离危险区域。是控制位置的核心手段。"
+        ),
+        "attack": (
+            "使用某件武器攻击目标。属性克制循环为：普通→魔法→科技→普通，"
+            "同属性相互有效；若武器被护甲克制则攻击无效（护甲不消耗）。"
+            "格式：attack <目标> <武器> [层 属性]。优先打能造成有效伤害的目标。"
+        ),
+        "interact": (
+            "与当前地点的设施/物品互动（购买、手术、研究、领取奖励等）。"
+            "通常用于补给、强化、获取关键凭证。"
+        ),
+        "lock": (
+            "锁定一个目标玩家用于后续追踪/打击；不会直接造成伤害，"
+            "是一种信息/战术先手布置。"
+        ),
+        "find": (
+            "暴露/找到一个隐匿的玩家，使其位置可见；适合在情报缺失时"
+            "打破对手隐身或应对潜伏威胁。"
+        ),
+        "forfeit": (
+            "放弃本次行动（既不进攻也不移动也不交互）。仅在没有任何更优"
+            "选择、或主动避战节奏时使用，并非投降游戏。"
+        ),
+        "wake": (
+            "起床动作：自己尚未起床时使其出现在自己家中；或唤醒同地点"
+            "处于 debuff 的警察单位（wake <警察ID>）。"
+        ),
+        "report": (
+            "在警察局举报有犯罪记录的玩家，启动警察响应流程；"
+            "是不直接出手却能借刀杀人的关键政治手段。"
+        ),
+        "assemble": (
+            "作为举报人集结警察出动，开始对被举报者的执法行动。"
+        ),
+        "track": (
+            "作为举报人引导警察立刻追踪目标到达其位置；用于关键时刻"
+            "快速锁敌。"
+        ),
+        "recruit": (
+            "在警察局加入警队（无犯罪记录、无既有警察时可用），"
+            "换取三选二奖励、获得警察身份与执法资格。"
+        ),
+        "election": (
+            "竞选警察队长，需在警察局连续推进进度；当上队长后可指定执法"
+            "目标、做研究性学习、控制威信资源。"
+        ),
+        "designate": (
+            "队长专属：指定警察的执法目标；用于把警力对准你想清除的玩家。"
+        ),
+        "study": (
+            "队长专属：在警察局做研究性学习，威信+1；威信归零会重置警察"
+            "系统，因此守住威信很重要。"
+        ),
+        "special": (
+            "使用角色专属/特殊操作（天赋技能等）；具体效果取决于当前"
+            "角色，通常是改变战局的高价值操作。"
+        ),
+    }
+
+    @classmethod
+    def explain(cls, command: str) -> str:
+        """返回指令的战略意图说明。command 可以是完整指令（含参数）
+        或仅指令前缀；解析失败时返回空字符串。"""
+        if not command:
+            return ""
+        prefix = command.strip().split()[0].lower()
+        return cls.INTENT_MAP.get(prefix, "")
+
+    @classmethod
+    def explain_action_dict(cls, action: Any) -> str:
+        """针对服务器下发的 action 描述（可能是 str 或 dict）返回意图说明。"""
+        if isinstance(action, dict):
+            usage = action.get("usage") or action.get("name") or ""
+            return cls.explain(usage)
+        if isinstance(action, str):
+            return cls.explain(action)
+        return ""
+
+    @classmethod
+    def build_intent_block(cls, actions: List[Any]) -> str:
+        """为一组可选行动生成多行的意图说明文本，用作 prompt 增强。"""
+        lines: List[str] = []
+        seen_prefixes = set()
+        for action in actions:
+            if isinstance(action, dict):
+                key = (action.get("usage") or action.get("name") or "").strip()
+            else:
+                key = str(action).strip()
+            if not key:
+                continue
+            prefix = key.split()[0].lower()
+            if prefix in seen_prefixes:
+                continue
+            intent = cls.INTENT_MAP.get(prefix)
+            if not intent:
+                continue
+            seen_prefixes.add(prefix)
+            lines.append(f"- {prefix}: {intent}")
+        return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════════
 #  核心 Bridge 类
 # ══════════════════════════════════════════════════════════════════
 
@@ -434,69 +561,264 @@ class BotBridge:
             self._handle_confirm_request(msg)
 
     def _handle_command_request(self, msg: dict):
-        """处理行动请求。"""
+        """处理行动请求：构建带战略意图的 prompt + 多层重试 + 智能 fallback。"""
         actions = msg.get("available_actions", [])
         context = msg.get("context", {})
-
-        # 构建发给 AIRI 的提示
-        prompt = (
-            f"轮到你行动了！（第 {context.get('round', '?')} 轮）\n"
-            f"可选行动: {', '.join(actions)}\n"
-            f"请用 ACTION: <指令> 的格式回复你的行动。"
-        )
 
         # 清空之前的回复
         self.airi.drain_responses()
 
-        # 发送给 AIRI
-        self.airi.send_text(prompt)
         log.info(f"请求行动: 可选 {actions}")
+        command = self._try_get_command_with_retry(msg, actions, context)
 
-        # 等待回复
-        command = "forfeit"  # 默认 forfeit
-        reply = self.airi.wait_for_response(timeout=self.action_timeout)
-
-        if reply:
-            log.info(f"AIRI 原始回复: {reply[:200]}")
-            parsed = ResponseParser.extract_action(reply, actions)
-            if parsed:
-                command = parsed
-                log.info(f"解析出行动: {command}")
-            else:
-                log.warning(f"无法解析行动，使用 forfeit。原始回复: {reply[:200]}")
-        else:
-            log.warning("AIRI 超时未回复，使用 forfeit")
+        if not command:
+            command = self._smart_fallback_command(msg, actions, context)
+            log.warning(f"AIRI 无有效回复，使用智能 fallback: {command}")
 
         self.game_client.send_sync({
             "type": MessageType.COMMAND_RESPONSE,
             "command": command,
         })
 
+    # ──────────────────────────────────────────
+    #  Prompt 构建 / 多层重试 / 智能 fallback
+    # ──────────────────────────────────────────
+
+    def _build_command_prompt(
+        self,
+        actions: List[Any],
+        context: Dict[str, Any],
+        attempt: int,
+    ) -> str:
+        """构建行动 prompt。attempt=0 是首次，>=1 是重试（更明确）。"""
+        action_lines = []
+        for action in actions:
+            if isinstance(action, dict):
+                usage = action.get("usage", "")
+                name = action.get("name", "")
+                desc = action.get("description", "")
+                if usage:
+                    line = f"- {usage}"
+                    if name and name not in usage:
+                        line += f"（{name}）"
+                    if desc:
+                        line += f" — {desc}"
+                    action_lines.append(line)
+            else:
+                action_lines.append(f"- {action}")
+
+        actions_text = "\n".join(action_lines) if action_lines else "(无可用行动)"
+        intent_block = CommandIntentExplainer.build_intent_block(actions)
+
+        round_no = context.get("round", "?")
+        phase = context.get("phase", "")
+        location = context.get("location", "")
+        hp = context.get("hp", "")
+        max_hp = context.get("max_hp", "")
+
+        situation_lines: List[str] = [f"当前轮次：第 {round_no} 轮"]
+        if phase:
+            situation_lines.append(f"阶段：{phase}")
+        if location:
+            situation_lines.append(f"你的位置：{location}")
+        if hp != "" and max_hp != "":
+            situation_lines.append(f"生命值：{hp}/{max_hp}")
+        situation = "\n".join(situation_lines)
+
+        if attempt == 0:
+            header = "轮到你行动了！请基于游戏状态选择最合适的行动。"
+            tail = (
+                "请用以下格式回复（必须以 ACTION: 开头，否则会被忽略）：\n"
+                "ACTION: <完整指令>\n"
+                "例如：ACTION: move 商店\n"
+                "例如：ACTION: attack 玩家A 小刀 外层 普通\n"
+                "例如：ACTION: forfeit"
+            )
+        elif attempt == 1:
+            header = (
+                "⚠️ 上一次回复无法解析。请严格遵守格式要求重新决策。"
+            )
+            tail = (
+                "必须回复一行以 ACTION: 开头的指令，紧跟一个合法行动前缀。\n"
+                "合法前缀只能是：move / attack / interact / lock / find / "
+                "forfeit / wake / report / assemble / track / recruit / "
+                "election / designate / study / special。\n"
+                "示例：ACTION: forfeit"
+            )
+        else:
+            header = (
+                "⚠️ 仍然无法识别你的行动。请只输出一行内容，不要解释、"
+                "不要思考、不要 [THINK]/[REPLY]/[ADJUST] 段。"
+            )
+            tail = (
+                "只回复一行，例如：ACTION: forfeit\n"
+                "或：ACTION: move <地点>\n"
+                "否则系统会自动为你选一个稳妥的默认行动。"
+            )
+
+        parts = [header, "", "【当前状况】", situation, "", "【可选行动】", actions_text]
+        if intent_block:
+            parts.extend(["", "【指令战略意图】", intent_block])
+        parts.extend(["", tail])
+        return "\n".join(parts)
+
+    def _try_get_command_with_retry(
+        self,
+        msg: dict,
+        actions: List[Any],
+        context: Dict[str, Any],
+        max_attempts: int = 3,
+    ) -> Optional[str]:
+        """多层重试机制：尝试解析 AIRI 的行动回复，失败时使用渐进式提示重试。
+
+        返回解析成功的指令字符串；全部失败时返回 None，由调用方触发
+        智能 fallback。
+        """
+        action_prefixes = self._extract_action_prefixes(actions)
+
+        for attempt in range(max_attempts):
+            prompt = self._build_command_prompt(actions, context, attempt)
+            self.airi.drain_responses()
+            self.airi.send_text(prompt)
+
+            reply = self.airi.wait_for_response(timeout=self.action_timeout)
+            if not reply:
+                log.warning(f"AIRI 第 {attempt + 1} 次尝试超时未回复")
+                continue
+
+            log.info(f"AIRI 第 {attempt + 1} 次原始回复: {reply[:200]}")
+            parsed = ResponseParser.extract_action(reply, action_prefixes)
+            if parsed:
+                intent = CommandIntentExplainer.explain(parsed)
+                if intent:
+                    log.info(f"解析出行动: {parsed}（意图：{intent[:60]}）")
+                else:
+                    log.info(f"解析出行动: {parsed}")
+                return parsed
+
+            log.warning(
+                f"第 {attempt + 1} 次无法解析行动。原始回复: {reply[:200]}"
+            )
+
+        return None
+
+    def _extract_action_prefixes(self, actions: List[Any]) -> List[str]:
+        """从 actions（可能是 str 或 dict 列表）中抽取可用指令前缀。"""
+        prefixes: List[str] = []
+        for action in actions:
+            if isinstance(action, dict):
+                usage = action.get("usage", "")
+                if usage:
+                    prefix = usage.strip().split()[0]
+                    if prefix and prefix not in prefixes:
+                        prefixes.append(prefix)
+            elif isinstance(action, str):
+                prefix = action.strip().split()[0]
+                if prefix and prefix not in prefixes:
+                    prefixes.append(prefix)
+        return prefixes
+
+    def _smart_fallback_command(
+        self,
+        msg: dict,
+        actions: List[Any],
+        context: Dict[str, Any],
+    ) -> str:
+        """智能 fallback：在 AIRI 全部回复都无法解析时，根据当前上下文
+        选择一个相对稳妥的默认行动，而不是无脑 forfeit 卡死局面。
+
+        优先级：
+        1. 若尚未起床：wake（起床），让自己进入可行动状态。
+        2. 若指令前缀里只有一个非 forfeit 选项：直接选它。
+        3. 若可以 interact 且当前在补给/强化型地点：尝试 interact。
+        4. 若血量低且可以 move：move 医院。
+        5. 否则 forfeit（避免做出可能反噬的攻击）。
+        """
+        prefixes = self._extract_action_prefixes(actions)
+        location = context.get("location", "")
+        hp = context.get("hp")
+        max_hp = context.get("max_hp")
+
+        if "wake" in prefixes:
+            return "wake"
+
+        non_forfeit = [p for p in prefixes if p != "forfeit"]
+        if len(non_forfeit) == 1:
+            return non_forfeit[0]
+
+        # 血量危险且可移动：去医院
+        try:
+            if (hp is not None and max_hp not in (None, 0)
+                    and float(hp) / float(max_hp) <= 0.4
+                    and "move" in prefixes
+                    and location != "医院"):
+                return "move 医院"
+        except (TypeError, ValueError):
+            pass
+
+        # 在补给/强化型地点且可 interact：尝试交互
+        if "interact" in prefixes and location in (
+            "商店", "医院", "军事基地", "魔法所", "警察局",
+        ):
+            return "interact"
+
+        if "forfeit" in prefixes:
+            return "forfeit"
+        if non_forfeit:
+            return non_forfeit[0]
+        return "forfeit"
+
     def _handle_choose_request(self, msg: dict):
-        """处理选择请求（如天赋选择）。"""
+        """处理选择请求（如天赋选择）：渐进式提示 + 强健的 fallback。"""
         prompt_text = msg.get("prompt", "请选择")
         options = msg.get("options", [])
 
-        text = f"{prompt_text}\n"
-        for i, opt in enumerate(options, 1):
-            text += f"  {i}. {opt}\n"
-        text += "请用 CHOOSE: <编号> 的格式回复。"
+        if not options:
+            log.warning("choose 请求选项为空，回复空串")
+            self.game_client.send_sync({
+                "type": MessageType.CHOOSE_RESPONSE,
+                "choice": "",
+            })
+            return
 
-        self.airi.drain_responses()
-        self.airi.send_text(text)
         log.info(f"请求选择: {options}")
+        choice: Optional[str] = None
 
-        choice = options[0] if options else ""
-        reply = self.airi.wait_for_response(timeout=self.action_timeout)
+        for attempt in range(2):
+            options_block = "\n".join(
+                f"  {i}. {opt}" for i, opt in enumerate(options, 1)
+            )
+            if attempt == 0:
+                text = (
+                    f"{prompt_text}\n"
+                    f"{options_block}\n"
+                    "请用 CHOOSE: <编号> 的格式回复（编号从 1 开始）。"
+                )
+            else:
+                text = (
+                    "⚠️ 上一次回复无法解析为选项编号。请只回复一行：\n"
+                    f"CHOOSE: <1~{len(options)}>\n\n"
+                    f"{prompt_text}\n"
+                    f"{options_block}"
+                )
 
-        if reply:
-            log.info(f"AIRI 原始回复: {reply[:200]}")
+            self.airi.drain_responses()
+            self.airi.send_text(text)
+            reply = self.airi.wait_for_response(timeout=self.action_timeout)
+            if not reply:
+                log.warning(f"choose 第 {attempt + 1} 次超时未回复")
+                continue
+            log.info(f"AIRI 第 {attempt + 1} 次原始回复: {reply[:200]}")
             parsed = ResponseParser.extract_choice(reply, options)
             if parsed:
                 choice = parsed
                 log.info(f"解析出选择: {choice}")
-            else:
-                log.warning(f"无法解析选择，使用默认: {choice}")
+                break
+            log.warning(f"第 {attempt + 1} 次无法解析选择")
+
+        if choice is None:
+            choice = options[0]
+            log.warning(f"choose 全部尝试失败，使用首个选项作为 fallback: {choice}")
 
         self.game_client.send_sync({
             "type": MessageType.CHOOSE_RESPONSE,
@@ -549,20 +871,43 @@ class BotBridge:
         })
 
     def _handle_confirm_request(self, msg: dict):
-        """处理确认请求。"""
+        """处理确认请求：渐进式提示 + 安全 fallback（默认拒绝）。"""
         prompt_text = msg.get("prompt", "确认？")
-
-        self.airi.drain_responses()
-        self.airi.send_text(f"{prompt_text}\n请用 CONFIRM: y 或 CONFIRM: n 回复。")
         log.info(f"请求确认: {prompt_text}")
 
-        result = False
-        reply = self.airi.wait_for_response(timeout=self.action_timeout)
-        if reply:
-            log.info(f"AIRI 原始回复: {reply[:200]}")
+        result: Optional[bool] = None
+
+        for attempt in range(2):
+            if attempt == 0:
+                text = (
+                    f"{prompt_text}\n"
+                    "请用 CONFIRM: y（同意）或 CONFIRM: n（拒绝）回复。"
+                )
+            else:
+                text = (
+                    "⚠️ 上一次回复无法识别为是/否。请只回复一行：\n"
+                    "CONFIRM: y  或  CONFIRM: n\n\n"
+                    f"问题：{prompt_text}"
+                )
+
+            self.airi.drain_responses()
+            self.airi.send_text(text)
+            reply = self.airi.wait_for_response(timeout=self.action_timeout)
+            if not reply:
+                log.warning(f"confirm 第 {attempt + 1} 次超时未回复")
+                continue
+            log.info(f"AIRI 第 {attempt + 1} 次原始回复: {reply[:200]}")
             parsed = ResponseParser.extract_confirm(reply)
             if parsed is not None:
                 result = parsed
+                log.info(f"解析出确认: {result}")
+                break
+            log.warning(f"第 {attempt + 1} 次无法解析确认")
+
+        if result is None:
+            # 安全 fallback：未确认则视为拒绝，避免误触发不可逆操作
+            result = False
+            log.warning("confirm 全部尝试失败，使用安全默认值: False（拒绝）")
 
         self.game_client.send_sync({
             "type": MessageType.CONFIRM_RESPONSE,
