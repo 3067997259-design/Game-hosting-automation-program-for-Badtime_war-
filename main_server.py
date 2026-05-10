@@ -6,6 +6,7 @@
 """
 
 import argparse
+import os
 import platform
 import random
 import select
@@ -946,6 +947,20 @@ def _setup_ai_chat(lobby, chat_manager, game_state):
         airi_config.get("airi_slot_id") if airi_config else None
     )
 
+    # 公屏回复概率：环境变量 AIRI_PUBLIC_REPLY_RATE 优先；否则使用配置文件中的
+    # `public_reply_rate`（默认 1.0）。同步写入环境变量并直接更新 AIChatModule
+    # 类属性，确保本进程中已 import 的类立即生效。
+    if "AIRI_PUBLIC_REPLY_RATE" not in os.environ:
+        public_reply_rate = 1.0
+        if airi_config and "public_reply_rate" in airi_config:
+            try:
+                public_reply_rate = float(airi_config["public_reply_rate"])
+            except (TypeError, ValueError):
+                public_reply_rate = 1.0
+        os.environ["AIRI_PUBLIC_REPLY_RATE"] = str(public_reply_rate)
+        AIChatModule.PUBLIC_REPLY_RATE = public_reply_rate
+        print(f"  [Chat] 公屏回复概率: {public_reply_rate}")
+
     # 懒创建的后端引用
     airi_backend = None
     normal_backend = None
@@ -959,6 +974,8 @@ def _setup_ai_chat(lobby, chat_manager, game_state):
         _airi_attempted = True
         if not airi_config:
             print("  [AIRI] 未找到 config/airi_config.json，无法使用 AIRI 后端")
+            print("        参考 config/airi_config.example.json 创建配置文件，")
+            print("        或确保 AIRI 后端已在 ws://localhost:6121/ws 启动。")
             return None
         try:
             from ai_chat.airi_backend import AiriBackend
@@ -978,11 +995,13 @@ def _setup_ai_chat(lobby, chat_manager, game_state):
             print(f"  [AIRI] 已连接 ({player_name})")
             return airi_backend
         except Exception as e:
+            ws_url = airi_config.get(
+                "airi_ws_url", "ws://localhost:6121/ws",
+            )
             print(f"  [AIRI] 连接失败: {e}")
             print(f"  [AIRI] 请检查：")
             print(
-                f"    1. AIRI 是否正在运行（WebSocket 地址: "
-                f"{airi_config.get('airi_ws_url', 'ws://localhost:6121/ws')}）"
+                f"    1. AIRI 是否正在运行（WebSocket 地址: {ws_url}）"
             )
             print(
                 "    2. config/airi_config.json 中的 airi_auth_token 是否正确"
