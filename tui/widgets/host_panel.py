@@ -73,6 +73,8 @@ class HostPanel(Static):
                 "    rl <slot号>                - 设置 RL AI（需检测到模型）\n"
                 "    policy <slot号> <wait|ai>  - 设置断线策略\n"
                 "    chatmode <slot号> <airi|llm|off> - 设置聊天后端\n"
+                "    debug <0-3>                - 设置调试级别（0=关闭, 1=基本, 2=详细, 3=完整）\n"
+                "    name <新名字>              - 修改房主玩家ID\n"
                 "    status                     - 刷新状态\n"
                 "    start                      - 开始游戏\n"
                 "\n"
@@ -104,6 +106,18 @@ class HostPanel(Static):
             log.write(
                 f"  [{slot.slot_id}] {stype:12s} | {name:10s} | {status} | 断线策略: {policy}{chat_label}"
             )
+
+        # 显示当前调试级别
+        try:
+            from engine.debug_config import DebugConfig
+            if DebugConfig.is_debug_enabled():
+                debug_status = f"调试: Lv{DebugConfig.get_debug_level()}"
+            else:
+                debug_status = "调试: 关闭"
+            log.write(f"")
+            log.write(f"  {debug_status}")
+        except Exception:
+            pass
 
     def log_feedback(self, text: str):
         """在槽位日志区追加一条命令反馈（不清除槽位列表）。"""
