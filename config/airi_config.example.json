@@ -4,6 +4,8 @@
     "module_id": "badtime-war-bridge",
     "airi_slot_id": 2,
     "chat_timeout": 30,
+    "heartbeat_interval": 30,
+    "max_reconnect_attempts": 10,
     "public_reply_rate": 1.0,
-    "_comment": "airi_slot_id 指定哪个 BasicAI slot 使用 AIRI 作为聊天后端。该 slot 必须先通过 ai 命令设为 BasicAI。public_reply_rate 是公屏回复概率（0.0-1.0），默认 1.0（100%）。也可以通过环境变量 AIRI_PUBLIC_REPLY_RATE 设置（环境变量优先于本字段时需在启动前设置）。"
+    "_comment": "airi_slot_id 指定哪个 BasicAI slot 使用 AIRI 作为聊天后端。该 slot 必须先通过 ai 命令设为 BasicAI。heartbeat_interval 是应用层心跳间隔（秒），默认 30；max_reconnect_attempts 是连接断开后的最大自动重连次数，默认 10。public_reply_rate 是公屏回复概率（0.0-1.0），默认 1.0（100%）。也可以通过环境变量 AIRI_PUBLIC_REPLY_RATE 设置（环境变量优先于本字段时需在启动前设置）。"
 }
