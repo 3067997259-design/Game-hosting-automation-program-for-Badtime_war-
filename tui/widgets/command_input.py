@@ -6,7 +6,9 @@ from textual.message import Message
 
 
 # 房主大厅阶段可用的管理命令前缀
-_MANAGEMENT_CMDS = ("ai", "rl", "policy", "status", "start", "chatmode")
+_MANAGEMENT_CMDS = (
+    "ai", "rl", "policy", "status", "start", "chatmode", "debug", "name",
+)
 
 
 class CommandSubmitted(Message):

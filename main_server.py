@@ -47,6 +47,8 @@ def main():
     if args.debug > 0:
         from engine.debug_config import DebugConfig
         DebugConfig.set_debug_mode(True, args.debug)
+        print(f"  [调试] 模式已启用，级别: {args.debug}")
+        print(f"  [调试] 可在 TUI 中使用 'debug <0-3>' 命令动态调整")
 
     print(f"\n  ═══════════════════════════════════════")
     print(f"    起闯战争 - 局域网联机服务器")
@@ -147,6 +149,8 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
     print("    rl <slot> - 设置 RL AI")
     print("    policy <slot> <wait|ai> - 设置断线策略")
     print("    chatmode <slot> <airi|llm|off> - 设置聊天后端")
+    print("    debug <0-3>             - 设置调试级别（0=关闭, 1=基本, 2=详细, 3=完整）")
+    print("    name <新名字>            - 修改房主玩家ID")
     print("    start     - 开始游戏")
     print("    /chat <内容>           - 公屏聊天")
     print("    /whisper <玩家名> <内容> - 私聊")
@@ -255,6 +259,42 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
                 print(f"  Slot {slot_id} 聊天后端设为: {backend_choice}")
             else:
                 print("  设置失败（槽位不是 AI 类型）")
+
+        elif cmd == "debug":
+            if len(parts) < 2:
+                print("  用法: debug <0-3>")
+                print("    0=关闭, 1=基本, 2=详细, 3=完整")
+                continue
+            try:
+                level = int(parts[1])
+            except ValueError:
+                print("  无效的调试级别（应为整数 0-3）")
+                continue
+            if level < 0 or level > 3:
+                print("  调试级别范围: 0-3")
+                continue
+            from engine.debug_config import DebugConfig
+            DebugConfig.set_debug_mode(level > 0, max(level, 1))
+            if level == 0:
+                print("  调试模式已关闭")
+            else:
+                print(f"  调试级别设为: {level}")
+
+        elif cmd == "name":
+            if len(parts) < 2:
+                print("  用法: name <新名字>")
+                continue
+            new_name = " ".join(parts[1:]).strip()
+            if not new_name:
+                print("  名字不能为空")
+                continue
+            host_slot = lobby.slots[0] if lobby.slots else None
+            if host_slot is None or host_slot.slot_type != SlotType.HUMAN_LOCAL:
+                print("  房主不参与游戏，无法修改ID")
+                continue
+            old_name = host_slot.player_name or "房主"
+            host_slot.player_name = new_name
+            print(f"  房主ID: {old_name} → {new_name}")
 
         elif cmd == "start":
             if not lobby.can_start():

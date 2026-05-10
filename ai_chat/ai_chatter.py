@@ -148,12 +148,18 @@ class AIChatModule:
         # 缓存 player 引用（无论是否回复都先更新）
         if game_state is not None:
             self._update_player_ref(game_state)
+        else:
+            # 大厅阶段：game_state 为 None，玩家可以聊天但没有游戏状态可推送
+            self._debug(
+                "[AIRI STATE] 大厅阶段：game_state 为 None，跳过状态推送",
+                level=1,
+            )
 
         # AIRI 后端：游戏状态推送与回复概率解耦——即使本次决定不回复，
         # 也通过 context:update 把当前 GameState 推给 AIRI，确保它实时感知
         # 游戏进展（轮次、HP、装备、威胁等），而不是等到下一次触发回复。
         is_airi = bool(getattr(self.backend, "is_airi", False))
-        if is_airi:
+        if is_airi and game_state is not None:
             self._maybe_push_state(game_state)
 
         if not is_debug_player:

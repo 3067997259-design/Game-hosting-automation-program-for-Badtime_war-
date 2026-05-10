@@ -154,6 +154,9 @@ class BadtimeWarTUI(App):
                 log.write("      ai <slot号> [性格]         - 设置基础 AI")
                 log.write("      rl <slot号>                - 设置 RL AI")
                 log.write("      policy <slot号> <wait|ai>  - 设置断线策略")
+                log.write("      chatmode <slot号> <airi|llm|off> - 设置聊天后端")
+                log.write("      debug <0-3>                - 设置调试级别")
+                log.write("      name <新名字>              - 修改房主玩家ID")
                 log.write("      status                     - 刷新状态")
                 log.write("      start                      - 开始游戏（与按钮等效）")
                 log.write("    所有位置就绪后点击「开始游戏」按钮或输入 start")
@@ -777,6 +780,55 @@ class BadtimeWarTUI(App):
             else:
                 self._log_to_game("  ✗ 设置失败（槽位不是 AI 类型）")
 
+        elif cmd == "debug":
+            if len(parts) < 2:
+                self._log_to_game("  用法: debug <0-3>")
+                self._log_to_game(
+                    "    0=关闭, 1=基本, 2=详细, 3=完整"
+                )
+                return
+            try:
+                level = int(parts[1])
+            except ValueError:
+                self._log_to_game("  无效的调试级别（应为整数 0-3）")
+                return
+            if level < 0 or level > 3:
+                self._log_to_game("  调试级别范围: 0-3")
+                return
+            try:
+                from engine.debug_config import DebugConfig
+            except Exception as e:
+                self._log_to_game(f"  ✗ 加载调试配置失败: {e}")
+                return
+            DebugConfig.set_debug_mode(level > 0, max(level, 1))
+            self._refresh_host_panel()
+            if level == 0:
+                self._log_to_game("  ✓ 调试模式已关闭")
+            else:
+                self._log_to_game(f"  ✓ 调试级别设为: {level}")
+
+        elif cmd == "name":
+            if len(parts) < 2:
+                self._log_to_game("  用法: name <新名字>")
+                return
+            new_name = " ".join(parts[1:]).strip()
+            if not new_name:
+                self._log_to_game("  名字不能为空")
+                return
+            try:
+                from network.lobby import SlotType
+            except Exception as e:
+                self._log_to_game(f"  ✗ 导入失败: {e}")
+                return
+            host_slot = self.lobby.slots[0] if self.lobby.slots else None
+            if host_slot is None or host_slot.slot_type != SlotType.HUMAN_LOCAL:
+                self._log_to_game("  ✗ 房主不参与游戏，无法修改ID")
+                return
+            old_name = host_slot.player_name or "房主"
+            host_slot.player_name = new_name
+            self._refresh_host_panel()
+            self._log_to_game(f"  ✓ 房主ID: {old_name} → {new_name}")
+
         elif cmd == "start":
             # 与「开始游戏」按钮等价：触发 SlotConfigRequest(action="start_game")
             self.post_message(SlotConfigRequest(slot_id=0, action="start_game"))
@@ -784,7 +836,7 @@ class BadtimeWarTUI(App):
         else:
             self._log_to_game(f"  未知管理命令: {raw}")
             self._log_to_game(
-                "  可用: ai <slot> [性格] | rl <slot> | policy <slot> <wait|ai> | chatmode <slot> <airi|llm|off> | status | start"
+                "  可用: ai <slot> [性格] | rl <slot> | policy <slot> <wait|ai> | chatmode <slot> <airi|llm|off> | debug <0-3> | name <新名字> | status | start"
             )
 
     def _refresh_host_panel(self):
