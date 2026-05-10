@@ -13,12 +13,19 @@ AI 聊天模块（战略社交版）
 """
 
 import json
+import os
 import random
 import re
 import time
 from typing import Optional, Any, List, Dict
 
 from ai_chat.llm_backend import LLMBackend
+
+
+# debug 玩家名称：该玩家发送的聊天会跳过概率回复和冷却检查，
+# 确保每条消息都能得到 AI 回复。可通过环境变量自定义，默认包含
+# "AfterRain" 和 "房主"。
+_DEBUG_PLAYER_NAME = os.environ.get("DEBUG_PLAYER_NAME", "")
 
 
 # ─────────────────────────────────────────────────────────
@@ -117,7 +124,11 @@ class AIChatModule:
             return None
 
         # debug 玩家：跳过概率回复和冷却检查，确保每条消息都能得到 AI 回复
-        is_debug_player = (sender == "AfterRain")
+        is_debug_player = (
+            sender == "AfterRain"
+            or sender == "房主"
+            or (bool(_DEBUG_PLAYER_NAME) and sender == _DEBUG_PLAYER_NAME)
+        )
 
         if not is_debug_player:
             # 概率回复：公屏 40%，私聊 100%（私聊也跳过冷却）
