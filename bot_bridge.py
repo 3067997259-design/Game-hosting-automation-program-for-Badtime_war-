@@ -565,9 +565,6 @@ class BotBridge:
         actions = msg.get("available_actions", [])
         context = msg.get("context", {})
 
-        # 清空之前的回复
-        self.airi.drain_responses()
-
         log.info(f"请求行动: 可选 {actions}")
         command = self._try_get_command_with_retry(msg, actions, context)
 
@@ -586,11 +583,18 @@ class BotBridge:
 
     def _build_command_prompt(
         self,
+        msg: dict,
         actions: List[Any],
         context: Dict[str, Any],
         attempt: int,
     ) -> str:
-        """构建行动 prompt。attempt=0 是首次，>=1 是重试（更明确）。"""
+        """构建行动 prompt。attempt=0 是首次，>=1 是重试（更明确）。
+
+        字段布局（与 NetworkController.get_command 一致）：
+        - 顶层 msg：hp / max_hp / location / player_name / available_actions
+        - 嵌套 context：phase / round / attempt 等
+        因此生命/位置从 msg 读，轮次/阶段从 context 读。
+        """
         action_lines = []
         for action in actions:
             if isinstance(action, dict):
@@ -612,9 +616,9 @@ class BotBridge:
 
         round_no = context.get("round", "?")
         phase = context.get("phase", "")
-        location = context.get("location", "")
-        hp = context.get("hp", "")
-        max_hp = context.get("max_hp", "")
+        location = msg.get("location", "")
+        hp = msg.get("hp", "")
+        max_hp = msg.get("max_hp", "")
 
         situation_lines: List[str] = [f"当前轮次：第 {round_no} 轮"]
         if phase:
@@ -677,7 +681,7 @@ class BotBridge:
         action_prefixes = self._extract_action_prefixes(actions)
 
         for attempt in range(max_attempts):
-            prompt = self._build_command_prompt(actions, context, attempt)
+            prompt = self._build_command_prompt(msg, actions, context, attempt)
             self.airi.drain_responses()
             self.airi.send_text(prompt)
 
@@ -730,14 +734,17 @@ class BotBridge:
         优先级：
         1. 若尚未起床：wake（起床），让自己进入可行动状态。
         2. 若指令前缀里只有一个非 forfeit 选项：直接选它。
-        3. 若可以 interact 且当前在补给/强化型地点：尝试 interact。
-        4. 若血量低且可以 move：move 医院。
+        3. 若血量低且可以 move：move 医院。
+        4. 若可以 interact 且当前在补给/强化型地点：尝试 interact。
         5. 否则 forfeit（避免做出可能反噬的攻击）。
+
+        hp / max_hp / location 从顶层 msg 读取（NetworkController 在那里下发），
+        不是从 context。
         """
         prefixes = self._extract_action_prefixes(actions)
-        location = context.get("location", "")
-        hp = context.get("hp")
-        max_hp = context.get("max_hp")
+        location = msg.get("location", "")
+        hp = msg.get("hp")
+        max_hp = msg.get("max_hp")
 
         if "wake" in prefixes:
             return "wake"
