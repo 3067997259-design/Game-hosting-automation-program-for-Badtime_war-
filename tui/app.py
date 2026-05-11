@@ -733,6 +733,7 @@ class BadtimeWarTUI(App):
             except ValueError:
                 self._log_to_game("  无效的 slot_id")
                 return
+            self._log_to_game(f"  [DEBUG] 尝试将 Slot {slot_id} 设为 AIRI Bot")
             try:
                 ok = self.lobby.set_slot_ai(slot_id, "airi")
             except Exception as e:
@@ -742,7 +743,19 @@ class BadtimeWarTUI(App):
                 self._refresh_host_panel()
                 self._log_to_game(f"  ✓ Slot {slot_id} 设为 AIRI Bot")
             else:
-                self._log_to_game("  ✗ 设置失败（槽位不可用）")
+                self._log_to_game("  ✗ 设置失败（槽位不可用或状态不允许）")
+                try:
+                    slot = self.lobby._get_slot(slot_id)
+                    if slot is None:
+                        self._log_to_game(f"  [DEBUG] Slot {slot_id} 不存在")
+                    else:
+                        self._log_to_game(
+                            f"  [DEBUG] 槽位当前状态: "
+                            f"slot_type={slot.slot_type.value}, "
+                            f"room_state={self.lobby.state.value}"
+                        )
+                except Exception as debug_err:
+                    self._log_to_game(f"  [DEBUG] 获取槽位状态失败: {debug_err}")
 
         elif cmd == "policy":
             if len(parts) < 3:
@@ -867,12 +880,20 @@ class BadtimeWarTUI(App):
             pass
 
     def _log_to_game(self, text: str):
-        """写入命令反馈：游戏日志区 + 房主面板（大厅模式下日志区被隐藏）。"""
+        """写入命令反馈：游戏日志区 + 房主面板（大厅模式下日志区被隐藏）。
+
+        两路输出相互独立：任一侧查询失败不会影响另一侧。查询失败时
+        会同时输出到 stderr，避免反馈信息静默丢失。
+        """
+        import sys
+        # 输出到 GameLogWidget
         try:
             log = self.query_one("#game-log", GameLogWidget)
             log.write(text)
         except NoMatches:
             pass
+        except Exception as e:
+            print(f"[TUI] GameLogWidget 输出失败: {e}", file=sys.stderr)
         # 大厅模式下游戏日志区被隐藏，把反馈也写到房主面板上
         if self.is_host:
             try:
@@ -880,6 +901,8 @@ class BadtimeWarTUI(App):
                 host_panel.log_feedback(text)
             except NoMatches:
                 pass
+            except Exception as e:
+                print(f"[TUI] HostPanel 输出失败: {e}", file=sys.stderr)
 
     def _switch_to_game_mode(self):
         """游戏开始后切换布局：隐藏 host panel，显示 game log。"""

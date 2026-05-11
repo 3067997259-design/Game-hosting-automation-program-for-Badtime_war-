@@ -23,6 +23,11 @@ from engine.game_setup import (
 )
 from network.protocol import MessageType
 
+# RL 帧堆叠数量的默认值。与 rl/self_play.py、rl/export_torchscript.py、
+# rl/diagnose_single_game.py 等推理路径保持一致（均默认 30）。
+# 之前从 rl.obs_builder 导入 N_STACK 会失败，因为该符号不存在。
+RL_DEFAULT_N_STACK = 30
+
 
 def _load_airi_config() -> Dict[str, Any]:
     """加载 AIRI 配置（config/airi_config.json）。
@@ -270,14 +275,21 @@ class LobbyManager:
             if not rl_info["available"]:
                 return None
             from rl.diagnose_single_game import load_controller
-            from rl.obs_builder import N_STACK
             model_path = slot.rl_model_path or (
                 rl_info["models"][0] if rl_info["models"] else None
             )
             if model_path is None:
                 return None
-            return load_controller(model_path, N_STACK)
-        except Exception:
+            return load_controller(model_path, RL_DEFAULT_N_STACK)
+        except Exception as e:
+            try:
+                import logging
+                import traceback
+                logger = logging.getLogger("lobby")
+                logger.error(f"创建 RL Controller 失败: {e}")
+                logger.error(f"详细错误: {traceback.format_exc()}")
+            except Exception:
+                pass
             return None
 
     def _create_airi_controller(self, slot: PlayerSlot, player_id: str):
@@ -294,9 +306,10 @@ class LobbyManager:
         except Exception as e:
             try:
                 import logging
-                logging.getLogger("lobby").error(
-                    f"创建 AiriController 失败: {e}"
-                )
+                import traceback
+                logger = logging.getLogger("lobby")
+                logger.error(f"创建 AiriController 失败: {e}")
+                logger.error(f"详细错误: {traceback.format_exc()}")
             except Exception:
                 pass
             return None
@@ -359,15 +372,21 @@ class LobbyManager:
             rl_info = detect_rl_availability()
             if rl_info["available"] and rl_info["models"]:
                 from rl.diagnose_single_game import load_controller
-                from rl.obs_builder import N_STACK
-                ctrl = load_controller(rl_info["models"][0], N_STACK)
+                ctrl = load_controller(rl_info["models"][0], RL_DEFAULT_N_STACK)
                 if ctrl is not None:
                     player.controller = ctrl
                     if hasattr(ctrl, 'set_player_ref') and self.game_state:
                         ctrl.set_player_ref(player, self.game_state)
                     return
-        except Exception:
-            pass
+        except Exception as e:
+            try:
+                import logging
+                import traceback
+                logger = logging.getLogger("lobby")
+                logger.error(f"AI 接管加载 RL Controller 失败: {e}")
+                logger.error(f"详细错误: {traceback.format_exc()}")
+            except Exception:
+                pass
         personality = slot.personality or "random"
         if personality == "random":
             personality = random.choice(AI_PERSONALITIES)
