@@ -165,6 +165,8 @@ class CommandIntentExplainer:
         同属性相互有效
         若武器属性被护甲属性克制，攻击无效（护甲不消耗）。
     即三种属性形成循环克制 普通 → 魔法 → 科技 → 普通；同属性互克。
+    电流武器（电磁步枪、高斯步枪）特性：可穿透陶瓷护甲（陶瓷免疫电流），
+    属于科技属性。
     """
 
     # 指令前缀（小写）→ 简短战略意图说明
@@ -172,15 +174,20 @@ class CommandIntentExplainer:
         "move": (
             "移动到指定地点；用于接近目标、跑去关键设施（商店、医院、"
             "军事基地、警察局等）或脱离危险区域。是控制位置的核心手段。"
+            "特殊：若你拥有 G1 火萤的『超新星过载』，下一次 move 可指定"
+            "目的地为当前地点（原地触发），对当地所有单位造成无视克制伤害。"
         ),
         "attack": (
             "使用某件武器攻击目标。属性克制循环为：普通→魔法→科技→普通，"
             "同属性相互有效；若武器被护甲克制则攻击无效（护甲不消耗）。"
             "格式：attack <目标> <武器> [层 属性]。优先打能造成有效伤害的目标。"
+            "电流武器（电磁步枪/高斯步枪）可穿透陶瓷护甲；AOE 武器"
+            "（电磁步枪、地震/地动山摇、天星）才能伤到警察单位。"
         ),
         "interact": (
             "与当前地点的设施/物品互动（购买、手术、研究、领取奖励等）。"
             "通常用于补给、强化、获取关键凭证。"
+            "必须带参数（interact <物品/项目>），裸 interact 会被服务器拒绝。"
         ),
         "lock": (
             "锁定一个目标玩家用于后续追踪/打击；不会直接造成伤害，"
@@ -257,6 +264,129 @@ class CommandIntentExplainer:
         ),
     }
 
+    # 各 interact 物品 / 项目的简短意图说明（基于 README §10、§12）。
+    # 注意：所有描述都需要严格匹配 README，不得虚构属性或战略价值。
+    INTERACT_ITEM_INTENT_MAP: Dict[str, str] = {
+        # 商店 / 通用补给
+        "打工": (
+            "基础功能：消耗1个行动回合，在商店获得1张凭证。"
+            "战略价值：中。用于积累购物资金，是早期补给的核心手段。"
+        ),
+        "凭证": (
+            "基础功能：直接领取/获得凭证。战略价值：中。"
+            "凭证是商店、医院、军事基地购物/手术的通用通货。"
+        ),
+        # 武器：属性克制要严格按 README §8.2 描述
+        "小刀": (
+            "基础功能：近战武器（普通属性，伤害1）。战略价值：低（初始可用，"
+            "但易被升级武器替代）。属性克制：普通属性克制魔法护甲；"
+            "被科技护甲克制。使用建议：早期接战或与磨刀石组合升级。"
+        ),
+        "磨刀石": (
+            "基础功能：消耗以升级一把已有的小刀（伤害+1）。战略价值：中。"
+            "使用建议：拥有未升级的小刀且不缺凭证时购入。"
+        ),
+        "盾牌": (
+            "基础功能：普通属性外层护甲（1层）。战略价值：中。"
+            "属性克制：被普通武器克制（普通→魔法→科技→普通循环，盾牌按"
+            "普通属性结算）。常作为穿越普通武器威胁前的过渡装备。"
+        ),
+        "陶瓷护甲": (
+            "基础功能：陶瓷外层护甲。战略价值：高。"
+            "陶瓷属性免疫电流武器（电磁步枪/高斯步枪），是反制电流流的关键。"
+            "使用建议：对手可能携带电流武器时优先获取。"
+        ),
+        "隐身衣": (
+            "基础功能：使用后进入隐身状态。战略价值：高（信息战核心）。"
+            "使用建议：避免被锁定/找到时使用；攻击会破隐身（除非满足保留条件）。"
+        ),
+        "热成像仪": (
+            "基础功能：获得探测能力，可破解隐身。战略价值：中。"
+            "使用建议：场上有隐身玩家时优先获取。"
+        ),
+        "防毒面具": (
+            "基础功能：免疫病毒效果。战略价值：高（病毒期间）/低（无病毒）。"
+            "病毒期间商店免费、医院仍需凭证；使用建议：病毒触发后立即购入。"
+        ),
+        # 医院手术（消耗所有凭证，但能获得内层护甲）
+        "晶化皮肤手术": (
+            "基础功能：消耗所有凭证（≥1），获得内层护甲『晶化皮肤』（科技属性，1层）。"
+            "战略价值：中-高。属性克制：晶化皮肤被普通武器克制，克制魔法武器。"
+        ),
+        "额外心脏手术": (
+            "基础功能：消耗所有凭证（≥1），获得内层护甲『额外心脏』（普通属性，1层）。"
+            "战略价值：中-高。属性克制：额外心脏被科技武器克制，克制魔法武器（同属性互克）。"
+        ),
+        "不老泉手术": (
+            "基础功能：消耗所有凭证（≥1），获得内层护甲『不老泉』（魔法属性，1层）。"
+            "战略价值：中-高。属性克制：不老泉被普通武器克制，克制科技武器。"
+        ),
+        # 魔法所（魔法属性体系）
+        "魔法护盾": (
+            "基础功能：学习/展开魔法护盾（魔法属性外层护甲）。战略价值：中-高。"
+            "属性克制：魔法属性克制科技护甲；被普通武器克制。可被天赋『死者苏生』"
+            "复活时重置成展开状态。"
+        ),
+        "魔法弹幕": (
+            "基础功能：近战魔法武器。战略价值：中。"
+            "属性克制：魔法属性克制科技护甲；被普通护甲克制。"
+        ),
+        "远程魔法弹幕": (
+            "基础功能：远程魔法武器，需先 lock 目标。战略价值：中-高。"
+            "属性克制：同魔法弹幕。"
+        ),
+        "封闭": (
+            "基础功能：法术，封闭一个地点的进出通道。战略价值：中。"
+            "使用建议：用于阻断对手撤退或形成区域控制。"
+        ),
+        "地震": (
+            "基础功能：AOE 魔法法术。战略价值：高。"
+            "AOE 武器才能伤害警察单位；适合处理聚集的非玩家单位。"
+        ),
+        "地动山摇": (
+            "基础功能：强化版 AOE 魔法。战略价值：高。"
+            "AOE 武器才能伤害警察单位。"
+        ),
+        "隐身术": (
+            "基础功能：法术形式的隐身。战略价值：高。"
+            "使用建议：信息战节点（被锁定前/逃跑前）。"
+        ),
+        "探测魔法": (
+            "基础功能：法术形式的探测。战略价值：中。可破解隐身。"
+        ),
+        "办理通行证": (
+            "基础功能：办理军事基地通行证。战略价值：高。"
+            "通行证是军事基地内 AT力场/电磁步枪/雷达 等装备的前置。"
+        ),
+        # 军事基地（科技属性体系，需通行证）
+        "AT力场": (
+            "基础功能：科技属性外层护甲（可重新展开）。战略价值：高。"
+            "属性克制：科技属性克制普通护甲；被魔法武器克制。"
+            "可被天赋『死者苏生』复活时重置成展开状态。"
+        ),
+        "电磁步枪": (
+            "基础功能：远程电流武器（科技属性）。战略价值：高。"
+            "属性克制：科技属性克制普通护甲；被魔法护甲克制。"
+            "特殊：电流武器可穿透陶瓷护甲；AOE 武器，可伤害警察单位。"
+        ),
+        "高斯步枪": (
+            "基础功能：远程电流武器（科技属性，单体）。战略价值：高。"
+            "属性克制：与电磁步枪同，可穿透陶瓷护甲；但非 AOE，不能伤警察。"
+        ),
+        "导弹控制权": (
+            "基础功能：获得军事基地导弹控制权标记。战略价值：高。"
+            "使用建议：作为对所有玩家的高威慑筹码或决胜手段（具体效果以"
+            "当局规则为准，不要凭空假定细节）。"
+        ),
+        "雷达": (
+            "基础功能：获得探测能力。战略价值：中。可破解隐身。"
+        ),
+        "隐形涂层": (
+            "基础功能：科技体系的隐身。战略价值：高。"
+            "使用建议：信息战节点；不要在已隐身时重复获取。"
+        ),
+    }
+
     @classmethod
     def explain(cls, command: str) -> str:
         """返回指令的战略意图说明。command 可以是完整指令（含参数）
@@ -265,6 +395,13 @@ class CommandIntentExplainer:
             return ""
         prefix = command.strip().split()[0].lower()
         return cls.INTENT_MAP.get(prefix, "")
+
+    @classmethod
+    def explain_item(cls, item: str) -> str:
+        """返回 interact 物品/项目的战略意图说明；未知项目返回空串。"""
+        if not item:
+            return ""
+        return cls.INTERACT_ITEM_INTENT_MAP.get(item.strip(), "")
 
     @classmethod
     def explain_action_dict(cls, action: Any) -> str:
@@ -297,6 +434,638 @@ class CommandIntentExplainer:
             seen_prefixes.add(prefix)
             lines.append(f"- {prefix}: {intent}")
         return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  天赋 T0 / 子决策 / 神代资源 战略意图说明
+# ══════════════════════════════════════════════════════════════════
+#
+# 严格遵循 README 12.1 / 12.2 章节的天赋描述，不得虚构机制。
+# 说明：这些字典只用于「向 AIRI 解释当前决策点的战略含义」，
+# 不影响游戏内的实际效果结算。
+
+# 天赋 T0 发动是否启动的战略意图（README §12.1 / §12.2）
+TALENT_T0_INTENT_MAP: Dict[str, Dict[str, str]] = {
+    "一刀缭断": {
+        "intent": "无视克制的高爆发近战",
+        "explanation": (
+            "选择一件已装备的近战武器与一个同地点且面对面的目标，"
+            "立刻进行一次近战攻击；该次攻击伤害提高 100% 且无视属性克制。"
+            "使用次数：2 次。若本次攻击击破最后一层内层护甲，溢出按"
+            "「无视生克的伤害」处理，不触发最后内层吸收溢出。"
+        ),
+        "trigger_condition": "同地点存在面对面目标，且自己装备了至少一件近战武器",
+        "strategic_value": "高（适合击穿克制护甲或处决残血）",
+    },
+    "天星": {
+        "intent": "群体石化控制 + 群伤",
+        "explanation": (
+            "对你所在地点除自己以外的所有玩家与非玩家单位各造成"
+            "（1 + 0.5 × 命中单位数）点无视属性克制伤害（不超过 3）；"
+            "所有目标获得「石化」状态：石化单位在其下一个行动回合只能"
+            "选择解除石化或不解除（受攻击则石化自动解除，解除时额外受"
+            "0.5 点无视生克伤害）。使用次数：2 次。"
+        ),
+        "trigger_condition": "同地点聚集多个敌方/警察单位",
+        "strategic_value": "高（反警察体系与群体控场）",
+    },
+    "六爻": {
+        "intent": "猜拳决定效果的高方差爆发",
+        "explanation": (
+            "选择另一名玩家进行一次猜拳，按结果结算：双剪刀=潜龙勿用"
+            "（任选 1 名玩家受 1 点无视克制伤害）；双石头=飞龙在天"
+            "（夺甲，复制目标 1 件外层护甲）；双布=元亨利贞（金身，"
+            "免疫伤害与 debuff，至下个 R0 消散，无视克制伤害穿透）；"
+            "你赢=亢龙有悔（随机禁用目标 1 件非拳击武器 2 个全局轮次，"
+            "若仅有拳击改为眩晕）；你输=或跃在渊（你获得 2 个连续额外行动回合，"
+            "不能再发动六爻）；平局=群龙无首（解除自己所有「被发现/被锁定」并"
+            "进入隐身，对手被强制传送）。每 5 轮充能 1 次，最多储存 2 次。"
+        ),
+        "trigger_condition": "有可用充能且需要博弈翻盘",
+        "strategic_value": "高（但结果由猜拳决定，方差大）",
+    },
+    "不良少年": {
+        "intent": "犯罪即获得额外行动回合",
+        "explanation": (
+            "常驻效果：开局获得「热那亚之刃」（视为小刀，攻击玩家不构成"
+            "可被举报的违法行为）。每触发一种「犯罪类型」立即获得 1 个"
+            "额外行动回合，每种犯罪类型最多触发 1 次。"
+        ),
+        "trigger_condition": "常驻；额外回合在首次触发某类犯罪时自动结算",
+        "strategic_value": "高（攻击型连续行动）",
+    },
+    "combo": {
+        "intent": "连续行动奖励关",
+        "explanation": (
+            "连续三个全局轮次行动 → 下个全局轮次开始时获得「奖励关」："
+            "本回合投掷阶段 D4 必为 4、D6 必为 6；并获得 1 临时额外攻击力 + 1 临时 HP，"
+            "持续到奖励关结束。"
+        ),
+        "trigger_condition": "连续 3 个全局轮次都行动了",
+        "strategic_value": "中-高",
+    },
+    "朝阳好市民": {
+        "intent": "举报无需到警局 + 扩展违法清单 + 队长加速",
+        "explanation": (
+            "「举报热线」举报无需前往警察局；本局违法名单额外加入：进入他人家、"
+            "进入军事基地（无论是否花费回合获得通行证）、释放病毒。"
+            "竞选警队队长所需行动回合数 −1。"
+        ),
+        "trigger_condition": "常驻",
+        "strategic_value": "中（政治型）",
+    },
+    "死者苏生": {
+        "intent": "把目标挂载「死后复活一次」",
+        "explanation": (
+            "需先在魔法所连续 2 个行动回合学习，习得后消耗 1 个行动回合"
+            "将效果挂载到任意 1 名玩家（可含自己）。挂载目标死亡时立刻"
+            "在自己家中重生，保留所有物品；所有「破碎护盾」（魔法护盾、AT 力场）"
+            "重置为正常展开状态；下个行动回合不需要起床。结算完成后本天赋永久失效。"
+            "全场最多挂载 1 名玩家。"
+        ),
+        "trigger_condition": "学习已完成且尚未挂载过任何玩家",
+        "strategic_value": "高",
+    },
+    "火萤Ⅳ型-完全燃烧": {
+        "intent": "强力常驻 + 「炽愿」/「超新星过载」资源",
+        "explanation": (
+            "造成伤害 +100%，受到伤害 −50%；HP 降至 0.5 时不眩晕，下回合恢复至 1。"
+            "失熵症 debuff 从「15 + (开局人数−2) × 3」轮开始；超新星过载是替代"
+            "「移动」的特殊技能，下次 move 可指定为当前地点，对当地所有单位造成"
+            "1 点无视克制伤害（享受 +100% 加成）并施加「灼烧」。"
+            "命中和击杀都会积累「炽愿」，可抵扣 debuff 或换取超新星。"
+        ),
+        "trigger_condition": "常驻；T0 提示通常对应主动管理资源时机",
+        "strategic_value": "高",
+    },
+    "请一直，注视着我": {
+        "intent": "全息影像区域控制",
+        "explanation": (
+            "在自己所在地点展开「全息影像」，持续 min(3 + (存活−2), 6) 轮："
+            "所有非玩家单位被强制聚集并沉沦；其他玩家投 D6≥3 被强制拉入并震荡；"
+            "释放完成后立刻获得 1 个额外行动回合。影像内：隐身无效、单位受到额外"
+            "+0.5 无视克制伤害、其他玩家禁用 lock/find、玩家相互强制找到。"
+        ),
+        "trigger_condition": "希望群控/反警察 + 强制聚集敌人",
+        "strategic_value": "高",
+    },
+    "神话之外": {
+        "intent": "拉入幻想乡结界 1v1",
+        "explanation": (
+            "选择同地点至多 1 名其他玩家拉入「遗世独立的幻想乡」结界："
+            "结界内每轮由你与目标猜拳决定唯一行动者，其他玩家暂停。"
+            "结界内不能 interact/不能 move/不能锁结界外玩家；隐身无效、"
+            "六爻解除锁定/发现不生效；发动者免疫控制；目标天赋（主动+被动）"
+            "被完全压制。展开瞬间立刻获得 1 个额外行动回合。"
+        ),
+        "trigger_condition": "同地点有 1 名想单独处理的高威胁目标",
+        "strategic_value": "高",
+    },
+    "愿负世，照拂黎明": {
+        "intent": "致命攻击触发的救世主形态",
+        "explanation": (
+            "受到致命攻击时自动消耗所有「火种」（上限 12）进入「救世主」状态："
+            "免疫该次致死伤害；每点火种 → +0.5 临时 HP / +0.5 近战攻击 / "
+            "AOE 伤害提高 0.5（>6 时提高 1）/ 持续 +1 轮；状态期间禁用远程。"
+            "结束时未消耗的临时 HP 永久化（总永久 HP 上限 +3）。本天赋唯一触发后永久失效。"
+        ),
+        "trigger_condition": "自动触发；本提示通常出现在主动决策环节（极少见）",
+        "strategic_value": "高",
+    },
+    "往世的涟漪": {
+        "intent": "「献予 X 之诗」与「锚定命运」",
+        "explanation": (
+            "高度复杂的辅助/控制型神代天赋，依赖「追忆」层数（首次 24，之后 12）"
+            "发动「锚定命运」或献诗（武器/护甲/律法/夜望/六爻 等）。"
+            "T0 决策通常涉及为盟友/敌人挂载效果，详见 README 12.2 章节。"
+        ),
+        "trigger_condition": "追忆层数足够 + 需要主动改变局势",
+        "strategic_value": "高（但执行非常复杂）",
+    },
+    "铁之荷鲁斯": {
+        "intent": "G7 战术宏体系 + 架盾射击",
+        "explanation": (
+            "G7 星野角色，使用「战术指令宏」串接基础动作。Cost 体力条管理："
+            "每轮 R0 恢复 5；架盾/射击消耗 2 Cost；持盾/冲刺/投掷消耗 1 Cost。"
+            "宏内的射击需要先装填弹药，建议用「排弹」优化弹序。"
+            "T0 决策通常对应是否进入战斗宏模式（不是自主组合，而是从预制宏选）。"
+        ),
+        "trigger_condition": "有目标 + Cost ≥ 2 + 有弹药/可装填",
+        "strategic_value": "高",
+    },
+}
+
+# 天赋子决策 situation → 战略意图（README §12 + 实际 situation 名取自代码）
+TALENT_SUB_DECISION_INTENT: Dict[str, Dict[str, str]] = {
+    # T1 一刀缭断
+    "oneslash_pick_weapon": {
+        "intent": "选择「一刀缭断」使用的近战武器",
+        "explanation": (
+            "一刀缭断无视属性克制且伤害 +100%，因此武器选择只需关心基础伤害。"
+        ),
+        "suggestion": "选择基础伤害最高的近战武器（如已升级的小刀）",
+    },
+    "oneslash_pick_target": {
+        "intent": "选择「一刀缭断」的攻击目标",
+        "explanation": (
+            "目标必须是同地点且与你处于「面对面」关系的玩家。无视克制 = 不必"
+            "考虑目标护甲属性。"
+        ),
+        "suggestion": "选择威胁度最高、或最容易处决（残血/关键威胁）的目标",
+    },
+    # T3 天星
+    "star_ripple_bounce": {
+        "intent": "天星的弹射目标选择（涟漪强化场景）",
+        "explanation": (
+            "天星造成 (1 + 0.5×命中) 点无视克制伤害（不超过 3）并施加石化；"
+            "弹射时按顺序选择目标。"
+        ),
+        "suggestion": "优先选择威胁度高或聚集中的目标",
+    },
+    # T4 六爻 —— 注意：实际 situation 名取自 talents/t4_hexagram.py
+    "hexagram_pick_opponent": {
+        "intent": "选择六爻的猜拳对手",
+        "explanation": (
+            "你将和该玩家猜拳，结果决定卦象（潜龙勿用/飞龙在天/元亨利贞/"
+            "亢龙有悔/或跃在渊/群龙无首）。每种卦象效果差异巨大。"
+        ),
+        "suggestion": "选择威胁度适中的对手；若想夺甲优先选有外层护甲的；"
+                      "若想禁武优先选高伤害武器持有者。",
+    },
+    "hexagram_my_choice": {
+        "intent": "你出拳（石头/剪刀/布）",
+        "explanation": (
+            "结果效果：双剪刀=潜龙勿用、双石头=飞龙在天（夺甲）、双布=元亨利贞（金身）、"
+            "你赢=亢龙有悔（禁武）、你输=或跃在渊（额外回合）、平局=群龙无首（遁走）。"
+        ),
+        "suggestion": "可随机出拳，或根据当前需要的卦象偏向选择（结果由双方共同决定）。",
+    },
+    "hexagram_opp_choice": {
+        "intent": "对手出拳（石头/剪刀/布）",
+        "explanation": "你被卷入猜拳。同上结果矩阵。",
+        "suggestion": "可随机出拳。",
+    },
+    "hexagram_thunder_target": {
+        "intent": "潜龙勿用——天雷目标",
+        "explanation": "选择任意 1 名玩家（可以不是猜拳对手），对其造成 1 点无视属性克制伤害。",
+        "suggestion": "选择 HP 最低的高威胁目标处决",
+    },
+    "hexagram_steal_target": {
+        "intent": "飞龙在天——夺甲目标",
+        "explanation": "选择 1 名玩家。你将从其外层护甲中复制 1 件给自己（不破坏其护甲）。",
+        "suggestion": "选择拥有你目前缺少的关键外层护甲（如 AT 力场、陶瓷护甲）的玩家",
+    },
+    "hexagram_steal_pick": {
+        "intent": "飞龙在天——选择要复制的护甲",
+        "explanation": "从目标的外层护甲中挑一件复制；遵循护甲层数与同属性上限。",
+        "suggestion": "优先选你目前没有、且属性互补的护甲",
+    },
+    "hexagram_disarm_target": {
+        "intent": "亢龙有悔——禁武目标",
+        "explanation": "随机禁用目标 1 件非拳击武器持续 2 个全局轮次；若仅有拳击则改为眩晕。",
+        "suggestion": "选择威胁度最高的武器持有者",
+    },
+    "hexagram_free_target": {
+        "intent": "六爻自由目标（涟漪/特定效果触发）",
+        "explanation": "由触发效果决定具体含义，请结合上下文。",
+        "suggestion": "按上下文与威胁度选择",
+    },
+    # G2 全息影像
+    "hologram_target": {
+        "intent": "全息影像展开地点",
+        "explanation": (
+            "在指定地点展开影像区域，持续 min(3 + (存活 − 2), 6) 轮。"
+            "影像内：玩家受伤害 +0.5 无视克制、禁用 lock/find、相互强制找到、"
+            "玩家停留 2 轮震荡；非玩家单位沉沦。"
+        ),
+        "suggestion": "选择敌人聚集或警察盘踞的地点",
+    },
+    # G3 神话之外
+    "mythland_pick_target": {
+        "intent": "选择拉入幻想乡结界的目标",
+        "explanation": (
+            "结界内仅你和目标存在，外部时间暂停；目标天赋（主动+被动）被压制；"
+            "结界内不能 interact/不能 move/不能锁结界外玩家。"
+        ),
+        "suggestion": "选择最希望单独处理的高威胁目标",
+    },
+    # G5 涟漪/锚定/献诗
+    "ripple_choose_method": {
+        "intent": "涟漪选择发动方式（锚定 / 献诗 / 取消）",
+        "explanation": "锚定 = 改变命运（高 Cost），献诗 = 增益/控制；具体见 README 12.2。",
+        "suggestion": "按追忆资源量和局势选择",
+    },
+    "ripple_poem_target": {
+        "intent": "献诗的目标玩家",
+        "explanation": "献诗效果由所选诗的种类决定（武器/护甲/律法/夜望/六爻）。",
+        "suggestion": "选择能最大化诗篇收益的玩家",
+    },
+    "ripple_anchor_type": {
+        "intent": "锚定命运的类型",
+        "explanation": "锚定可强行使某玩家击杀目标 / 获得护甲 / 到达地点 / 获得物品等。",
+        "suggestion": "按追忆资源和局势选择",
+    },
+    "ripple_anchor_kill_target": {
+        "intent": "锚定命运——击杀目标",
+        "explanation": "锚定后该玩家下一个行动回合必须尝试击杀此目标。",
+        "suggestion": "选择高威胁敌方",
+    },
+    "ripple_anchor_armor_target": {
+        "intent": "锚定命运——破坏护甲目标",
+        "explanation": "锚定后被锚定者的一件护甲将被强制摧毁。",
+        "suggestion": "选择关键护甲持有者",
+    },
+    "ripple_anchor_armor_pick": {
+        "intent": "锚定命运——选择要破坏的护甲层",
+        "explanation": "从目标护甲中指定一件破坏。",
+        "suggestion": "优先破坏外层关键护甲",
+    },
+    "ripple_anchor_acquire_item": {
+        "intent": "锚定命运——获得物品",
+        "explanation": "锚定后被锚定者下一回合必须前往获取此物品。",
+        "suggestion": "选择最具战略价值的物品",
+    },
+    "ripple_anchor_arrive_loc": {
+        "intent": "锚定命运——前往地点",
+        "explanation": "锚定后被锚定者下一回合必须移动到该地点。",
+        "suggestion": "选择能将其暴露/陷入危险的地点",
+    },
+    "ripple_anchor_fail": {
+        "intent": "锚定失败后的回退选项",
+        "explanation": "按 README 12.2「往世的涟漪」给出的失败处理选项。",
+        "suggestion": "按当前损失最小的方向选",
+    },
+    "ripple_hexagram_free_choice": {
+        "intent": "诗篇·六爻——自由选择要触发的卦象效果",
+        "explanation": "通过献诗·六爻可绕过猜拳直接选定效果。",
+        "suggestion": "结合当前需要（伤害/夺甲/金身/禁武/额外回合/遁走）选择",
+    },
+    "poem_law_extra_action": {
+        "intent": "献予律法之诗——分配额外行动",
+        "explanation": "向警察体系倾斜的诗篇；按 README 12.2 处理。",
+        "suggestion": "选择能加速警察执法的单位",
+    },
+    "poem_nightwatch_choice": {
+        "intent": "献予夜望之诗——接受/拒绝",
+        "explanation": "对应献予夜望之诗的双方确认环节。",
+        "suggestion": "结合双方关系与局势权衡",
+    },
+    # G7 星野
+    "hoshino_form": {
+        "intent": "星野选择初始形态",
+        "explanation": "决定后续战术宏走向（铁之荷鲁斯 vs Terror）。",
+        "suggestion": "按本局阵容与威胁度选择",
+    },
+    "hoshino_self_doubt_choice": {
+        "intent": "星野「自我怀疑」抉择",
+        "explanation": "影响星野后续状态走向（README §12.2 G7 章节）。",
+        "suggestion": "按 README 给出的两条文本权衡",
+    },
+    # 加入警察 / 队长竞选 等其他常见 situation
+    "recruit_pick_1": {
+        "intent": "加入警察——选择第 1 个奖励",
+        "explanation": "三选二，详细物品列表见 README §10.8.1。",
+        "suggestion": "优先互补当前缺口（武器/护甲/凭证）",
+    },
+    "recruit_pick_2": {
+        "intent": "加入警察——选择第 2 个奖励",
+        "explanation": "三选二之第二项。",
+        "suggestion": "与第一项形成互补",
+    },
+    "captain_election": {
+        "intent": "队长竞选投票",
+        "explanation": "确定本局警察队长，享有 designate/study/police 等权限。",
+        "suggestion": "若自己有政治优势可投自己；否则投威胁较低的人",
+    },
+    "petrified": {
+        "intent": "石化决策：解除 / 保持",
+        "explanation": (
+            "石化单位的下个行动回合只能二选一：解除（额外受 0.5 无视克制伤害）或不解除。"
+            "若不解除，受到攻击会自动解除（同样触发 0.5 伤害）。"
+        ),
+        "suggestion": "如果当前 HP 充裕且预期被攻击概率高 → 保持；否则解除",
+    },
+    # ── 神代3 神话之外（mythland_rps） ──────────────────────────
+    "mythland_rps": {
+        "intent": "幻想乡结界内的猜拳",
+        "explanation": (
+            "在被拉入幻想乡结界后，与发动者进行石头/剪刀/布的较量，"
+            "结果影响后续结界内交互（详见 README §12.2 神话之外）。"
+        ),
+        "suggestion": "若无博弈矩阵提示，可均匀随机出招避免被读心",
+    },
+    # ── 原初7 死者苏生（resurrection_pick_target） ──────────────
+    "resurrection_pick_target": {
+        "intent": "选择苏生目标",
+        "explanation": (
+            "选择一名已出局的玩家作为「死者苏生」的复苏目标。"
+            "复苏者将在你的下一个行动回合开始时获得复活资格（详见 README §12.1）。"
+        ),
+        "suggestion": "优先选择对战局立场友好或能继续承担警察/票数贡献的玩家",
+    },
+    # ── G7 铁之荷鲁斯 战术指令宏 子决策 ────────────────────────
+    # 说明：以下子决策都属于「G7 战术宏模式」。请配合
+    # TACTICAL_MACRO_INTENT_MAP 使用预制宏，避免自主拼接长序列。
+    "hoshino_form": {
+        "intent": "选择星野的形态",
+        "explanation": (
+            "在天赋注册阶段选择星野的初始形态："
+            "水着 / 临战 / 等（详见 README §12.2 铁之荷鲁斯）。"
+            "形态影响后续战术指令的免费维持、起床装备等。"
+        ),
+        "suggestion": "若不确定，使用建议选项或默认；不同形态各有取舍",
+    },
+    "hoshino_tactical_equip": {
+        "intent": "战术装备配发",
+        "explanation": (
+            "首次同时持有融合装备后，可在战术道具 / 药物 / 子弹中三选一进行配发。"
+            "每次可从以下选项中选择 1 项：1 个战术道具 / 1 种药物 / 2 发某属性子弹。"
+        ),
+        "suggestion": "前期偏向药物与子弹保证基础输出；中后期可补战术道具",
+    },
+    "hoshino_repair_material": {
+        "intent": "选择修复材料",
+        "explanation": (
+            "通过 special 修复 <护甲名> 指令以一件护甲为代价为「铁之荷鲁斯」恢复护甲值。"
+            "可选材料：盾牌 / AT 力场（READ §12.2 战术天才）。"
+        ),
+        "suggestion": "保留稀有/属性护甲，优先以普通盾牌作为修复材料",
+    },
+    "hoshino_tactical_input": {
+        "intent": "战术指令宏中的下一个动作",
+        "explanation": (
+            "你正处于 G7 战术指令宏模式：请从预制宏中选择一个，"
+            "不要自主拼接长序列。预制宏包括 基础攻击宏 / 反队长接近宏 / "
+            "反队长无盾宏 / 补刀+转火宏 / 全力射击宏（详见 TACTICAL_MACRO_INTENT_MAP）。"
+        ),
+        "suggestion": (
+            "若同地点有警察保护 → 反队长接近宏 / 反队长无盾宏；"
+            "Cost 充裕 → 全力射击宏；其余默认基础攻击宏。"
+        ),
+    },
+    "hoshino_shield_shoot_target": {
+        "intent": "架盾射击目标",
+        "explanation": (
+            "处于「架盾射击」状态下，从你正面的玩家中选取射击目标。"
+            "弹丸分布依正面玩家数量自动判定（README §12.2）。"
+        ),
+        "suggestion": "选择威胁度最高或残血的正面目标",
+    },
+    "hoshino_reload": {
+        "intent": "重新装填的牺牲品",
+        "explanation": (
+            "摧毁一件自己持有、且非「荷鲁斯之眼/铁之荷鲁斯」的有属性物品或护甲，"
+            "为「荷鲁斯之眼」填充 4 发对应属性子弹（README §12.2）。"
+        ),
+        "suggestion": "优先消耗即将过期或低战略价值的有属性物品",
+    },
+    "hoshino_throw_item": {
+        "intent": "选择投掷的战术道具",
+        "explanation": (
+            "可选战术道具：闪光弹（禁用锁定）/ 烟雾弹（隐身、禁 find/lock）"
+            " / 燃烧瓶（灼烧 0.5×2）（README §12.2）。"
+        ),
+        "suggestion": "依对手是否依赖 lock/远程武器 选择闪光或烟雾；爆发选燃烧瓶",
+    },
+    "hoshino_throw_location": {
+        "intent": "投掷目标地点",
+        "explanation": (
+            "选择战术道具投掷到的地点。架盾状态下，道具仅对结束时处于你正面的单位生效。"
+        ),
+        "suggestion": "选择敌人聚集或将要途经的地点",
+    },
+    "hoshino_medicine": {
+        "intent": "选择服用药物",
+        "explanation": (
+            "可选 EPO（cost +1）/ 海豚巧克力（回复 1 层光环）。"
+            "肾上腺素不能在宏中使用（README §12.2）。"
+        ),
+        "suggestion": "Cost 不足 → EPO；光环受损 → 海豚巧克力",
+    },
+    "hoshino_dash": {
+        "intent": "冲刺目的地",
+        "explanation": (
+            "持盾状态下的战术移动指令，目标为特定地点；每个宏最多 1 次（README §12.2）。"
+        ),
+        "suggestion": "选择能立刻接战目标或夺取关键资源的地点",
+    },
+    "hoshino_reorder_ammo": {
+        "intent": "排弹（重排弹匣顺序）",
+        "explanation": (
+            "在装填后调整弹匣中子弹的发射顺序，使属性克制更优（README §12.2）。"
+            "每个宏最多 1 次。"
+        ),
+        "suggestion": "把最克制当前目标护甲属性的子弹排到最前",
+    },
+    "hoshino_self_doubt_choice": {
+        "intent": "色彩反转：是否进入自我怀疑",
+        "explanation": (
+            "当「色彩」≥ 6 时，可在回合开始时选择是否进入自我怀疑（之后会进入 Terror）。"
+            "进入后下一次行动回合被跳过（README §12.2 色彩反转）。"
+        ),
+        "suggestion": "若已被压制、需要博一次翻盘 → 进入；优势局保持当前节奏",
+    },
+    # ── G5 涟漪：法度 / 命运伤害 子决策 ─────────────────────────
+    "poem_law_police_action": {
+        "intent": "法度诗篇：警察行动方向",
+        "explanation": (
+            "在「法度诗篇」激活时，决定警察单位下一行动的具体走向（README §12.2 涟漪诗篇）。"
+        ),
+        "suggestion": "围绕重点目标制造保护或转移注意力",
+    },
+    "ripple_destiny_damage": {
+        "intent": "命运伤害的承受/转移决策",
+        "explanation": (
+            "在涟漪命运结算时，确认伤害承受或转移方式（README §12.2 往世的涟漪）。"
+        ),
+        "suggestion": "尽量转嫁高威胁伤害，保留己方关键单位",
+    },
+}
+
+# 神代天赋资源管理（README §12.2）
+GOD_TIER_RESOURCE_MANAGEMENT: Dict[str, Dict[str, str]] = {
+    "G1_炽愿": {
+        "resource": "炽愿（最多 3 层）",
+        "description": (
+            "每次 debuff 首次开始生效时获得 1 层；超新星过载每命中 1 个目标获得 1 层；"
+            "每完成击杀额外获得 1 层。可用于抵扣 debuff 或换取超新星过载次数。"
+        ),
+        "strategy": "保留炽愿应对致命 debuff；超新星过载用于敌人聚集场景",
+    },
+    "G1_超新星过载": {
+        "resource": "超新星过载次数（不可叠加，最多 1）",
+        "description": (
+            "有次数时下一次 move 可指定目的地为当前地点，对当地所有单位造成"
+            "1 点无视克制伤害（享受源式萤火 +100% 加成）并施加灼烧；发动后"
+            "失熵症 debuff 后延 3 轮。"
+        ),
+        "strategy": "等敌人/警察聚集再原地触发，最大化群伤；可被 RL 的 in-place move 表达",
+    },
+    "G4_火种": {
+        "resource": "火种（上限 12 层）",
+        "description": (
+            "被其他玩家攻击 / 接受正面天赋 → 获得 1 火种；若来自限定次数天赋额外 +1。"
+            "受到致命攻击时全数消耗，进入「救世主」状态：临时 HP / 攻击力 / AOE 加成 / "
+            "持续时间均按消耗层数线性放大。"
+        ),
+        "strategy": "尽量积累，触发后状态结束时部分临时 HP 永久化",
+    },
+    "G5_追忆": {
+        "resource": "追忆层数（首次 24，之后每 12 可发动）",
+        "description": (
+            "锚定命运 / 献诗 等核心操作依赖追忆；详见 README 12.2「往世的涟漪」。"
+        ),
+        "strategy": "积满 24 优先锚定关键命运；之后保持献诗节奏",
+    },
+    "G7_Cost": {
+        "resource": "Cost 体力条（每轮 R0 恢复 5）",
+        "description": (
+            "架盾 = 2、射击 = 2、持盾 = 1、冲刺 = 1、投掷 = 1、服药 = 0、"
+            "重新装填 = 0、排弹 = 0（每宏最多一次）。"
+        ),
+        "strategy": "确保核心动作（架盾 + 射击）有足够 Cost，避免无谓消耗",
+    },
+}
+
+
+# ══════════════════════════════════════════════════════════════════
+#  G7 战术宏 / 战术动作 战略意图说明
+# ══════════════════════════════════════════════════════════════════
+#
+# G7（星野/铁之荷鲁斯）通过「战术指令宏」串接基础动作，AIRI 应当
+# 从预制宏中选择，而不是自主组合。该说明字典仅用于解释意图，不直接
+# 驱动宏的执行（实际执行由 BasicAI 完成）。
+
+TACTICAL_MACRO_INTENT_MAP: Dict[str, Dict[str, str]] = {
+    "基础攻击宏": {
+        "intent": "标准战斗",
+        "explanation": "接近目标 → 架盾 → 连续射击。适合常规场景。",
+        "typical_sequence": "（投掷如需）→（冲刺如需）→ 架盾 → 射击 × N",
+        "when_to_use": "有弹药且有目标，无特殊威胁",
+    },
+    "反队长接近宏": {
+        "intent": "反警察接近",
+        "explanation": "投掷压制 → 排弹 → 持盾 → 冲刺 → 架盾 → 射击。对付有警察保护的对手。",
+        "typical_sequence": "投掷闪光/烟雾 → 排弹 → 持盾 → 冲刺 → 架盾 → 射击 × N",
+        "when_to_use": "目标有警察保护且需要接近",
+    },
+    "反队长无盾宏": {
+        "intent": "搏命反警察",
+        "explanation": "同地点直接架盾 → 全力射击。同地点警察保护下无法接近时使用。",
+        "typical_sequence": "架盾 → 射击 × N",
+        "when_to_use": "同地点有警察保护且无法接近",
+    },
+    "补刀+转火宏": {
+        "intent": "多目标处理",
+        "explanation": "先补刀残血 → 转火主目标。",
+        "typical_sequence": "射击残血目标 → 射击主目标 × N",
+        "when_to_use": "有多个残血/威胁",
+    },
+    "全力射击宏": {
+        "intent": "Cost 充足时最大化输出",
+        "explanation": "架盾 → 服药 → 排弹 → 连续射击。",
+        "typical_sequence": "架盾 → 服药 EPO/巧克力 → 排弹 → 射击 × N",
+        "when_to_use": "Cost ≥ 10 且需最大化伤害",
+    },
+}
+
+TACTICAL_ACTION_INTENT_MAP: Dict[str, Dict[str, str]] = {
+    "架盾": {
+        "intent": "防御姿态（划分正/背面）",
+        "explanation": (
+            "进入「架盾」状态：快照护甲值并划分正面/背面。架盾期间禁止 move 与 interact；"
+            "正面伤害按快照阈值过滤、背面伤害全额承受。"
+        ),
+        "cost": "2 Cost",
+        "strategic_value": "高",
+    },
+    "射击": {
+        "intent": "远程攻击",
+        "explanation": (
+            "用荷鲁斯之眼射击已锁定的目标；需要先装填弹药。架盾时射击只能针对正面玩家。"
+        ),
+        "cost": "2 Cost",
+        "strategic_value": "高",
+    },
+    "重新装填": {
+        "intent": "弹药补给",
+        "explanation": "消耗战术道具装填；弹序未知，建议配合「排弹」优化。",
+        "cost": "0 Cost",
+        "strategic_value": "中",
+    },
+    "持盾": {
+        "intent": "可移动的弱化防御",
+        "explanation": "持盾时可 move 但禁止 interact。",
+        "cost": "1 Cost",
+        "strategic_value": "中",
+    },
+    "投掷": {
+        "intent": "区域控制",
+        "explanation": (
+            "投掷战术道具到指定地点：闪光弹禁用锁定、烟雾弹禁用保护、破片手雷造成伤害。"
+        ),
+        "cost": "1 Cost",
+        "strategic_value": "高",
+    },
+    "服药": {
+        "intent": "状态增强",
+        "explanation": "海豚巧克力 → 恢复 HP；EPO → Cost +X。",
+        "cost": "0 Cost",
+        "strategic_value": "中",
+    },
+    "冲刺": {
+        "intent": "快速接近 / 撤离",
+        "explanation": "快速移动到目标地点；每宏最多 1 次。",
+        "cost": "1 Cost",
+        "strategic_value": "高",
+    },
+    "排弹": {
+        "intent": "弹序优化",
+        "explanation": "重排弹匣顺序，优化属性克制；每宏最多 1 次。",
+        "cost": "0 Cost",
+        "strategic_value": "中",
+    },
+}
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -692,6 +1461,35 @@ class BotBridge:
         parts = [header, "", "【当前状况】", situation, "", "【可选行动】", actions_text]
         if intent_block:
             parts.extend(["", "【指令战略意图】", intent_block])
+
+        # 行动限制提示（来源：NetworkController.get_command 中按天赋状态注入）
+        restrictions = (context or {}).get("action_restrictions") or {}
+        restriction_lines: List[str] = []
+        if restrictions.get("move_disabled"):
+            restriction_lines.append(
+                "- 你目前不能 move（"
+                f"{restrictions.get('reason', '当前天赋状态限制')}）。"
+            )
+        if restrictions.get("interact_disabled"):
+            restriction_lines.append(
+                "- 你目前不能 interact（"
+                f"{restrictions.get('reason', '当前天赋状态限制')}）。"
+            )
+        if restrictions.get("supernova_available"):
+            restriction_lines.append(
+                "- 你拥有 G1 火萤的『超新星过载』：下一次 move 可指定目的地"
+                "为当前地点（原地触发），对当地所有单位造成 1 点无视克制伤害"
+                "并施加灼烧；触发后失熵症 debuff 后延 3 轮。"
+            )
+        if restrictions.get("tactical_macro_mode"):
+            restriction_lines.append(
+                "- 你目前处于 G7 战术宏模式：请从 BasicAI 预制宏中选择，"
+                "不要自主组合宏序列。预制宏包括：基础攻击宏 / 反队长接近宏 / "
+                "反队长无盾宏 / 补刀+转火宏 / 全力射击宏。"
+            )
+        if restriction_lines:
+            parts.extend(["", "【行动限制】"] + restriction_lines)
+
         parts.extend(["", tail])
         return "\n".join(parts)
 
@@ -839,11 +1637,20 @@ class BotBridge:
             "军事基地": "办理通行证",
             "魔法所": "魔法护盾",
         }
+        return defaults.get((location or "").strip(), "")
 
     def _handle_choose_request(self, msg: dict):
-        """处理选择请求（如天赋选择）：渐进式提示 + 强健的 fallback。"""
+        """处理选择请求：识别 situation 注入战略意图说明 + 渐进式提示 + 强健 fallback。
+
+        支持的特殊 situation：
+          - "talent_t0"：是否发动天赋；解释具体天赋的战略含义
+          - 任意 TALENT_SUB_DECISION_INTENT 中的 key：注入子决策意图
+        其他 situation：走通用 choose 流程，但仍尽量加上「选项即指令前缀」时的意图说明。
+        """
         prompt_text = msg.get("prompt", "请选择")
         options = msg.get("options", [])
+        context = msg.get("context", {}) or {}
+        situation = context.get("situation", "")
 
         if not options:
             log.warning("choose 请求选项为空，回复空串")
@@ -853,7 +1660,10 @@ class BotBridge:
             })
             return
 
-        log.info(f"请求选择: {options}")
+        log.info(f"请求选择: situation={situation!r} options={options}")
+        intent_block = self._build_choose_intent_block(
+            situation, options, context, prompt_text
+        )
         choice: Optional[str] = None
 
         for attempt in range(2):
@@ -861,11 +1671,17 @@ class BotBridge:
                 f"  {i}. {opt}" for i, opt in enumerate(options, 1)
             )
             if attempt == 0:
-                text = (
-                    f"{prompt_text}\n"
-                    f"{options_block}\n"
-                    "请用 CHOOSE: <编号> 的格式回复（编号从 1 开始）。"
-                )
+                parts = [prompt_text]
+                if intent_block:
+                    parts.extend(["", intent_block])
+                parts.extend([
+                    "",
+                    "【可选项】",
+                    options_block,
+                    "",
+                    "请用 CHOOSE: <编号> 的格式回复（编号从 1 开始）。",
+                ])
+                text = "\n".join(parts)
             else:
                 text = (
                     "⚠️ 上一次回复无法解析为选项编号。请只回复一行：\n"
@@ -889,13 +1705,108 @@ class BotBridge:
             log.warning(f"第 {attempt + 1} 次无法解析选择")
 
         if choice is None:
-            choice = options[0]
-            log.warning(f"choose 全部尝试失败，使用首个选项作为 fallback: {choice}")
+            choice = self._smart_fallback_choice(situation, options, context)
+            log.warning(
+                f"choose 全部尝试失败，使用 fallback: {choice}"
+                f"（situation={situation!r}）"
+            )
 
         self.game_client.send_sync({
             "type": MessageType.CHOOSE_RESPONSE,
             "choice": choice,
         })
+
+    # ──────────────────────────────────────────
+    #  choose 战略意图 / fallback 辅助
+    # ──────────────────────────────────────────
+
+    def _build_choose_intent_block(
+        self,
+        situation: str,
+        options: List[str],
+        context: Dict[str, Any],
+        prompt_text: str,
+    ) -> str:
+        """根据 situation 构建 choose 的战略意图说明块。
+
+        - talent_t0：基于 TALENT_T0_INTENT_MAP[talent_name] 给出发动建议
+        - 任意 TALENT_SUB_DECISION_INTENT[situation]：给出子决策意图说明
+        - 其他 situation：若选项本身是 INTENT_MAP 的指令前缀，附加意图说明
+        """
+        lines: List[str] = []
+
+        if situation == "talent_t0":
+            talent_name = (context or {}).get("talent_name", "") or ""
+            talent_desc = (context or {}).get("talent_desc", "") or ""
+            info = TALENT_T0_INTENT_MAP.get(talent_name, {})
+            lines.append(f"【天赋 T0 决策】当前天赋：{talent_name or '未知'}")
+            if talent_desc:
+                lines.append(f"  原始描述：{talent_desc}")
+            if info:
+                lines.append(f"  战略意图：{info.get('intent', '')}")
+                expl = info.get("explanation", "")
+                if expl:
+                    lines.append(f"  解释：{expl}")
+                trig = info.get("trigger_condition", "")
+                if trig:
+                    lines.append(f"  推荐触发条件：{trig}")
+                val = info.get("strategic_value", "")
+                if val:
+                    lines.append(f"  战略价值：{val}")
+            else:
+                lines.append(
+                    "  （没有内置该天赋的意图说明，请严格依据原始描述与当前局势判断。）"
+                )
+            lines.append("一般来说，选项形如 [发动天赋, 不发动，正常行动]。")
+            return "\n".join(lines)
+
+        sub_info = TALENT_SUB_DECISION_INTENT.get(situation)
+        if sub_info:
+            lines.append(f"【子决策意图】situation = {situation}")
+            lines.append(f"  战略意图：{sub_info.get('intent', '')}")
+            expl = sub_info.get("explanation", "")
+            if expl:
+                lines.append(f"  解释：{expl}")
+            sug = sub_info.get("suggestion", "")
+            if sug:
+                lines.append(f"  参考建议：{sug}")
+            return "\n".join(lines)
+
+        # 通用：若选项看起来是指令前缀（如「move 商店」/「forfeit」），
+        # 顺手拼接 INTENT_MAP 说明，帮助 AIRI 理解选项含义。
+        block = CommandIntentExplainer.build_intent_block(options)
+        if block:
+            return f"【选项战略意图】\n{block}"
+
+        return ""
+
+    @staticmethod
+    def _smart_fallback_choice(
+        situation: str,
+        options: List[str],
+        context: Dict[str, Any],
+    ) -> str:
+        """为 choose 失败时挑一个相对安全的选项。
+
+        - talent_t0：保守起见默认不发动（选含「不发动」字样的项；找不到则首项）
+        - hexagram_my_choice / hexagram_opp_choice：随机一项（用首项的稳定 fallback）
+        - 其他 situation：首个选项
+        """
+        if not options:
+            return ""
+
+        if situation == "talent_t0":
+            for opt in options:
+                if isinstance(opt, str) and ("不发动" in opt or "否" == opt):
+                    return opt
+            return options[0]
+
+        # 出拳：直接返回首项（保持确定性，便于复现）；
+        # 若需要更真实的随机出拳，可改成 random.choice。
+        if situation in ("hexagram_my_choice", "hexagram_opp_choice"):
+            return options[0]
+
+        return options[0]
 
     def _handle_choose_multi_request(self, msg: dict):
         """处理多选请求。"""

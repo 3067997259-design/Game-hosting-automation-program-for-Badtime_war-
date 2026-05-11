@@ -71,6 +71,7 @@ class HostPanel(Static):
                 "  管理命令（在下方输入框中输入即可）：\n"
                 "    ai <slot号> [性格]         - 设置基础 AI\n"
                 "    rl <slot号>                - 设置 RL AI（需检测到模型）\n"
+                "    airi <slot号>              - 设置 AIRI Bot（需 AIRI 服务运行）\n"
                 "    policy <slot号> <wait|ai>  - 设置断线策略\n"
                 "    chatmode <slot号> <airi|llm|off> - 设置聊天后端\n"
                 "    debug <0-3>                - 设置调试级别（0=关闭, 1=基本, 2=详细, 3=完整）\n"
