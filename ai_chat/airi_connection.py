@@ -101,12 +101,10 @@ class AiriConnection:
 
                 async with websockets.connect(self.ws_url, **connect_kwargs) as ws:
                     self._ws = ws
-                    self._connected = True
                     if reconnect_attempts > 0:
                         log.info(f"AIRI 重连成功: {self.ws_url}")
                     else:
-                        log.info(f"已连接到 AIRI: {self.ws_url}")
-                    reconnect_attempts = 0  # 连接成功后清零
+                        log.info(f"WebSocket 已连接: {self.ws_url}")
 
                     # 认证（如果配置了 token）
                     if self.auth_token:
@@ -124,6 +122,13 @@ class AiriConnection:
                         "name": "Badtime War Bridge",
                         "identity": identity,
                     }, source_override=identity)
+
+                    # 留时间给 AIRI 处理 announce，确保 plugin 注册完成
+                    await asyncio.sleep(0.5)
+
+                    # 握手完成后才标记已连接，外部才能开始发送业务消息
+                    self._connected = True
+                    reconnect_attempts = 0  # 连接成功后清零
 
                     # 同时运行接收循环和心跳循环；任意一个先结束就取消另一个
                     recv_task = asyncio.ensure_future(self._recv_loop(ws))

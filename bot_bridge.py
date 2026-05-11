@@ -15,6 +15,7 @@ import logging
 import re
 import sys
 import threading
+import uuid
 from typing import Dict, Any, Optional, List
 
 # 复用游戏项目的网络客户端
@@ -1109,6 +1110,58 @@ class BotBridge:
         self.pending_lock = threading.Lock()
         self.pending_event = threading.Event()
 
+        # AIRI context:update 通道
+        self._game_state_context_id = str(uuid.uuid4())
+        self._last_game_state_text: str = ""
+
+    # ──────────────────────────────────────────
+    #  AIRI context:update 通道
+    # ──────────────────────────────────────────
+
+    def _push_game_state(self, state_text: str):
+        """通过 context:update 推送游戏状态，使 AIRI 有持久化的游戏背景。"""
+        if not state_text:
+            return
+        self._last_game_state_text = state_text
+        context = {
+            "id": str(uuid.uuid4()),
+            "contextId": self._game_state_context_id,
+            "strategy": "replace-self",
+            "text": state_text,
+            "lane": "game-state",
+        }
+        self.airi.send_context(context)
+
+    def _build_game_state_text(
+        self, msg: dict, context: Dict[str, Any]
+    ) -> str:
+        """从 msg（含 hp/location）和 context（含 round/phase）构建游戏状态文本。
+        同时附加最近的游戏事件摘要（最近 10 条）。
+        """
+        lines: List[str] = []
+        round_no = context.get("round", "?")
+        phase = context.get("phase", "")
+        location = msg.get("location", "")
+        hp = msg.get("hp")
+        max_hp = msg.get("max_hp")
+
+        lines.append(f"当前轮次：第 {round_no} 轮")
+        if phase:
+            lines.append(f"阶段：{phase}")
+        if location:
+            lines.append(f"当前位置：{location}")
+        if hp is not None and max_hp is not None and max_hp != "":
+            lines.append(f"生命值：{hp}/{max_hp}")
+
+        # 附加最近的事件（最多 10 条，最新的排在前面）
+        if self.game_events:
+            lines.append("")
+            lines.append("【近期事件】")
+            for ev in reversed(self.game_events[-10:]):
+                lines.append(f"  · {ev}")
+
+        return "\n".join(lines)
+
     # ──────────────────────────────────────────
     #  启动
     # ──────────────────────────────────────────
@@ -1203,6 +1256,15 @@ class BotBridge:
             self.airi.send_notify(desc)
             log.info(f"游戏事件: {desc[:80]}")
 
+        # 重要事件时更新 game-state 上下文
+        if event in ("show_round_header", "show_death"):
+            events_summary = "\n".join(
+                f"  · {ev}" for ev in self.game_events[-10:]
+            )
+            state_text = f"【游戏状态】\n近期事件：\n{events_summary}" if events_summary else ""
+            if state_text:
+                self._push_game_state(state_text)
+
         if event == "game_finished":
             self.game_finished.set()
             self.pending_event.set()
@@ -1235,6 +1297,8 @@ class BotBridge:
             log.info("游戏开始！")
             self.game_started.set()
             self.airi.send_notify("游戏正式开始了！准备好战斗吧。")
+            # 推送初始游戏状态
+            self._push_game_state("游戏已开始。等待第一个回合的行动请求。")
         slots = msg.get("slots", [])
         for s in slots:
             log.info(
@@ -1252,8 +1316,9 @@ class BotBridge:
         if sender == self.bot_name:
             return  # 不转发自己的消息
 
-        prefix = "[私聊]" if channel == "private" else "[公屏]"
-        text = f"{prefix} {sender}: {content}"
+        # 使用自然语言格式传递发送者信息，不再使用 [公屏]/[私聊] 前缀
+        channel_label = "私聊" if channel == "private" else "公屏"
+        text = f"（{channel_label}，来自 {sender}）: {content}"
         log.info(f"聊天: {text}")
 
         # 发给 AIRI
@@ -1306,9 +1371,17 @@ class BotBridge:
 
         try:
             while not self.game_started.is_set():
-                if self.game_started.wait(timeout=1):
+                if self.game_started.wait(timeout=0.5):
                     break
-                # 处理 AIRI 的主动聊天（如果有）
+                # 处理可能在游戏正式开始前到达的请求（如天赋选择）
+                with self.pending_lock:
+                    req_msg = self.pending_request["msg"]
+                    req_type = self.pending_request["msg_type"]
+                    self.pending_request["msg"] = None
+                    self.pending_request["msg_type"] = None
+                if req_msg is not None:
+                    self._handle_request(req_msg, req_type)
+                    self.pending_event.clear()
                 self._flush_idle_chat()
 
             log.info("游戏已开始，进入主循环")
@@ -1361,6 +1434,10 @@ class BotBridge:
         actions = msg.get("available_actions", [])
         context = msg.get("context", {})
 
+        # 在发送 action prompt 之前推送当前游戏状态作为 context:update
+        state_text = self._build_game_state_text(msg, context)
+        self._push_game_state(state_text)
+
         log.info(f"请求行动: 可选 {actions}")
         command = self._try_get_command_with_retry(msg, actions, context)
 
@@ -1410,22 +1487,23 @@ class BotBridge:
         actions_text = "\n".join(action_lines) if action_lines else "(无可用行动)"
         intent_block = CommandIntentExplainer.build_intent_block(actions)
 
-        round_no = context.get("round", "?")
-        phase = context.get("phase", "")
-        location = msg.get("location", "")
-        hp = msg.get("hp")
-        max_hp = msg.get("max_hp")
-
-        situation_lines: List[str] = [f"当前轮次：第 {round_no} 轮"]
-        if phase:
-            situation_lines.append(f"阶段：{phase}")
-        if location:
-            situation_lines.append(f"你的位置：{location}")
-        # 这里使用 is not None 而不是 != ''，避免 hp/max_hp 是 0 或空串时的
-        # 类型混淆；NetworkController 下发的是 int，但旧路径也可能是 None。
-        if hp is not None and max_hp is not None and max_hp != "":
-            situation_lines.append(f"生命值：{hp}/{max_hp}")
-        situation = "\n".join(situation_lines)
+        # 复用 _build_game_state_text 确保 context:update 与 action prompt 一致
+        situation = self._build_game_state_text(msg, context)
+        if not situation:
+            # 回退：确保有基本信息
+            round_no = context.get("round", "?")
+            phase = context.get("phase", "")
+            location = msg.get("location", "")
+            hp = msg.get("hp")
+            max_hp = msg.get("max_hp")
+            lines = [f"当前轮次：第 {round_no} 轮"]
+            if phase:
+                lines.append(f"阶段：{phase}")
+            if location:
+                lines.append(f"你的位置：{location}")
+            if hp is not None and max_hp is not None and max_hp != "":
+                lines.append(f"生命值：{hp}/{max_hp}")
+            situation = "\n".join(lines)
 
         if attempt == 0:
             header = "轮到你行动了！请基于游戏状态选择最合适的行动。"
