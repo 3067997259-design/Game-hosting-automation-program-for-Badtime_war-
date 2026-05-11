@@ -724,6 +724,26 @@ class BadtimeWarTUI(App):
             else:
                 self._log_to_game("  ✗ 设置失败（槽位不可用）")
 
+        elif cmd == "airi":
+            if len(parts) < 2:
+                self._log_to_game("  用法: airi <slot_id>")
+                return
+            try:
+                slot_id = int(parts[1])
+            except ValueError:
+                self._log_to_game("  无效的 slot_id")
+                return
+            try:
+                ok = self.lobby.set_slot_ai(slot_id, "airi")
+            except Exception as e:
+                self._log_to_game(f"  ✗ 设置失败: {e}")
+                return
+            if ok:
+                self._refresh_host_panel()
+                self._log_to_game(f"  ✓ Slot {slot_id} 设为 AIRI Bot")
+            else:
+                self._log_to_game("  ✗ 设置失败（槽位不可用）")
+
         elif cmd == "policy":
             if len(parts) < 3:
                 self._log_to_game("  用法: policy <slot_id> <wait|ai>")

@@ -147,6 +147,7 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
     print("    status    - 查看房间状态")
     print("    ai <slot> [personality] - 设置 AI")
     print("    rl <slot> - 设置 RL AI")
+    print("    airi <slot>             - 设置 AIRI Bot（需 AIRI 服务运行）")
     print("    policy <slot> <wait|ai> - 设置断线策略")
     print("    chatmode <slot> <airi|llm|off> - 设置聊天后端")
     print("    debug <0-3>             - 设置调试级别（0=关闭, 1=基本, 2=详细, 3=完整）")
@@ -219,6 +220,20 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
                     print("  设置失败")
             else:
                 print("  RL 不可用（缺少模型或依赖）")
+
+        elif cmd == "airi":
+            if len(parts) < 2:
+                print("  用法: airi <slot_id>")
+                continue
+            try:
+                slot_id = int(parts[1])
+            except ValueError:
+                print("  无效的 slot_id")
+                continue
+            if lobby.set_slot_ai(slot_id, "airi"):
+                print(f"  Slot {slot_id} 设为 AIRI Bot")
+            else:
+                print("  设置失败（槽位不可用）")
 
         elif cmd == "policy":
             if len(parts) < 3:

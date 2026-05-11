@@ -73,6 +73,7 @@ python main_server.py [选项]
 - `status` — 查看房间状态
 - `ai <slot> [personality]` — 将某个槽位设为BasicAI（可选人格）
 - `rl <slot>` — 将某个槽位设为RL AI（需要已训练的模型）
+- `airi <slot>` — 将某个槽位设为AIRI Bot（需要AIRI WebSocket 服务运行；配置见 `config/airi_config.json`）
 - `policy <slot> <wait|ai>` — 设置断线策略（等待重连 / AI接管）
 - `start` — 开始游戏
 - `/chat <内容>` — 公屏聊天
@@ -387,6 +388,12 @@ python -m rl.diagnose_single_game \
 - AIRI 自己做所有游戏决策（行动、选择、确认）。
 - 配置：`config/airi_bridge_config.json`。
 - 启动：`python bot_bridge.py`（需要先启动 AIRI 与游戏服务器）。
+
+**模式 3：AIRI 作为本地槽位（AiriController，无需 bot_bridge 子进程）**
+- 房主用 `airi <slot>` 命令将某个 slot 设为 `AIRI_BOT`，由 `controllers/airi_controller.py` 中的 `AiriController` 在主进程内直接通过 AIRI WebSocket 决策。
+- 与 bot_bridge 的差异：不需要再启动一个客户端进程，AIRI 直接以「本地玩家」身份加入。
+- 配置：复用 `config/airi_config.json` 中的 `ws_url`、`auth_token`、`module_id` 等字段；未配置时使用 `ws://localhost:6121/ws`。
+- 战略意图、天赋 T0、子决策、G7 战术宏、行动限制（架盾/持盾/超新星过载）等说明均由 `bot_bridge` 模块导出的字典统一驱动，两条路径行为一致。
 
 ---
 

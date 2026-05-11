@@ -469,14 +469,35 @@ def build_action_mask(
     # ── forfeit 始终可用 ──────────────────────────────────────────
     mask[IDX_FORFEIT] = True
 
+    # ── 星野架盾/持盾 防御性二次检查 ─────────────────────────────
+    # action_turn._get_available_actions 已基于 shield_mode 过滤 names，
+    # 这里再做一次防御性兜底（避免上游遗漏时 mask 透出非法行动给 RL 智能体）。
+    # 见 README §12.2 / talents/g7/hoshino.py：
+    #   - "架盾"：禁止 move 与 interact
+    #   - "持盾"：禁止 interact（仍可 move）
+    _hoshino_shield = getattr(getattr(player, "talent", None), "shield_mode", None)
+    _hoshino_block_move = _hoshino_shield == "架盾"
+    _hoshino_block_interact = _hoshino_shield in ("架盾", "持盾")
+
+    # ── 超新星过载（G1 火萤）：下一次 move 可指定为当前地点 ─────
+    # 见 README §12.2「火萤Ⅳ型-完全燃烧」：「你的下一次移动的地点可以指定
+    # 目的地为当前你所在的地点」，对当地所有单位造成 1 点无视克制伤害。
+    _has_supernova = bool(
+        getattr(getattr(player, "talent", None), "has_supernova", False)
+    )
+
     # ── move ─────────────────────────────────────────────────────
-    if "move" in available_set:
+    if "move" in available_set and not _hoshino_block_move:
+        norm_self_loc = _normalize_location(player.location)
         for i, loc in enumerate(LOCATIONS):
-            if loc != _normalize_location(player.location):
+            if loc != norm_self_loc:
+                mask[IDX_MOVE_BASE + i] = True
+            elif _has_supernova:
+                # 原地 move：仅在拥有超新星过载时允许（触发原地爆发）。
                 mask[IDX_MOVE_BASE + i] = True
 
     # ── interact ─────────────────────────────────────────────────
-    if "interact" in available_set:
+    if "interact" in available_set and not _hoshino_block_interact:
         norm_loc = _normalize_location(player.location)
         has_voucher = player.vouchers >= 1
         has_pass = getattr(player, 'has_military_pass', False)

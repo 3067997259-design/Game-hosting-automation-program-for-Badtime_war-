@@ -24,11 +24,36 @@ from engine.game_setup import (
 from network.protocol import MessageType
 
 
+def _load_airi_config() -> Dict[str, Any]:
+    """加载 AIRI 配置（config/airi_config.json）。
+
+    与 main_server._load_airi_config 共享同一份配置文件。返回空字典表示
+    无配置，AiriController 将回退到默认参数（ws://localhost:6121/ws 等）。
+    """
+    import os
+    import json
+    paths = [
+        os.path.join("config", "airi_config.json"),
+        os.path.expanduser("~/.airi_config.json"),
+    ]
+    for path in paths:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        return data
+            except Exception:
+                pass
+    return {}
+
+
 class SlotType(str, Enum):
     HUMAN_LOCAL = "human_local"
     HUMAN_REMOTE = "human_remote"
     BASIC_AI = "basic_ai"
     RL_AI = "rl_ai"
+    AIRI_BOT = "airi_bot"
     EMPTY = "empty"
 
 
@@ -136,16 +161,26 @@ class LobbyManager:
         slot = self._get_slot(slot_id)
         if slot is None:
             return False
-        if slot.slot_type not in (SlotType.EMPTY, SlotType.BASIC_AI, SlotType.RL_AI):
+        if slot.slot_type not in (
+            SlotType.EMPTY, SlotType.BASIC_AI, SlotType.RL_AI, SlotType.AIRI_BOT
+        ):
             return False
 
         if ai_type == "rl":
             slot.slot_type = SlotType.RL_AI
             slot.rl_model_path = rl_model_path
-        else:
+            slot.personality = personality
+            slot.player_name = f"AI-{personality}"
+        elif ai_type == "airi":
+            slot.slot_type = SlotType.AIRI_BOT
+            slot.personality = personality
+            slot.player_name = "AIRI"
+        elif ai_type == "basic":
             slot.slot_type = SlotType.BASIC_AI
-        slot.personality = personality
-        slot.player_name = f"AI-{personality}"
+            slot.personality = personality
+            slot.player_name = f"AI-{personality}"
+        else:
+            return False
         slot.is_connected = True
         self._broadcast_lobby_update()
         return True
@@ -204,6 +239,13 @@ class LobbyManager:
                     personality = slot.personality or "balanced"
                     controller = BasicAIController(personality=personality)
                     ai_players_info.append((pid, name, personality))
+            elif slot.slot_type == SlotType.AIRI_BOT:
+                controller = self._create_airi_controller(slot, pid)
+                if controller is None:
+                    # AIRI 不可用时回退到 BasicAI，避免房间无法开局
+                    personality = slot.personality or "balanced"
+                    controller = BasicAIController(personality=personality)
+                    ai_players_info.append((pid, name, personality))
             else:
                 controller = ForfeitController()
 
@@ -236,6 +278,27 @@ class LobbyManager:
                 return None
             return load_controller(model_path, N_STACK)
         except Exception:
+            return None
+
+    def _create_airi_controller(self, slot: PlayerSlot, player_id: str):
+        """创建 AiriController 实例。失败时返回 None，由调用方回退到 BasicAI。"""
+        try:
+            from controllers.airi_controller import AiriController
+            airi_config = getattr(self, "airi_config", None) or _load_airi_config()
+            controller = AiriController(
+                player_id=player_id,
+                player_name=slot.player_name or "AIRI",
+                airi_config=airi_config,
+            )
+            return controller
+        except Exception as e:
+            try:
+                import logging
+                logging.getLogger("lobby").error(
+                    f"创建 AiriController 失败: {e}"
+                )
+            except Exception:
+                pass
             return None
 
     # ──────────────────────────────────────────
