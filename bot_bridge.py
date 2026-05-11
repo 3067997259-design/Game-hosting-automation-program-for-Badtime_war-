@@ -71,12 +71,31 @@ class ResponseParser:
         "研究": "study",
     }
 
+    # 短文本最大长度（超过此长度的非标记文本被视为解释性回复）
+    _MAX_RAW_COMMAND_LENGTH = 80
+
+    # 无参数也合法的指令前缀
+    _BARE_OK_COMMAND_PREFIXES = frozenset({
+        "forfeit", "wake", "assemble", "track", "recruit", "election", "study",
+    })
+
     @classmethod
     def extract_action(cls, text: str, available_actions: List[str]) -> Optional[str]:
-        """从回复中提取行动指令。返回 None 表示无法解析。"""
-        text = text.strip()
+        """从回复中提取行动指令。返回 None 表示无法解析。
 
-        # 1. 尝试标准格式
+        修复：对非标记文本（无 ACTION:/CHOOSE:/CONFIRM: 前缀）施加长度和
+        解释性关键词检测，避免将 AIRI 的战术分析/闲聊误识别为游戏指令。
+        """
+        text = text.strip()
+        if not text:
+            return None
+
+        has_format_marker = any(
+            text.upper().startswith(prefix)
+            for prefix in ("ACTION:", "CHOOSE:", "CONFIRM:", "行动:", "选择:", "确认:")
+        )
+
+        # 1. 尝试标准格式（带标记的优先）
         for pattern in cls.ACTION_PATTERNS:
             m = re.search(pattern, text, re.IGNORECASE)
             if m:
@@ -87,6 +106,21 @@ class ResponseParser:
                         return cmd
                 return cmd  # 即使不在列表中也返回，让服务器验证
 
+        # 如果文本没有格式标记且太长，很可能是解释性文字，直接拒绝
+        if not has_format_marker and len(text) > cls._MAX_RAW_COMMAND_LENGTH:
+            return None
+
+        # 检查是否包含明显解释性关键词（且没有格式标记保护）
+        if not has_format_marker:
+            explanation_keywords = [
+                "因为", "所以", "但是", "不过", "我觉得", "我认为",
+                "建议", "应该", "可能", "也许", "考虑", "分析",
+                "首先", "然后", "最后", "综上", "总之", "因此",
+                "由于", "如果", "那么", "否则",
+            ]
+            if any(keyword in text for keyword in explanation_keywords):
+                return None
+
         # 2. 尝试关键词匹配
         for keyword, prefix in cls.COMMAND_KEYWORDS.items():
             if keyword in text:
@@ -94,15 +128,19 @@ class ResponseParser:
                 idx = text.index(keyword) + len(keyword)
                 rest = text[idx:].strip().strip("到去了").strip()
                 if rest:
+                    # 验证提取的参数不是解释性长文本
+                    if len(rest) > 60:
+                        continue
                     return f"{prefix} {rest}"
-                if prefix in ("forfeit", "wake", "assemble", "track",
-                              "recruit", "election", "study"):
+                if prefix in cls._BARE_OK_COMMAND_PREFIXES:
                     return prefix
 
         # 3. 直接检查回复是否就是一个合法指令
-        for action in available_actions:
-            if text.lower().startswith(action.lower()):
-                return text
+        #    额外约束：文本长度不能超过合理指令长度
+        if len(text) <= cls._MAX_RAW_COMMAND_LENGTH:
+            for action in available_actions:
+                if text.lower().startswith(action.lower()):
+                    return text
 
         return None
 
@@ -1132,6 +1170,19 @@ class BotBridge:
         }
         self.airi.send_context(context)
 
+    def _clear_airi_context(self):
+        """清空AIRI的游戏状态上下文，用于游戏终止时。"""
+        # 发送空文本的context:update，配合replace-self策略清空上下文
+        context = {
+            "id": str(uuid.uuid4()),
+            "contextId": self._game_state_context_id,
+            "strategy": "replace-self",
+            "text": "游戏已结束。上下文已清空。",
+            "lane": "game-state",
+        }
+        self.airi.send_context(context)
+        log.info("已清空AIRI的游戏状态上下文")
+
     def _build_game_state_text(
         self, msg: dict, context: Dict[str, Any]
     ) -> str:
@@ -1268,6 +1319,8 @@ class BotBridge:
         if event == "game_finished":
             self.game_finished.set()
             self.pending_event.set()
+            # 方案1：发送清空消息给AIRI
+            self._clear_airi_context()
 
     def _format_event(self, event: str, args: list) -> str:
         """将游戏事件格式化为自然语言。"""
@@ -1293,13 +1346,23 @@ class BotBridge:
 
     def _on_lobby_update(self, msg):
         state = msg.get("room_state", "")
+        # 方案2：在AIRI连接进入大厅时重置contextId
+        # 检查是否是首次连接（通过检查slots中是否有自己的名字）
+        slots = msg.get("slots", [])
+        bot_connected = any(s.get("player_name") == self.bot_name for s in slots)
+
+        if bot_connected and not self.game_started.is_set():
+            # AIRI刚刚连接进入大厅，重置contextId
+            self._game_state_context_id = str(uuid.uuid4())
+            self.game_events.clear()  # 清空事件日志
+            log.info("AIRI连接进入大厅，已重置contextId")
+
         if state == "in_game":
             log.info("游戏开始！")
             self.game_started.set()
             self.airi.send_notify("游戏正式开始了！准备好战斗吧。")
             # 推送初始游戏状态
             self._push_game_state("游戏已开始。等待第一个回合的行动请求。")
-        slots = msg.get("slots", [])
         for s in slots:
             log.info(
                 f"  [{s.get('slot_id', '?')}] "
@@ -1430,25 +1493,235 @@ class BotBridge:
             self._handle_confirm_request(msg)
 
     def _handle_command_request(self, msg: dict):
-        """处理行动请求：构建带战略意图的 prompt + 多层重试 + 智能 fallback。"""
+        """处理行动请求：分层枚举方案（两阶段交互）。
+
+        第一阶段：AIRI 从高层类别中选择指令类型。
+        第二阶段：根据选择的类型枚举合法参数组合让 AIRI 选择。
+
+        若分层枚举失败（超时/无法解析），回退到传统的单次 prompt + 重试。
+        """
         actions = msg.get("available_actions", [])
         context = msg.get("context", {})
 
-        # 在发送 action prompt 之前推送当前游戏状态作为 context:update
+        # 推送游戏状态
         state_text = self._build_game_state_text(msg, context)
         self._push_game_state(state_text)
 
-        log.info(f"请求行动: 可选 {actions}")
-        command = self._try_get_command_with_retry(msg, actions, context)
+        # 提取可用 action 前缀集合（用于第二阶段参数枚举过滤）
+        action_prefixes = self._extract_action_prefixes(actions)
 
+        log.info(f"请求行动: 可选 {actions}")
+
+        # ── 第一阶段：选择指令类型 ──
+        action_type = self._ask_action_type(actions, context)
+        if not action_type:
+            log.warning("分层枚举第一阶段失败，回退到传统重试模式")
+            command = self._try_get_command_with_retry(msg, actions, context)
+            if not command:
+                command = self._smart_fallback_command(msg, actions, context)
+                log.warning(f"AIRI 无有效回复，使用智能 fallback: {command}")
+            self.game_client.send_sync({
+                "type": MessageType.COMMAND_RESPONSE,
+                "command": command,
+            })
+            return
+
+        log.info(f"AIRI 选择了指令类型: {action_type}")
+
+        # ── 第二阶段：枚举参数并选择 ──
+        command = self._ask_action_parameters(
+            action_type, msg, context, action_prefixes
+        )
         if not command:
-            command = self._smart_fallback_command(msg, actions, context)
-            log.warning(f"AIRI 无有效回复，使用智能 fallback: {command}")
+            # 第二阶段失败：回退到传统重试
+            log.warning(
+                f"分层枚举第二阶段失败（类型={action_type}），"
+                "回退到传统重试模式"
+            )
+            command = self._try_get_command_with_retry(msg, actions, context)
+            if not command:
+                command = self._smart_fallback_command(msg, actions, context)
+                log.warning(f"AIRI 无有效回复，使用智能 fallback: {command}")
 
         self.game_client.send_sync({
             "type": MessageType.COMMAND_RESPONSE,
             "command": command,
         })
+
+    # ── 分层枚举辅助方法 ──
+
+    def _ask_action_type(
+        self, actions: List[Any], context: Dict[str, Any]
+    ) -> Optional[str]:
+        """第一阶段：让 AIRI 从高层类别中选择指令类型。
+
+        将 actions 聚合为去重后的指令前缀列表，加上战略意图说明，
+        让 AIRI 选择。返回选中的指令前缀（如 "move", "interact"），
+        失败返回 None。
+        """
+        # 从 actions 中提取去重的指令前缀，保持顺序
+        prefixes = self._extract_action_prefixes(actions)
+        if not prefixes:
+            log.warning("没有可用的行动前缀")
+            return None
+
+        # 构建选项列表
+        action_lines = []
+        for i, prefix in enumerate(prefixes, 1):
+            intent = CommandIntentExplainer.explain(prefix)
+            if intent:
+                action_lines.append(f"{i}. {prefix} — {intent[:80]}")
+            else:
+                action_lines.append(f"{i}. {prefix}")
+
+        prompt = (
+            "轮到你行动了！请先从以下类型中选择一个：\n\n"
+            "【可选指令类型】\n" + "\n".join(action_lines) + "\n\n"
+            "请只回复数字或指令名称（例如：1 或 move）"
+        )
+
+        self.airi.drain_responses()
+        self.airi.send_text(prompt)
+        log.info(f"第一阶段 prompt 已发送，可选前缀: {prefixes}")
+
+        reply = self.airi.wait_for_response(timeout=self.action_timeout)
+        if not reply:
+            log.warning("第一阶段：AIRI 超时未回复")
+            return None
+
+        log.info(f"第一阶段 AIRI 原始回复: {reply[:200]}")
+
+        # 尝试解析为数字
+        try:
+            idx = int(reply.strip()) - 1
+            if 0 <= idx < len(prefixes):
+                return prefixes[idx]
+        except ValueError:
+            pass
+
+        # 尝试匹配指令名称
+        reply_lower = reply.strip().lower()
+        for prefix in prefixes:
+            if prefix.lower() in reply_lower:
+                return prefix
+
+        log.warning(f"第一阶段：无法从回复中解析指令类型: {reply[:100]}")
+        return None
+
+    def _ask_action_parameters(
+        self,
+        action_type: str,
+        msg: dict,
+        context: Dict[str, Any],
+        action_prefixes: List[str],
+    ) -> Optional[str]:
+        """第二阶段：根据 action_type 枚举合法参数组合，让 AIRI 选择。
+
+        返回完整指令字符串（如 "move 商店", "interact 打工"），
+        失败返回 None。
+        """
+        # 按类型分发到各自的枚举方法
+        options = self._enumerate_params_for_type(
+            action_type, msg, context, action_prefixes
+        )
+
+        if not options:
+            # 该类型无需参数（如 forfeit, wake 等），直接返回 action_type
+            log.info(f"第二阶段：{action_type} 无需参数枚举，直接返回")
+            return action_type
+
+        # 构建选项列表
+        option_lines = []
+        for i, opt in enumerate(options, 1):
+            option_lines.append(f"{i}. {opt}")
+
+        prompt = (
+            f"你选择了「{action_type}」。请选择具体参数：\n\n"
+            "【可选参数】\n" + "\n".join(option_lines) + "\n\n"
+            "请只回复数字或完整指令（例如：1）"
+        )
+
+        self.airi.drain_responses()
+        self.airi.send_text(prompt)
+        log.info(
+            f"第二阶段 prompt 已发送，类型={action_type}，选项数={len(options)}"
+        )
+
+        reply = self.airi.wait_for_response(timeout=self.action_timeout)
+        if not reply:
+            log.warning(f"第二阶段：AIRI 超时未回复（类型={action_type}）")
+            return None
+
+        log.info(f"第二阶段 AIRI 原始回复: {reply[:200]}")
+
+        # 尝试解析为数字
+        try:
+            idx = int(reply.strip()) - 1
+            if 0 <= idx < len(options):
+                return options[idx]
+        except ValueError:
+            pass
+
+        # 尝试模糊匹配选项文本
+        reply_lower = reply.strip().lower()
+        for opt in options:
+            if opt.lower() in reply_lower:
+                return opt
+
+        log.warning(
+            f"第二阶段：无法从回复中解析参数（类型={action_type}）: {reply[:100]}"
+        )
+        return None
+
+    def _enumerate_params_for_type(
+        self,
+        action_type: str,
+        msg: dict,
+        context: Dict[str, Any],
+        action_prefixes: List[str],
+    ) -> List[str]:
+        """根据指令类型枚举所有合法的参数组合。
+
+        返回格式化的指令字符串列表（如 ["move 商店", "move 医院"]）。
+        如果该类型不需要参数，返回空列表（调用方会直接使用 action_type）。
+
+        注意：当前版本复用 game_engine 下发的 available_actions 进行过滤，
+        而非重新构建完整枚举。这确保了与服务器端验证逻辑完全一致。
+        """
+        # 游戏服务器已经完成了合法动作的枚举和过滤，
+        # 我们只需要从 available_actions（msg 中）按前缀筛选。
+        # 这样保证与服务器端规则（天赋限制、地点限制、物品限制等）100% 一致。
+        all_actions = msg.get("available_actions", [])
+
+        # 将 actions 标准化为字符串列表
+        action_strings: List[str] = []
+        for a in all_actions:
+            if isinstance(a, dict):
+                usage = a.get("usage", "")
+                if usage:
+                    action_strings.append(usage.strip())
+            elif isinstance(a, str):
+                action_strings.append(a.strip())
+
+        # 筛选：匹配前缀且在合法前缀列表中
+        prefix_lower = action_type.lower().strip()
+        matched: List[str] = []
+        seen = set()
+        for cmd in action_strings:
+            cmd_lower = cmd.lower()
+            # 匹配前缀（例如 "move" 匹配 "move 商店", "move 医院"）
+            if cmd_lower.startswith(prefix_lower + " ") or cmd_lower == prefix_lower:
+                norm = self._normalize_param_option(cmd)
+                if norm not in seen:
+                    seen.add(norm)
+                    matched.append(cmd)
+
+        return matched
+
+    @staticmethod
+    def _normalize_param_option(cmd: str) -> str:
+        """归一化参数选项用于去重。"""
+        return cmd.strip().lower()
 
     # ──────────────────────────────────────────
     #  Prompt 构建 / 多层重试 / 智能 fallback

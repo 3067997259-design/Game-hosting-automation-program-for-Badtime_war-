@@ -5,7 +5,7 @@ NetworkController —— 远程人类玩家控制器
 模式参考 rl/env.py 中 _SyncRLController 的线程同步模式。
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set, Tuple
 from controllers.base import PlayerController
 from network.protocol import MessageType
 
