@@ -322,6 +322,13 @@ def _run_cli_mode(server, lobby, chat_manager, host_plays, monitor):
             monitor.stop()
             sys.exit(0)
 
+        else:
+            print(f"  未知命令: {cmd}")
+            print(
+                "  可用命令: status, ai, rl, airi, policy, "
+                "chatmode, debug, name, start, quit"
+            )
+
     if lobby.state.value == "waiting":
         # 注册聊天回调，使 HumanController 在回合中也能处理 /chat、/whisper
         from controllers.human import set_chat_handler

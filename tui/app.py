@@ -856,7 +856,7 @@ class BadtimeWarTUI(App):
         else:
             self._log_to_game(f"  未知管理命令: {raw}")
             self._log_to_game(
-                "  可用: ai <slot> [性格] | rl <slot> | policy <slot> <wait|ai> | chatmode <slot> <airi|llm|off> | debug <0-3> | name <新名字> | status | start"
+                "  可用: ai <slot> [性格] | rl <slot> | airi <slot> | policy <slot> <wait|ai> | chatmode <slot> <airi|llm|off> | debug <0-3> | name <新名字> | status | start"
             )
 
     def _refresh_host_panel(self):
