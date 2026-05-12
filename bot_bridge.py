@@ -1148,8 +1148,8 @@ class BotBridge:
         self.pending_lock = threading.Lock()
         self.pending_event = threading.Event()
 
-        # AIRI context:update 通道
-        self._game_state_context_id = str(uuid.uuid4())
+        # AIRI context:update 通道（使用固定 contextId，与 reset_airi_gamestate.py 保持一致）
+        self._game_state_context_id = "game-state"
         self._last_game_state_text: str = ""
 
     # ──────────────────────────────────────────
@@ -1352,10 +1352,9 @@ class BotBridge:
         bot_connected = any(s.get("player_name") == self.bot_name for s in slots)
 
         if bot_connected and not self.game_started.is_set():
-            # AIRI刚刚连接进入大厅，重置contextId
-            self._game_state_context_id = str(uuid.uuid4())
+            # 使用固定 contextId，不再动态重置
             self.game_events.clear()  # 清空事件日志
-            log.info("AIRI连接进入大厅，已重置contextId")
+            log.info(f"进入大厅，使用固定contextId: {self._game_state_context_id}")
 
         if state == "in_game":
             log.info("游戏开始！")
