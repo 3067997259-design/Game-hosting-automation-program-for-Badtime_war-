@@ -85,7 +85,8 @@ if TYPE_CHECKING:
     from models.player import Player
     from engine.game_state import GameState
 
-from rl.action_space import LOCATIONS, WEAPONS, get_opponent_slots
+from rl.action_space import get_opponent_slots
+from engine.action_tables import LOCATIONS, WEAPONS
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  常量

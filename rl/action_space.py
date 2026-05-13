@@ -1,7 +1,7 @@
 """
 rl/action_space.py
 ──────────────────
-动作空间定义（天赋局，共 130 个 Discrete 动作）
+动作空间定义（天赋局，共 137 个 Discrete 动作）
 
 索引布局：
   0        : forfeit
@@ -11,12 +11,12 @@ rl/action_space.py
   35 – 39  : lock  <对手槽 0-4>
   40 – 44  : find  <对手槽 0-4>
   45 – 94  : attack <对手槽 0-4> × <武器槽 0-9>  (5×10=50)
-  95 – 100 : special <操作>         (6 种)
-  101 – 107: 警察行动               (7 种)
+  95 – 107 : special <操作>         (13 种: 6基础 + 7 G7星野)
+  108 – 114: 警察行动               (7 种)
   ── 以下为天赋扩展 ──
-  108 – 112: talent_t0_activate <对手槽 0-4>  (5 个，选目标发动天赋)
-  113      : talent_t0_self                   (1 个，对自己发动天赋)
-  114 – 129: choose_option <0-15>              (16 个，用于 choose 同步)
+  115 – 119: talent_t0_activate <对手槽 0-4>  (5 个，选目标发动天赋)
+  120      : talent_t0_self                   (1 个，对自己发动天赋)
+  121 – 136: choose_option <0-15>              (16 个，用于 choose 同步)
 """
 
 from __future__ import annotations
@@ -27,11 +27,16 @@ if TYPE_CHECKING:
     from models.player import Player
     from engine.game_state import GameState
 
+from engine.action_tables import (
+    LOCATIONS, INTERACT_ITEMS, ITEM_LOCATIONS, WEAPONS, SPELL_PREREQUISITES,
+    normalize_location as _normalize_location,
+    player_owned_names as _player_owned_names,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  动作空间大小
 # ─────────────────────────────────────────────────────────────────────────────
-ACTION_COUNT = 130   # 原来是 124，现在需要让RL自己选天赋
+ACTION_COUNT = 137   # 130 基础 + 7 G7 星野 special ops 扩展
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  索引偏移常量
@@ -43,122 +48,75 @@ IDX_INTERACT_BASE = 8   # 8 – 34
 IDX_LOCK_BASE    = 35   # 35 – 39
 IDX_FIND_BASE    = 40   # 40 – 44
 IDX_ATTACK_BASE  = 45   # 45 – 94
-IDX_SPECIAL_BASE = 95   # 95 – 100
-IDX_POLICE_BASE  = 101  # 101 – 107
+IDX_SPECIAL_BASE = 95   # 95 – 107  (13 种: 6基础 + 7 G7星野)
+IDX_POLICE_BASE  = 108  # 108 – 114
 
 # ── 天赋扩展 ──
-IDX_TALENT_T0_TARGET_BASE = 108  # 108 – 112
-IDX_TALENT_T0_SELF        = 113
-IDX_CHOOSE_BASE           = 114  # 114 – 129
+IDX_TALENT_T0_TARGET_BASE = 115  # 115 – 119
+IDX_TALENT_T0_SELF        = 120
+IDX_CHOOSE_BASE           = 121  # 121 – 136
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  枚举列表
 # ─────────────────────────────────────────────────────────────────────────────
 
-LOCATIONS: List[str] = [
-    "home", "商店", "魔法所", "医院", "军事基地", "警察局"
-]
+# LOCATIONS, INTERACT_ITEMS, ITEM_LOCATIONS, WEAPONS, SPELL_PREREQUISITES
+# 已迁至 engine/action_tables.py（单一数据源），此处通过 import 引用。
 
-INTERACT_ITEMS: List[str] = [
-    # ── home (3) ──────────────────────────────────────────────────
-    "凭证", "小刀", "盾牌",
-    # ── 商店 (6，小刀已在 home 中，不重复) ────────────────────────
-    "打工", "磨刀石", "隐身衣", "热成像仪", "陶瓷护甲", "防毒面具",
-    # ── 魔法所 (8) ────────────────────────────────────────────────
-    "魔法护盾", "魔法弹幕", "远程魔法弹幕",
-    "封闭", "地震", "地动山摇", "隐身术", "探测魔法",
-    # ── 医院 (3，打工/防毒面具已在商店中，不重复) ─────────────────
-    "晶化皮肤手术", "额外心脏手术", "不老泉手术",
-    # ── 军事基地 (7) ──────────────────────────────────────────────
-    "办理通行证", "AT力场", "电磁步枪",
-    "导弹控制权", "高斯步枪", "雷达", "隐形涂层",
-]
-assert len(INTERACT_ITEMS) == 27, f"INTERACT_ITEMS 长度应为 27，实际 {len(INTERACT_ITEMS)}"
 
-WEAPONS: List[str] = [
-    "拳击",         # 0 — 始终可用，无需持有
-    "小刀",         # 1
-    "警棍",         # 2
-    "魔法弹幕",     # 3
-    "远程魔法弹幕", # 4
-    "地震",         # 5
-    "地动山摇",     # 6
-    "电磁步枪",     # 7
-    "高斯步枪",     # 8
-    "导弹",         # 9
-]
-assert len(WEAPONS) == 10
 
 SPECIAL_OPS: List[str] = [
+    # ── 基础 6 个 ──
     "磨刀",         # 95
     "吟唱魔法护盾", # 96
     "展开AT力场",   # 97
     "蓄力电磁步枪", # 98
     "蓄力高斯步枪", # 99
     "释放病毒",     # 100
+    # ── G7 星野 7 个（来自 actions/special_op.py get_available_specials）──
+    "Hoshino",      # 101  战术指令宏
+    "取消盾牌",     # 102  取消架盾/持盾
+    "修复",         # 103  修复铁之荷鲁斯
+    "肾上腺素",     # 104  注射肾上腺素
+    "更衣水着-shielder",   # 105  形态切换
+    "更衣临战-Archer",     # 106  形态切换
+    "更衣临战-shielder",   # 107  形态切换
 ]
-assert len(SPECIAL_OPS) == 6
+assert len(SPECIAL_OPS) == 13
 
 # 警察行动 CLI 关键字（report/designate 需要目标，在 idx_to_command 中自动填充）
 POLICE_CMDS: List[str] = [
-    "report",       # 101 — 需要目标，自动选择
-    "assemble",     # 102
-    "track",        # 103
-    "recruit",      # 104
-    "election",     # 105
-    "designate",    # 106 — 需要目标，自动选择
-    "study",        # 107
+    "report",       # 108 — 需要目标，自动选择
+    "assemble",     # 109
+    "track",        # 110
+    "recruit",      # 111
+    "election",     # 112
+    "designate",    # 113 — 需要目标，自动选择
+    "study",        # 114
 ]
 assert len(POLICE_CMDS) == 7
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  物品 → 可交互地点映射
-# ─────────────────────────────────────────────────────────────────────────────
-ITEM_LOCATIONS: dict[str, set[str]] = {
-    "凭证":         {"home"},
-    "小刀":         {"home", "商店"},
-    "盾牌":         {"home"},
-    "打工":         {"商店", "医院"},
-    "磨刀石":       {"商店"},
-    "隐身衣":       {"商店"},
-    "热成像仪":     {"商店"},
-    "陶瓷护甲":     {"商店"},
-    "防毒面具":     {"商店", "医院"},
-    "魔法护盾":     {"魔法所"},
-    "魔法弹幕":     {"魔法所"},
-    "远程魔法弹幕": {"魔法所"},
-    "封闭":         {"魔法所"},
-    "地震":         {"魔法所"},
-    "地动山摇":     {"魔法所"},
-    "隐身术":       {"魔法所"},
-    "探测魔法":     {"魔法所"},
-    "晶化皮肤手术": {"医院"},
-    "额外心脏手术": {"医院"},
-    "不老泉手术":   {"医院"},
-    "办理通行证":   {"军事基地"},
-    "AT力场":       {"军事基地"},
-    "电磁步枪":     {"军事基地"},
-    "导弹控制权":   {"军事基地"},
-    "高斯步枪":     {"军事基地"},
-    "雷达":         {"军事基地"},
-    "隐形涂层":     {"军事基地"},
-}
-
-# special op → 触发所需的武器/物品名（None 表示由游戏引擎验证）
+# special op → 触发所需的武器/物品名（None 表示由游戏引擎/talent 动态验证）
 SPECIAL_REQUIRES: dict[str, Optional[str]] = {
+    # ── 基础 ──
     "磨刀":         "磨刀石",
     "吟唱魔法护盾": "魔法护盾",
     "展开AT力场":   "AT力场",
     "蓄力电磁步枪": "电磁步枪",
     "蓄力高斯步枪": "高斯步枪",
-    "释放病毒":     None,   # 需在医院且病毒已激活，由引擎验证
+    "释放病毒":     None,
+    # ── G7 星野 — 全部由 talent 动态判定，无需静态物品检查 ──
+    "Hoshino":              None,
+    "取消盾牌":             None,
+    "修复":                 None,
+    "肾上腺素":             None,
+    "更衣水着-shielder":    None,
+    "更衣临战-Archer":      None,
+    "更衣临战-shielder":    None,
 }
 
-# 法术前置依赖（与 magic_institute.PREREQUISITES 保持一致）
-SPELL_PREREQUISITES: dict[str, str] = {
-    "远程魔法弹幕": "魔法弹幕",
-    "地动山摇": "地震",
-}
+# SPELL_PREREQUISITES 已迁至 engine/action_tables.py，此处通过 import 引用。
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  choose 同步：战略性 situation 列表
@@ -197,13 +155,8 @@ HEURISTIC_CHOOSE_SITUATIONS: set[str] = {
 }
 
 
-def _normalize_location(loc: str | None) -> str:
-    """将 home_xxx 归一化为 home，None 归一化为空字符串"""
-    if loc is None:
-        return ""
-    if loc.startswith("home_"):
-        return "home"
-    return loc
+# _normalize_location — 已通过 from engine.action_tables import normalize_location as _normalize_location 引用
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  辅助函数
@@ -265,16 +218,8 @@ def _auto_report_target(player, game_state) -> Optional[str]:
     return max(candidates, key=lambda p: getattr(p, "kill_count", 0)).name
 
 
-def _player_owned_names(player) -> set[str]:
-    """
-    返回玩家当前持有的所有武器和物品的名称集合。
-    兼容 weapons/items 为对象列表或字符串列表两种情况。
-    """
-    names: set[str] = set()
-    for collection in (player.weapons or [], player.items or []):
-        for obj in collection:
-            names.add(obj.name if hasattr(obj, "name") else str(obj))
-    return names
+# _player_owned_names — 已通过 from engine.action_tables import player_owned_names as _player_owned_names 引用
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -710,12 +655,41 @@ def build_action_mask(
     if "special" in available_set:
         owned = _player_owned_names(player)
         learned = getattr(player, 'learned_spells', set())
+        talent = getattr(player, 'talent', None)
         for si, op in enumerate(SPECIAL_OPS):
             req = SPECIAL_REQUIRES[op]
             if req is None:
+                # ── 无静态物品需求的 special ops：按 op 逐一判定 ──
                 if op == "释放病毒":
                     if player.location == "医院" and not game_state.virus.is_active:
                         mask[IDX_SPECIAL_BASE + si] = True
+                elif op == "Hoshino":
+                    if (talent and getattr(talent, 'tactical_unlocked', False)
+                            and not getattr(talent, 'is_terror', False)
+                            and (getattr(talent, 'iron_horus_hp', 0) > 0
+                                 or getattr(talent, 'eye_of_horus', None))):
+                        mask[IDX_SPECIAL_BASE + si] = True
+                elif op == "取消盾牌":
+                    if (talent and hasattr(talent, 'shield_mode')
+                            and getattr(talent, 'shield_mode', None) in ("架盾", "持盾")):
+                        mask[IDX_SPECIAL_BASE + si] = True
+                elif op == "修复":
+                    if (talent and getattr(talent, 'fusion_shield_done', False)
+                            and getattr(talent, 'iron_horus_hp', 0)
+                            < getattr(talent, 'iron_horus_max_hp', 2)):
+                        mask[IDX_SPECIAL_BASE + si] = True
+                elif op == "肾上腺素":
+                    if (talent and not getattr(talent, 'adrenaline_used', True)
+                            and "肾上腺素" in getattr(talent, 'medicines', [])):
+                        mask[IDX_SPECIAL_BASE + si] = True
+                elif op.startswith("更衣"):
+                    if talent and hasattr(talent, 'form'):
+                        target_form = op[2:]  # "水着-shielder" / "临战-Archer" / "临战-shielder"
+                        valid_forms = {"水着-shielder", "临战-Archer", "临战-shielder"}
+                        if (target_form in valid_forms
+                                and getattr(talent, 'form', None) != target_form
+                                and player.location == f"home_{player.player_id}"):
+                            mask[IDX_SPECIAL_BASE + si] = True
                 else:
                     mask[IDX_SPECIAL_BASE + si] = True
             elif op in ("吟唱魔法护盾", "展开AT力场"):
