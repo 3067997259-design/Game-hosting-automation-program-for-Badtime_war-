@@ -10,13 +10,14 @@ AIRI Bot Bridge
 """
 
 import argparse
+from collections import deque
 import json
 import logging
 import re
 import sys
 import threading
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Any, Deque, Dict, List, Optional
 
 # 复用游戏项目的网络客户端
 from network.client import NetworkClient
@@ -1147,6 +1148,8 @@ class BotBridge:
         self.pending_request: Dict[str, Any] = {"msg": None, "msg_type": None}
         self.pending_lock = threading.Lock()
         self.pending_event = threading.Event()
+        self._idle_chat_routes: Deque[Dict[str, Optional[str]]] = deque()
+        self._idle_chat_lock = threading.Lock()
 
         # AIRI context:update 通道
         # 使用固定 contextId，确保始终操作同一个桶（AIRI 无删除桶机制，
@@ -1387,6 +1390,11 @@ class BotBridge:
         log.info(f"聊天: {text}")
 
         # 只转发给 AIRI，不等待回复——避免与行动请求的 wait_for_response 竞态
+        with self._idle_chat_lock:
+            self._idle_chat_routes.append({
+                "channel": "private" if channel == "private" else "public",
+                "target": sender if channel == "private" else None,
+            })
         self.airi.send_text(text)
 
     def _on_disconnect(self, msg):
@@ -1402,16 +1410,25 @@ class BotBridge:
     def _flush_idle_chat(self):
         """处理 AIRI 的主动聊天（非请求触发的回复）。"""
         for reply in self.airi.drain_responses():
+            with self._idle_chat_lock:
+                route = (
+                    self._idle_chat_routes.popleft()
+                    if self._idle_chat_routes
+                    else {"channel": "public", "target": None}
+                )
             if reply.startswith("COMMAND:"):
                 continue
             clean = self._FORMAT_CMD_RE.sub("", reply).strip()
             if clean:
-                self.game_client.send_sync({
+                chat_msg = {
                     "type": MessageType.CHAT_SEND,
                     "sender": self.bot_name,
                     "content": clean,
-                    "channel": "public",
-                })
+                    "channel": route["channel"],
+                }
+                if route["channel"] == "private" and route["target"]:
+                    chat_msg["target"] = route["target"]
+                self.game_client.send_sync(chat_msg)
 
     def _main_loop(self):
         """主循环：等待游戏开始，然后处理服务器请求。"""
