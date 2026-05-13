@@ -1410,6 +1410,8 @@ class BotBridge:
     def _flush_idle_chat(self):
         """处理 AIRI 的主动聊天（非请求触发的回复）。"""
         for reply in self.airi.drain_responses():
+            # Every AIRI response corresponds to one queued chat route, even
+            # COMMAND replies that are not sent back as chat messages.
             with self._idle_chat_lock:
                 route = (
                     self._idle_chat_routes.popleft()
