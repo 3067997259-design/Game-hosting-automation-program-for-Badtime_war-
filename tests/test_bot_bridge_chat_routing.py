@@ -94,6 +94,7 @@ class TestBotBridgeChatRouting(unittest.TestCase):
         sent = self.game_client.sent_messages[0]
         self.assertEqual(sent["channel"], "public")
         self.assertNotIn("target", sent)
+        self.assertFalse(self.bridge._idle_chat_routes)
 
     def test_self_chat_is_ignored_and_does_not_claim_next_reply(self):
         self.bridge._on_chat_message({
