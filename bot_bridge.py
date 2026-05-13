@@ -10,13 +10,14 @@ AIRI Bot Bridge
 """
 
 import argparse
+from collections import deque
 import json
 import logging
 import re
 import sys
 import threading
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Any, Deque, Dict, List, Optional
 
 # 复用游戏项目的网络客户端
 from network.client import NetworkClient
@@ -1147,10 +1148,15 @@ class BotBridge:
         self.pending_request: Dict[str, Any] = {"msg": None, "msg_type": None}
         self.pending_lock = threading.Lock()
         self.pending_event = threading.Event()
+        self._idle_chat_routes: Deque[Dict[str, Optional[str]]] = deque()
+        self._idle_chat_lock = threading.Lock()
 
-        # AIRI context:update 通道（使用固定 contextId，与 reset_airi_gamestate.py 保持一致）
+        # AIRI context:update 通道
+        # 使用固定 contextId，确保始终操作同一个桶（AIRI 无删除桶机制，
+        # 换 ID 会留下孤儿桶）。游戏结束时由 _context_frozen 防止旧事件覆盖清空。
         self._game_state_context_id = "game-state"
         self._last_game_state_text: str = ""
+        self._context_frozen = False  # 游戏结束后禁止推送
 
     # ──────────────────────────────────────────
     #  AIRI context:update 通道
@@ -1160,6 +1166,8 @@ class BotBridge:
         """通过 context:update 推送游戏状态，使 AIRI 有持久化的游戏背景。"""
         if not state_text:
             return
+        if self._context_frozen:
+            return  # 游戏已结束，不再推送
         self._last_game_state_text = state_text
         context = {
             "id": str(uuid.uuid4()),
@@ -1317,9 +1325,9 @@ class BotBridge:
                 self._push_game_state(state_text)
 
         if event == "game_finished":
+            self._context_frozen = True  # 冻结上下文，防止后续事件覆盖清空消息
             self.game_finished.set()
             self.pending_event.set()
-            # 方案1：发送清空消息给AIRI
             self._clear_airi_context()
 
     def _format_event(self, event: str, args: list) -> str:
@@ -1346,21 +1354,18 @@ class BotBridge:
 
     def _on_lobby_update(self, msg):
         state = msg.get("room_state", "")
-        # 方案2：在AIRI连接进入大厅时重置contextId
-        # 检查是否是首次连接（通过检查slots中是否有自己的名字）
         slots = msg.get("slots", [])
         bot_connected = any(s.get("player_name") == self.bot_name for s in slots)
 
         if bot_connected and not self.game_started.is_set():
-            # 使用固定 contextId，不再动态重置
-            self.game_events.clear()  # 清空事件日志
-            log.info(f"进入大厅，使用固定contextId: {self._game_state_context_id}")
+            self.game_events.clear()
+            log.info(f"进入大厅，contextId: {self._game_state_context_id}")
 
         if state == "in_game":
             log.info("游戏开始！")
+            self._context_frozen = False
             self.game_started.set()
             self.airi.send_notify("游戏正式开始了！准备好战斗吧。")
-            # 推送初始游戏状态
             self._push_game_state("游戏已开始。等待第一个回合的行动请求。")
         for s in slots:
             log.info(
@@ -1370,38 +1375,27 @@ class BotBridge:
             )
 
     def _on_chat_message(self, msg):
-        """收到聊天消息 → 转发给 AIRI。"""
+        """收到聊天消息 → 转发给 AIRI（非阻塞）。
+        AIRI 的聊天回复由 _flush_idle_chat 在主线循环中统一收取。
+        """
         sender = msg.get("sender", "")
         content = msg.get("content", "")
         channel = msg.get("channel", "public")
 
         if sender == self.bot_name:
-            return  # 不转发自己的消息
+            return
 
-        # 使用自然语言格式传递发送者信息，不再使用 [公屏]/[私聊] 前缀
         channel_label = "私聊" if channel == "private" else "公屏"
         text = f"（{channel_label}，来自 {sender}）: {content}"
         log.info(f"聊天: {text}")
 
-        # 发给 AIRI
+        # 只转发给 AIRI，不等待回复——避免与行动请求的 wait_for_response 竞态
+        with self._idle_chat_lock:
+            self._idle_chat_routes.append({
+                "channel": "private" if channel == "private" else "public",
+                "target": sender if channel == "private" else None,
+            })
         self.airi.send_text(text)
-
-        # 等待 AIRI 的聊天回复（非阻塞，用短超时）
-        reply = self.airi.wait_for_response(timeout=self.chat_timeout)
-        if reply and not reply.startswith("COMMAND:"):
-            # 过滤掉格式化指令，只发送纯聊天内容
-            clean_reply = self._FORMAT_CMD_RE.sub("", reply).strip()
-            if clean_reply:
-                payload = {
-                    "type": MessageType.CHAT_SEND,
-                    "sender": self.bot_name,
-                    "content": clean_reply,
-                    "channel": channel,
-                }
-                if channel == "private":
-                    payload["target"] = sender
-                self.game_client.send_sync(payload)
-                log.info(f"AIRI 回复: {clean_reply[:80]}")
 
     def _on_disconnect(self, msg):
         name = msg.get("player_name", "")
@@ -1416,16 +1410,25 @@ class BotBridge:
     def _flush_idle_chat(self):
         """处理 AIRI 的主动聊天（非请求触发的回复）。"""
         for reply in self.airi.drain_responses():
+            with self._idle_chat_lock:
+                route = (
+                    self._idle_chat_routes.popleft()
+                    if self._idle_chat_routes
+                    else {"channel": "public", "target": None}
+                )
             if reply.startswith("COMMAND:"):
                 continue
             clean = self._FORMAT_CMD_RE.sub("", reply).strip()
             if clean:
-                self.game_client.send_sync({
+                chat_msg = {
                     "type": MessageType.CHAT_SEND,
                     "sender": self.bot_name,
                     "content": clean,
-                    "channel": "public",
-                })
+                    "channel": route["channel"],
+                }
+                if route["channel"] == "private" and route["target"]:
+                    chat_msg["target"] = route["target"]
+                self.game_client.send_sync(chat_msg)
 
     def _main_loop(self):
         """主循环：等待游戏开始，然后处理服务器请求。"""
@@ -1549,6 +1552,14 @@ class BotBridge:
 
     # ── 分层枚举辅助方法 ──
 
+    # AIRI 回复中可能附带的时间戳前缀模式，如 [2026-05-12 16:27]
+    _TIMESTAMP_RE = re.compile(r'^\[[\d\-: ]+\]\s*')
+
+    @classmethod
+    def _strip_airi_timestamp(cls, text: str) -> str:
+        """剥离 AIRI 回复开头的时间戳前缀。"""
+        return cls._TIMESTAMP_RE.sub('', text).strip()
+
     def _ask_action_type(
         self, actions: List[Any], context: Dict[str, Any]
     ) -> Optional[str]:
@@ -1590,16 +1601,19 @@ class BotBridge:
 
         log.info(f"第一阶段 AIRI 原始回复: {reply[:200]}")
 
+        # 剥离 AIRI 时间戳前缀（如 [2026-05-12 16:27]）
+        cleaned = self._strip_airi_timestamp(reply)
+
         # 尝试解析为数字
         try:
-            idx = int(reply.strip()) - 1
+            idx = int(cleaned) - 1
             if 0 <= idx < len(prefixes):
                 return prefixes[idx]
         except ValueError:
             pass
 
         # 尝试匹配指令名称
-        reply_lower = reply.strip().lower()
+        reply_lower = cleaned.lower()
         for prefix in prefixes:
             if prefix.lower() in reply_lower:
                 return prefix
@@ -1625,9 +1639,15 @@ class BotBridge:
         )
 
         if not options:
-            # 该类型无需参数（如 forfeit, wake 等），直接返回 action_type
-            log.info(f"第二阶段：{action_type} 无需参数枚举，直接返回")
-            return action_type
+            # 该类型在 _BARE_OK_PREFIXES 中 → 无需参数，直接返回
+            if action_type in self._BARE_OK_PREFIXES:
+                log.info(f"第二阶段：{action_type} 无需参数枚举，直接返回")
+                return action_type
+            # 需要参数但无可用选项（如无目标可 lock/find）→ 回退失败
+            log.warning(
+                f"第二阶段：{action_type} 需要参数但服务端未提供可用选项，回退"
+            )
+            return None
 
         # 构建选项列表
         option_lines = []
@@ -1653,16 +1673,19 @@ class BotBridge:
 
         log.info(f"第二阶段 AIRI 原始回复: {reply[:200]}")
 
+        # 剥离 AIRI 时间戳前缀（如 [2026-05-12 16:27]）
+        cleaned = self._strip_airi_timestamp(reply)
+
         # 尝试解析为数字
         try:
-            idx = int(reply.strip()) - 1
+            idx = int(cleaned) - 1
             if 0 <= idx < len(options):
                 return options[idx]
         except ValueError:
             pass
 
         # 尝试模糊匹配选项文本
-        reply_lower = reply.strip().lower()
+        reply_lower = cleaned.lower()
         for opt in options:
             if opt.lower() in reply_lower:
                 return opt
@@ -1681,15 +1704,23 @@ class BotBridge:
     ) -> List[str]:
         """根据指令类型枚举所有合法的参数组合。
 
-        返回格式化的指令字符串列表（如 ["move 商店", "move 医院"]）。
-        如果该类型不需要参数，返回空列表（调用方会直接使用 action_type）。
+        优先从服务端预枚举的 context.action_options 中读取（这是
+        engine/action_enumerator.py 生成的精确选项）。
+        如果服务端未提供（向后兼容），回退到从 available_actions 过滤。
 
-        注意：当前版本复用 game_engine 下发的 available_actions 进行过滤，
-        而非重新构建完整枚举。这确保了与服务器端验证逻辑完全一致。
+        返回格式化的指令字符串列表（如 ["move 商店", "move 医院"]）。
+        如果该类型不需要参数或无可选项，返回空列表。
         """
-        # 游戏服务器已经完成了合法动作的枚举和过滤，
-        # 我们只需要从 available_actions（msg 中）按前缀筛选。
-        # 这样保证与服务器端规则（天赋限制、地点限制、物品限制等）100% 一致。
+        # ── 优先：服务端预枚举的参数化选项 ─────────────────────────
+        action_options: Dict[str, List[str]] = (context or {}).get("action_options", {})
+        if action_type in action_options:
+            opts = action_options[action_type]
+            if opts:
+                return list(opts)
+            # 服务端说该类型无可用参数组合 → 返回空，由调用方处理回退
+            return []
+
+        # ── 回退：从 available_actions 过滤（向后兼容旧版服务端）───
         all_actions = msg.get("available_actions", [])
 
         # 将 actions 标准化为字符串列表
@@ -1708,7 +1739,6 @@ class BotBridge:
         seen = set()
         for cmd in action_strings:
             cmd_lower = cmd.lower()
-            # 匹配前缀（例如 "move" 匹配 "move 商店", "move 医院"）
             if cmd_lower.startswith(prefix_lower + " ") or cmd_lower == prefix_lower:
                 norm = self._normalize_param_option(cmd)
                 if norm not in seen:

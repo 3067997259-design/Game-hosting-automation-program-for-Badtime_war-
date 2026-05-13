@@ -5,6 +5,7 @@ from cli import display
 from cli.parser import parse, resolve_player_target
 from cli.validator import validate
 from engine.prompt_manager import prompt_manager
+from engine.action_enumerator import build_action_options
 from actions import (action_registry, wake_up, move, interact,
                      forfeit, lock_target, find_target, attack, special_op)
 
@@ -244,12 +245,22 @@ class ActionTurnManager:
                 others_alive.append(p)
 
         if others_alive:
-            names.extend(["lock", "find", "attack"])
+            from models.equipment import WeaponRange
+            has_ranged = any(
+                getattr(w, 'weapon_range', None) == WeaponRange.RANGED
+                and not getattr(w, '_hexagram_disabled', False)
+                for w in (player.weapons or []) if w
+            )
+            names.extend(["find", "attack"])
             descs.extend([
-                {"usage": "lock <玩家名>", "description": "锁定目标（远程前置）"},
                 {"usage": "find <玩家名>", "description": "找到目标（近战前置）"},
                 {"usage": "attack <目标> <武器> [层 属性]", "description": "攻击目标"},
             ])
+            if has_ranged:
+                names.append("lock")
+                descs.append(
+                    {"usage": "lock <玩家名>", "description": "锁定目标（远程前置）"}
+                )
 
         if player.weapons or player.items:
             names.append("special")
@@ -328,6 +339,17 @@ class ActionTurnManager:
         observable = (FilteredGameState(self.state, player.player_id)
                       if is_blinded else self.state)
 
+        # 为 bot_bridge 分层枚举预计算参数化选项
+        import logging as _enum_log
+        try:
+            action_options = build_action_options(player, self.state, action_names)
+        except Exception:
+            _enum_log.getLogger("engine").error(
+                f"build_action_options 失败 (player={player.name}), 回退到空选项",
+                exc_info=True
+            )
+            action_options = {}
+
         while attempts < max_retries:
             attempts += 1
 
@@ -339,6 +361,7 @@ class ActionTurnManager:
                     "phase": "T1",
                     "round": self.state.current_round,
                     "attempt": attempts,
+                    "action_options": action_options,
                 }
             )
             # ══ CONTROLLER 结束 ══
@@ -386,6 +409,14 @@ class ActionTurnManager:
                 attempts -= 1  # 不消耗回合的成功操作不计入重试次数
                 # 刷新可用行动列表（状态可能已变化，如取消盾牌后 move 解锁）
                 action_names, action_display = self._get_available_actions(player)
+                try:
+                    action_options = build_action_options(player, self.state, action_names)
+                except Exception:
+                    import logging as _elog
+                    _elog.getLogger("engine").error(
+                        "build_action_options 刷新失败, 回退到空选项", exc_info=True
+                    )
+                    action_options = {}
                 display.show_available_actions(action_display)
                 continue
             from utils.pacing import action_pause
@@ -507,6 +538,17 @@ class ActionTurnManager:
         observable = (FilteredGameState(self.state, player.player_id)
                       if is_blinded else self.state)
 
+        # 为 bot_bridge 分层枚举预计算参数化选项
+        try:
+            action_options = build_action_options(player, self.state, action_names)
+        except Exception:
+            import logging as _elog
+            _elog.getLogger("engine").error(
+                f"build_action_options 失败 (cutaway, player={player.name}), 回退到空选项",
+                exc_info=True
+            )
+            action_options = {}
+
         while attempts < max_retries:
             attempts += 1
 
@@ -521,6 +563,7 @@ class ActionTurnManager:
                     "cutaway_joke": True,
                     "collected_actions": collected_actions,
                     "source_lookup": source_lookup,
+                    "action_options": action_options,
                 }
             )
 

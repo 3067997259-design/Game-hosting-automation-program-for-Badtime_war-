@@ -503,12 +503,12 @@ def build_action_mask(
         has_pass = getattr(player, 'has_military_pass', False)
 
         # Items that are free (no voucher needed)
-        FREE_ITEMS = {"凭证", "小刀", "盾牌", "打工",
+        FREE_ITEMS = {"凭证", "盾牌", "打工",
                     "魔法护盾", "魔法弹幕", "远程魔法弹幕", "封闭",
                     "地震", "地动山摇", "隐身术", "探测魔法",
                     "办理通行证"}
-        # Items at 商店 that need vouchers (not free)
-        SHOP_NEEDS_VOUCHER = {"磨刀石", "隐身衣", "热成像仪", "陶瓷护甲"}
+        # Items at 商店 that need vouchers (not free) — README §6.3
+        STORE_VOUCHER_ITEMS = {"小刀", "磨刀石", "隐身衣", "热成像仪", "陶瓷护甲"}
         # Items at 军事基地 that need pass
         MILITARY_NEEDS_PASS = {"AT力场", "电磁步枪", "导弹控制权", "高斯步枪", "雷达", "隐形涂层"}
         # Items at 医院 that are surgery (need vouchers, consume all)
@@ -521,8 +521,8 @@ def build_action_mask(
         for i, item in enumerate(INTERACT_ITEMS):
             if norm_loc not in ITEM_LOCATIONS.get(item, set()):
                 continue
-            # Check voucher/pass requirements
-            if item in SHOP_NEEDS_VOUCHER and not has_voucher and not game_state.virus.is_active:
+            # Check voucher/pass requirements (location-aware)
+            if norm_loc == "商店" and item in STORE_VOUCHER_ITEMS and not has_voucher and not game_state.virus.is_active:
                 continue
             # 防毒面具：商店需凭证（病毒期间免费），医院始终需凭证
             if item == "防毒面具" and not has_voucher:
