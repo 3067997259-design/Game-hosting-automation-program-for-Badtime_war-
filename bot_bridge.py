@@ -17,6 +17,7 @@ import re
 import sys
 import threading
 import uuid
+from collections import deque
 from typing import Any, Deque, Dict, List, Optional
 
 # 复用游戏项目的网络客户端
@@ -1158,6 +1159,11 @@ class BotBridge:
         self._last_game_state_text: str = ""
         self._context_frozen = False  # 游戏结束后禁止推送
 
+        # 聊天路由：记录每个入站聊天消息的 channel/target，
+        # 使 _flush_idle_chat 能将 AIRI 回复发回正确的频道
+        self._idle_chat_routes: deque = deque()
+        self._idle_chat_lock = threading.Lock()
+
     # ──────────────────────────────────────────
     #  AIRI context:update 通道
     # ──────────────────────────────────────────
@@ -1408,7 +1414,9 @@ class BotBridge:
     # ──────────────────────────────────────────
 
     def _flush_idle_chat(self):
-        """处理 AIRI 的主动聊天（非请求触发的回复）。"""
+        """处理 AIRI 的主动聊天（非请求触发的回复）。
+        使用入站消息记录的路由信息，将回复发回正确的频道。
+        """
         for reply in self.airi.drain_responses():
             # Every AIRI response corresponds to one queued chat route, even
             # COMMAND replies that are not sent back as chat messages.
@@ -1555,7 +1563,8 @@ class BotBridge:
     # ── 分层枚举辅助方法 ──
 
     # AIRI 回复中可能附带的时间戳前缀模式，如 [2026-05-12 16:27]
-    _TIMESTAMP_RE = re.compile(r'^\[[\d\-: ]+\]\s*')
+    # 仅匹配严格的日期时间格式，避免误伤编号选择回复如 [1]、[2]
+    _TIMESTAMP_RE = re.compile(r'^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\]\s*')
 
     @classmethod
     def _strip_airi_timestamp(cls, text: str) -> str:
