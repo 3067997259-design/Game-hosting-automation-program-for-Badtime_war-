@@ -269,8 +269,14 @@ class ActionTurnManager:
             )
 
         if self.state.police_engine:
-            police_actions = [
-                ("report",      "report <玩家名>",    "举报违法者"),
+            # report 仅在警察局 或 朝阳好市民举报热线 时可用（README §10.2）
+            is_good_citizen = (player.talent
+                               and getattr(player.talent, 'name', '') == '朝阳好市民')
+            police_actions = []
+            if player.location == "警察局" or is_good_citizen:
+                police_actions.append(
+                    ("report", "report <玩家名>", "举报违法者"))
+            police_actions.extend([
                 ("assemble",    "assemble",            "集结警察"),
                 ("track_guide", "track",               "追踪指引"),
                 ("recruit",     "recruit",             "加入警察"),
@@ -278,7 +284,7 @@ class ActionTurnManager:
                 ("designate",   "designate <玩家名>",  "指定执法目标"),
                 ("split",       "split <警队ID>",      "拆分警队"),
                 ("study",       "study",               "研究性学习（威信+1）"),
-            ]
+            ])
             for name, usage, desc in police_actions:
                 names.append(name)
                 descs.append({"usage": usage, "description": desc})

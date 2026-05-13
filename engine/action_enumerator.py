@@ -19,91 +19,17 @@ if TYPE_CHECKING:
     from models.player import Player
     from engine.game_state import GameState
 
-# ══════════════════════════════════════════════════════════════════
-#  查找表（与 rl/action_space.py 保持同步）
-# ══════════════════════════════════════════════════════════════════
-
-LOCATIONS: List[str] = [
-    "home", "商店", "魔法所", "医院", "军事基地", "警察局"
-]
-
-INTERACT_ITEMS: List[str] = [
-    "凭证", "小刀", "盾牌",
-    "打工", "磨刀石", "隐身衣", "热成像仪", "陶瓷护甲", "防毒面具",
-    "魔法护盾", "魔法弹幕", "远程魔法弹幕",
-    "封闭", "地震", "地动山摇", "隐身术", "探测魔法",
-    "晶化皮肤手术", "额外心脏手术", "不老泉手术",
-    "办理通行证", "AT力场", "电磁步枪",
-    "导弹控制权", "高斯步枪", "雷达", "隐形涂层",
-]
-
-ITEM_LOCATIONS: Dict[str, Set[str]] = {
-    "凭证":         {"home"},
-    "小刀":         {"home", "商店"},
-    "盾牌":         {"home"},
-    "打工":         {"商店", "医院"},
-    "磨刀石":       {"商店"},
-    "隐身衣":       {"商店"},
-    "热成像仪":     {"商店"},
-    "陶瓷护甲":     {"商店"},
-    "防毒面具":     {"商店", "医院"},
-    "魔法护盾":     {"魔法所"},
-    "魔法弹幕":     {"魔法所"},
-    "远程魔法弹幕": {"魔法所"},
-    "封闭":         {"魔法所"},
-    "地震":         {"魔法所"},
-    "地动山摇":     {"魔法所"},
-    "隐身术":       {"魔法所"},
-    "探测魔法":     {"魔法所"},
-    "晶化皮肤手术": {"医院"},
-    "额外心脏手术": {"医院"},
-    "不老泉手术":   {"医院"},
-    "办理通行证":   {"军事基地"},
-    "AT力场":       {"军事基地"},
-    "电磁步枪":     {"军事基地"},
-    "导弹控制权":   {"军事基地"},
-    "高斯步枪":     {"军事基地"},
-    "雷达":         {"军事基地"},
-    "隐形涂层":     {"军事基地"},
-}
-
-WEAPONS: List[str] = [
-    "拳击", "小刀", "警棍", "魔法弹幕", "远程魔法弹幕",
-    "地震", "地动山摇", "电磁步枪", "高斯步枪", "导弹",
-]
-
-SPELL_PREREQUISITES: Dict[str, str] = {
-    "远程魔法弹幕": "魔法弹幕",
-    "地动山摇": "地震",
-}
+# 共享查找表已迁至 engine/action_tables.py（单一数据源）
+from engine.action_tables import (
+    LOCATIONS, INTERACT_ITEMS, ITEM_LOCATIONS, WEAPONS, SPELL_PREREQUISITES,
+    normalize_location as _normalize_location,
+    player_owned_names as _player_owned_names,
+)
 
 
 # ══════════════════════════════════════════════════════════════════
-#  辅助函数
+#  辅助函数（_normalize_location / _player_owned_names 已迁至 action_tables）
 # ══════════════════════════════════════════════════════════════════
-
-def _normalize_location(loc: Optional[str]) -> str:
-    """将 home_xxx 归一化为 home，None 返回空串"""
-    if loc is None:
-        return ""
-    if loc.startswith("home_"):
-        return "home"
-    return loc
-
-
-def _player_owned_names(player: Player) -> Set[str]:
-    """返回玩家当前持有的所有武器和物品的名称集合"""
-    names: Set[str] = set()
-    for collection in (getattr(player, 'weapons', None),
-                        getattr(player, 'items', None)):
-        if collection is None:
-            continue
-        for obj in collection:
-            if obj is None:
-                continue
-            names.add(obj.name if hasattr(obj, "name") else str(obj))
-    return names
-
 
 def _get_opponents(player: Player, game_state: GameState) -> List[Player]:
     """获取所有存活对手列表（按 player_order 顺序，排除自身）"""
@@ -233,10 +159,6 @@ def _enumerate_interact(player: Player, game_state: GameState) -> List[str]:
     )
     virus_active = getattr(getattr(game_state, 'virus', None), 'is_active', False)
 
-    FREE_ITEMS = {"凭证", "盾牌", "打工",
-                  "魔法护盾", "魔法弹幕", "远程魔法弹幕", "封闭",
-                  "地震", "地动山摇", "隐身术", "探测魔法",
-                  "办理通行证"}
     # 商店需要凭证的物品（小刀在家免费，在商店不免费；README §6.3）
     STORE_VOUCHER_ITEMS = {"小刀", "磨刀石", "隐身衣", "热成像仪", "陶瓷护甲"}
     MILITARY_NEEDS_PASS = {"AT力场", "电磁步枪", "导弹控制权", "高斯步枪", "雷达", "隐形涂层"}
