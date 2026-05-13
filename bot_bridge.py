@@ -1271,7 +1271,7 @@ class BotBridge:
         self.airi.send_text(setup_text)
         # 等待 AIRI 处理角色设定（丢弃这次回复）
         self.airi.wait_for_response(timeout=15)
-        self.airi.drain_responses()  # 清空队列
+        self._drain_pending_airi_responses()  # 清空队列
         log.info("角色设定已发送")
 
     # ──────────────────────────────────────────
@@ -1405,6 +1405,24 @@ class BotBridge:
         action = msg.get("action", "")
         log.info(f"断线通知: {name} {action}")
         self.airi.send_notify(f"玩家 {name} {action}")
+
+    def _drain_pending_airi_responses(self) -> List[str]:
+        """Drain queued AIRI replies and discard matching idle-chat routes.
+
+        Chat messages are sent to AIRI asynchronously and their routes are
+        queued separately. If a request prompt drains those replies before
+        _flush_idle_chat sees them, the corresponding routes must be consumed
+        too or later chat replies can be routed to the wrong channel/player.
+        """
+        responses = self.airi.drain_responses()
+        if not responses:
+            return responses
+
+        with self._idle_chat_lock:
+            for _ in range(min(len(responses), len(self._idle_chat_routes))):
+                self._idle_chat_routes.popleft()
+
+        return responses
 
     # ──────────────────────────────────────────
     #  主循环
@@ -1598,7 +1616,7 @@ class BotBridge:
             "请只回复数字或指令名称（例如：1 或 move）"
         )
 
-        self.airi.drain_responses()
+        self._drain_pending_airi_responses()
         self.airi.send_text(prompt)
         log.info(f"第一阶段 prompt 已发送，可选前缀: {prefixes}")
 
@@ -1668,7 +1686,7 @@ class BotBridge:
             "请只回复数字或完整指令（例如：1）"
         )
 
-        self.airi.drain_responses()
+        self._drain_pending_airi_responses()
         self.airi.send_text(prompt)
         log.info(
             f"第二阶段 prompt 已发送，类型={action_type}，选项数={len(options)}"
@@ -1897,7 +1915,7 @@ class BotBridge:
 
         for attempt in range(max_attempts):
             prompt = self._build_command_prompt(msg, actions, context, attempt)
-            self.airi.drain_responses()
+            self._drain_pending_airi_responses()
             self.airi.send_text(prompt)
 
             reply = self.airi.wait_for_response(timeout=self.action_timeout)
@@ -2078,7 +2096,7 @@ class BotBridge:
                     f"{options_block}"
                 )
 
-            self.airi.drain_responses()
+            self._drain_pending_airi_responses()
             self.airi.send_text(text)
             reply = self.airi.wait_for_response(timeout=self.action_timeout)
             if not reply:
@@ -2208,7 +2226,7 @@ class BotBridge:
             text += f"  {i}. {opt}\n"
         text += "请用 CHOOSE: <编号1>,<编号2> 的格式回复（逗号分隔）。"
 
-        self.airi.drain_responses()
+        self._drain_pending_airi_responses()
         self.airi.send_text(text)
         log.info(f"请求多选: {options}")
 
@@ -2261,7 +2279,7 @@ class BotBridge:
                     f"问题：{prompt_text}"
                 )
 
-            self.airi.drain_responses()
+            self._drain_pending_airi_responses()
             self.airi.send_text(text)
             reply = self.airi.wait_for_response(timeout=self.action_timeout)
             if not reply:

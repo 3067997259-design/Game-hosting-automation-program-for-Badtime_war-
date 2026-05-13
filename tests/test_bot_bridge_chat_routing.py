@@ -23,6 +23,11 @@ class FakeAiri:
         self.responses.clear()
         return drained
 
+    def wait_for_response(self, timeout=60.0):
+        if self.responses:
+            return self.responses.pop(0)
+        return None
+
 
 class FakeGameClient:
     def __init__(self):
@@ -95,6 +100,38 @@ class TestBotBridgeChatRouting(unittest.TestCase):
         self.assertEqual(sent["channel"], "public")
         self.assertNotIn("target", sent)
         self.assertFalse(self.bridge._idle_chat_routes)
+
+    def test_request_drain_consumes_stale_idle_chat_route(self):
+        self.bridge._on_chat_message({
+            "sender": "Alice",
+            "content": "秘密计划",
+            "channel": "private",
+            "target": "AIRI_Bot",
+        })
+        self.airi.responses.append("收到，我会保密。")
+
+        self.bridge._handle_choose_multi_request({
+            "prompt": "请选择",
+            "options": ["A", "B"],
+            "min_count": 0,
+            "max_count": 1,
+        })
+
+        self.assertFalse(self.bridge._idle_chat_routes)
+        self.game_client.sent_messages.clear()
+
+        self.bridge._on_chat_message({
+            "sender": "Bob",
+            "content": "大家好",
+            "channel": "public",
+        })
+        self.airi.responses.append("你好！")
+        self.bridge._flush_idle_chat()
+
+        self.assertEqual(len(self.game_client.sent_messages), 1)
+        sent = self.game_client.sent_messages[0]
+        self.assertEqual(sent["channel"], "public")
+        self.assertNotIn("target", sent)
 
     def test_self_chat_is_ignored_and_does_not_claim_next_reply(self):
         self.bridge._on_chat_message({
