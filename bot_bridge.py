@@ -1149,8 +1149,6 @@ class BotBridge:
         self.pending_request: Dict[str, Any] = {"msg": None, "msg_type": None}
         self.pending_lock = threading.Lock()
         self.pending_event = threading.Event()
-        self._idle_chat_routes: Deque[Dict[str, Optional[str]]] = deque()
-        self._idle_chat_lock = threading.Lock()
 
         # AIRI context:update 通道
         # 使用固定 contextId，确保始终操作同一个桶（AIRI 无删除桶机制，
@@ -1161,7 +1159,7 @@ class BotBridge:
 
         # 聊天路由：记录每个入站聊天消息的 channel/target，
         # 使 _flush_idle_chat 能将 AIRI 回复发回正确的频道
-        self._idle_chat_routes: deque = deque()
+        self._idle_chat_routes: Deque[Dict[str, Optional[str]]] = deque()
         self._idle_chat_lock = threading.Lock()
 
     # ──────────────────────────────────────────
