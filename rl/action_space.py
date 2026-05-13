@@ -502,11 +502,6 @@ def build_action_mask(
         has_voucher = player.vouchers >= 1
         has_pass = getattr(player, 'has_military_pass', False)
 
-        # Items that are free (no voucher needed)
-        FREE_ITEMS = {"凭证", "盾牌", "打工",
-                    "魔法护盾", "魔法弹幕", "远程魔法弹幕", "封闭",
-                    "地震", "地动山摇", "隐身术", "探测魔法",
-                    "办理通行证"}
         # Items at 商店 that need vouchers (not free) — README §6.3
         STORE_VOUCHER_ITEMS = {"小刀", "磨刀石", "隐身衣", "热成像仪", "陶瓷护甲"}
         # Items at 军事基地 that need pass
