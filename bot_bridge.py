@@ -17,7 +17,6 @@ import re
 import sys
 import threading
 import uuid
-from collections import deque
 from typing import Any, Deque, Dict, List, Optional
 
 # 复用游戏项目的网络客户端
