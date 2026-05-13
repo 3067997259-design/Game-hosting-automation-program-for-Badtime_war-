@@ -1117,6 +1117,11 @@ class BotBridge:
 
     # 用于过滤聊天回复中的格式化指令
     _FORMAT_CMD_RE = re.compile(r"(ACTION|CHOOSE|CONFIRM):\s*.+", re.IGNORECASE)
+    _TIMESTAMP_RE = re.compile(
+        r"^\[(?:\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?"
+        r"|\d{2}:\d{2}(?::\d{2})?)\]\s*"
+    )
+    _BRACKETED_NUMBER_RE = re.compile(r"^\[\s*(\d+)\s*\]$")
 
     def __init__(self, config: dict):
         self.config = config
@@ -1160,6 +1165,23 @@ class BotBridge:
         # 使 _flush_idle_chat 能将 AIRI 回复发回正确的频道
         self._idle_chat_routes: Deque[Dict[str, Optional[str]]] = deque()
         self._idle_chat_lock = threading.Lock()
+
+    @classmethod
+    def _clean_selection_reply(cls, reply: str) -> str:
+        """Remove only real leading timestamps from AIRI selection replies."""
+        return cls._TIMESTAMP_RE.sub("", (reply or "").strip()).strip()
+
+    @classmethod
+    def _parse_selection_number(cls, reply: str) -> Optional[int]:
+        """Parse a bare or bracketed 1-based selection number."""
+        clean_reply = cls._clean_selection_reply(reply)
+        bracketed = cls._BRACKETED_NUMBER_RE.fullmatch(clean_reply)
+        if bracketed:
+            return int(bracketed.group(1))
+        try:
+            return int(clean_reply)
+        except ValueError:
+            return None
 
     # ──────────────────────────────────────────
     #  AIRI context:update 通道
@@ -1577,15 +1599,6 @@ class BotBridge:
 
     # ── 分层枚举辅助方法 ──
 
-    # AIRI 回复中可能附带的时间戳前缀模式，如 [2026-05-12 16:27]
-    # 仅匹配严格的日期时间格式，避免误伤编号选择回复如 [1]、[2]
-    _TIMESTAMP_RE = re.compile(r'^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\]\s*')
-
-    @classmethod
-    def _strip_airi_timestamp(cls, text: str) -> str:
-        """剥离 AIRI 回复开头的时间戳前缀。"""
-        return cls._TIMESTAMP_RE.sub('', text).strip()
-
     def _ask_action_type(
         self, actions: List[Any], context: Dict[str, Any]
     ) -> Optional[str]:
@@ -1627,19 +1640,15 @@ class BotBridge:
 
         log.info(f"第一阶段 AIRI 原始回复: {reply[:200]}")
 
-        # 剥离 AIRI 时间戳前缀（如 [2026-05-12 16:27]）
-        cleaned = self._strip_airi_timestamp(reply)
-
         # 尝试解析为数字
-        try:
-            idx = int(cleaned) - 1
+        selection_number = self._parse_selection_number(reply)
+        if selection_number is not None:
+            idx = selection_number - 1
             if 0 <= idx < len(prefixes):
                 return prefixes[idx]
-        except ValueError:
-            pass
 
         # 尝试匹配指令名称
-        reply_lower = cleaned.lower()
+        reply_lower = self._clean_selection_reply(reply).lower()
         for prefix in prefixes:
             if prefix.lower() in reply_lower:
                 return prefix
@@ -1699,19 +1708,15 @@ class BotBridge:
 
         log.info(f"第二阶段 AIRI 原始回复: {reply[:200]}")
 
-        # 剥离 AIRI 时间戳前缀（如 [2026-05-12 16:27]）
-        cleaned = self._strip_airi_timestamp(reply)
-
         # 尝试解析为数字
-        try:
-            idx = int(cleaned) - 1
+        selection_number = self._parse_selection_number(reply)
+        if selection_number is not None:
+            idx = selection_number - 1
             if 0 <= idx < len(options):
                 return options[idx]
-        except ValueError:
-            pass
 
         # 尝试模糊匹配选项文本
-        reply_lower = cleaned.lower()
+        reply_lower = self._clean_selection_reply(reply).lower()
         for opt in options:
             if opt.lower() in reply_lower:
                 return opt
