@@ -1410,14 +1410,14 @@ class BotBridge:
     def _flush_idle_chat(self):
         """处理 AIRI 的主动聊天（非请求触发的回复）。"""
         for reply in self.airi.drain_responses():
-            if reply.startswith("COMMAND:"):
-                continue
             with self._idle_chat_lock:
                 route = (
                     self._idle_chat_routes.popleft()
                     if self._idle_chat_routes
                     else {"channel": "public", "target": None}
                 )
+            if reply.startswith("COMMAND:"):
+                continue
             clean = self._FORMAT_CMD_RE.sub("", reply).strip()
             if clean:
                 chat_msg = {

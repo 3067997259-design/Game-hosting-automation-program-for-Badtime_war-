@@ -74,6 +74,27 @@ class TestBotBridgeChatRouting(unittest.TestCase):
         self.assertEqual(sent["channel"], "public")
         self.assertNotIn("target", sent)
 
+    def test_command_reply_consumes_queued_route(self):
+        self.bridge._on_chat_message({
+            "sender": "Alice",
+            "content": "秘密计划",
+            "channel": "private",
+            "target": "AIRI_Bot",
+        })
+        self.bridge._on_chat_message({
+            "sender": "Bob",
+            "content": "大家好",
+            "channel": "public",
+        })
+
+        self.airi.responses.extend(["COMMAND:move shop", "你好！"])
+        self.bridge._flush_idle_chat()
+
+        self.assertEqual(len(self.game_client.sent_messages), 1)
+        sent = self.game_client.sent_messages[0]
+        self.assertEqual(sent["channel"], "public")
+        self.assertNotIn("target", sent)
+
     def test_self_chat_is_ignored_and_does_not_claim_next_reply(self):
         self.bridge._on_chat_message({
             "sender": "AIRI_Bot",
