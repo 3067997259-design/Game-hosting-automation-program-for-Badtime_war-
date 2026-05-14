@@ -80,8 +80,27 @@ class ResponseParser:
         "forfeit", "wake", "assemble", "track", "recruit", "election", "study",
     })
 
+    @staticmethod
+    def _action_usage(action: Any) -> str:
+        """Return the command text for a string or enriched action descriptor."""
+        if isinstance(action, dict):
+            usage = action.get("usage") or action.get("name") or ""
+            return str(usage).strip()
+        if isinstance(action, str):
+            return action.strip()
+        return str(action).strip()
+
     @classmethod
-    def extract_action(cls, text: str, available_actions: List[str]) -> Optional[str]:
+    def _available_action_usages(cls, available_actions: List[Any]) -> List[str]:
+        return [
+            usage for usage in (
+                cls._action_usage(action) for action in (available_actions or [])
+            )
+            if usage
+        ]
+
+    @classmethod
+    def extract_action(cls, text: str, available_actions: List[Any]) -> Optional[str]:
         """从回复中提取行动指令。返回 None 表示无法解析。
 
         修复：对非标记文本（无 ACTION:/CHOOSE:/CONFIRM: 前缀）施加长度和
@@ -90,6 +109,7 @@ class ResponseParser:
         text = text.strip()
         if not text:
             return None
+        action_usages = cls._available_action_usages(available_actions)
 
         has_format_marker = any(
             text.upper().startswith(prefix)
@@ -102,7 +122,7 @@ class ResponseParser:
             if m:
                 cmd = m.group(1).strip()
                 # 验证指令是否以合法行动开头
-                for action in available_actions:
+                for action in action_usages:
                     if cmd.lower().startswith(action.lower()):
                         return cmd
                 return cmd  # 即使不在列表中也返回，让服务器验证
@@ -139,7 +159,7 @@ class ResponseParser:
         # 3. 直接检查回复是否就是一个合法指令
         #    额外约束：文本长度不能超过合理指令长度
         if len(text) <= cls._MAX_RAW_COMMAND_LENGTH:
-            for action in available_actions:
+            for action in action_usages:
                 if text.lower().startswith(action.lower()):
                     return text
 
