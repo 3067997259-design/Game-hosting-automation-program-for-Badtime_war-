@@ -22,7 +22,8 @@ class TacticalMixin:
     cost: int
     max_cost: int
     shield_mode: str | None
-    shield_snapshot_hp: int
+    shield_guard_mode: str   # "block_leaving" / "block_entering"
+    shield_snapshot_hp: float
     front_players: set
     back_players: set
     ammo: list
