@@ -127,11 +127,17 @@ class TacticalMixin:
             _enriched_actions.append(
                 {"usage": "terminal", "description": "结束战术指令宏", "cost": 0}
             )
+            # get_command 契约保持 List[str]，富化信息仅放入 context 供支持者使用
+            _available_action_usages = [action["usage"] for action in _enriched_actions]
             raw = player.controller.get_command(
                 player=player,
                 game_state=_blind_observable or self.state,
-                available_actions=_enriched_actions,
-                context={"phase": "T0", "situation": "hoshino_tactical_input"}
+                available_actions=_available_action_usages,
+                context={
+                    "phase": "T0",
+                    "situation": "hoshino_tactical_input",
+                    "available_action_details": _enriched_actions,
+                }
             )
             raw_stripped = raw.strip()
             raw_lower = raw_stripped.lower()

@@ -208,39 +208,38 @@ def _cmd_to_interact_idx(cmd: str) -> int:
     return IDX_INTERACT_BASE + INTERACT_ITEMS.index(item)
 
 
-def _find_opponent_slot_by_name(target_name: str, player, game_state) -> int | None:
+def _find_opponent_slot_by_name(
+    target_name: str,
+    opponent_slot_by_name: dict[str, int],
+) -> int | None:
     """根据目标玩家名查找其在对手槽中的索引（0-4），找不到返回 None。"""
-    slots = get_opponent_slots(player, game_state)
-    for i, p in enumerate(slots):
-        if p is not None and p.name == target_name:
-            return i
-    return None
+    return opponent_slot_by_name.get(target_name)
 
 
-def _cmd_to_lock_idx(cmd: str, player, game_state) -> int:
+def _cmd_to_lock_idx(cmd: str, opponent_slot_by_name: dict[str, int]) -> int:
     """ "lock 张三" → IDX_LOCK_BASE + slot """
     target_name = cmd.split(" ", 1)[1]
-    slot = _find_opponent_slot_by_name(target_name, player, game_state)
+    slot = _find_opponent_slot_by_name(target_name, opponent_slot_by_name)
     if slot is None:
         return -1  # 不应发生，调用方保证 cmd 合法
     return IDX_LOCK_BASE + slot
 
 
-def _cmd_to_find_idx(cmd: str, player, game_state) -> int:
+def _cmd_to_find_idx(cmd: str, opponent_slot_by_name: dict[str, int]) -> int:
     """ "find 张三" → IDX_FIND_BASE + slot """
     target_name = cmd.split(" ", 1)[1]
-    slot = _find_opponent_slot_by_name(target_name, player, game_state)
+    slot = _find_opponent_slot_by_name(target_name, opponent_slot_by_name)
     if slot is None:
         return -1
     return IDX_FIND_BASE + slot
 
 
-def _cmd_to_attack_idx(cmd: str, player, game_state) -> int:
+def _cmd_to_attack_idx(cmd: str, opponent_slot_by_name: dict[str, int]) -> int:
     """ "attack 张三 小刀" → IDX_ATTACK_BASE + slot*10 + weapon_slot """
     parts = cmd.split(" ", 2)
     target_name = parts[1]
     weapon_name = parts[2]
-    slot = _find_opponent_slot_by_name(target_name, player, game_state)
+    slot = _find_opponent_slot_by_name(target_name, opponent_slot_by_name)
     if slot is None:
         return -1
     wi = WEAPONS.index(weapon_name)
@@ -506,24 +505,33 @@ def build_action_mask(
 
     # ── lock / find / attack ──────────────────────────────────────
     # 委托 engine/action_enumerator 对应枚举函数（单一信源）
+    combat_opponents = []
+    opponent_slot_by_name = {}
+    if any(action in available_set for action in ("lock", "find", "attack")):
+        combat_opponents = _get_opponents(player, game_state)
+        opponent_slots = get_opponent_slots(player, game_state)
+        opponent_slot_by_name = {
+            p.name: i for i, p in enumerate(opponent_slots) if p is not None
+        }
+
     if "lock" in available_set:
-        for cmd in _enumerate_lock(player, _get_opponents(player, game_state),
+        for cmd in _enumerate_lock(player, combat_opponents,
                                     game_state.markers):
-            idx = _cmd_to_lock_idx(cmd, player, game_state)
+            idx = _cmd_to_lock_idx(cmd, opponent_slot_by_name)
             if idx >= 0:
                 mask[idx] = True
 
     if "find" in available_set:
-        for cmd in _enumerate_find(player, _get_opponents(player, game_state),
+        for cmd in _enumerate_find(player, combat_opponents,
                                     game_state.markers):
-            idx = _cmd_to_find_idx(cmd, player, game_state)
+            idx = _cmd_to_find_idx(cmd, opponent_slot_by_name)
             if idx >= 0:
                 mask[idx] = True
 
     if "attack" in available_set:
-        for cmd in _enumerate_attack(player, _get_opponents(player, game_state),
+        for cmd in _enumerate_attack(player, combat_opponents,
                                       game_state.markers):
-            idx = _cmd_to_attack_idx(cmd, player, game_state)
+            idx = _cmd_to_attack_idx(cmd, opponent_slot_by_name)
             if idx >= 0:
                 mask[idx] = True
 
