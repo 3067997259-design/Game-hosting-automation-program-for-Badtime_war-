@@ -157,7 +157,11 @@ class BasicAIController(
 
         # 星野战术宏输入：从预生成队列逐条弹出
         if situation == "hoshino_tactical_input":
-            return self._hoshino_get_tactical_command(player, game_state, available_actions)
+            available_action_names = [
+                action.get("usage", "") if isinstance(action, dict) else action
+                for action in available_actions
+            ]
+            return self._hoshino_get_tactical_command(player, game_state, available_action_names)
 
         # 星野排弹：计算最优弹药顺序并返回（在战术宏执行期间被调用）
         if situation == "hoshino_reorder_ammo":

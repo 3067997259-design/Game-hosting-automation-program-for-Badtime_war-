@@ -281,6 +281,16 @@ def _enumerate_lock(
     markers,
 ) -> List[str]:
     """枚举可锁定的目标"""
+    from models.equipment import WeaponRange
+
+    has_ranged = any(
+        getattr(w, 'weapon_range', None) == WeaponRange.RANGED
+        and not getattr(w, '_hexagram_disabled', False)
+        for w in (getattr(player, 'weapons', None) or []) if w
+    )
+    if not has_ranged:
+        return []
+
     result: List[str] = []
     for opp in opponents:
         if not opp.is_on_map():
