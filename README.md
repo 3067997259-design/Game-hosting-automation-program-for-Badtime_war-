@@ -62,8 +62,8 @@ python stats_runner.py --players 6 --games 5000
 
 | 文档 | 内容 |
 |------|------|
-| [游玩手册](docs/manual.md) | 完整游戏规则（时序、地点、物品、战斗、警察系统、胜利条件） |
-| [天赋参考](docs/talents.md) | 全部 14 个天赋的详细描述（7 原初 + 7 神代） |
+| [完全游玩手册](docs/完全游玩手册.md) | 完整游戏规则（人类阅读，含闭合补丁、FAQ、开发日志） |
+| [天赋参考](docs/talents.md) | 14 个天赋的机械规格（以代码为准，AI 可读） |
 | [使用说明](docs/usage.md) | CLI 参数详解、RL 训练管线、联机配置、LLM 聊天、AIRI 接入 |
 | [指令表](docs/commands.md) | 电子裁决系统支持的所有指令及星野战术宏子系统 |
 | [更新日志](docs/changelog.md) | 版本历史（含开发日志与胜率统计） |
