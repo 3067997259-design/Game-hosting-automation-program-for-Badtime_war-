@@ -51,6 +51,22 @@ class TacticalMixin:
         "find": 1, "lock": 1, "转向": 0, "排弹": 0,
     }
 
+    # 战术指令说明（供 controller / bot_bridge 向 AI 展示选项）
+    TACTICAL_DESC = {
+        "架盾": "防御姿态（划分正/背面），Cost 2",
+        "射击": "远程攻击已锁定/正面的目标，Cost 2",
+        "重新装填": "消耗物品装填弹药，Cost 0",
+        "持盾": "可移动的弱化防御，Cost 1",
+        "投掷": "投掷战术道具到指定地点，Cost 1",
+        "服药": "使用药物增强状态，Cost 0",
+        "冲刺": "快速移动到目标地点（每宏限1次），Cost 1",
+        "取消": "取消当前架盾/持盾状态，Cost 0",
+        "find": "与目标建立面对面，Cost 1",
+        "lock": "锁定远程攻击目标，Cost 1",
+        "转向": "翻转正面/背面朝向，Cost 0",
+        "排弹": "重排弹匣顺序优化克制（每宏限1次），Cost 0",
+    }
+
     def _parse_tactical_command(self, raw):
         """解析单条战术指令，返回 (action_name, args_list) 或 None"""
         parts = raw.strip().split()
@@ -103,10 +119,18 @@ class TacticalMixin:
             from engine.filtered_state import FilteredGameState
             _blind_observable = FilteredGameState(self.state, player.player_id)
         while True:
+            # 构造富化的可用操作列表（含说明和 cost），使 bot_bridge 可向 AIRI 呈现
+            _enriched_actions = [
+                {"usage": cmd, "description": self.TACTICAL_DESC.get(cmd, cmd), "cost": cost}
+                for cmd, cost in self.TACTICAL_COST.items()
+            ]
+            _enriched_actions.append(
+                {"usage": "terminal", "description": "结束战术指令宏", "cost": 0}
+            )
             raw = player.controller.get_command(
                 player=player,
                 game_state=_blind_observable or self.state,
-                available_actions=list(self.TACTICAL_COST.keys()) + ["terminal"],
+                available_actions=_enriched_actions,
                 context={"phase": "T0", "situation": "hoshino_tactical_input"}
             )
             raw_stripped = raw.strip()

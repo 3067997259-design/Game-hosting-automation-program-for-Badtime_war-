@@ -33,6 +33,17 @@ from engine.action_tables import (
     player_owned_names as _player_owned_names,
 )
 
+# 枚举逻辑已统一到 engine/action_enumerator.py（单一信源）
+# build_action_mask 委托其进行细粒度枚举，仅负责命令串 → 索引转换
+from engine.action_enumerator import (
+    _enumerate_move,
+    _enumerate_interact,
+    _enumerate_lock,
+    _enumerate_find,
+    _enumerate_attack,
+    _get_opponents,
+)
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  动作空间大小
 # ─────────────────────────────────────────────────────────────────────────────
@@ -177,6 +188,63 @@ def get_opponent_slots(player, game_state) -> List:
     while len(slots) < 5:
         slots.append(None)
     return slots
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  命令串 → 掩码索引 转换辅助函数
+#  委托 engine/action_enumerator.py 的枚举结果，将合法命令字符串映射回
+#  RL 动作空间的固定索引。
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _cmd_to_move_idx(cmd: str) -> int:
+    """ "move home" → IDX_MOVE_BASE + 0 """
+    loc = cmd.split(" ", 1)[1]
+    return IDX_MOVE_BASE + LOCATIONS.index(loc)
+
+
+def _cmd_to_interact_idx(cmd: str) -> int:
+    """ "interact 小刀" → IDX_INTERACT_BASE + 1 """
+    item = cmd.split(" ", 1)[1]
+    return IDX_INTERACT_BASE + INTERACT_ITEMS.index(item)
+
+
+def _find_opponent_slot_by_name(target_name: str, player, game_state) -> int | None:
+    """根据目标玩家名查找其在对手槽中的索引（0-4），找不到返回 None。"""
+    slots = get_opponent_slots(player, game_state)
+    for i, p in enumerate(slots):
+        if p is not None and p.name == target_name:
+            return i
+    return None
+
+
+def _cmd_to_lock_idx(cmd: str, player, game_state) -> int:
+    """ "lock 张三" → IDX_LOCK_BASE + slot """
+    target_name = cmd.split(" ", 1)[1]
+    slot = _find_opponent_slot_by_name(target_name, player, game_state)
+    if slot is None:
+        return -1  # 不应发生，调用方保证 cmd 合法
+    return IDX_LOCK_BASE + slot
+
+
+def _cmd_to_find_idx(cmd: str, player, game_state) -> int:
+    """ "find 张三" → IDX_FIND_BASE + slot """
+    target_name = cmd.split(" ", 1)[1]
+    slot = _find_opponent_slot_by_name(target_name, player, game_state)
+    if slot is None:
+        return -1
+    return IDX_FIND_BASE + slot
+
+
+def _cmd_to_attack_idx(cmd: str, player, game_state) -> int:
+    """ "attack 张三 小刀" → IDX_ATTACK_BASE + slot*10 + weapon_slot """
+    parts = cmd.split(" ", 2)
+    target_name = parts[1]
+    weapon_name = parts[2]
+    slot = _find_opponent_slot_by_name(target_name, player, game_state)
+    if slot is None:
+        return -1
+    wi = WEAPONS.index(weapon_name)
+    return IDX_ATTACK_BASE + slot * 10 + wi
 
 
 def _auto_target(player, game_state) -> Optional[str]:
@@ -424,232 +492,40 @@ def build_action_mask(
     _hoshino_block_move = _hoshino_shield == "架盾"
     _hoshino_block_interact = _hoshino_shield in ("架盾", "持盾")
 
-    # ── 超新星过载（G1 火萤）：下一次 move 可指定为当前地点 ─────
-    # 见 README §12.2「火萤Ⅳ型-完全燃烧」：「你的下一次移动的地点可以指定
-    # 目的地为当前你所在的地点」，对当地所有单位造成 1 点无视克制伤害。
-    _has_supernova = bool(
-        getattr(getattr(player, "talent", None), "has_supernova", False)
-    )
-
     # ── move ─────────────────────────────────────────────────────
+    # 委托 engine/action_enumerator._enumerate_move（单一信源）
     if "move" in available_set and not _hoshino_block_move:
-        norm_self_loc = _normalize_location(player.location)
-        for i, loc in enumerate(LOCATIONS):
-            if loc != norm_self_loc:
-                mask[IDX_MOVE_BASE + i] = True
-            elif _has_supernova:
-                # 原地 move：仅在拥有超新星过载时允许（触发原地爆发）。
-                mask[IDX_MOVE_BASE + i] = True
+        for cmd in _enumerate_move(player):
+            mask[_cmd_to_move_idx(cmd)] = True
 
     # ── interact ─────────────────────────────────────────────────
+    # 委托 engine/action_enumerator._enumerate_interact（单一信源）
     if "interact" in available_set and not _hoshino_block_interact:
-        norm_loc = _normalize_location(player.location)
-        has_voucher = player.vouchers >= 1
-        has_pass = getattr(player, 'has_military_pass', False)
+        for cmd in _enumerate_interact(player, game_state):
+            mask[_cmd_to_interact_idx(cmd)] = True
 
-        # Items at 商店 that need vouchers (not free) — README §6.3
-        STORE_VOUCHER_ITEMS = {"小刀", "磨刀石", "隐身衣", "热成像仪", "陶瓷护甲"}
-        # Items at 军事基地 that need pass
-        MILITARY_NEEDS_PASS = {"AT力场", "电磁步枪", "导弹控制权", "高斯步枪", "雷达", "隐形涂层"}
-        # Items at 医院 that are surgery (need vouchers, consume all)
-        SURGERY_ITEMS = {"晶化皮肤手术", "额外心脏手术", "不老泉手术"}
-
-        learned_spells = getattr(player, 'learned_spells', set())
-        owned_items = set(getattr(i, 'name', '') for i in (player.items or []))
-        owned_weapons = set(getattr(w, 'name', '') for w in (player.weapons or []) if w)
-
-        for i, item in enumerate(INTERACT_ITEMS):
-            if norm_loc not in ITEM_LOCATIONS.get(item, set()):
-                continue
-            # Check voucher/pass requirements (location-aware)
-            if norm_loc == "商店" and item in STORE_VOUCHER_ITEMS and not has_voucher and not game_state.virus.is_active:
-                continue
-            # 防毒面具：商店需凭证（病毒期间免费），医院始终需凭证
-            if item == "防毒面具" and not has_voucher:
-                if norm_loc == "医院":
-                    continue
-                if norm_loc == "商店" and not game_state.virus.is_active:
-                    continue
-            if item in MILITARY_NEEDS_PASS and not has_pass:
-                continue
-            if item in SURGERY_ITEMS and not has_voucher:
-                continue
-            # 法术前置检查
-            prereq = SPELL_PREREQUISITES.get(item)
-            if prereq and prereq not in getattr(player, 'learned_spells', set()):
-                continue
-
-            # 凭证/打工：已有凭证时不允许
-            if item in ("凭证", "打工") and has_voucher:
-                continue
-
-            # === Ownership checks ===
-            # 法术：已学会则跳过（AT力场除外，可重新展开）
-            if item in learned_spells and item != "AT力场":
-                continue
-            # 小刀：已有则跳过
-            if item == "小刀" and "小刀" in owned_weapons:
-                continue
-            # 盾牌：已有同名护甲则跳过
-            if item == "盾牌":
-                from models.equipment import make_armor as _test_ma
-                _test = _test_ma("盾牌")
-                if _test:
-                    can_eq, _ = player.armor.check_can_equip(_test)
-                    if not can_eq:
-                        continue
-            # 陶瓷护甲：已有同名护甲则跳过
-            if item == "陶瓷护甲":
-                from models.equipment import make_armor as _test_ma2
-                _test2 = _test_ma2("陶瓷护甲")
-                if _test2:
-                    can_eq2, _ = player.armor.check_can_equip(_test2)
-                    if not can_eq2:
-                        continue
-            # 手术：已有同名内层护甲则跳过
-            if item in ("晶化皮肤手术", "额外心脏手术", "不老泉手术"):
-                surgery_armor_map = {
-                    "晶化皮肤手术": "晶化皮肤",
-                    "额外心脏手术": "额外心脏",
-                    "不老泉手术": "不老泉",
-                }
-                from models.equipment import ArmorPiece, ArmorLayer
-                from utils.attribute import Attribute
-                armor_name = surgery_armor_map[item]
-                attr_map = {"晶化皮肤": Attribute.TECH, "额外心脏": Attribute.ORDINARY, "不老泉": Attribute.MAGIC}
-                test_piece = ArmorPiece(armor_name, attr_map[armor_name], ArmorLayer.INNER, 1.0)
-                can_eq3, _ = player.armor.check_can_equip(test_piece)
-                if not can_eq3:
-                    continue
-            # 磨刀石：已有磨刀石 或 没有未磨小刀 则跳过
-            if item == "磨刀石":
-                if "磨刀石" in owned_items:
-                    continue
-                has_unsharpened = any(
-                    getattr(w, 'name', '') == "小刀" and getattr(w, 'base_damage', 0) < 2
-                    for w in (player.weapons or []) if w
-                )
-                if not has_unsharpened:
-                    continue
-            # 隐身衣/隐形涂层：已隐身则跳过
-            if item in ("隐身衣", "隐形涂层"):
-                if getattr(player, 'is_invisible', False):
-                    continue
-                if item in owned_items:
-                    continue
-            # 热成像仪/雷达：已有探测则跳过
-            if item in ("热成像仪", "雷达"):
-                if getattr(player, 'has_detection', False):
-                    continue
-            # 防毒面具：已有则跳过
-            if item == "防毒面具":
-                if "防毒面具" in owned_items:
-                    continue
-            # 电磁步枪/高斯步枪：已有则跳过
-            if item in ("电磁步枪", "高斯步枪"):
-                if item in owned_weapons:
-                    continue
-            if item == "AT力场":
-                from models.equipment import ArmorPiece, ArmorLayer
-                from utils.attribute import Attribute
-                test_at = ArmorPiece("AT力场", Attribute.TECH, ArmorLayer.OUTER, 1.0, can_regen=True)
-                can_eq_at, _ = player.armor.check_can_equip(test_at)
-                if not can_eq_at:
-                    continue
-            # 办理通行证：已有则跳过
-            if item == "办理通行证":
-                if getattr(player, 'has_military_pass', False):
-                    continue
-            # 导弹控制权：已有控制权标记则跳过
-            if item == "导弹控制权":
-                if game_state and game_state.markers.has(player.player_id, "MISSILE_CTRL"):
-                    continue
-
-            mask[IDX_INTERACT_BASE + i] = True
-
-    # ── 对手槽位存活状态（lock / find / attack 共用）─────────────
-    opponents = get_opponent_slots(player, game_state)
-    alive_flags = [
-        (p is not None and p.is_alive())
-        for p in opponents
-    ]
-
-    # ── lock ─────────────────────────────────────────────────────
+    # ── lock / find / attack ──────────────────────────────────────
+    # 委托 engine/action_enumerator 对应枚举函数（单一信源）
     if "lock" in available_set:
-            from models.equipment import WeaponRange
-            has_ranged_weapon = any(
-                getattr(w, 'weapon_range', None) == WeaponRange.RANGED
-                and not getattr(w, '_hexagram_disabled', False)
-                for w in (player.weapons or []) if w
-            )
-            if has_ranged_weapon:
-                for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):
-                    if alive and opp is not None and opp.is_on_map():
-                        # 已锁定的目标不能再 lock（与 validator.validate_lock 保持一致）
-                        already_locked = game_state.markers.has_relation(
-                            opp.player_id, "LOCKED_BY", player.player_id)
-                        if already_locked:
-                            continue
-                        visible = game_state.markers.is_visible_to(
-                            opp.player_id, player.player_id, player.has_detection)
-                        if visible:
-                            mask[IDX_LOCK_BASE + slot] = True
+        for cmd in _enumerate_lock(player, _get_opponents(player, game_state),
+                                    game_state.markers):
+            idx = _cmd_to_lock_idx(cmd, player, game_state)
+            if idx >= 0:
+                mask[idx] = True
 
-    # ── find ─────────────────────────────────────────────────────
     if "find" in available_set:
-            for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):
-                if alive and opp is not None and opp.location == player.location:
-                    # 已面对面的目标不能再 find（与 validator.validate_find 和
-                    # action_registry._get_findable_targets 保持一致）
-                    already_engaged = game_state.markers.has_relation(
-                        player.player_id, "ENGAGED_WITH", opp.player_id)
-                    if already_engaged:
-                        continue
-                    visible = game_state.markers.is_visible_to(
-                        opp.player_id, player.player_id, player.has_detection)
-                    if visible:
-                        mask[IDX_FIND_BASE + slot] = True
+        for cmd in _enumerate_find(player, _get_opponents(player, game_state),
+                                    game_state.markers):
+            idx = _cmd_to_find_idx(cmd, player, game_state)
+            if idx >= 0:
+                mask[idx] = True
 
-    # ── attack ────────────────────────────────────────────────────
     if "attack" in available_set:
-        from models.equipment import WeaponRange
-        owned = _player_owned_names(player)
-        owned.add("拳击")
-
-        # Pre-compute weapon range lookup
-        weapon_ranges = {}
-        for w in (player.weapons or []):
-            if w:
-                weapon_ranges[w.name] = getattr(w, 'weapon_range', WeaponRange.MELEE)
-        weapon_ranges["拳击"] = WeaponRange.MELEE
-
-        markers = game_state.markers
-
-        for slot, (opp, alive) in enumerate(zip(opponents, alive_flags)):
-            if not alive or opp is None:
-                continue
-            same_loc = (opp.location == player.location)
-            is_engaged = markers.has_relation(player.player_id, "ENGAGED_WITH", opp.player_id)
-            is_locked = markers.has_relation(opp.player_id, "LOCKED_BY", player.player_id)
-
-            for wi, wname in enumerate(WEAPONS):
-                if wname not in owned:
-                    continue
-                wr = weapon_ranges.get(wname, WeaponRange.MELEE)
-                w_obj = next((w for w in (player.weapons or []) if w and w.name == wname), None)
-                if w_obj and w_obj.requires_charge and getattr(w_obj, 'charge_mandatory', True) and not w_obj.is_charged:
-                    continue
-                if w_obj and getattr(w_obj, '_hexagram_disabled', False):
-                    continue
-                if wr == WeaponRange.MELEE:
-                    if same_loc and is_engaged:
-                        mask[IDX_ATTACK_BASE + slot * 10 + wi] = True
-                elif wr == WeaponRange.RANGED:
-                    if is_locked:
-                        mask[IDX_ATTACK_BASE + slot * 10 + wi] = True
-                elif wr == WeaponRange.AREA:
-                    if same_loc:
-                        mask[IDX_ATTACK_BASE + slot * 10 + wi] = True
+        for cmd in _enumerate_attack(player, _get_opponents(player, game_state),
+                                      game_state.markers):
+            idx = _cmd_to_attack_idx(cmd, player, game_state)
+            if idx >= 0:
+                mask[idx] = True
 
     # ── special ───────────────────────────────────────────────────
     if "special" in available_set:
@@ -719,6 +595,10 @@ def build_action_mask(
 
     # ── 警察行动 ──────────────────────────────────────────────────
     if game_state.police_engine:
+        # 存活对手标记（供 report/designate 的目标有效性判断）
+        _opponents = get_opponent_slots(player, game_state)
+        _alive_flags = [(p is not None and p.is_alive()) for p in _opponents]
+
         police_available_map = {
             "report":      (0, "report"      in available_set),
             "assemble":    (1, "assemble"    in available_set),
@@ -728,7 +608,7 @@ def build_action_mask(
             "designate":   (5, "designate"   in available_set),
             "study":       (6, "study"       in available_set),
         }
-        has_alive_target = any(alive_flags)
+        has_alive_target = any(_alive_flags)
         for key, (offset, ok) in police_available_map.items():
             if not ok:
                 continue

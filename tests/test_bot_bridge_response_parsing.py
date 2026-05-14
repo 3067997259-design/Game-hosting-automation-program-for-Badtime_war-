@@ -7,7 +7,7 @@ _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from bot_bridge import BotBridge
+from bot_bridge import BotBridge, ResponseParser
 
 
 class _FakeAiri:
@@ -68,6 +68,21 @@ class TestBotBridgeResponseParsing(unittest.TestCase):
         self.assertEqual(
             BotBridge._clean_selection_reply("[2026-05-13 09:11:05] [1]"),
             "[1]",
+        )
+
+    def test_extract_action_accepts_enriched_action_dicts(self):
+        actions = [
+            {"usage": "射击", "description": "远程攻击已锁定/正面的目标", "cost": 2},
+            {"usage": "terminal", "description": "结束战术指令宏", "cost": 0},
+        ]
+
+        self.assertEqual(
+            ResponseParser.extract_action("ACTION: 射击 Alice", actions),
+            "射击 Alice",
+        )
+        self.assertEqual(
+            ResponseParser.extract_action("terminal", actions),
+            "terminal",
         )
 
 
