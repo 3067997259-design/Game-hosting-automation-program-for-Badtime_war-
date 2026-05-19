@@ -101,7 +101,7 @@ class TerrorMixin:
 
         # 失去铁之荷鲁斯 → 每点护甲值折算1额外生命值
         original_horus_hp = self.iron_horus_hp
-        horus_extra = self.iron_horus_hp * 1.5
+        horus_extra = self.iron_horus_hp * 1
         self.iron_horus_hp = 0
 
         # 失去所有光环 → 每层折算1额外生命值
@@ -121,7 +121,7 @@ class TerrorMixin:
 
         raw_total = horus_extra + halo_extra + armor_extra
         # 保底4额外生命值
-        TERROR_HP_FLOOR = 5.5
+        TERROR_HP_FLOOR = 4
         self.terror_extra_hp = max(raw_total, TERROR_HP_FLOOR)
         hp_calc = prompt_manager.get_prompt("talent", "g7hoshino.terror_hp_calc",
                                          original_horus_hp=original_horus_hp,
