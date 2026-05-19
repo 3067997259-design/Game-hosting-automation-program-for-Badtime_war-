@@ -458,6 +458,7 @@ class CombatMixin(_Base):
         )
         def score(t):
             s = 0
+            strategy = getattr(self, '_strategy', None)
             s += self._threat_scores.get(t.name, 0) * 2
             if t.name in self._been_attacked_by:
                 s += 50
@@ -512,13 +513,13 @@ class CombatMixin(_Base):
                         s += 60
                     total_effective_hp = self._get_effective_hp(t) + self._count_outer_armor(t) + self._count_inner_armor(t)
                     s += max(0, 10 - total_effective_hp) * 15
-            if self.personality == "assassin":
+            if strategy is None and self.personality == "assassin":
                 s += max(0, 3 - self._get_effective_hp(t)) * 20
                 if self._count_outer_armor(t) == 0:
                     s += 40
                 if self._count_inner_armor(t) == 0:
                     s += 20
-            if self.personality == "aggressive":
+            if strategy is None and self.personality == "aggressive":
                 target_name = getattr(t, 'name', '')
                 target_pid = getattr(t, 'player_id', '')
                 is_passive = (target_name not in self._players_who_attacked
@@ -529,12 +530,12 @@ class CombatMixin(_Base):
             # ════════════════════════════════════════════════════
             #  人格策略：统一评分修正（替代上面的散落判断）
             # ════════════════════════════════════════════════════
-            if hasattr(self, '_strategy'):
+            if strategy is not None:
                 target_name = getattr(t, 'name', '')
                 target_pid = getattr(t, 'player_id', '')
                 is_passive = (target_name not in self._players_who_attacked
                             and target_pid not in self._players_who_attacked)
-                s = self._strategy.modify_target_score(
+                s = strategy.modify_target_score(
                     t, s, player,
                     players_who_attacked=self._players_who_attacked,
                     is_passive=is_passive,
