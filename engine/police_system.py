@@ -1056,13 +1056,16 @@ class PoliceEngine:
                 captain.is_captain = False
                 self.state.markers.remove(player_id, "IS_CAPTAIN")
 
-            # 重置为无队长状态（保留现有单位）
+            # 回到游戏初始状态：只保留police1, 重置默认装备, 不在地图上
+            for unit in self.police.units:
+                if unit.is_alive() and unit.unit_id == "police1":
+                    unit.reset_to_initial()
+                elif unit.unit_id != "police1":
+                    unit.hp = 0  # 删除多余单位
+
             self.police.captain_id = None
             self.police.authority = 0
-
-            # 重置执法流程
             self._reset_enforcement()
-
             self.state.log_event("captain_death", captain=player_id)
 
         # 举报者死亡处理

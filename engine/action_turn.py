@@ -450,8 +450,6 @@ class ActionTurnManager:
         seen_keys = set()
 
         for pid in self.state.player_order:
-            if pid == player.player_id:
-                continue
             other = self.state.get_player(pid)
             if not other or not other.is_alive() or not other.is_awake:
                 continue
@@ -490,8 +488,6 @@ class ActionTurnManager:
 
         # ---- 补充队长的 police_command（action_registry 不产出此条目） ----
         for pid in self.state.player_order:
-            if pid == player.player_id:
-                continue
             other = self.state.get_player(pid)
             if not other or not other.is_alive() or not other.is_awake:
                 continue
@@ -1386,7 +1382,9 @@ class ActionTurnManager:
 
         from models.equipment import WeaponRange
         if weapon.weapon_range == WeaponRange.AREA:
-            return self._execute_area_attack(player, weapon, override_killer=override_killer)
+            return self._execute_area_attack(player, weapon,
+                target_id=target_id, layer_str=layer_str, attr_str=attr_str,
+                override_killer=override_killer)
 
         msg, result = attack.execute(
             player, target_id, weapon_name, self.state,
@@ -1423,13 +1421,30 @@ class ActionTurnManager:
     # ================================================================
     #  范围攻击执行
     # ================================================================
-    def _execute_area_attack(self, player, weapon, override_killer=None):
+    def _execute_area_attack(self, player, weapon,
+                              target_id=None, layer_str=None, attr_str=None,
+                              override_killer=None):
         killer = override_killer or player
         from combat.damage_resolver import resolve_area_damage
+
+        # 转换层/属性字符串
+        from models.equipment import ArmorLayer
+        from utils.attribute import Attribute
+        target_layer = None
+        target_armor_attr = None
+        if layer_str and attr_str:
+            try:
+                target_layer = ArmorLayer(layer_str)
+                target_armor_attr = Attribute(attr_str)
+            except ValueError:
+                pass
 
         results = resolve_area_damage(
             attacker=player, weapon=weapon,
             location=player.location, game_state=self.state,
+            target_id=target_id,
+            target_layer=target_layer,
+            target_armor_attr=target_armor_attr,
         )
 
         lines = [f"🌍 {player.name} 使用「{weapon.name}」发动范围攻击！"]

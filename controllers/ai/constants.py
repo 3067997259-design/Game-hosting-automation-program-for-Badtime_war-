@@ -80,6 +80,9 @@ NEED_PROVIDERS = {
     "military_pass": [
         ("军事基地", "通行证", "free"),
     ],
+    "whetstone": [
+        ("商店", "磨刀石", "voucher"),
+    ],
 }
 # 不可消耗的被动物品（消耗后会失去关键能力）
 PROTECTED_ITEMS = {"防毒面具", "隐身衣", "热成像仪", "隐形涂层", "雷达", "探测魔法"}
