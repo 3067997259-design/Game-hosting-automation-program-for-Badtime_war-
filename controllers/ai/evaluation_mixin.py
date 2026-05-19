@@ -482,18 +482,22 @@ class EvaluationMixin(_Base):
             power = self._estimate_power(target)
             # 星野特殊威胁调整：加在 power 上参与 EMA 衰减，避免无限累积
             t_talent = getattr(target, 'talent', None)
-            if t_talent and getattr(t_talent, 'name', '') == "大叔我啊，剪短发了":
+            terror_defense = getattr(self, '_terror_defense', None)
+            if t_talent and getattr(t_talent, 'is_terror', False):
+                if terror_defense is not None:
+                    power = terror_defense.modify_threat_power(target, power)
+                else:
+                    power += 200  # Terror 最高优先级
+            elif t_talent and getattr(t_talent, 'self_doubt_pending', False):
+                if terror_defense is not None:
+                    power = terror_defense.modify_threat_power(target, power)
+                else:
+                    power += 150  # 即将变 Terror
+            elif t_talent and getattr(t_talent, 'name', '') == "大叔我啊，剪短发了":
                 if getattr(t_talent, 'tactical_unlocked', False) and len(getattr(t_talent, 'ammo', [])) > 0:
                     power += 50  # 有弹药，爆发威胁
                 elif not getattr(t_talent, 'tactical_unlocked', False):
                     power -= 20  # 未解锁，前期脆弱
-            # ════════════════════════════════════════════════════
-            #  TerrorDefenseAI：统一Terror/自我怀疑威胁评估
-            #  （替代硬编码的 is_terror/self_doubt_pending 判断）
-            # ════════════════════════════════════════════════════
-            terror_defense = getattr(self, '_terror_defense', None)
-            if terror_defense is not None:
-                power = terror_defense.modify_threat_power(target, power)
             existing = self._threat_scores.get(target.name, 0)
             # 衰减历史威胁 + 新威胁
             updated = existing * 0.8 + power * 0.2
