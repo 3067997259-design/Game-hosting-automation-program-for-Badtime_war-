@@ -312,8 +312,6 @@ class EvaluationMixin(_Base):
             effective_hp = self._get_effective_hp(player)
             if effective_hp <= 1.0:
                 return False
-        if self._is_at_disadvantage(player, target) and self.personality == "defensive":
-            return False
         # ════════════════════════════════════════════════════════
         #  人格策略：统一撤退判定
         # ════════════════════════════════════════════════════════
