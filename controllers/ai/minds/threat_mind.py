@@ -51,6 +51,7 @@ class ThreatMind(BaseMind):
         count_inner_armor_fn=None,
         count_locked_by_fn=None,
         is_anchored_fn=None,
+        ctx=None,
     ) -> MindAssessment:
         """分析威胁态势。
 
@@ -81,6 +82,21 @@ class ThreatMind(BaseMind):
                 - best_weapon_damage: float 最强武器伤害
                 - threat_ranking: List[(name, score)] 威胁排行（降序）
         """
+        # 优先从 OrchestratorContext 读取，兼容旧调用方式
+        if ctx is not None:
+            previous_threat_scores = previous_threat_scores if previous_threat_scores is not None else ctx.threat_scores
+            low_threat_streak = low_threat_streak if low_threat_streak is not None else ctx.low_threat_streak
+            been_attacked_by = been_attacked_by if been_attacked_by is not None else ctx.been_attacked_by
+            llm_aggression_mod = llm_aggression_mod or ctx.llm_aggression_mod
+            polices_cache = polices_cache if polices_cache is not None else ctx.police_cache
+            if count_outer_armor_fn is None and self._query:
+                count_outer_armor_fn = self._query.count_outer_armor
+            if count_inner_armor_fn is None and self._query:
+                count_inner_armor_fn = self._query.count_inner_armor
+            if count_locked_by_fn is None and self._query:
+                count_locked_by_fn = self._query.count_locked_by
+            if is_anchored_fn is None and self._query:
+                is_anchored_fn = self._query.is_anchored
         threat_scores = dict(previous_threat_scores or {})
         streak = dict(low_threat_streak or {})
 

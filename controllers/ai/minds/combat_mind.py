@@ -41,6 +41,7 @@ class CombatMind(BaseMind):
         terror_defense=None,
         star_follow_up_rounds: int = 0,
         llm_aggression_mod: float = 0.0,
+        ctx=None,
     ) -> MindAssessment:
         """分析战斗态势。
 
@@ -52,6 +53,17 @@ class CombatMind(BaseMind):
             - combat_ready: bool 是否可以发起攻击
             - all_countered: bool 所有武器是否被克制
         """
+        # 优先从 OrchestratorContext 读取，兼容旧调用方式
+        if ctx is not None:
+            threat_scores = threat_scores if threat_scores is not None else ctx.threat_scores
+            combat_target = combat_target if combat_target is not None else ctx.combat_target
+            in_combat = in_combat or ctx.in_combat
+            police_protected_ids = police_protected_ids if police_protected_ids is not None else ctx.police_protected_ids
+            police_stance = police_stance if police_stance is not None else ctx.police_stance
+            llm_alliance = llm_alliance if llm_alliance is not None else ctx.llm_alliance
+            terror_defense = terror_defense if terror_defense is not None else ctx.terror_defense
+            star_follow_up_rounds = star_follow_up_rounds or ctx.star_follow_up_rounds
+            llm_aggression_mod = llm_aggression_mod or ctx.llm_aggression_mod
         threat_scores = threat_scores or {}
         police_protected = police_protected_ids or set()
         llm_alliance = llm_alliance or set()

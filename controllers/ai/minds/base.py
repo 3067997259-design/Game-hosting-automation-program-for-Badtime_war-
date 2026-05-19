@@ -56,11 +56,12 @@ class BaseMind(ABC):
             # 进入危险处理逻辑
     """
 
-    def __init__(self, debug_name: str = "AI"):
+    def __init__(self, debug_name: str = "AI", query: Any = None):
         self._debug_name = debug_name
+        self._query = query
 
     @abstractmethod
-    def assess(self, player: Any, state: Any, strategy: Any) -> MindAssessment:
+    def assess(self, player: Any, state: Any, strategy: Any, **kwargs) -> MindAssessment:
         """分析当前态势，返回结构化评估。
 
         Args:

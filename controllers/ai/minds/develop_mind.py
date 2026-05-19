@@ -29,6 +29,7 @@ class DevelopMind(BaseMind):
         state: Any,
         strategy: Any,
         talent_hooks: Optional[Dict[str, Any]] = None,
+        ctx=None,
     ) -> MindAssessment:
         """分析发育态势。
 
