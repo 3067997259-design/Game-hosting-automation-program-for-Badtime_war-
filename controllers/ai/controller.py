@@ -688,6 +688,13 @@ class BasicAIController(
                     self._talent_hook_handled = True
                     return override
 
+        # 旧架构下没有天赋钩子实例；Terror 必须仍然优先走全图攻击。
+        if (self._has_hoshino_talent(player)
+                and not self._talent_hook_handled
+                and self._hoshino_is_terror(player)):
+            debug_ai_basic(player.name, "星野Terror：旧架构fallback全图攻击")
+            return self._hoshino_terror_command(player, state, available_actions)
+
         # ===== 病毒应急（最高优先级，优先于terror以外所有战术决策）=====
         if self._needs_virus_cure(player, state):
             debug_ai_basic(player.name, "进入病毒应急模式（优先于战术宏）")
