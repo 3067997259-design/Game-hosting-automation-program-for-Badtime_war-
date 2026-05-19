@@ -67,11 +67,12 @@ class EvaluationMixin(_Base):
         if getattr(player, 'is_captain', False):
             strategy = getattr(self, '_strategy', None)
             if strategy and hasattr(strategy, 'assess_captain_danger'):
-                return strategy.assess_captain_danger(
+                if strategy.assess_captain_danger(
                     player, state,
                     police_cache=self._police_cache or {},
                     count_outer_armor_fn=self._count_outer_armor,
-                )
+                ):
+                    return True
         # 基础：HP极低
         if player.hp <= 0.5:
                 return True

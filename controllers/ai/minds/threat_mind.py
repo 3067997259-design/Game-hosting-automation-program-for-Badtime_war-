@@ -221,13 +221,14 @@ class ThreatMind(BaseMind):
         if self._has_talent(player, "大叔我啊，剪短发了"):
             return self._is_critical_hoshino(player, state, polices_cache, count_outer_armor_fn, count_inner_armor_fn, count_locked_by_fn, is_anchored_fn)
 
-        # 队长危险判定：委托给 Strategy
+        # 队长危险判定：Strategy可额外标记危险，但不跳过基础判定
         if getattr(player, 'is_captain', False) and hasattr(strategy, 'assess_captain_danger'):
-            return strategy.assess_captain_danger(
+            if strategy.assess_captain_danger(
                 player, state,
                 police_cache=polices_cache or {},
                 count_outer_armor_fn=count_outer_armor_fn,
-            )
+            ):
+                return True
 
         # 基础判定
         outer = count_outer_armor_fn(player) if count_outer_armor_fn else 0

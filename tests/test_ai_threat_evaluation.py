@@ -9,27 +9,80 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from controllers.ai.controller import BasicAIController
+from controllers.ai.minds.threat_mind import ThreatMind
 
 
 HOSHINO_TALENT_NAME = "大叔我啊，剪短发了"
 
 
-def _player(name, player_id, talent=None):
-    return SimpleNamespace(
+def _player(name, player_id, talent=None, **attrs):
+    values = dict(
         name=name,
         player_id=player_id,
         talent=talent,
         hp=5.0,
         is_alive=lambda: True,
+        is_captain=False,
+        locked_target=None,
+        location="home",
+        armor=None,
     )
+    values.update(attrs)
+    return SimpleNamespace(**values)
 
 
-def _state(*players):
+def _state(*players, markers=None):
     by_id = {player.player_id: player for player in players}
     return SimpleNamespace(
         player_order=[player.player_id for player in players],
         get_player=lambda player_id: by_id.get(player_id),
+        markers=markers,
     )
+
+
+class _FalseCaptainDangerStrategy:
+    def __init__(self):
+        self.called = False
+
+    def assess_captain_danger(self, player, state, police_cache, count_outer_armor_fn):
+        self.called = True
+        return False
+
+
+class _AnchorMarkers:
+    def __init__(self, anchored_id, anchor_id):
+        self.anchored_id = anchored_id
+        self.anchor_id = anchor_id
+
+    def has_relation(self, source_id, relation, target_id):
+        return (
+            source_id == self.anchored_id
+            and relation == "ANCHORED_BY"
+            and target_id == self.anchor_id
+        )
+
+
+def _count_locked_by(player, state):
+    count = 0
+    for pid in state.player_order:
+        if pid == player.player_id:
+            continue
+        target = state.get_player(pid)
+        if target and target.is_alive():
+            locked = getattr(target, 'locked_target', None)
+            if locked and (locked == player.name or locked == player.player_id):
+                count += 1
+    return count
+
+
+def _is_anchored(player, state):
+    markers = getattr(state, "markers", None)
+    if not markers or not hasattr(markers, "has_relation"):
+        return False
+    for pid in state.player_order:
+        if pid != player.player_id and markers.has_relation(player.player_id, "ANCHORED_BY", pid):
+            return True
+    return False
 
 
 class ThreatEvaluationTest(unittest.TestCase):
@@ -42,6 +95,39 @@ class ThreatEvaluationTest(unittest.TestCase):
         controller._update_threat_scores(player, _state(player, target))
 
         return controller._threat_scores[target.name]
+
+    def _legacy_captain_critical(self, player, state, police_cache=None):
+        controller = BasicAIController(new_arch_enabled=False)
+        controller._strategy = _FalseCaptainDangerStrategy()
+        controller._police_cache = police_cache or {}
+
+        return controller._is_critical(player, state), controller._strategy.called
+
+    def _mind_captain_critical(self, player, state, police_cache=None):
+        strategy = _FalseCaptainDangerStrategy()
+        result = ThreatMind()._is_critical(
+            player,
+            state,
+            strategy,
+            polices_cache=police_cache or {},
+            count_outer_armor_fn=lambda _: 0,
+            count_inner_armor_fn=lambda _: 0,
+            count_locked_by_fn=_count_locked_by,
+            is_anchored_fn=_is_anchored,
+        )
+
+        return result, strategy.called
+
+    def _assert_captain_critical_in_both_paths(self, player, state, police_cache=None):
+        evaluators = (
+            ("legacy", self._legacy_captain_critical),
+            ("threat_mind", self._mind_captain_critical),
+        )
+        for path_name, evaluate in evaluators:
+            with self.subTest(path=path_name):
+                result, strategy_called = evaluate(player, state, police_cache)
+                self.assertTrue(strategy_called)
+                self.assertTrue(result)
 
     def test_legacy_arch_preserves_terror_threat_boost(self):
         talent = SimpleNamespace(
@@ -84,6 +170,69 @@ class ThreatEvaluationTest(unittest.TestCase):
             self._evaluate_target_score(talent, new_arch_enabled=True),
             60.0,
         )
+
+    def test_captain_strategy_does_not_bypass_builtin_critical_checks(self):
+        cases = []
+
+        captain = _player("Captain", "captain", is_captain=True)
+        cases.append((
+            "police_dispatched",
+            captain,
+            _state(captain),
+            {"report_target": "captain", "report_phase": "dispatched"},
+        ))
+
+        captain = _player("Captain", "captain", is_captain=True)
+        cases.append((
+            "locked_by_multiple_players",
+            captain,
+            _state(
+                captain,
+                _player("Enemy1", "e1", locked_target="captain"),
+                _player("Enemy2", "e2", locked_target="captain"),
+            ),
+            {},
+        ))
+
+        captain = _player("Captain", "captain", is_captain=True)
+        cases.append((
+            "anchored",
+            captain,
+            _state(
+                captain,
+                _player("Anchor", "anchor"),
+                markers=_AnchorMarkers("captain", "anchor"),
+            ),
+            {},
+        ))
+
+        captain = _player("Captain", "captain", is_captain=True)
+        cases.append((
+            "burned_without_armor",
+            captain,
+            _state(
+                captain,
+                _player("Burner", "burner", talent=SimpleNamespace(burn_targets={"captain": 1})),
+            ),
+            {},
+        ))
+
+        for case_name, player, state, police_cache in cases:
+            with self.subTest(case=case_name):
+                self._assert_captain_critical_in_both_paths(player, state, police_cache)
+
+    def test_captain_strategy_false_can_still_resolve_to_safe(self):
+        captain = _player("Captain", "captain", is_captain=True)
+        state = _state(captain)
+
+        for path_name, evaluate in (
+            ("legacy", self._legacy_captain_critical),
+            ("threat_mind", self._mind_captain_critical),
+        ):
+            with self.subTest(path=path_name):
+                result, strategy_called = evaluate(captain, state)
+                self.assertTrue(strategy_called)
+                self.assertFalse(result)
 
 
 if __name__ == "__main__":
