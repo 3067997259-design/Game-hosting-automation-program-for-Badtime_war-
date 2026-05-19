@@ -9,7 +9,9 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from controllers.ai.controller import BasicAIController
+from controllers.ai.minds.combat_mind import CombatMind
 from controllers.ai.strategies.aggressive_strategy import AggressiveStrategy
+from controllers.ai.strategies.base_strategy import BasePersonalityStrategy
 
 
 def _target(name, player_id):
@@ -101,6 +103,79 @@ class CombatTargetScoringTest(unittest.TestCase):
         )
 
         self.assertIs(controller._pick_target(player, _state(active, passive)), passive)
+
+    def test_llm_aggression_changes_target_ranking_relatively(self):
+        controller = BasicAIController()
+        dangerous = _target("Dangerous", "p2")
+        safer = _target("Safer", "p3")
+        player = SimpleNamespace(player_id="p1", name="Attacker", weapons=[])
+
+        _neutralize_target_scoring(
+            controller,
+            {
+                "Dangerous": 100.0,
+                "Safer": 100.0,
+            },
+        )
+        controller._threat_scores = {
+            "Dangerous": 20.0,
+            "Safer": 10.0,
+        }
+
+        controller._llm_aggression_mod = -20.0
+        self.assertIs(controller._pick_target(player, _state(dangerous, safer)), safer)
+
+        controller._llm_aggression_mod = 20.0
+        self.assertIs(controller._pick_target(player, _state(dangerous, safer)), dangerous)
+
+    def test_combat_mind_llm_aggression_changes_target_ranking_relatively(self):
+        mind = CombatMind()
+        dangerous = _target("Dangerous", "p2")
+        safer = _target("Safer", "p3")
+        player = SimpleNamespace(player_id="p1", name="Attacker", weapons=[])
+        state = _state(dangerous, safer)
+        threat_scores = {
+            "Dangerous": 20.0,
+            "Safer": 10.0,
+        }
+
+        mind._is_valid_target = MethodType(lambda self, p, t, s: True, mind)
+        mind._same_location = MethodType(lambda self, p, t: False, mind)
+        mind._get_effective_hp = MethodType(lambda self, target: 5.0, mind)
+        mind._count_armor = MethodType(lambda self, target, armor_type: 1, mind)
+        mind._estimate_power = MethodType(lambda self, target: 100.0, mind)
+
+        scored = mind._score_targets(
+            player,
+            state,
+            BasePersonalityStrategy(),
+            threat_scores,
+            combat_target=None,
+            in_combat=False,
+            police_protected=set(),
+            police_stance=None,
+            police_mind=None,
+            llm_alliance=set(),
+            terror_defense=None,
+            llm_aggression_mod=-20.0,
+        )
+        self.assertIs(scored[0][0], safer)
+
+        scored = mind._score_targets(
+            player,
+            state,
+            BasePersonalityStrategy(),
+            threat_scores,
+            combat_target=None,
+            in_combat=False,
+            police_protected=set(),
+            police_stance=None,
+            police_mind=None,
+            llm_alliance=set(),
+            terror_defense=None,
+            llm_aggression_mod=20.0,
+        )
+        self.assertIs(scored[0][0], dangerous)
 
 
 if __name__ == "__main__":

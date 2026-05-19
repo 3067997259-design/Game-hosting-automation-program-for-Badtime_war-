@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 
 _Base = BasicAIController if TYPE_CHECKING else object
 
+_LLM_AGGRESSION_TARGET_BIAS_SCALE = 0.2
+_LLM_AGGRESSION_TARGET_BIAS_CLAMP = 60.0
+
 
 class CombatMixin(_Base):
 
@@ -469,10 +472,29 @@ class CombatMixin(_Base):
             (self._estimate_power(c) for c in candidates),
             default=0
         )
+        threat_by_name = {
+            c.name: self._threat_scores.get(c.name, 0)
+            for c in candidates
+        }
+        avg_threat = sum(threat_by_name.values()) / len(candidates)
+        llm_aggression = getattr(self, '_llm_aggression_mod', 0.0)
         def score(t):
             s = 0
             strategy = getattr(self, '_strategy', None)
-            s += self._threat_scores.get(t.name, 0) * 2
+            threat_score = threat_by_name.get(t.name, 0)
+            s += threat_score * 2
+            if llm_aggression != 0.0:
+                # 正值更愿意挑战高于平均威胁的目标；负值更倾向避开强敌。
+                aggression_bias = (
+                    (threat_score - avg_threat)
+                    * llm_aggression
+                    * _LLM_AGGRESSION_TARGET_BIAS_SCALE
+                )
+                aggression_bias = max(
+                    -_LLM_AGGRESSION_TARGET_BIAS_CLAMP,
+                    min(_LLM_AGGRESSION_TARGET_BIAS_CLAMP, aggression_bias),
+                )
+                s += aggression_bias
             if t.name in self._been_attacked_by:
                 s += 50
             if self._same_location(player, t):

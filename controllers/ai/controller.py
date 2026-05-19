@@ -177,7 +177,7 @@ class BasicAIController(
         # ════════════════════════════════════════════════════
         #  LLM 行为调整接口（由 AIChatModule 通过 [ADJUST] 写入）
         #  - _llm_alliance: LLM认为的盟友集合 → _pick_target 降低对其的攻击优先级
-        #  - _llm_aggression_mod: LLM调整的攻击倾向 [-20, +20] → 全局影响威胁评估
+        #  - _llm_aggression_mod: LLM调整的攻击倾向 [-20, +20] → 影响目标选择评分
         # ════════════════════════════════════════════════════
         self._llm_alliance: set = set()
         self._llm_aggression_mod: float = 0.0

@@ -377,6 +377,7 @@ class DecisionOrchestrator:
                     llm_alliance=self._get_llm_alliance(),
                     terror_defense=self._get_terror_defense(),
                     star_follow_up_rounds=self._star_follow_up_rounds,
+                    llm_aggression_mod=self._get_llm_aggression(),
                 )
                 break
 

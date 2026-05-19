@@ -171,6 +171,39 @@ class ThreatEvaluationTest(unittest.TestCase):
             60.0,
         )
 
+    def test_llm_aggression_is_not_added_uniformly_to_legacy_threat_scores(self):
+        controller = BasicAIController()
+        controller._llm_aggression_mod = 10.0
+        controller._estimate_power = MethodType(lambda self, target: 100.0, controller)
+
+        observer = _player("Observer", "p1")
+        enemy_a = _player("EnemyA", "p2")
+        enemy_b = _player("EnemyB", "p3")
+
+        controller._update_threat_scores(observer, _state(observer, enemy_a, enemy_b))
+
+        self.assertEqual(controller._threat_scores[enemy_a.name], 20.0)
+        self.assertEqual(controller._threat_scores[enemy_b.name], 20.0)
+
+    def test_llm_aggression_is_not_added_uniformly_to_threat_mind_scores(self):
+        mind = ThreatMind()
+        mind._estimate_power = MethodType(lambda self, target: 100.0, mind)
+
+        observer = _player("Observer", "p1")
+        enemy_a = _player("EnemyA", "p2")
+        enemy_b = _player("EnemyB", "p3")
+
+        assessment = mind.assess(
+            observer,
+            _state(observer, enemy_a, enemy_b),
+            strategy=None,
+            llm_aggression_mod=10.0,
+        )
+
+        threat_scores = assessment.data["threat_scores"]
+        self.assertEqual(threat_scores[enemy_a.name], 20.0)
+        self.assertEqual(threat_scores[enemy_b.name], 20.0)
+
     def test_captain_strategy_does_not_bypass_builtin_critical_checks(self):
         cases = []
 

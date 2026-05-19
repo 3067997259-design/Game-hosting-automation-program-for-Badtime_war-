@@ -61,7 +61,7 @@ class ThreatMind(BaseMind):
             previous_threat_scores: 上一轮的 EMA 威胁分（跨轮次状态由 Orchestrator 维护）
             low_threat_streak: 安静发育者连击计数
             been_attacked_by: 本局攻击过我的玩家名集合
-            llm_aggression_mod: LLM 攻击倾向调整
+            llm_aggression_mod: LLM 攻击倾向调整（目标选择阶段按相对威胁使用）
             polices_cache: 警察态势缓存（来自 PoliceMind）
             count_outer_armor_fn: 统计外甲数量函数
             count_inner_armor_fn: 统计内甲数量函数
@@ -118,8 +118,6 @@ class ThreatMind(BaseMind):
             # EMA衰减
             existing = threat_scores.get(target.name, 0)
             updated = existing * 0.8 + power * 0.2
-            if llm_aggression_mod != 0.0:
-                updated += llm_aggression_mod * 0.5
             threat_scores[target.name] = updated
 
         # ── 安静发育者检测 ──

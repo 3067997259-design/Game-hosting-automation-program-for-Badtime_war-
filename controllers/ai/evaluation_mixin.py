@@ -502,14 +502,6 @@ class EvaluationMixin(_Base):
             existing = self._threat_scores.get(target.name, 0)
             # 衰减历史威胁 + 新威胁
             updated = existing * 0.8 + power * 0.2
-            # ════════════════════════════════════════════════════
-            #  LLM 行为调整：攻击倾向影响威胁敏感度
-            #  aggression_mod > 0 → 全局提高威胁评估（更激进）
-            #  aggression_mod < 0 → 全局降低威胁评估（更保守）
-            # ════════════════════════════════════════════════════
-            llm_aggression = getattr(self, '_llm_aggression_mod', 0.0)
-            if llm_aggression != 0.0:
-                updated += llm_aggression * 0.5  # 每点aggression加0.5威胁分
             self._threat_scores[target.name] = updated
         # 检测安静发育者：连续多轮处于最低威胁的玩家
         alive_threats = {

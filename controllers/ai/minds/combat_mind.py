@@ -19,6 +19,9 @@ from controllers.ai.constants import (
     debug_ai_basic, debug_ai_attack_generation,
 )
 
+_LLM_AGGRESSION_TARGET_BIAS_SCALE = 0.2
+_LLM_AGGRESSION_TARGET_BIAS_CLAMP = 60.0
+
 
 class CombatMind(BaseMind):
     """战斗分析器。"""
@@ -37,6 +40,7 @@ class CombatMind(BaseMind):
         llm_alliance: Optional[Set[str]] = None,
         terror_defense=None,
         star_follow_up_rounds: int = 0,
+        llm_aggression_mod: float = 0.0,
     ) -> MindAssessment:
         """分析战斗态势。
 
@@ -59,6 +63,7 @@ class CombatMind(BaseMind):
             police_stance, police_mind,
             llm_alliance, terror_defense,
             star_follow_up_rounds=star_follow_up_rounds,
+            llm_aggression_mod=llm_aggression_mod,
         )
 
         best_target = scored[0][0] if scored else None  # 元组 (target, score) → 取 target
@@ -102,9 +107,11 @@ class CombatMind(BaseMind):
         police_stance, police_mind,
         llm_alliance, terror_defense,
         star_follow_up_rounds: int = 0,
+        llm_aggression_mod: float = 0.0,
     ) -> List:
         """对所有可攻击目标评分，返回 [(target, score)] 降序列表"""
         scored = []
+        targets = []
 
         for pid in state.player_order:
             if pid == player.player_id:
@@ -116,13 +123,26 @@ class CombatMind(BaseMind):
                 continue
             # ★ 不在此处过滤可达性——近战武器可通过 move+find 攻击远处目标
             # _build_attack_commands 负责生成必要的 move 指令
+            targets.append(target)
 
+        threat_by_name = {
+            target.name: threat_scores.get(target.name, 0)
+            for target in targets
+        }
+        avg_threat = (
+            sum(threat_by_name.values()) / len(targets)
+            if targets else 0
+        )
+
+        for target in targets:
             score = self._score_target(
                 player, target, state, strategy, threat_scores,
                 combat_target, in_combat, police_protected,
                 police_stance, police_mind,
                 llm_alliance, terror_defense,
                 star_follow_up_rounds=star_follow_up_rounds,
+                avg_threat=avg_threat,
+                llm_aggression_mod=llm_aggression_mod,
             )
             if score > -999:
                 scored.append((target, score))
@@ -136,9 +156,24 @@ class CombatMind(BaseMind):
         police_stance, police_mind,
         llm_alliance, terror_defense,
         star_follow_up_rounds: int = 0,
+        avg_threat: float = 0.0,
+        llm_aggression_mod: float = 0.0,
     ) -> float:
         """对单个目标评分，包含警察保护穿透判定 + 天星补刀加成。"""
-        base = threat_scores.get(target.name, 0)
+        threat_score = threat_scores.get(target.name, 0)
+        base = threat_score
+        if llm_aggression_mod != 0.0:
+            # 正值更愿意挑战高于平均威胁的目标；负值更倾向避开强敌。
+            aggression_bias = (
+                (threat_score - avg_threat)
+                * llm_aggression_mod
+                * _LLM_AGGRESSION_TARGET_BIAS_SCALE
+            )
+            aggression_bias = max(
+                -_LLM_AGGRESSION_TARGET_BIAS_CLAMP,
+                min(_LLM_AGGRESSION_TARGET_BIAS_CLAMP, aggression_bias),
+            )
+            base += aggression_bias
 
         # 当前战斗目标加分
         if in_combat and combat_target and target.player_id == combat_target.player_id:
