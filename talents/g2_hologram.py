@@ -287,7 +287,7 @@ class Hologram(BaseTalent):
             roll = roll_d6()
             old_loc = p.location or "未知"
 
-            if roll >= 3:
+            if roll >= 4:
                 # Pulled! Force move to hologram location
                 p.location = self.location
                 # Trigger marker cleanup for the forced move (clear locks/engaged from old location)
@@ -445,11 +445,11 @@ class Hologram(BaseTalent):
         return result
 
     def on_d4_bonus(self, player):
-        """全息影像存在期间，释放者D4点数+3"""
+        """全息影像存在期间，释放者D4点数+1"""
         if not self.active:
             return 0
         if player.player_id == self.player_id:
-            return 3
+            return 1
         return 0
 
     # ============================================
@@ -514,9 +514,9 @@ class Hologram(BaseTalent):
 
     def _get_bonus_damage(self):
         """影像内额外伤害（含涟漪叠加易伤）"""
-        base = 1.0
+        base = 0.5
         if self.enhanced:
-            base = 1.5
+            base = 1.0
         return base + getattr(self, 'ripple_extra_vulnerability', 0.0)
 
     def get_bonus_damage(self, target_id):
@@ -538,7 +538,7 @@ class Hologram(BaseTalent):
             return raw_damage
         if target.player_id != self.player_id:
             return raw_damage
-        reduced = max(0, raw_damage - 1)
+        reduced = max(0, raw_damage - 0)
         display.show_info(f"  👁️ 全息影像发动者减伤：{raw_damage} → {reduced}")
         return reduced
 
@@ -565,11 +565,11 @@ class Hologram(BaseTalent):
             else:
                 self.stay_count[pid] = 0
 
-        # 震荡检查：连续停留2轮再次震荡
+        # 震荡检查：连续停留3轮再次震荡
         for pid, count in self.stay_count.items():
             if pid == self.player_id:
                 continue  # 发动者免疫
-            if count >= 2:
+            if count >= 3:
                 p = self.state.get_player(pid)
                 if p and p.is_alive() and not p.is_shocked:
                     # 六爻·元亨利贞：免疫震荡
@@ -582,7 +582,7 @@ class Hologram(BaseTalent):
                         display.show_info(
                             prompt_manager.get_prompt(
                                 "talent", "g2eternity.shock_from_stay",
-                                default="  \U0001f441\u26a1 {player_name} 在全息影像中连续停留2轮，再次进入震荡！"
+                                default="  \U0001f441\u26a1 {player_name} 在全息影像中连续停留3轮，再次进入震荡！"
                             ).format(player_name=p.name)
                         )
                     # 重置计数，下次再停留2轮才会再次触发

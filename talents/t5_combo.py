@@ -58,10 +58,10 @@ class Combo(BaseTalent):
 
         self._bonus_round_active = True
 
-        # 应用 +1 HP（不叠加）
+        # 应用 +1 HP（永久叠加，上限 2.0）
         if not self._bonus_hp_applied:
-            player.max_hp += 1.0
-            player.hp += 1.0
+            player.max_hp = min(2.0, player.max_hp + 1.0)
+            player.hp = min(player.max_hp, player.hp + 1.0)
             self._bonus_hp_applied = True
             display.show_info(
                 f"🔥 Combo！{player.name} 本轮获得 +1 HP 和 +1 攻击力！")
@@ -72,13 +72,9 @@ class Combo(BaseTalent):
         if not player or not player.is_alive():
             return
 
-        # 移除奖励回合的临时 HP
-        if self._bonus_hp_applied:
-            player.max_hp = max(1.0, player.max_hp - 1.0)
-            if player.hp > player.max_hp:
-                player.hp = player.max_hp
-            self._bonus_hp_applied = False
-            self._bonus_round_active = False
+        # HP 永久保留（上限由 on_round_start 的 min(3.0, ...) 控制）
+        self._bonus_hp_applied = False
+        self._bonus_round_active = False
 
         # 清除本轮的 D4/D6 强制（已使用）
         self._d4_force = False
