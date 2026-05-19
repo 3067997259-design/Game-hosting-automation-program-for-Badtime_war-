@@ -82,6 +82,8 @@ class DecisionOrchestrator:
         self._combat_target: Any = None
         self._danger_mode: bool = False
         self._been_attacked_by: Set[str] = set()
+        self._last_combat_location = None
+        self._combat_just_ended_at = None
 
         # T3 天星补刀追踪
         self._star_prev_uses: Optional[int] = None   # 上轮剩余次数（检测是否刚发动）
@@ -98,6 +100,8 @@ class DecisionOrchestrator:
         self._in_combat = s.in_combat
         self._combat_target = s.combat_target
         self._danger_mode = s.danger_mode
+        self._last_combat_location = s.last_combat_location
+        self._combat_just_ended_at = s.combat_just_ended_at
         self._star_follow_up_rounds = s.star_follow_up_rounds
 
     def _sync_to_shared_state(self):
@@ -111,6 +115,9 @@ class DecisionOrchestrator:
         s.in_combat = self._in_combat
         s.combat_target = self._combat_target
         s.danger_mode = self._danger_mode
+        s.last_combat_location = self._last_combat_location
+        s.combat_just_ended_at = self._combat_just_ended_at
+        s.police_cache = getattr(self._ctrl, '_police_cache', None)
         s.star_follow_up_rounds = self._star_follow_up_rounds
 
     def _sync_to_controller_state(self):
@@ -123,11 +130,41 @@ class DecisionOrchestrator:
         self._ctrl._in_combat = self._in_combat
         self._ctrl._combat_target = self._combat_target
         self._ctrl._danger_mode = self._danger_mode
+        self._ctrl._last_combat_location = self._last_combat_location
+        self._ctrl._combat_just_ended_at = self._combat_just_ended_at
 
     def _persist_state(self):
         """统一保存新架构状态，覆盖正常返回和提前返回路径。"""
         self._sync_to_shared_state()
         self._sync_to_controller_state()
+
+    def _sync_combat_status_from_markers(self, player, state):
+        """复刻旧 _update_combat_status：用 ENGAGED_WITH 标记维护战斗状态。"""
+        markers = getattr(state, 'markers', None)
+        current_target = None
+        if markers and hasattr(markers, 'has_relation'):
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if target and target.is_alive():
+                    if markers.has_relation(player.player_id, "ENGAGED_WITH", pid):
+                        current_target = target
+                        break
+
+        if current_target:
+            self._in_combat = True
+            self._combat_target = current_target
+            self._last_combat_location = GameQuery.get_location_str(player)
+            self._combat_just_ended_at = None
+        else:
+            if self._in_combat:
+                self._combat_just_ended_at = self._last_combat_location
+                debug_ai_basic(player.name, f"战斗结束于 {self._last_combat_location}")
+            else:
+                self._combat_just_ended_at = None
+            self._in_combat = False
+            self._combat_target = None
 
     def _build_ctx(self, state=None) -> OrchestratorContext:
         """从当前 Orchestrator 状态构建上下文快照供 CommandBuilder 使用。"""
@@ -197,6 +234,9 @@ class DecisionOrchestrator:
         self._ctrl._player = player
         self._ctrl._game_state = state
         self._ctrl._read_police_state(state)
+        if self._shared_state:
+            self._shared_state.police_cache = getattr(self._ctrl, '_police_cache', None)
+        self._sync_combat_status_from_markers(player, state)
 
         # 同步 political 降级状态（旧 mixin 方法依赖）
         if self._ctrl.personality == "political":
@@ -608,7 +648,10 @@ class DecisionOrchestrator:
             self._danger_mode = True
             if self._goal_stack:
                 self._goal_stack.interrupt_all()
-                safe_loc = self._ctrl._pick_safe_armor_destination(player, state)
+                if getattr(player, 'is_captain', False):
+                    safe_loc = self._ctrl._pick_captain_safe_destination(player, state)
+                else:
+                    safe_loc = self._ctrl._pick_safe_armor_destination(player, state)
                 if safe_loc:
                     from controllers.ai.goals.flee_goal import FleeGoal
                     flee = FleeGoal(destination=safe_loc, debug_name=player.name)
@@ -620,7 +663,11 @@ class DecisionOrchestrator:
                 debug_ai_basic(player.name, "危险解除")
                 self._danger_mode = False
                 if self._goal_stack:
+                    for goal in self._goal_stack.all_goals:
+                        if hasattr(goal, '_danger_resolved'):
+                            goal._danger_resolved = True
                     self._goal_stack.resume_all()
+                    self._goal_stack.pop_expired(player, state)
                 return []
 
             # 仍在危险中
@@ -743,7 +790,8 @@ class DecisionOrchestrator:
         # 如果正在战斗中
         if self._in_combat and self._combat_target:
             if self._ctrl._should_continue_combat(player, self._combat_target):
-                combat_cmds = combat.data.get("combat_commands", [])
+                combat_cmds = self._build_forced_attack_commands(
+                    player, state, available, self._combat_target)
                 if combat_cmds:
                     debug_ai_combat_state(player.name, f"战斗目标: {self._combat_target.name}")
                     return combat_cmds
@@ -778,14 +826,8 @@ class DecisionOrchestrator:
                     self._push_combat_goal(best_target, player, round_num)
                     # 如果目标切换了，需要重新生成攻击指令
                     if best_target != combat.data.get("best_target"):
-                        from controllers.ai.minds.combat_mind import CombatMind as CM
-                        cm = CM(debug_name=player.name)
-                        pe = getattr(state, 'police_engine', None)
-                        protected = {pid for pid in state.player_order
-                                     if pe and pe.is_protected_by_police(pid)} if pe else set()
-                        weapon = cm._pick_weapon(player, best_target, police_protected_ids=protected)
-                        if weapon:
-                            combat_cmds = cm._build_attack_commands(player, best_target, weapon, state)
+                        combat_cmds = self._build_forced_attack_commands(
+                            player, state, available, best_target)
                     return combat_cmds
 
         # 发育完成后尝试攻击
@@ -806,8 +848,7 @@ class DecisionOrchestrator:
     # ── 击杀机会 ──
     def _handle_kill_opportunity(self, player, state, available, snapshots, round_num) -> List[str]:
         threat = snapshots.get("threat")
-        combat = snapshots.get("combat")
-        if not threat or not combat:
+        if not threat:
             return []
 
         kill_targets = threat.data.get("kill_targets", [])
@@ -817,7 +858,7 @@ class DecisionOrchestrator:
         # 拿第一个可击杀目标
         for kt in kill_targets:
             target = kt.get("target")
-            if target and combat.data.get("combat_ready"):
+            if target:
                 cmds = self._build_forced_attack_commands(player, state, available, target)
                 if cmds:
                     self._push_combat_goal(target, player, round_num, priority=7)

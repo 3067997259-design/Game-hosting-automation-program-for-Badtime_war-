@@ -397,6 +397,8 @@ class BasicAIController(
         self._update_threat_scores(player, state)
         self._read_police_state(state)
         self._cleanup_dead_players(state)
+        if self._uses_new_arch_events():
+            self._sync_controller_to_ai_state()
 
         source_lookup = context.get("source_lookup", {})
         collected_actions = context.get("collected_actions", [])
@@ -1697,6 +1699,38 @@ class BasicAIController(
         self._virus_active = s.virus_active
         self._virus_location = s.virus_location
 
+    def _sync_controller_to_ai_state(self) -> None:
+        """少数旧 helper 路径仍会写 controller 字段，写完后同步回 AIState。"""
+        s = getattr(self, '_ai_state', None)
+        if not s:
+            return
+        s.threat_scores = dict(self._threat_scores)
+        s.low_threat_streak = dict(self._low_threat_streak)
+        s.been_attacked_by = set(self._been_attacked_by)
+        s.players_who_attacked = set(self._players_who_attacked)
+        s.in_combat = self._in_combat
+        s.combat_target = self._combat_target
+        s.danger_mode = self._danger_mode
+        s.police_cache = self._police_cache
+        s.virus_active = self._virus_active
+        s.virus_location = self._virus_location
+
+    def _cleanup_dead_players_new(self, state) -> None:
+        s = getattr(self, '_ai_state', None)
+        if not s:
+            self._cleanup_dead_players(state)
+            return
+        dead_names = []
+        for pid in state.player_order:
+            target = state.get_player(pid)
+            if target and not target.is_alive():
+                dead_names.append(target.name)
+        for name in dead_names:
+            s.threat_scores.pop(name, None)
+            s.been_attacked_by.discard(name)
+            s.players_who_attacked.discard(name)
+        self._mirror_ai_state_to_controller()
+
     def _on_event_new(self, event: Dict) -> None:
         """新架构路径的事件处理"""
         self.event_log.append(event)
@@ -1760,6 +1794,7 @@ class BasicAIController(
         self._action_used = False
         self._missile_cooldown = max(0, self._missile_cooldown - 1)
         self._update_caches_new(player, state)
+        self._cleanup_dead_players_new(state)
         s = getattr(self, '_ai_state', None)
         if s:
             s.round_number = round_number
@@ -1797,6 +1832,12 @@ class BasicAIController(
         threat_scores = s.threat_scores if s else self._threat_scores
         if killed_name in threat_scores:
             del threat_scores[killed_name]
+        if s:
+            s.been_attacked_by.discard(killed_name)
+            s.players_who_attacked.discard(killed_name)
+        else:
+            self._been_attacked_by.discard(killed_name)
+            self._players_who_attacked.discard(killed_name)
         if killer_name and killer_name != player.name:
             threat_scores[killer_name] = threat_scores.get(killer_name, 0) + 30
         if s:
