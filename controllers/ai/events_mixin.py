@@ -1,4 +1,10 @@
-"""EventsMixin —— 事件处理、轮次回调、响应窗口、调试输出"""
+"""
+[FROZEN] 旧架构 Mixin —— 仅供 use_new_arch=False 时使用。
+新逻辑请添加到对应的新架构模块（game_query / command_builder / talents）。
+不要修改此文件，除非是修复旧架构专属的 bug。
+
+EventsMixin —— 事件处理、轮次回调、响应窗口、调试输出
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Dict, Optional, Any
 from controllers.ai.constants import debug_ai_basic

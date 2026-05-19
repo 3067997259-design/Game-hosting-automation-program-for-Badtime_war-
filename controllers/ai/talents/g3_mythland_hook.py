@@ -12,7 +12,7 @@ MythlandAIHook —— G3「神话之外」天赋AI钩子
 """
 
 from __future__ import annotations
-from typing import List, Optional, Any
+from typing import Dict, List, Optional, Any
 import random
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.constants import debug_ai_basic
@@ -56,7 +56,8 @@ class MythlandAIHook(BaseTalentAIHook):
     # ════════════════════════════════════════════════════════
 
     def handle_choose(
-        self, player: Any, situation: str, options: List[str]
+        self, player: Any, state: Any, situation: str,
+        options: List[str], context: Dict,
     ) -> Optional[str]:
         """处理 G3 相关的 choose 决策。返回 None 表示走默认逻辑。"""
 
@@ -70,7 +71,6 @@ class MythlandAIHook(BaseTalentAIHook):
             if not player_opts:
                 return "不拉人"
 
-            state = getattr(self._ctrl, '_game_state', None)
             if not state:
                 return player_opts[0]
 

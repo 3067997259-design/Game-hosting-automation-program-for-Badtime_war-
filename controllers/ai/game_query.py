@@ -291,6 +291,45 @@ class GameQuery:
         return names
 
     @staticmethod
+    def get_aoe_weapon_name(player) -> Optional[str]:
+        for w in getattr(player, 'weapons', []):
+            name = w.name if hasattr(w, 'name') else str(w)
+            if name in POLICE_AOE_WEAPONS:
+                return name
+        learned = getattr(player, 'learned_spells', set())
+        if "地动山摇" in learned:
+            return "地动山摇"
+        if "地震" in learned:
+            return "地震"
+        return None
+
+    @staticmethod
+    def has_effective_aoe_against(player, target) -> bool:
+        target_armor_attrs = GameQuery.get_outer_armor_attr(target)
+        if not target_armor_attrs:
+            target_armor_attrs = GameQuery.get_inner_armor_attr(target)
+        if not target_armor_attrs:
+            return True
+        aoe_names = GameQuery.get_all_aoe_weapon_names(player)
+        for aoe_name in aoe_names:
+            aoe_weapon = next((w for w in getattr(player, 'weapons', [])
+                               if w and w.name == aoe_name), None)
+            if not aoe_weapon:
+                from models.equipment import make_weapon
+                aoe_weapon = make_weapon(aoe_name)
+            if not aoe_weapon:
+                continue
+            if (getattr(aoe_weapon, 'requires_charge', False)
+                    and getattr(aoe_weapon, 'charge_mandatory', True)
+                    and not getattr(aoe_weapon, 'is_charged', False)):
+                continue
+            w_attr = GameQuery.get_weapon_attr(aoe_weapon)
+            effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
+            if any(a in effective_set for a in target_armor_attrs):
+                return True
+        return False
+
+    @staticmethod
     def captain_has_police_escort(captain, state) -> bool:
         police = getattr(state, 'police', None)
         if not police:

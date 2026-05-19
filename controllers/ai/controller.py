@@ -22,6 +22,8 @@ from controllers.ai.police_mixin import PoliceMixin
 from controllers.ai.events_mixin import EventsMixin
 
 # 新架构模块（组合优于继承）
+from controllers.ai.game_query import GameQuery
+from controllers.ai.ai_state import AIState
 from controllers.ai.minds.police_mind import PoliceMind, PoliceSituation, PoliceStance
 from controllers.ai.minds.threat_mind import ThreatMind
 from controllers.ai.minds.develop_mind import DevelopMind
@@ -40,6 +42,9 @@ from controllers.ai.talents.hoshino_hook import HoshinoAIHook
 from controllers.ai.talents.g1_g2_g4_hooks import HologramAIHook, SaviorAIHook, FireflyAIHook
 from controllers.ai.talents.g3_mythland_hook import MythlandAIHook
 from controllers.ai.talents.t1_oneslash_hook import OneSlashAIHook
+from controllers.ai.talents.t3_star_hook import StarAIHook
+from controllers.ai.talents.t4_hexagram_hook import HexagramAIHook
+from controllers.ai.talents.g5_ripple_hook import RippleAIHook
 
 # 新架构决策编排器
 from controllers.ai.orchestrator import DecisionOrchestrator
@@ -143,6 +148,7 @@ class BasicAIController(
         self._talent_hook_instances = {}
         self._decision_log: List[Dict] = []
         if self._new_arch_enabled:
+            self._ai_state = AIState()
             self._police_mind = PoliceMind(debug_name="AI")
             self._goal_stack = GoalStack(max_goals=5)
             self._strategy = create_strategy(personality)
@@ -153,6 +159,9 @@ class BasicAIController(
                 "火萤IV型-完全燃烧": FireflyAIHook(self),
                 "神话之外": MythlandAIHook(self),
                 "一刀缭断": OneSlashAIHook(self),
+                "天星": StarAIHook(self),
+                "六爻": HexagramAIHook(self),
+                "往世的涟漪": RippleAIHook(self),
             }
             self._terror_defense = TerrorDefenseAI(debug_name="AI")
 
@@ -172,6 +181,7 @@ class BasicAIController(
                 talent_hooks=self._talent_hook_instances,
                 minds=self._minds,
                 controller=self,
+                ai_state=self._ai_state,
             )
 
         # ════════════════════════════════════════════════════
@@ -1614,6 +1624,222 @@ class BasicAIController(
         if best_loc and best_count > 0:
             return best_loc
         return None  # 没有敌人，不浪费超新星
+
+    # ════════════════════════════════════════════════════════
+    #  新架构：事件回调（Phase 5）
+    # ════════════════════════════════════════════════════════
+
+    def _on_event_new(self, event: Dict) -> None:
+        """新架构路径的事件处理"""
+        self.event_log.append(event)
+        event_type = event.get("type", "")
+        target = event.get("target")
+        attacker = event.get("attacker", "")
+
+        if event_type == "attack" and self.player_name is not None:
+            if target == self.player_name:
+                self._been_attacked_by.add(attacker)
+                self._threat_scores[attacker] = self._threat_scores.get(attacker, 0) + 20
+            self._players_who_attacked.add(attacker)
+
+        if event_type == "find" and self._my_id is not None:
+            finder = event.get("player", "")
+            if target == self._my_id:
+                finder_name = self._pid_to_name(finder)
+                if finder_name:
+                    self._threat_scores[finder_name] = self._threat_scores.get(finder_name, 0) + 10
+
+        if event_type == "lock" and self._my_id is not None:
+            locker = event.get("player", "")
+            if target == self._my_id:
+                locker_name = self._pid_to_name(locker)
+                if locker_name:
+                    self._threat_scores[locker_name] = self._threat_scores.get(locker_name, 0) + 15
+
+        if event_type == "release_virus":
+            releaser_pid = event.get("player", "")
+            releaser_name = self._pid_to_name(releaser_pid)
+            if releaser_name and releaser_name != self.player_name:
+                self._threat_scores[releaser_name] = self._threat_scores.get(releaser_name, 0) + 20
+
+        if event_type == "death":
+            killer = event.get("killer", "")
+            if killer:
+                self._threat_scores[killer] = self._threat_scores.get(killer, 0) + 30
+
+        if event_type == "election":
+            candidate_pid = event.get("player", "")
+            candidate_name = self._pid_to_name(candidate_pid)
+            if candidate_name and candidate_name != self.player_name:
+                self._threat_scores[candidate_name] = self._threat_scores.get(candidate_name, 0) + 10
+
+        if event_type == "captain_elected":
+            captain_pid = event.get("captain", "")
+            captain_name = self._pid_to_name(captain_pid)
+            if captain_name and captain_name != self.player_name:
+                self._threat_scores[captain_name] = self._threat_scores.get(captain_name, 0) + 30
+
+    def _on_round_start_new(self, player, state, round_number: int):
+        """新架构路径的轮次开始"""
+        self._round_number = round_number
+        self._action_used = False
+        self._missile_cooldown = max(0, self._missile_cooldown - 1)
+        self._update_caches_new(player, state)
+        debug_ai_basic(player.name,
+            f"轮次{round_number}开始，人格={self.personality}，"
+            f"阶段={self._current_phase}")
+
+    def _on_round_end_new(self, player, state, round_number: int):
+        """新架构路径的轮次结束"""
+        self._been_attacked_by.clear()
+
+    def _on_damaged_new(self, player, attacker_name: str, damage: float):
+        """新架构路径的被攻击处理"""
+        self._been_attacked_by.add(attacker_name)
+        self._threat_scores[attacker_name] = \
+            self._threat_scores.get(attacker_name, 0) + damage * 10
+        debug_ai_basic(player.name,
+            f"被 {attacker_name} 攻击，伤害={damage}")
+
+    def _on_player_killed_new(self, player, killed_name: str, killer_name: str):
+        """新架构路径的玩家死亡处理"""
+        if killed_name in self._threat_scores:
+            del self._threat_scores[killed_name]
+        if killer_name and killer_name != player.name:
+            self._threat_scores[killer_name] = \
+                self._threat_scores.get(killer_name, 0) + 30
+        debug_ai_basic(player.name,
+            f"玩家 {killed_name} 被 {killer_name} 杀死")
+
+    def _update_caches_new(self, player, state):
+        """新架构路径的缓存更新"""
+        self._police_cache = GameQuery.read_police_state(state)
+        virus = getattr(state, 'virus', None)
+        if virus:
+            self._virus_active = getattr(virus, 'is_active', False)
+            self._virus_location = GameQuery.get_location_str(virus) if hasattr(virus, 'location') else None
+        else:
+            self._virus_active = False
+            self._virus_location = None
+
+    def _respond_to_event_new(self, player, state, event_type: str,
+                               event_data: dict) -> Optional[str]:
+        """新架构路径的事件响应"""
+        debug_ai_basic(player.name,
+            f"响应事件: type={event_type}, data={event_data}")
+
+        talent_name = getattr(getattr(player, 'talent', None), 'name', '')
+        if talent_name and event_type == "天赋触发":
+            hook = self._talent_hook_instances.get(talent_name)
+            if hook and hasattr(hook, 'handle_event_response'):
+                result = hook.handle_event_response(player, state, event_data)
+                if result is not None:
+                    return result
+
+        if event_type == "被攻击":
+            return self._respond_attacked_new(player, state, event_data)
+        elif event_type == "举报":
+            return self._respond_report_new(player, state, event_data)
+        elif event_type == "天赋触发":
+            return self._respond_talent_new(player, state, event_data)
+        elif event_type == "投票":
+            return self._respond_vote_new(player, state, event_data)
+        elif event_type == "警察行动":
+            return self._respond_police_action_new(player, state, event_data)
+        elif event_type == "病毒":
+            return self._respond_virus_new(player, state, event_data)
+        else:
+            debug_ai_basic(player.name, f"未知事件类型: {event_type}")
+            return None
+
+    def _respond_attacked_new(self, player, state, data) -> Optional[str]:
+        attacker = data.get("attacker")
+        if not attacker:
+            return None
+        self._been_attacked_by.add(attacker)
+        options = data.get("options", [])
+        personality = self.personality
+        if "dodge" in options and personality in ("assassin", "defensive"):
+            return "dodge"
+        if "block" in options:
+            return "block"
+        if "counter" in options and personality == "aggressive":
+            return "counter"
+        return options[0] if options else None
+
+    def _respond_report_new(self, player, state, data) -> Optional[str]:
+        reporter = data.get("reporter")
+        target = data.get("target")
+        options = data.get("options", [])
+        if target == player.name:
+            if "deny" in options:
+                return "deny"
+            return options[0] if options else None
+        if "support" in options and "oppose" in options:
+            threat = self._threat_scores.get(target, 0)
+            if threat > 30:
+                return "support"
+            elif self.personality == "political":
+                return "support"
+            else:
+                return "oppose"
+        return options[0] if options else None
+
+    def _respond_talent_new(self, player, state, data) -> Optional[str]:
+        options = data.get("options", [])
+        if "accept" in options:
+            return "accept"
+        if "activate" in options:
+            return "activate"
+        return options[0] if options else None
+
+    def _respond_vote_new(self, player, state, data) -> Optional[str]:
+        options = data.get("options", [])
+        candidate = data.get("candidate")
+        if candidate:
+            threat = self._threat_scores.get(candidate, 0)
+            if threat < 20 and "support" in options:
+                return "support"
+            elif "oppose" in options:
+                return "oppose"
+        return options[0] if options else None
+
+    def _respond_police_action_new(self, player, state, data) -> Optional[str]:
+        options = data.get("options", [])
+        action = data.get("action", "")
+        if action == "arrest" and player.name == data.get("target"):
+            if "resist" in options and self.personality == "aggressive":
+                return "resist"
+            if "surrender" in options:
+                return "surrender"
+        return options[0] if options else None
+
+    def _respond_virus_new(self, player, state, data) -> Optional[str]:
+        options = data.get("options", [])
+        if "use_mask" in options:
+            return "use_mask"
+        if "flee" in options:
+            return "flee"
+        return options[0] if options else None
+
+    def _get_debug_info_new(self, player) -> dict:
+        """新架构路径的调试输出"""
+        dev_complete = False
+        if player and self._game_state:
+            dev_complete = self._is_development_complete(player, self._game_state)
+        return {
+            "personality": self.personality,
+            "phase": self._current_phase,
+            "round": self._round_number,
+            "threat_scores": dict(self._threat_scores),
+            "in_combat": self._in_combat,
+            "combat_target": self._combat_target,
+            "been_attacked_by": list(self._been_attacked_by),
+            "virus_active": getattr(self, '_virus_active', False),
+            "last_commands": self._last_commands[:],
+            "police_cache": self._police_cache,
+            "development_complete": dev_complete,
+        }
 
 # ════════════════════════════════════════════════════════════════
 #  工厂函数 (原 lines 4460-4502)

@@ -1,4 +1,9 @@
-"""CombatMixin —— 攻击命令、目标选择、武器选择
+"""
+[FROZEN] 旧架构 Mixin —— 仅供 use_new_arch=False 时使用。
+新逻辑请添加到对应的新架构模块（game_query / command_builder / talents）。
+不要修改此文件，除非是修复旧架构专属的 bug。
+
+CombatMixin —— 攻击命令、目标选择、武器选择
 
 @deprecated 部分逻辑已迁移到新架构:
   - 已迁移: _pick_target() LLM同盟降权 → controllers/ai/combat_mixin.py:score()

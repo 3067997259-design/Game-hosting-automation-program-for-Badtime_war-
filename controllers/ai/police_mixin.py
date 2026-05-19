@@ -1,4 +1,8 @@
 """
+[FROZEN] 旧架构 Mixin —— 仅供 use_new_arch=False 时使用。
+新逻辑请添加到对应的新架构模块（game_query / command_builder / talents）。
+不要修改此文件，除非是修复旧架构专属的 bug。
+
 PoliceMixin —— 警察系统相关：缓存、队长、政治、反击
 
 @deprecated 部分逻辑已迁移到 PoliceMind (controllers/ai/minds/police_mind.py)
