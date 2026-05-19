@@ -179,6 +179,7 @@ class DecisionOrchestrator:
             threat_scores=dict(self._threat_scores),
             low_threat_streak=dict(self._low_threat_streak),
             been_attacked_by=set(self._been_attacked_by),
+            players_who_attacked=set(getattr(self._shared_state, 'players_who_attacked', set())),
             in_combat=self._in_combat,
             combat_target=self._combat_target,
             danger_mode=self._danger_mode,
@@ -233,9 +234,15 @@ class DecisionOrchestrator:
         self._ctrl.player_name = player.name
         self._ctrl._player = player
         self._ctrl._game_state = state
+        self._ctrl._round_number = round_num
+        if self._shared_state:
+            self._shared_state.round_number = round_num
         self._ctrl._read_police_state(state)
         if self._shared_state:
             self._shared_state.police_cache = getattr(self._ctrl, '_police_cache', None)
+        if hasattr(self._ctrl, '_cleanup_dead_players_new'):
+            self._ctrl._cleanup_dead_players_new(state)
+            self._sync_from_shared_state()
         self._sync_combat_status_from_markers(player, state)
 
         # 同步 political 降级状态（旧 mixin 方法依赖）
@@ -502,6 +509,7 @@ class DecisionOrchestrator:
                     terror_defense=ctx.terror_defense,
                     star_follow_up_rounds=ctx.star_follow_up_rounds,
                     llm_aggression_mod=ctx.llm_aggression_mod,
+                    players_who_attacked=ctx.players_who_attacked,
                 )
                 break
 
@@ -672,7 +680,10 @@ class DecisionOrchestrator:
 
             # 仍在危险中
             ctx = self._build_ctx(state)
-            return self._develop_cmd.build_danger_develop(player, state, self._strategy, available, ctx)
+            return self._develop_cmd.build_danger_develop(
+                player, state, self._strategy, available, ctx,
+                controller_ref=self._ctrl,
+            )
 
         # ════════════════════════════════════════════════════════
         #  RESIST 消费：警察态度=resist，但无AOE武器 → 获取AOE
@@ -807,41 +818,37 @@ class DecisionOrchestrator:
 
         # ★ RESIST stance: 强制进入战斗，不管发育是否完成
         if not self._in_combat and resist_active and combat.data.get("combat_ready"):
-            combat_cmds = combat.data.get("combat_commands", [])
-            if combat_cmds:
-                best_target = combat.data.get("best_target")
-                # RESIST 下：队长优先（即使评分不是最高，只要可打穿就选队长）
-                # 但结界内只能攻击同地点目标——队长在结界外则跳过
-                captain = self._find_captain_in_viable_targets(combat, state)
-                if captain and self._can_damage_via_combat(combat, captain):
-                    if self._can_reach_target(player, state, captain):
-                        best_target = captain
-                        self._dbg(1, f"RESIST: 队长优先 → {captain.name}")
-                    else:
-                        self._dbg(2, f"RESIST: 队长 {captain.name} 不可达（结界/位置不同），跳过")
-                if best_target:
+            best_target = combat.data.get("best_target")
+            # RESIST 下：队长优先（即使评分不是最高，只要可打穿就选队长）
+            # 但结界内只能攻击同地点目标——队长在结界外则跳过
+            captain = self._find_captain_in_viable_targets(combat, state)
+            if captain and self._can_damage_via_combat(combat, captain):
+                if self._can_reach_target(player, state, captain):
+                    best_target = captain
+                    self._dbg(1, f"RESIST: 队长优先 → {captain.name}")
+                else:
+                    self._dbg(2, f"RESIST: 队长 {captain.name} 不可达（结界/位置不同），跳过")
+            if best_target:
+                combat_cmds = self._build_forced_attack_commands(player, state, available, best_target)
+                if combat_cmds:
                     self._dbg(1, f"RESIST: 强制进入战斗 → {best_target.name}")
                     self._in_combat = True
                     self._combat_target = best_target
                     self._push_combat_goal(best_target, player, round_num)
-                    # 如果目标切换了，需要重新生成攻击指令
-                    if best_target != combat.data.get("best_target"):
-                        combat_cmds = self._build_forced_attack_commands(
-                            player, state, available, best_target)
                     return combat_cmds
 
         # 发育完成后尝试攻击
         develop = snapshots.get("develop")
         dev_complete = develop.data.get("development_complete") if develop else False
         if dev_complete and combat.data.get("combat_ready"):
-            combat_cmds = combat.data["combat_commands"]
-            if combat_cmds:
-                best_target = combat.data.get("best_target")
-                if best_target:
+            best_target = combat.data.get("best_target")
+            if best_target:
+                combat_cmds = self._build_forced_attack_commands(player, state, available, best_target)
+                if combat_cmds:
                     self._in_combat = True
                     self._combat_target = best_target
                     self._push_combat_goal(best_target, player, round_num)
-                return combat_cmds
+                    return combat_cmds
 
         return []
 
@@ -924,7 +931,9 @@ class DecisionOrchestrator:
                 combat = snapshots.get("combat")
                 if combat and combat.data.get("combat_ready"):
                     self._dbg(2, "发育: 受阻 → 转为进攻")
-                    return combat.data["combat_commands"]
+                    best_target = combat.data.get("best_target")
+                    if best_target:
+                        return self._build_forced_attack_commands(player, state, available, best_target)
 
             fallback_loc = self._ctrl._pick_fallback_destination(player, state)
             if fallback_loc and "move" in available:

@@ -161,12 +161,9 @@ class HoshinoAIHook(BaseTalentAIHook):
         if situation == "poem_nightwatch_choice":
             talent = getattr(player, 'talent', None)
             if talent and getattr(talent, 'is_terror', False):
-                terror_hp = getattr(talent, 'terror_extra_hp', 0.0)
-                max_enemy_power = self._max_enemy_total_power(player, state)
-                if terror_hp < max_enemy_power:
-                    for opt in options:
-                        if "接受" in opt:
-                            return opt
+                for opt in options:
+                    if "接受" in opt:
+                        return opt
             for opt in options:
                 if "拒绝" in opt:
                     return opt

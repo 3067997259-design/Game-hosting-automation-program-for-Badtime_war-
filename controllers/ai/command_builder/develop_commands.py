@@ -205,12 +205,54 @@ class DevelopCommandBuilder:
         self, player: Any, state: Any,
         strategy: Any, available: List[str],
         ctx: "OrchestratorContext",
+        controller_ref: Any = None,
     ) -> List[str]:
         """危险模式下的发育指令。"""
         Q = self._query
         commands: List[str] = []
-        safe_loc = Q.find_safe_location(player, state)
         loc = Q.get_location_str(player)
+        outer = Q.count_outer_armor(player)
+        inner = Q.count_inner_armor(player)
+        vouchers = getattr(player, 'vouchers', 0)
+
+        if "interact" in available:
+            if loc == "home" or Q.is_at_home(player):
+                if outer == 0 and not Q.has_armor_by_name(player, "盾牌"):
+                    commands.append("interact 盾牌")
+            elif loc == "商店":
+                if (not Q.has_virus_immunity(player)
+                        and getattr(state, 'virus', None)
+                        and getattr(state.virus, 'is_active', False)):
+                    commands.insert(0, "interact 防毒面具")
+                if vouchers >= 1 and outer < 2 and not Q.has_armor_by_name(player, "陶瓷护甲"):
+                    commands.append("interact 陶瓷护甲")
+                if vouchers < 1:
+                    commands.append("interact 打工")
+            elif loc == "魔法所":
+                learned = Q.get_learned_spells(player)
+                if "魔法护盾" not in learned and outer < 2:
+                    commands.append("interact 魔法护盾")
+            elif loc == "医院":
+                if (not Q.has_virus_immunity(player)
+                        and getattr(state, 'virus', None)
+                        and getattr(state.virus, 'is_active', False)):
+                    if vouchers >= 1:
+                        commands.insert(0, "interact 防毒面具")
+                    else:
+                        commands.insert(0, "interact 打工")
+                if inner == 0:
+                    commands.append("interact 晶化皮肤手术")
+                if vouchers < 1:
+                    commands.append("interact 打工")
+            elif loc == "军事基地":
+                has_pass = getattr(player, 'has_military_pass', False)
+                if has_pass and outer < 2 and not Q.has_armor_by_name(player, "AT力场"):
+                    commands.append("interact AT力场")
+
+        if controller_ref and hasattr(controller_ref, '_pick_safe_armor_destination'):
+            safe_loc = controller_ref._pick_safe_armor_destination(player, state)
+        else:
+            safe_loc = Q.find_safe_location(player, state)
         if safe_loc and safe_loc != loc and "move" in available:
             commands.append(f"move {safe_loc}")
         return commands

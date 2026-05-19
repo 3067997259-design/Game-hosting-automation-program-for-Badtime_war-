@@ -16,6 +16,7 @@ class OrchestratorContext:
     threat_scores: Dict[str, float] = field(default_factory=dict)
     low_threat_streak: Dict[str, int] = field(default_factory=dict)
     been_attacked_by: Set[str] = field(default_factory=set)
+    players_who_attacked: Set[str] = field(default_factory=set)
 
     # ── 战斗 ──
     in_combat: bool = False

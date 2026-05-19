@@ -394,11 +394,15 @@ class BasicAIController(
         self._player = player
         self._game_state = state
 
+        if self._uses_new_arch_events():
+            self._mirror_ai_state_to_controller()
         self._update_threat_scores(player, state)
         self._read_police_state(state)
-        self._cleanup_dead_players(state)
         if self._uses_new_arch_events():
             self._sync_controller_to_ai_state()
+            self._cleanup_dead_players_new(state)
+        else:
+            self._cleanup_dead_players(state)
 
         source_lookup = context.get("source_lookup", {})
         collected_actions = context.get("collected_actions", [])
@@ -1692,8 +1696,7 @@ class BasicAIController(
         self._in_combat = s.in_combat
         self._combat_target = s.combat_target
         self._danger_mode = s.danger_mode
-        if s.round_number:
-            self._round_number = s.round_number
+        self._round_number = s.round_number
         if s.police_cache is not None:
             self._police_cache = s.police_cache
         self._virus_active = s.virus_active
@@ -1772,6 +1775,11 @@ class BasicAIController(
             killer = event.get("killer", "")
             if killer:
                 threat_scores[killer] = threat_scores.get(killer, 0) + 30
+            dead_name = event.get("dead", "") or target
+            if dead_name:
+                threat_scores.pop(dead_name, None)
+                been_attacked_by.discard(dead_name)
+                players_who_attacked.discard(dead_name)
 
         if event_type == "election":
             candidate_pid = event.get("player", "")

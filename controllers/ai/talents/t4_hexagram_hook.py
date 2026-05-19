@@ -74,45 +74,45 @@ class HexagramAIHook(BaseTalentAIHook):
         if not player or not state:
             return random.choice(options)
         scores = self._score_hexagram_effects(player, state)
-        best_key = max(scores, key=scores.get)  # type: ignore
-        rps_map = {
-            "steal_armor": "石头",
-            "disarm": "剪刀",
-            "thunder": "剪刀",
-            "escape": "布",
-            "extra_turn": "布",
-            "immunity": "布",
-        }
-        best_rps = rps_map.get(best_key, "石头")
-        if best_rps in options:
-            return best_rps
-        return random.choice(options)
+        best_choice = None
+        best_worst = -999
+        for choice in options:
+            outcomes = HEXAGRAM_OUTCOME_MAP.get(choice, [])
+            if not outcomes:
+                continue
+            worst = min(scores.get(effect, 0) for effect in outcomes)
+            if worst > best_worst:
+                best_worst = worst
+                best_choice = choice
+        return best_choice or random.choice(options)
 
     def _hexagram_pick_opponent(self, caster, state, options) -> str:
         if not caster or not state:
             return random.choice(options)
         scores = self._score_hexagram_effects(caster, state)
-        worst_key = min(scores, key=scores.get)  # type: ignore
-        rps_map = {
-            "steal_armor": "石头",
-            "disarm": "剪刀",
-            "thunder": "剪刀",
-            "escape": "布",
-            "extra_turn": "布",
-            "immunity": "布",
-        }
-        counter_map = {"石头": "布", "剪刀": "石头", "布": "剪刀"}
-        worst_rps = rps_map.get(worst_key, "石头")
-        counter = counter_map.get(worst_rps, "石头")
-        if counter in options:
-            return counter
-        return random.choice(options)
+        best_choice = None
+        best_min_max = 999
+        rps_order = ["石头", "剪刀", "布"]
+        for opp_choice in options:
+            if opp_choice not in rps_order:
+                continue
+            opp_idx = rps_order.index(opp_choice)
+            caster_best = -999
+            for outcomes in HEXAGRAM_OUTCOME_MAP.values():
+                effect = outcomes[opp_idx]
+                caster_best = max(caster_best, scores.get(effect, 0))
+            if caster_best < best_min_max:
+                best_min_max = caster_best
+                best_choice = opp_choice
+        return best_choice or random.choice(options)
 
-    @staticmethod
-    def _find_hexagram_caster(state) -> Optional[Any]:
+    def _find_hexagram_caster(self, state) -> Optional[Any]:
         if not state:
             return None
+        my_id = getattr(self._ctrl, '_my_id', None)
         for pid in state.player_order:
+            if pid == my_id:
+                continue
             p = state.get_player(pid)
             if p and p.is_alive():
                 t = getattr(p, 'talent', None)
@@ -121,36 +121,142 @@ class HexagramAIHook(BaseTalentAIHook):
         return None
 
     def _score_hexagram_effects(self, player, state) -> Dict[str, float]:
-        scores: Dict[str, float] = {
-            "steal_armor": 0,
-            "disarm": 0,
-            "thunder": 0,
-            "escape": 0,
-            "extra_turn": 0,
-            "immunity": 0,
-        }
-        nearby = GameQuery.get_same_location_targets(player, state)
-        if not nearby:
-            scores["escape"] = 10
-            return scores
-
-        for t in nearby:
-            outer = GameQuery.count_outer_armor(t)
-            inner = GameQuery.count_inner_armor(t)
-            if outer > 0:
-                scores["steal_armor"] += outer * 3
-            weapons = [w for w in getattr(t, 'weapons', [])
-                       if w and getattr(w, 'name', '') != "拳击"]
-            if weapons:
-                scores["disarm"] += len(weapons) * 2
-
-        scores["thunder"] = len(nearby) * 3
-        scores["extra_turn"] = 5
+        scores: Dict[str, float] = {}
+        hp = player.hp
         my_outer = GameQuery.count_outer_armor(player)
-        if my_outer == 0:
-            scores["immunity"] = 8
-        elif player.hp <= 1.0:
-            scores["immunity"] = 6
-        scores["escape"] = 2
+        is_critical = self._ctrl._is_critical(player, state)
+        dev_complete = self._ctrl._is_development_complete(player, state)
+        has_kill = self._ctrl._has_kill_opportunity(player, state)
 
+        markers_obj = getattr(state, 'markers', None)
+        engaged_enemies = []
+        locked_by_enemies = []
+        if markers_obj:
+            locked_list = (
+                markers_obj.get_related(player.player_id, "LOCKED_BY")
+                if hasattr(markers_obj, 'get_related') else set()
+            )
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if target and target.is_alive():
+                    if (hasattr(markers_obj, 'has_relation')
+                            and markers_obj.has_relation(player.player_id, 'ENGAGED_WITH', pid)):
+                        engaged_enemies.append(target)
+                    if pid in locked_list:
+                        locked_by_enemies.append(target)
+
+        in_combat = len(engaged_enemies) > 0
+        losing = in_combat and (hp <= 1.0 or is_critical)
+        if losing:
+            situation = "D"
+        elif in_combat:
+            situation = "C"
+        elif dev_complete or has_kill:
+            situation = "B"
+        else:
+            situation = "A"
+
+        if situation == "B":
+            best_kill = False
+            best_armor_break = False
+            for pid in state.player_order:
+                if pid == player.player_id:
+                    continue
+                target = state.get_player(pid)
+                if target and target.is_alive():
+                    if target.hp <= 1.0 and GameQuery.count_outer_armor(target) == 0:
+                        best_kill = True
+                    if GameQuery.count_outer_armor(target) > 0:
+                        best_armor_break = True
+            scores["thunder"] = 10 if best_kill else (9 if best_armor_break else 7)
+        elif situation == "C":
+            combat_target_killable = any(
+                enemy.hp <= 1.0 and GameQuery.count_outer_armor(enemy) == 0
+                for enemy in engaged_enemies
+            )
+            scores["thunder"] = 8 if combat_target_killable else 6
+        else:
+            scores["thunder"] = 3
+
+        enemy_has_armor = any(
+            GameQuery.count_outer_armor(state.get_player(pid)) > 0
+            for pid in state.player_order
+            if pid != player.player_id
+            and state.get_player(pid) and state.get_player(pid).is_alive()
+        )
+        if situation == "A":
+            if my_outer == 0 and enemy_has_armor:
+                scores["steal_armor"] = 9
+            elif my_outer < 2 and enemy_has_armor:
+                scores["steal_armor"] = 7
+            else:
+                scores["steal_armor"] = 4
+        elif situation == "B":
+            scores["steal_armor"] = 5 if enemy_has_armor else 2
+        elif situation == "C":
+            scores["steal_armor"] = 4 if (my_outer == 0 and enemy_has_armor) else 3
+        else:
+            scores["steal_armor"] = 2
+
+        if situation == "D":
+            scores["immunity"] = 10
+        elif situation == "C":
+            if hp <= 1.0:
+                scores["immunity"] = 9
+            elif hp <= 1.5:
+                scores["immunity"] = 7
+            else:
+                scores["immunity"] = 6
+        else:
+            scores["immunity"] = 2
+
+        if situation in ("C", "D"):
+            best_disarm = 0
+            targets_to_check = []
+            seen_target_ids = set()
+            for target in engaged_enemies + locked_by_enemies:
+                target_id = getattr(target, 'player_id', id(target))
+                if target_id not in seen_target_ids:
+                    seen_target_ids.add(target_id)
+                    targets_to_check.append(target)
+            if not targets_to_check:
+                targets_to_check = [
+                    state.get_player(pid) for pid in state.player_order
+                    if pid != player.player_id
+                    and state.get_player(pid) and state.get_player(pid).is_alive()
+                ]
+            for target in targets_to_check:
+                real_weapons = [
+                    w for w in getattr(target, 'weapons', [])
+                    if w and getattr(w, 'name', '') != "拳击"
+                    and not getattr(w, '_hexagram_disabled', False)
+                ]
+                if len(real_weapons) == 1:
+                    best_disarm = max(best_disarm, 9)
+                elif len(real_weapons) > 1:
+                    best_disarm = max(best_disarm, 7)
+            scores["disarm"] = best_disarm if best_disarm > 0 else 4
+            if situation == "D":
+                scores["disarm"] = min(scores["disarm"], 6)
+        elif situation == "B":
+            scores["disarm"] = 5
+        else:
+            scores["disarm"] = 2
+
+        if situation == "A":
+            scores["extra_turn"] = 9
+        elif situation in ("B", "C"):
+            scores["extra_turn"] = 8
+        else:
+            scores["extra_turn"] = 5
+
+        is_locked = len(locked_by_enemies) > 0
+        if situation == "D":
+            scores["escape"] = 10 if is_locked else 9
+        elif situation == "C":
+            scores["escape"] = 5 if is_locked else 3
+        else:
+            scores["escape"] = 2
         return scores

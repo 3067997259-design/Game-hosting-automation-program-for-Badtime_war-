@@ -364,7 +364,12 @@ class RippleAIHook(BaseTalentAIHook):
         return effective >= total_hp
 
     def _ripple_effective_hp(self, player) -> float:
-        return player.hp + GameQuery.count_outer_armor(player) + GameQuery.count_inner_armor(player) * 0.5
+        hp = player.hp
+        talent = getattr(player, 'talent', None)
+        if talent:
+            hp += max(0.0, getattr(talent, 'temp_hp', 0.0))
+            hp += max(0, getattr(talent, 'ardent_wish_charges', 0)) * 0.5
+        return hp
 
     def _ripple_combat_strength(self, player) -> float:
         score = self._ripple_effective_hp(player) * 3
@@ -500,28 +505,7 @@ class RippleAIHook(BaseTalentAIHook):
         return best
 
     def _score_hexagram_effects(self, player, state) -> Dict[str, float]:
-        scores: Dict[str, float] = {
-            "steal_armor": 0, "disarm": 0, "thunder": 0,
-            "escape": 0, "extra_turn": 0, "immunity": 0,
-        }
-        nearby = GameQuery.get_same_location_targets(player, state)
-        if not nearby:
-            scores["escape"] = 10
-            return scores
-        for t in nearby:
-            outer = GameQuery.count_outer_armor(t)
-            if outer > 0:
-                scores["steal_armor"] += outer * 3
-            weapons = [w for w in getattr(t, 'weapons', [])
-                       if w and getattr(w, 'name', '') != "拳击"]
-            if weapons:
-                scores["disarm"] += len(weapons) * 2
-        scores["thunder"] = len(nearby) * 3
-        scores["extra_turn"] = 5
-        my_outer = GameQuery.count_outer_armor(player)
-        if my_outer == 0:
-            scores["immunity"] = 8
-        elif player.hp <= 1.0:
-            scores["immunity"] = 6
-        scores["escape"] = 2
-        return scores
+        if hasattr(self._ctrl, '_score_hexagram_effects'):
+            return self._ctrl._score_hexagram_effects(player, state)
+        return {"thunder": 3, "steal_armor": 4, "immunity": 2,
+                "disarm": 2, "extra_turn": 9, "escape": 2}

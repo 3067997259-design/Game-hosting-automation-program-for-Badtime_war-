@@ -41,6 +41,7 @@ class CombatMind(BaseMind):
         terror_defense=None,
         star_follow_up_rounds: int = 0,
         llm_aggression_mod: float = 0.0,
+        players_who_attacked: Optional[Set[str]] = None,
         ctx=None,
     ) -> MindAssessment:
         """分析战斗态势。
@@ -64,6 +65,11 @@ class CombatMind(BaseMind):
             terror_defense = terror_defense if terror_defense is not None else ctx.terror_defense
             star_follow_up_rounds = star_follow_up_rounds or ctx.star_follow_up_rounds
             llm_aggression_mod = llm_aggression_mod or ctx.llm_aggression_mod
+            players_who_attacked = (
+                players_who_attacked
+                if players_who_attacked is not None
+                else ctx.players_who_attacked
+            )
         threat_scores = threat_scores or {}
         police_protected = police_protected_ids or set()
         llm_alliance = llm_alliance or set()
@@ -76,6 +82,7 @@ class CombatMind(BaseMind):
             llm_alliance, terror_defense,
             star_follow_up_rounds=star_follow_up_rounds,
             llm_aggression_mod=llm_aggression_mod,
+            players_who_attacked=players_who_attacked or set(),
         )
 
         best_target = scored[0][0] if scored else None  # 元组 (target, score) → 取 target
@@ -120,6 +127,7 @@ class CombatMind(BaseMind):
         llm_alliance, terror_defense,
         star_follow_up_rounds: int = 0,
         llm_aggression_mod: float = 0.0,
+        players_who_attacked: Optional[Set[str]] = None,
     ) -> List:
         """对所有可攻击目标评分，返回 [(target, score)] 降序列表"""
         scored = []
@@ -155,6 +163,7 @@ class CombatMind(BaseMind):
                 star_follow_up_rounds=star_follow_up_rounds,
                 avg_threat=avg_threat,
                 llm_aggression_mod=llm_aggression_mod,
+                players_who_attacked=players_who_attacked or set(),
             )
             if score > -999:
                 scored.append((target, score))
@@ -170,6 +179,7 @@ class CombatMind(BaseMind):
         star_follow_up_rounds: int = 0,
         avg_threat: float = 0.0,
         llm_aggression_mod: float = 0.0,
+        players_who_attacked: Optional[Set[str]] = None,
     ) -> float:
         """对单个目标评分，包含警察保护穿透判定 + 天星补刀加成。"""
         threat_score = threat_scores.get(target.name, 0)
@@ -238,11 +248,10 @@ class CombatMind(BaseMind):
 
         # Strategy 调整
         target_power = self._estimate_power(target)
-        players_who_attacked = getattr(player, '_players_who_attacked', set()) if hasattr(player, '_players_who_attacked') else set()
         is_passive = self._is_passive_player(target, state)
         base = strategy.modify_target_score(
             target, base, player,
-            players_who_attacked=players_who_attacked,
+            players_who_attacked=players_who_attacked or set(),
             is_passive=is_passive,
             target_power=target_power,
         )
