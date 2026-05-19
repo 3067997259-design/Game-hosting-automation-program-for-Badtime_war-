@@ -350,12 +350,41 @@ class TacticalMixin:
                     )
                     target = next((p for p in front_alive if p.name == choice), front_alive[0])
         else:
-            # 持盾射击和普通射击：仍需指定目标名
-            from cli.parser import resolve_player_target
-            target_id = resolve_player_target(target_name, self.state) if target_name else None
-            target = self.state.get_player(target_id) if target_id else None
-            if not target or not target.is_alive():
-                return prompt_manager.get_prompt("talent", "g7hoshino.shoot_invalid_target")
+            # 持盾射击和普通射击：收集所有存活玩家作为可选目标
+            all_alive = [p for p in self.state.players.values()
+                        if p.is_alive() and p.player_id != player.player_id]
+            if not all_alive:
+                return prompt_manager.get_prompt("talent", "g7hoshino.shoot_no_target")
+
+            if target_name:
+                # 宏输入阶段已指定目标名
+                from cli.parser import resolve_player_target
+                target_id = resolve_player_target(target_name, self.state)
+                target = self.state.get_player(target_id) if target_id else None
+                if not target or not target.is_alive():
+                    return prompt_manager.get_prompt("talent", "g7hoshino.shoot_invalid_target")
+            else:
+                # 未指定目标，交互式选择
+                # 检查是否有已锁定的目标可自动选择
+                locked_targets = [p for p in all_alive
+                                  if self.state.markers.has_relation(p.player_id, "LOCKED_BY", player.player_id)]
+                if len(all_alive) == 1:
+                    target = all_alive[0]
+                elif len(locked_targets) == 1:
+                    target = locked_targets[0]
+                else:
+                    names = [p.name for p in all_alive]
+                    from cli import display
+                    target_list_msg = prompt_manager.get_prompt("talent", "g7hoshino.shoot_select_target",
+                                                            names=', '.join(names))
+                    display.show_info(target_list_msg)
+                    choice = player.controller.choose(
+                        "选择射击目标：", names,
+                        context={"phase": "T0", "situation": "hoshino_shoot_target"}
+                    )
+                    target = next((p for p in all_alive if p.name == choice), None)
+                    if not target:
+                        return prompt_manager.get_prompt("talent", "g7hoshino.shoot_invalid_target")
 
         # 弹丸分配逻辑（每发3颗弹丸，每颗0.5伤害）
         pellet_damage = 0.5

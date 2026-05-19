@@ -511,6 +511,8 @@
       "shoot_no_front_target": "❌ 正面没有存活的目标，子弹浪费了",
       "shoot_wrong_target": "❌ 「{target_name}」不在正面，子弹浪费了。可选目标：{available}",
       "shoot_front_targets": "  报告，正面目标: {names}",
+      "shoot_select_target": "  可选目标: {names}",
+      "shoot_no_target": "❌ 没有可射击的目标",
       "shoot_invalid_target": "❌ 无效的射击目标",
       "shoot_pellet_dead": "(目标已死亡)",
       "shoot_pellet_police_filter": "报告，有复数单位挡下了星野的攻击（阈值{threshold}≥1.5）",
