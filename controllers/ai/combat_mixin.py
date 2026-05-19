@@ -1,4 +1,15 @@
-"""CombatMixin —— 攻击命令、目标选择、武器选择"""
+"""CombatMixin —— 攻击命令、目标选择、武器选择
+
+@deprecated 部分逻辑已迁移到新架构:
+  - 已迁移: _pick_target() LLM同盟降权 → controllers/ai/combat_mixin.py:score()
+  - 已迁移: _pick_target() Terror评分修正 → TerrorDefenseAI.modify_target_score()
+  - 已迁移: _pick_target() 人格评分 → BasePersonalityStrategy.modify_target_score()
+  - 已迁移: _cmd_attack() 警察保护穿透 → PoliceMind.can_damage_through_protection()
+  - 仍在此: _pick_weapon 武器选择
+  - 仍在此: _build_attack_cmd 攻击命令构建
+  - 仍在此: _cmd_rearm 换武器
+  - 仍在此: _cmd_get_detection 探测获取
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.constants import (
@@ -12,6 +23,9 @@ if TYPE_CHECKING:
     from utils.attribute import Attribute
 
 _Base = BasicAIController if TYPE_CHECKING else object
+
+_LLM_AGGRESSION_TARGET_BIAS_SCALE = 0.2
+_LLM_AGGRESSION_TARGET_BIAS_CLAMP = 60.0
 
 
 class CombatMixin(_Base):
@@ -29,79 +43,112 @@ class CombatMixin(_Base):
         weapon = self._pick_weapon(player, target)
         if not weapon:
             return commands
-        # Fix: 目标受警察保护时，强制切换到AOE武器绕过单体免疫
+
+        # ════════════════════════════════════════════════════════
+        #  武器蓄力检查：需要蓄力但未蓄力 → 先蓄力
+        #  避免选中未蓄力武器 → 攻击非法 → forfeit死循环
+        # ════════════════════════════════════════════════════════
+        if (getattr(weapon, 'requires_charge', False)
+                and getattr(weapon, 'charge_mandatory', True)
+                and not getattr(weapon, 'is_charged', False)):
+            if "special" in available:
+                debug_ai_attack_generation(player.name,
+                    weapon.name, f"武器 {weapon.name} 未蓄力，先生成蓄力命令")
+                commands.append(f"special 蓄力{weapon.name}")
+            return commands
+
+        # ════════════════════════════════════════════════════════
+        #  警察保护穿透检查（委托给 PoliceMind 做透明评估）
+        # ════════════════════════════════════════════════════════
         pe = getattr(state, 'police_engine', None)
         if pe and pe.is_protected_by_police(target.player_id):
-            threshold = pe.get_protection_threshold(target.player_id)
+            # 收集数据供 PoliceMind 评估
+            target_outer = self._get_outer_armor_attr(target)
+            target_inner = self._get_inner_armor_attr(target)
+            aoe_names = self._get_all_aoe_weapon_names(player)
             best_dmg = self._estimate_talent_adjusted_damage(player, weapon)
-            if best_dmg > threshold:
-                pass  # 伤害超过阈值，可以用非AOE武器打
+
+            can_dmg, reason = (False, "无PoliceMind")
+            protection_eval_source = "旧架构"
+            if hasattr(self, '_police_mind'):
+                protection_eval_source = "PoliceMind"
+                can_dmg, reason = self._police_mind.can_damage_through_protection(
+                    player, target, state,
+                    talent_adjusted_damage=best_dmg,
+                    outer_armor_attrs=target_outer,
+                    inner_armor_attrs=target_inner,
+                    aoe_weapon_names=aoe_names,
+                    player_weapons=getattr(player, 'weapons', []),
+                    learned_spells=self._get_learned_spells(player),
+                )
+            else:
+                threshold = pe.get_protection_threshold(target.player_id)
+                if best_dmg > threshold:
+                    can_dmg = True
+                    reason = (
+                        f"伤害({best_dmg:.1f})超过警察保护阈值({threshold})，可硬穿"
+                    )
+                else:
+                    reason = (
+                        f"伤害({best_dmg:.1f})不足穿透阈值({threshold})"
+                    )
+            debug_ai_attack_generation(player.name, weapon.name,
+                f"目标 {target.name} 受警察保护 → {protection_eval_source}: {reason}")
+
+            if can_dmg:
+                pass  # 能穿透，继续正常攻击流程
             elif self._get_weapon_range(weapon) != "area":
-                # 伤害不够，才需要切AOE
-                aoe_names = self._get_all_aoe_weapon_names(player)
+                # 当前武器不是AOE → 尝试切AOE
                 if aoe_names:
-                    # 遍历所有AOE武器，按属性克制+可用性评分选最佳
-                    target_armor_attrs = self._get_outer_armor_attr(target)
-                    if not target_armor_attrs:
-                        target_armor_attrs = self._get_inner_armor_attr(target)
-                    ready_candidates = []   # [(score, weapon)]
+                    target_armor_attrs = target_outer if target_outer else target_inner
+                    ready_candidates = []
                     charge_candidate = None
                     for aoe_name in aoe_names:
-                        # 先从玩家武器列表找实体
                         aoe_weapon = next((w for w in getattr(player, 'weapons', [])
                                         if w and w.name == aoe_name), None)
                         if not aoe_weapon:
-                            # 学会的法术不在weapons列表里，用make_weapon创建
                             aoe_weapon = make_weapon(aoe_name)
                         if not aoe_weapon:
-                            continue  # 无法创建武器实例，跳过
-                        # 检查是否需要蓄力（如电磁步枪）
+                            continue
                         if (getattr(aoe_weapon, 'requires_charge', False)
                                 and getattr(aoe_weapon, 'charge_mandatory', True)
                                 and not getattr(aoe_weapon, 'is_charged', False)):
-                            # 需要蓄力，记录为备选但继续找不需要蓄力的
                             if charge_candidate is None:
                                 charge_candidate = (aoe_name, aoe_weapon)
                             continue
-                        # 可直接使用，按属性克制评分
                         score = self._get_weapon_damage(aoe_weapon) * 10
                         w_attr = self._get_weapon_attr(aoe_weapon)
                         if target_armor_attrs:
                             effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
                             if any(a in effective_set for a in target_armor_attrs):
-                                score += 50  # 能克制目标护甲，大幅加分
+                                score += 50
                             else:
-                                score -= 30  # 打不动，降分
+                                score -= 30
                         ready_candidates.append((score, aoe_weapon))
-                    # 从可直接使用的候选中选最佳
                     ready_weapon = None
                     if ready_candidates:
                         ready_candidates.sort(key=lambda x: x[0], reverse=True)
                         ready_weapon = ready_candidates[0][1]
-                        # 如果最佳AOE也打不穿护甲，不浪费回合
                         if ready_candidates[0][0] < -20:
                             debug_ai_attack_generation(player.name,
                                 weapon.name, f"目标 {target.name} 受警察保护，所有AOE武器无法克制护甲")
-                            return commands  # 返回空，让上层逻辑去获取有效武器
+                            return commands
                     if ready_weapon:
                         weapon = ready_weapon
                         debug_ai_attack_generation(player.name,
                             weapon.name, f"目标 {target.name} 受警察保护，强制切换AOE武器: {weapon.name}")
                     elif charge_candidate:
-                        # 没有可直接使用的，蓄力第一个需要蓄力的
-                        c_name, c_weapon = charge_candidate
+                        c_name, _ = charge_candidate
                         if "special" in available:
                             commands.append(f"special 蓄力{c_name}")
                             debug_ai_attack_generation(player.name,
                                 c_name, f"目标 {target.name} 受警察保护，AOE武器需蓄力")
                         return commands
                     else:
-                        # 所有AOE武器名都无法创建实体（理论上不应发生）
                         debug_ai_attack_generation(player.name,
                             weapon.name, f"目标 {target.name} 受警察保护，AOE武器实体化失败，跳过攻击")
                         return commands
                 else:
-                    # 真的没有AOE武器，跳过攻击（不浪费回合在必定失败的近战上）
                     debug_ai_attack_generation(player.name,
                         weapon.name, f"目标 {target.name} 受警察保护且无AOE武器，跳过攻击")
                     return commands
@@ -425,9 +472,29 @@ class CombatMixin(_Base):
             (self._estimate_power(c) for c in candidates),
             default=0
         )
+        threat_by_name = {
+            c.name: self._threat_scores.get(c.name, 0)
+            for c in candidates
+        }
+        avg_threat = sum(threat_by_name.values()) / len(candidates)
+        llm_aggression = getattr(self, '_llm_aggression_mod', 0.0)
         def score(t):
             s = 0
-            s += self._threat_scores.get(t.name, 0) * 2
+            strategy = getattr(self, '_strategy', None)
+            threat_score = threat_by_name.get(t.name, 0)
+            s += threat_score * 2
+            if llm_aggression != 0.0:
+                # 正值更愿意挑战高于平均威胁的目标；负值更倾向避开强敌。
+                aggression_bias = (
+                    (threat_score - avg_threat)
+                    * llm_aggression
+                    * _LLM_AGGRESSION_TARGET_BIAS_SCALE
+                )
+                aggression_bias = max(
+                    -_LLM_AGGRESSION_TARGET_BIAS_CLAMP,
+                    min(_LLM_AGGRESSION_TARGET_BIAS_CLAMP, aggression_bias),
+                )
+                s += aggression_bias
             if t.name in self._been_attacked_by:
                 s += 50
             if self._same_location(player, t):
@@ -481,13 +548,13 @@ class CombatMixin(_Base):
                         s += 60
                     total_effective_hp = self._get_effective_hp(t) + self._count_outer_armor(t) + self._count_inner_armor(t)
                     s += max(0, 10 - total_effective_hp) * 15
-            if self.personality == "assassin":
+            if strategy is None and self.personality == "assassin":
                 s += max(0, 3 - self._get_effective_hp(t)) * 20
                 if self._count_outer_armor(t) == 0:
                     s += 40
                 if self._count_inner_armor(t) == 0:
                     s += 20
-            if self.personality == "aggressive":
+            if strategy is None and self.personality == "aggressive":
                 target_name = getattr(t, 'name', '')
                 target_pid = getattr(t, 'player_id', '')
                 is_passive = (target_name not in self._players_who_attacked
@@ -495,6 +562,20 @@ class CombatMixin(_Base):
                 if is_passive:
                     target_power = self._estimate_power(t)
                     s += 30 + target_power * 0.3  # 越肉的发育者越危险
+            # ════════════════════════════════════════════════════
+            #  人格策略：统一评分修正（替代上面的散落判断）
+            # ════════════════════════════════════════════════════
+            if strategy is not None:
+                target_name = getattr(t, 'name', '')
+                target_pid = getattr(t, 'player_id', '')
+                is_passive = (target_name not in self._players_who_attacked
+                            and target_pid not in self._players_who_attacked)
+                s = strategy.modify_target_score(
+                    t, s, player,
+                    players_who_attacked=self._players_who_attacked,
+                    is_passive=is_passive,
+                    target_power=self._estimate_power(t),
+                )
             # ===== 未使用G3回避/远程消耗逻辑 =====
             if self._has_unused_mythland(t):
                 has_ranged = any(
@@ -603,6 +684,29 @@ class CombatMixin(_Base):
                 # 火萤HP低时更要集火（容易击杀）
                 if self._get_effective_hp(t) <= 1.5:
                     s += 60
+            # ════════════════════════════════════════════════════
+            #  LLM 行为调整：盟友降权
+            #  AIChatModule 通过 [ADJUST] JSON 设置 _llm_alliance，
+            #  此处读取并降低对盟友的攻击优先级。
+            # ════════════════════════════════════════════════════
+            llm_alliance = getattr(self, '_llm_alliance', set())
+            if t.name in llm_alliance:
+                s -= 200  # 大幅降低对盟友的攻击意愿
+            # ════════════════════════════════════════════════════
+            #  TerrorDefenseAI：Terror/自我怀疑目标评分修正
+            # ════════════════════════════════════════════════════
+            terror_defense = getattr(self, '_terror_defense', None)
+            if terror_defense is not None:
+                s = terror_defense.modify_target_score(t, s)
+            # ════════════════════════════════════════════════════
+            #  天赋AI钩子：目标评分修正（G1火萤/G4救世主等）
+            #  每个天赋的 modify_target_score 在此调用
+            # ════════════════════════════════════════════════════
+            for hook in getattr(self, '_talent_hook_instances', {}).values():
+                try:
+                    s = hook.modify_target_score(t, s, player)
+                except Exception:
+                    pass  # 钩子调用失败不影响正常评分
             return s
         candidates.sort(key=score, reverse=True)
         return candidates[0]

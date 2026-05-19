@@ -45,7 +45,10 @@ class PoemMixin:
         - 同一首诗可重复使用
         """
         others = [p for p in self.state.alive_players()
-                  if p.player_id != player.player_id and p.talent]
+                  if p.player_id != player.player_id and p.talent
+                  # 守夜人之诗：非Terror的G7持有者不可选
+                  and not (p.talent.name == "大叔我啊，剪短发了"
+                           and not getattr(p.talent, 'is_terror', False))]
         all_targets = others + [player] if player.talent else others
 
         if not all_targets:
@@ -122,9 +125,10 @@ class PoemMixin:
         from combat.damage_resolver import notify_positive_talent_effect
         caster = self.state.get_player(self.player_id)
         notify_positive_talent_effect(caster, target)
-        # 施加爱愿（爱与记忆之诗是自我目标，不施加）
-        if poem_type != "爱与记忆" and target.player_id != self.player_id:
-            self.grant_love_wish(target.player_id, 12)
+        # 施加爱愿（爱与记忆之诗是自我目标，不施加；守夜人在诗内按接受情况处理）
+        if poem_type not in ("爱与记忆", "守夜人") and target.player_id != self.player_id:
+            alive_count = len([p for p in self.state.players.values() if p.is_alive()])
+            self.grant_love_wish(target.player_id, max(12, alive_count * 2))
 
         return self._dispatch_poem(player, target, poem_type), True  # 成功消耗行动
 
@@ -885,6 +889,10 @@ class PoemMixin:
 
         msg_parts = [prompt_manager.get_prompt("talent", "g7hoshino.poem_accept",
             default="昔涟接过了星野的愿望。献予「守夜人」之诗生效！色彩值永久赋值为null")]
+
+        # ★ 接受时附加爱愿
+        alive_count = len([p for p in self.state.players.values() if p.is_alive()])
+        self.grant_love_wish(target.player_id, max(4, alive_count * 2))
 
         # 色彩值永久赋为null
         talent.color_is_null = True

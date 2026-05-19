@@ -164,9 +164,8 @@ class RoundManager:
             # 执行行动回合
             action_type = self.turn_manager.execute_action_turn(actor)
 
-            # 犯罪检测
-            if action_type == "attack":
-                self._check_attack_crime(actor)
+            # 犯罪检测（攻击和特殊行动都可能包含攻击）
+            self._check_attack_crime(actor)
 
             # 更新行动记录
             actor.last_action_type = action_type
@@ -254,32 +253,62 @@ class RoundManager:
                 else:
                     player.no_action_streak += 1
 
-    def _check_attack_crime(self, attacker):
-        """攻击后犯罪检测（含天赋钩子）"""
-        for event in reversed(self.state.event_log):
-            if (event.get("type") == "attack"
-                    and event.get("attacker") == attacker.player_id
-                    and event.get("round") == self.state.current_round):
-                result = event.get("result", {})
-                if result.get("success"):
-                    # 天赋犯罪检查
-                    if attacker.talent:
-                        crime_result = attacker.talent.on_crime_check(
-                            attacker.player_id, "伤害玩家")
-                        if crime_result:
-                            if crime_result.get("immune"):
-                                return  # 免罪
-                            if crime_result.get("extra_turn"):
-                                # 不良少年额外行动
-                                msg = crime_result.get("message", "")
-                                if msg:
-                                    display.show_info(msg)
-                                # 标记需要插入额外回合
-                                attacker.crime_extra_turn = True
+    # 已知造成伤害的天赋攻击事件类型（非标准 "attack" 事件）
+    _TALENT_DAMAGE_EVENT_TYPES = frozenset({
+        "oneslash_attack",   # T1 一刀缭断
+        "star_attack",       # T3 天星
+        "firefly_kill",      # G1 火萤击杀
+        "firefly_supernova", # G1 超新星过载
+    })
 
-                    self.police_engine.check_and_record_crime(
+    def _check_attack_crime(self, attacker):
+        """攻击后犯罪检测（含天赋钩子及各类天赋攻击事件）"""
+        for event in reversed(self.state.event_log):
+            # 匹配标准攻击事件（attacker字段）或天赋攻击事件（player字段）
+            is_my_event = (
+                (event.get("attacker") == attacker.player_id)
+                or (event.get("player") == attacker.player_id)
+            )
+            if not is_my_event:
+                continue
+            if event.get("round") != self.state.current_round:
+                continue
+
+            # 判定是否造成了伤害/击杀
+            caused_damage = False
+            etype = event.get("type")
+            if etype == "attack":
+                caused_damage = event.get("result", {}).get("success", False)
+            elif etype in self._TALENT_DAMAGE_EVENT_TYPES:
+                caused_damage = True  # 这些天赋必然造成伤害
+            elif etype == "ripple_poem":
+                # 只有「爱与记忆」之诗造成伤害，其他诗篇是 buff
+                caused_damage = (event.get("poem_type") == "爱与记忆")
+            else:
+                # 其他事件：检查 killed/damage/final_damage 字段
+                caused_damage = (
+                    event.get("killed", False)
+                    or event.get("damage", 0) > 0
+                    or event.get("final_damage", 0) > 0
+                )
+
+            if caused_damage:
+                # 天赋犯罪检查
+                if attacker.talent:
+                    crime_result = attacker.talent.on_crime_check(
                         attacker.player_id, "伤害玩家")
-                break
+                    if crime_result:
+                        if crime_result.get("immune"):
+                            return  # 免罪
+                        if crime_result.get("extra_turn"):
+                            msg = crime_result.get("message", "")
+                            if msg:
+                                display.show_info(msg)
+                            attacker.crime_extra_turn = True
+
+                self.police_engine.check_and_record_crime(
+                    attacker.player_id, "伤害玩家")
+            break
 
     @staticmethod
     def notify_all_talents_of_death(game_state, victim_id, killer_id=None):

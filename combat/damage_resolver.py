@@ -325,6 +325,12 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
             result["target_hp"] = target.hp
 
+    # ★ 愿负世：被攻击时积累火种（必须在死亡检查前，让致命一击产生的火种可用于免死）
+    if (target.talent and hasattr(target.talent, 'on_being_attacked') and attacker
+            and not getattr(target, '_mythland_talent_suppressed', False)):
+        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
+        target.talent.on_being_attacked(attacker, None, is_limited)
+
     if target.hp <= 0:
         if getattr(target, '_mythland_talent_suppressed', False):
             prevented = False
@@ -381,12 +387,6 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             result["details"].append(stun_prevented_text.format(
                 target_name=target.name
             ))
-
-    # ---- 愿负世：被攻击时积累火种 ----
-    if (target.talent and hasattr(target.talent, 'on_being_attacked') and attacker
-            and not getattr(target, '_mythland_talent_suppressed', False)):
-        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
-        target.talent.on_being_attacked(attacker, None, is_limited)
 
     # 插入式笑话中借用来源玩家执行时跳过（不应破除来源玩家的爱愿）
     if (attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish')
@@ -774,6 +774,12 @@ def resolve_damage(attacker, target, weapon, game_state,
                 result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
             result["target_hp"] = target.hp
 
+    # ★ 愿负世：被攻击时积累火种（必须在死亡检查前）
+    if (target.talent and hasattr(target.talent, 'on_being_attacked') and attacker
+            and not getattr(target, '_mythland_talent_suppressed', False)):
+        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
+        target.talent.on_being_attacked(attacker, weapon, is_limited)
+
     # ---- 第6步：眩晕/死亡判定 ----
     if target.hp <= 0:
         if getattr(target, '_mythland_talent_suppressed', False):
@@ -889,12 +895,6 @@ def resolve_damage(attacker, target, weapon, game_state,
             attacker.player_id, target.player_id)
         result["stealth_suppressed"] = True
 
-    # ---- 愿负世：被攻击时积累火种 ----
-    if (target.talent and hasattr(target.talent, 'on_being_attacked') and attacker
-            and not getattr(target, '_mythland_talent_suppressed', False)):
-        is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
-        target.talent.on_being_attacked(attacker, weapon, is_limited)
-
     # 插入式笑话中借用来源玩家执行时跳过（不应破除来源玩家的爱愿）
     if (attacker and attacker.talent and hasattr(attacker.talent, 'break_love_wish')
             and not getattr(attacker, '_cutaway_suppress_attacker_hooks', False)):
@@ -931,8 +931,10 @@ def resolve_damage(attacker, target, weapon, game_state,
 
 def resolve_area_damage(attacker, weapon, location, game_state,
                         ignore_element=False, damage_multiplier=1.0,
-                        bonus_damage=0.0, exclude_self=True):
-    """范围伤害结算"""
+                        bonus_damage=0.0, exclude_self=True,
+                        target_id=None, target_layer=None, target_armor_attr=None):
+    """范围伤害结算。
+    target_id/layer/attr: 仅对主目标使用指定层和属性，其余目标自动选择。"""
     # V1.92: AOE天赋加成（如救世主状态下的额外伤害）
     aoe_bonus = 0.0
     if attacker and attacker.talent and hasattr(attacker.talent, 'modify_aoe_damage'):
@@ -949,11 +951,15 @@ def resolve_area_damage(attacker, weapon, location, game_state,
             continue
         if not t.is_alive():
             continue
+        # 主目标：使用指定的层和属性；其他目标：自动选择
+        is_primary = (target_id is not None and t.player_id == target_id)
         r = resolve_damage(
             attacker, t, weapon, game_state,
             ignore_element=ignore_element,
             damage_multiplier=damage_multiplier,
             bonus_damage=bonus_damage + aoe_bonus,
+            target_layer=target_layer if is_primary else None,
+            target_armor_attr=target_armor_attr if is_primary else None,
         )
         results.append({"target": t, "result": r})
     return results

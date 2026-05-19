@@ -150,7 +150,8 @@ COL_WINS = 7       # 胜场
 COL_PERS = 14      # 人格列宽
 
 
-def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random") -> dict[str, Any]:
+def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random",
+                    new_arch_enabled: bool = True, shadow_mode: bool = False) -> dict[str, Any]:
     """Run a single game (all-AI, or with one RL seat) and return results."""
     game_state = GameState()
 
@@ -177,7 +178,8 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         ai_name = available_names[i] if i < len(available_names) else f"AI_{i+1}"
         personality = random.choice(AI_PERSONALITIES)
         pid = f"p{i + 1 + start_idx}"
-        controller = BasicAIController(personality=personality)  # type: ignore[abstract]
+        controller = BasicAIController(personality=personality, new_arch_enabled=new_arch_enabled)
+        controller._shadow_mode = shadow_mode
         player = Player(pid, ai_name, controller=controller)
         game_state.add_player(player)
         ai_players_info.append((pid, ai_name, personality))
@@ -281,17 +283,54 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
     round_mgr = RoundManager(game_state)
     try:
         round_mgr.run_game_loop()
-    except Exception:
+        crashed = False
+        crash_traceback = ""
+    except Exception as e:
         game_state.game_over = True
         game_state.winner = "nobody"
+        crashed = True
+        import traceback
+        crash_traceback = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
 
     winner_pid = game_state.winner or "nobody"
+    is_draw = winner_pid == "nobody"
+
+    # ── 区分平局原因 ──
+    draw_reason = ""
+    if crashed:
+        is_draw = True
+        draw_reason = "crash"
+        winner_pid = "nobody"
+    elif is_draw:
+        # 检查是否达到最大轮数
+        if (game_state.max_rounds is not None
+                and game_state.current_round >= game_state.max_rounds):
+            draw_reason = "max_rounds"
+        # 检查是否全员死亡（可能Terror同归于尽或其它AOE互杀）
+        elif len(game_state.alive_players()) == 0:
+            g7_picked = 14 in taken  # G7 = 星野 = 编号14
+            draw_reason = "terror_mutual" if g7_picked else "all_dead_no_g7"
+        else:
+            draw_reason = "other"
     results: dict[str, Any] = {
         "winner_pid": winner_pid,
         "rounds": game_state.current_round,
-        "draw": winner_pid == "nobody",
+        "draw": is_draw,
+        "draw_reason": draw_reason,
+        "crashed": crashed,
+        "crash_traceback": crash_traceback,
+        "talent_nums_picked": list(taken),  # 本局选了哪些天赋
+        "max_rounds": game_state.max_rounds,
+        "shadow_logs": {},  # {pid: [decision_log]}
         "players": [],
     }
+    # 收集所有控制器的shadow日志
+    for pid in game_state.player_order:
+        p = game_state.get_player(pid)
+        if p and hasattr(p.controller, 'dump_shadow_log'):
+            logs = p.controller.dump_shadow_log()
+            if logs:
+                results["shadow_logs"][pid] = logs
 
     pid_to_personality = {info[0]: info[2] for info in ai_players_info}
 
@@ -404,7 +443,8 @@ def _fmt_count_pct(count: int, total: int) -> str:
 
 # ── Main batch runner ──
 
-def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mode: str = "random") -> None:
+def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mode: str = "random",
+              new_arch_enabled: bool = True, shadow_mode: bool = False) -> None:
     """Run multiple games and collect statistics."""
 
     talent_stats: dict[int, TalentStats] = defaultdict(TalentStats)
@@ -421,6 +461,23 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
     total_draws = 0
     errors = 0
 
+    # 崩溃详情收集
+    crash_log: list[dict[str, Any]] = []
+
+    # 平局原因统计
+    draw_reasons: dict[str, int] = defaultdict(int)  # key → count
+    # Shadow统计
+    shadow_summary: dict[str, Any] = {}
+    # 分类标签映射
+    DRAW_LABELS = {
+        "terror_mutual": "Terror同归于尽(含G7)",
+        "max_rounds":     "达到轮次上限(AI僵持)",
+        "all_dead_no_g7": "全员战死(无G7)",
+        "crash":          "引擎异常/崩溃",
+        "other":          "其他原因",
+        "":               "(未归类)",
+    }
+
     _silence_display()
     _silence_prompt_manager()
 
@@ -433,7 +490,9 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
             print(f"\r  进度: {game_idx + 1}/{num_games} ({rate:.1f} 局/秒)", end="", flush=True)
 
         try:
-            result = run_single_game(num_players, rl_controller, rl_talent_mode)
+            result = run_single_game(num_players, rl_controller, rl_talent_mode,
+                                     new_arch_enabled=new_arch_enabled,
+                                     shadow_mode=shadow_mode)
         except Exception:
             errors += 1
             continue
@@ -441,6 +500,26 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
         total_rounds += result["rounds"]
         if result["draw"]:
             total_draws += 1
+            reason = result.get("draw_reason", "")
+            draw_reasons[reason] += 1
+            if reason == "crash":
+                crash_log.append({
+                    "game_idx": game_idx + 1,
+                    "rounds": result["rounds"],
+                    "talents": result.get("talent_nums_picked", []),
+                    "traceback": result.get("crash_traceback", ""),
+                })
+
+        # shadow模式：保存前N局的详细决策日志
+        if shadow_mode and game_idx < 50:
+            shadow_logs = result.get("shadow_logs", {})
+            if shadow_logs:
+                shadow_summary[f"game_{game_idx + 1}"] = {
+                    "rounds": result["rounds"],
+                    "winner": result["winner_pid"],
+                    "talents": result.get("talent_nums_picked", []),
+                    "decisions": shadow_logs,
+                }
 
         for p in result["players"]:
             if p.get("is_rl"):
@@ -478,6 +557,10 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
 
     print_results(num_players, num_games, completed, total_rounds, total_draws, errors,
                   talent_stats, personality_stats,
+                  draw_reasons=draw_reasons, draw_labels=DRAW_LABELS,
+                  crash_log=crash_log,
+                  shadow_summary=shadow_summary,
+                  shadow_mode_tag="new" if new_arch_enabled else "old",
                   rl_games=rl_games, rl_wins=rl_wins,
                   rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins,
                   rl_talent_usage=rl_talent_usage)
@@ -492,6 +575,11 @@ def print_results(
     errors: int,
     talent_stats: dict[int, TalentStats],
     personality_stats: dict[str, PersonalityStats],
+    draw_reasons: Optional[dict[str, int]] = None,
+    draw_labels: Optional[dict[str, str]] = None,
+    crash_log: Optional[list[dict[str, Any]]] = None,
+    shadow_summary: Optional[dict[str, Any]] = None,
+    shadow_mode_tag: str = "new",
     rl_games: int = 0,
     rl_wins: int = 0,
     rl_talent_picks: Optional[dict[int, int]] = None,
@@ -508,6 +596,73 @@ def print_results(
     print(f"  平局率: {total_draws}/{num_games} ({total_draws / max(num_games, 1) * 100:.1f}%)")
     if errors > 0:
         print(f"  错误/崩溃: {errors}")
+    # ── 平局原因分解 ──
+    if draw_reasons and total_draws > 0:
+        print(f"\n  ── 平局原因分解 ──")
+        labels = draw_labels or {}
+        for reason_key in ("terror_mutual", "max_rounds", "all_dead_no_g7", "crash", "other", ""):
+            count = draw_reasons.get(reason_key, 0)
+            if count == 0:
+                continue
+            label = labels.get(reason_key, reason_key or "未归类")
+            pct = count / total_draws * 100
+            flag = ""
+            if reason_key == "terror_mutual":
+                flag = "  ← 正常（Terror机制预期行为）"
+            elif reason_key == "max_rounds":
+                flag = "  ← 异常：AI僵持/警察体系僵局"
+            elif reason_key == "crash":
+                flag = "  ← 严重：引擎bug"
+            elif reason_key == "all_dead_no_g7":
+                flag = "  ← 罕见：非Terror的AOE互杀"
+            print(f"    {label}: {count}/{total_draws} ({pct:.1f}%){flag}")
+    # ── 崩溃详情（如有）──
+    if crash_log:
+        print(f"\n  ── 崩溃详情（最近{min(10, len(crash_log))}次）──")
+        # 按异常类型分组统计
+        from collections import Counter
+        error_types = Counter()
+        for entry in crash_log:
+            tb = entry.get("traceback", "")
+            # 提取最后一行的异常类型
+            for line in tb.split("\n"):
+                line = line.strip()
+                if line and not line.startswith("File ") and not line.startswith("..."):
+                    if "Error" in line or "Exception" in line:
+                        error_types[line[:80]] += 1
+                        break
+        if error_types:
+            print(f"    异常类型分布:")
+            for err, cnt in error_types.most_common(5):
+                print(f"      {cnt}次: {err}")
+        # 显示最近几次的详细traceback
+        for entry in crash_log[-3:]:
+            print(f"\n    ─ 游戏#{entry['game_idx']} (第{entry['rounds']}轮) ─")
+            talents = entry.get("talents", [])
+            if talents:
+                talent_names = [TALENT_NUM_TO_NAME.get(t, f"#{t}") for t in talents]
+                print(f"    天赋: {', '.join(talent_names[:6])}")
+            tb = entry.get("traceback", "")
+            # 只显示最后几行（最关键的错误信息）
+            tb_lines = tb.split("\n")
+            for line in tb_lines[-5:]:
+                if line.strip():
+                    print(f"    {line.strip()[:120]}")
+    # ── Shadow日志保存 ──
+    if shadow_summary:
+        import json
+        shadow_path = f"logs/shadow_decisions_{shadow_mode_tag}.json"
+        os.makedirs("logs", exist_ok=True)
+        with open(shadow_path, "w", encoding="utf-8") as f:
+            json.dump(shadow_summary, f, ensure_ascii=False, indent=2, default=str)
+        game_count = len(shadow_summary)
+        total_decisions = sum(
+            sum(len(v.get("decisions", {}).get(pid, [])) for pid in v.get("decisions", {}))
+            for v in shadow_summary.values()
+        )
+        print(f"\n  ── Shadow日志已保存 ──")
+        print(f"  文件: {shadow_path}")
+        print(f"  覆盖 {game_count} 局, {total_decisions} 个决策点")
     print(f"{'=' * 80}")
 
     # ── RL 统计表（仅在 RL 参与时显示）──
@@ -778,6 +933,12 @@ def main():
                         help="RL 天赋选择模式：'model'=模型自选, 'random'=均匀随机14天赋, 数字=指定天赋编号, '0'=无天赋")
     parser.add_argument("--n-stack", type=int, default=30,
                         help="RL 帧堆叠数量（需与训练时一致）")
+    parser.add_argument("--disable-new-arch", action="store_true",
+                        help="关闭新架构模块，运行纯旧行为（用于基线对比）")
+    parser.add_argument("--compare", action="store_true",
+                        help="开启决策级对比模式（记录新旧候选命令差异）")
+    parser.add_argument("--shadow", action="store_true",
+                        help="开启shadow模式：记录每轮决策上下文用于新旧对比分析")
     args = parser.parse_args()
 
     if not 2 <= args.players <= 6:
@@ -785,6 +946,10 @@ def main():
         sys.exit(1)
 
     print(f"  起闯战争 自动胜率统计")
+    if args.disable_new_arch:
+        print(f"  ⚠ 新架构已禁用（纯旧行为基线）")
+    if args.compare:
+        print(f"  🔍 决策级对比模式")
     print(f"  {args.players}人局 × {args.games}局")
 
     rl_controller = None
@@ -797,7 +962,8 @@ def main():
         print(f"  RL 天赋模式: {args.rl_talent}")
     print()
 
-    run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent)
+    run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
+              new_arch_enabled=not args.disable_new_arch, shadow_mode=args.shadow)
 
 
 if __name__ == "__main__":

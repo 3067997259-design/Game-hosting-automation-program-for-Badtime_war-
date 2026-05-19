@@ -1,4 +1,12 @@
-"""DevelopMixin —— 发育命令、目的地选择、病毒应急"""
+"""DevelopMixin —— 发育命令、目的地选择、病毒应急
+
+@deprecated 部分逻辑已迁移到新架构:
+  - 已迁移: _is_development_complete() 人格判断 → BasePersonalityStrategy.is_development_complete()
+  - 仍在此: _cmd_develop 通用发育（后续需迁移到DevelopGoal）
+  - 仍在此: 火萤/全息/星野专用发育路径
+  - 仍在此: _pick_ideal_destination 目的地评分
+  - 仍在此: 病毒应急 _cmd_virus
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.constants import (
@@ -22,7 +30,7 @@ class DevelopMixin(_Base):
         """判断发育是否完成"""
         real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
         has_real_weapon = len(real_weapons) > 0
-        # 死者苏生：未学习或未挂载时，发育未完成
+        # 死者苏生：未学习或未挂载时，发育未完成（无钩子，保留原逻辑）
         if (player.talent
             and hasattr(player.talent, 'name')
             and player.talent.name == "死者苏生"):
@@ -30,7 +38,17 @@ class DevelopMixin(_Base):
                 return False
             if hasattr(player.talent, 'mounted_on') and player.talent.mounted_on is None:
                 return False
-        # 火萤IV型：天赋感知的发育标准
+        # ════════════════════════════════════════════════════════
+        #  天赋AI钩子：优先使用钩子的发育判定
+        # ════════════════════════════════════════════════════════
+        talent_name = getattr(getattr(player, 'talent', None), 'name', '')
+        if talent_name and hasattr(self, '_talent_hook_instances'):
+            hook = self._talent_hook_instances.get(talent_name)
+            if hook:
+                result = hook.is_development_complete(player, state)
+                if result is not None:
+                    return result
+        # 旧逻辑（fallback，钩子未覆盖的天赋或钩子返回None时使用）
         if self._has_firefly_talent(player):
             real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
             # Phase 1（debuff 前）：有 1 把武器就算完成
@@ -75,49 +93,53 @@ class DevelopMixin(_Base):
                 has_armor = self._count_outer_armor(player) >= 1
                 return has_two_aoe_types and has_armor
 
-        if self.personality == "aggressive":
-            has_armor = self._count_outer_armor(player) >= 2
-            has_inner = self._count_inner_armor(player) >= 1
-            has_two_weapons = len(real_weapons) >= 2
-            return has_two_weapons and has_armor and has_inner
-        elif self.personality == "defensive":
-            has_armor = self._count_outer_armor(player) >= 2
-            has_inner = self._count_inner_armor(player) >= 1
-            return has_real_weapon and has_armor and has_inner
-        elif self.personality == "assassin":
-            has_armor = self._count_outer_armor(player) >= 2
-            has_two_weapons = len(real_weapons) >= 2
-            return has_two_weapons and self._has_stealth(player) and has_armor
-        elif self.personality == "builder":
-            has_armor = self._count_outer_armor(player) >= 2
-            has_inner = self._count_inner_armor(player) >= 1
-            has_pass = getattr(player, 'has_military_pass', False)
-            return has_real_weapon and has_armor and has_inner and has_pass
-        elif self.personality == "political":
-            fallback = self._political_fallback_level
-            if fallback in ("full_balanced", "develop_only"):
-                # fallback 时使用 balanced 完成标准（2外甲+1内甲+1武器）
-                has_outer = self._count_outer_armor(player) >= 2
-                has_inner = self._count_inner_armor(player) >= 1
-                return has_real_weapon and has_outer and has_inner
-            else:
+        # ════════════════════════════════════════════════════════
+        #  人格策略：替代散落的 self.personality == "xxx" 判断
+        # ════════════════════════════════════════════════════════
+        if hasattr(self, '_strategy'):
+            # political 降级逻辑保留在此（依赖 self._political_fallback_level）
+            if self.personality == "political":
+                fallback = self._political_fallback_level
+                if fallback in ("full_balanced", "develop_only"):
+                    has_outer = self._count_outer_armor(player) >= 2
+                    has_inner = self._count_inner_armor(player) >= 1
+                    return has_real_weapon and has_outer and has_inner
                 is_captain = getattr(player, 'is_captain', False)
                 if not is_captain:
                     return False
-            has_armor = self._count_outer_armor(player) >= 1
-            # 检查警察是否全部部署
-            all_deployed = all(
-                a.get("phase") in ("stationed", "stationed_default", None)
-                for a in self._police_dev_assignments.values()
-            ) if self._police_dev_assignments else False
-            return has_real_weapon and has_armor and all_deployed
+                has_armor = self._count_outer_armor(player) >= 1
+                all_deployed = all(
+                    a.get("phase") in ("stationed", "stationed_default", None)
+                    for a in self._police_dev_assignments.values()
+                ) if self._police_dev_assignments else False
+                return has_real_weapon and has_armor and all_deployed
+            # 其余人格走策略
+            return self._strategy.is_development_complete(
+                player, state,
+                count_outer_armor=self._count_outer_armor,
+                count_inner_armor=self._count_inner_armor,
+                has_real_weapon=has_real_weapon,
+                has_pass=getattr(player, 'has_military_pass', False),
+                has_stealth=self._has_stealth(player),
+                real_weapon_count=len(real_weapons),
+            )
+        # fallback: 旧的if-else链（当 _strategy 不可用时）
+        if self.personality == "aggressive":
+            return (len(real_weapons) >= 2 and self._count_outer_armor(player) >= 2
+                    and self._count_inner_armor(player) >= 1)
+        elif self.personality == "defensive":
+            return (has_real_weapon and self._count_outer_armor(player) >= 2
+                    and self._count_inner_armor(player) >= 1)
+        elif self.personality == "assassin":
+            return (len(real_weapons) >= 2 and self._has_stealth(player)
+                    and self._count_outer_armor(player) >= 2)
+        elif self.personality == "builder":
+            return (has_real_weapon and self._count_outer_armor(player) >= 2
+                    and self._count_inner_armor(player) >= 1
+                    and getattr(player, 'has_military_pass', False))
         else:  # balanced
-            has_outer = self._count_outer_armor(player) >= 2
-            has_inner = self._count_inner_armor(player) >= 1
-            return has_real_weapon and has_outer and has_inner
-
-    def _cmd_wake(self) -> List[str]:
-        return ["wake"]
+            return (has_real_weapon and self._count_outer_armor(player) >= 2
+                    and self._count_inner_armor(player) >= 1)
     # ════════════════════════════════════════════════════════
     #  命令生成器：发育
     # ════════════════════════════════════════════════════════
