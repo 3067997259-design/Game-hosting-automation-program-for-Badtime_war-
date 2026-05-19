@@ -89,9 +89,12 @@ class GoalStack:
         self._max_goals = max_goals
 
     def push(self, goal: BaseGoal) -> None:
-        """添加目标。如果已存在同类目标，替换之。"""
-        # 替换同类目标（基于类型）
+        """添加目标。如果已存在同类目标，只用同级或更高优先级目标替换。"""
+        # 替换同类目标（基于类型），但不能让低优先级目标覆盖高优先级意图
         goal_type = type(goal)
+        same_type_goals = [g for g in self._goals if isinstance(g, goal_type)]
+        if any(g.priority > goal.priority for g in same_type_goals):
+            return
         self._goals = [g for g in self._goals if not isinstance(g, goal_type)]
         self._goals.append(goal)
         # 按优先级降序排列
