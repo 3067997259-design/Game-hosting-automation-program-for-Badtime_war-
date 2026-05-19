@@ -113,6 +113,22 @@ class DecisionOrchestrator:
         s.danger_mode = self._danger_mode
         s.star_follow_up_rounds = self._star_follow_up_rounds
 
+    def _sync_to_controller_state(self):
+        """将 Orchestrator/AIState 状态镜像回 controller，供旧接口读取。"""
+        self._ctrl._threat_scores = dict(self._threat_scores)
+        self._ctrl._low_threat_streak = dict(self._low_threat_streak)
+        self._ctrl._been_attacked_by = set(self._been_attacked_by)
+        if self._shared_state:
+            self._ctrl._players_who_attacked = set(self._shared_state.players_who_attacked)
+        self._ctrl._in_combat = self._in_combat
+        self._ctrl._combat_target = self._combat_target
+        self._ctrl._danger_mode = self._danger_mode
+
+    def _persist_state(self):
+        """统一保存新架构状态，覆盖正常返回和提前返回路径。"""
+        self._sync_to_shared_state()
+        self._sync_to_controller_state()
+
     def _build_ctx(self, state=None) -> OrchestratorContext:
         """从当前 Orchestrator 状态构建上下文快照供 CommandBuilder 使用。"""
         police_protected: Set[str] = set()
@@ -227,12 +243,14 @@ class DecisionOrchestrator:
         # Step 0: 未起床
         if not player.is_awake:
             self._dbg(1, "未起床 → wake")
+            self._persist_state()
             return ["wake"]
 
         # Step 1: 天赋钩子接管
         override = self._check_talent_overrides(player, state, available_actions)
         if override is not None:
             self._dbg(1, f"天赋钩子接管 → {override}")
+            self._persist_state()
             return override
 
         # Step 2: 运行所有 Mind，收集态势快照
@@ -250,7 +268,7 @@ class DecisionOrchestrator:
         phase_order = self._strategy.get_phase_order()
         handled_phases: List[str] = []
 
-        for phase in sorted(phase_order, key=lambda p: p.value, reverse=True):
+        for phase in phase_order:
             phase_cmds = self._execute_phase(
                 phase, player, state, available_actions,
                 snapshots, round_num
@@ -265,7 +283,9 @@ class DecisionOrchestrator:
                     if self._strategy.is_terminal_phase(phase):
                         self._dbg(2, f"阶段 {phase.name} 终止后续 | 指令: {valid_cmds}")
                         candidates.append("forfeit")
-                        return self._dedup(candidates)
+                        result = self._dedup(candidates)
+                        self._persist_state()
+                        return result
                 else:
                     self._dbg(2, f"阶段 {phase.name} 产出全被过滤(原:{phase_cmds})，继续")
             else:
@@ -284,13 +304,7 @@ class DecisionOrchestrator:
 
         candidates.append("forfeit")
         result = self._finalize(candidates, player, my_loc)
-        # ★ 同步 Orchestrator 状态回 controller（供 LLM 社交 / get_decision_context 读取）
-        self._ctrl._threat_scores = dict(self._threat_scores)
-        self._ctrl._low_threat_streak = dict(self._low_threat_streak)
-        self._ctrl._in_combat = self._in_combat
-        self._ctrl._combat_target = self._combat_target
-        self._ctrl._danger_mode = self._danger_mode
-        self._sync_to_shared_state()
+        self._persist_state()
         return result
 
     def _finalize(self, candidates: List[str], player, my_loc: str) -> List[str]:
@@ -537,7 +551,7 @@ class DecisionOrchestrator:
         cmds = []
         empty_locs = [
             loc for loc in ["home", "商店", "医院", "魔法所", "军事基地", "警察局"]
-            if loc != my_loc and GameQuery.count_enemies_at(player, state, loc) == 0
+            if loc != my_loc and GameQuery.count_enemies_at(loc, player, state) == 0
         ]
         if empty_locs and "move" in available:
             import random
@@ -546,6 +560,21 @@ class DecisionOrchestrator:
         return cmds
 
     # ── Terror 紧急集火 ──
+    def _build_forced_attack_commands(self, player, state, available, target) -> List[str]:
+        """为指定目标重新构建攻击命令，避免复用 CombatMind 的 best_target 命令。"""
+        if not target:
+            return []
+        ctx = self._build_ctx(state)
+        police_mind = None
+        for mind in self._minds:
+            if mind.__class__.__name__ == "PoliceMind":
+                police_mind = mind
+                break
+        return self._combat_cmd.build_attack(
+            player, state, self._strategy, available, ctx,
+            forced_target=target, police_mind=police_mind,
+        )
+
     def _handle_emergency_terror(self, player, state, available, snapshots, round_num) -> List[str]:
         threat = snapshots.get("threat")
         if not threat:
@@ -559,12 +588,10 @@ class DecisionOrchestrator:
         target = terror_info["target"]
         debug_ai_basic(player.name, f"Terror威胁！紧急集火 {target.name}")
 
-        combat = snapshots.get("combat")
-        if combat and combat.data.get("combat_ready"):
-            cmds = combat.data["combat_commands"]
-            if cmds:
-                self._push_combat_goal(target, player, round_num, priority=9)
-                return cmds
+        cmds = self._build_forced_attack_commands(player, state, available, target)
+        if cmds:
+            self._push_combat_goal(target, player, round_num, priority=9)
+            return cmds
 
         return []
 
@@ -791,9 +818,9 @@ class DecisionOrchestrator:
         for kt in kill_targets:
             target = kt.get("target")
             if target and combat.data.get("combat_ready"):
-                self._push_combat_goal(target, player, round_num, priority=7)
-                cmds = combat.data["combat_commands"]
+                cmds = self._build_forced_attack_commands(player, state, available, target)
                 if cmds:
+                    self._push_combat_goal(target, player, round_num, priority=7)
                     return cmds
 
         return []

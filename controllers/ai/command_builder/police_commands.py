@@ -311,8 +311,8 @@ class PoliceCommandBuilder:
                     else:
                         commands.append("move 军事基地")
             else:
-                enemies_magic = Q.count_enemies_at(player, state, "魔法所")
-                enemies_military = Q.count_enemies_at(player, state, "军事基地")
+                enemies_magic = Q.count_enemies_at("魔法所", player, state)
+                enemies_military = Q.count_enemies_at("军事基地", player, state)
                 if enemies_magic <= enemies_military:
                     if loc == "魔法所" and "interact" in available:
                         learned = Q.get_learned_spells(player)
@@ -401,8 +401,8 @@ class PoliceCommandBuilder:
                 first_dest, first_weapon, first_armor, first_station = "军事基地", "高斯步枪", "AT力场", "商店"
                 second_dest, second_weapon, second_armor, second_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
             else:
-                enemies_magic = Q.count_enemies_at(player, state, "魔法所")
-                enemies_military = Q.count_enemies_at(player, state, "军事基地")
+                enemies_magic = Q.count_enemies_at("魔法所", player, state)
+                enemies_military = Q.count_enemies_at("军事基地", player, state)
                 if enemies_magic <= enemies_military:
                     first_dest, first_weapon, first_armor, first_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
                     second_dest, second_weapon, second_armor, second_station = "军事基地", "高斯步枪", "AT力场", "商店"
@@ -410,8 +410,8 @@ class PoliceCommandBuilder:
                     first_dest, first_weapon, first_armor, first_station = "军事基地", "高斯步枪", "AT力场", "商店"
                     second_dest, second_weapon, second_armor, second_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
         else:
-            enemies_magic = Q.count_enemies_at(player, state, "魔法所")
-            enemies_military = Q.count_enemies_at(player, state, "军事基地")
+            enemies_magic = Q.count_enemies_at("魔法所", player, state)
+            enemies_military = Q.count_enemies_at("军事基地", player, state)
             if enemies_magic <= enemies_military:
                 first_dest, first_weapon, first_armor, first_station = "魔法所", "魔法弹幕", "魔法护盾", "军事基地"
                 second_dest, second_weapon, second_armor, second_station = "军事基地", "高斯步枪", "AT力场", "商店"

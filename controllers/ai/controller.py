@@ -233,6 +233,55 @@ class BasicAIController(
 
 
     # ════════════════════════════════════════════════════════
+    #  新旧架构事件入口分发
+    # ════════════════════════════════════════════════════════
+
+    def _uses_new_arch_events(self) -> bool:
+        return bool(getattr(self, '_new_arch_enabled', False) and hasattr(self, '_ai_state'))
+
+    def on_event(self, event: Dict) -> None:
+        if self._uses_new_arch_events():
+            self._on_event_new(event)
+        else:
+            EventsMixin.on_event(self, event)
+
+    def on_round_start(self, player, state, round_number: int):
+        if self._uses_new_arch_events():
+            self._on_round_start_new(player, state, round_number)
+        else:
+            EventsMixin.on_round_start(self, player, state, round_number)
+
+    def on_round_end(self, player, state, round_number: int):
+        if self._uses_new_arch_events():
+            self._on_round_end_new(player, state, round_number)
+        else:
+            EventsMixin.on_round_end(self, player, state, round_number)
+
+    def on_damaged(self, player, attacker_name: str, damage: float):
+        if self._uses_new_arch_events():
+            self._on_damaged_new(player, attacker_name, damage)
+        else:
+            EventsMixin.on_damaged(self, player, attacker_name, damage)
+
+    def on_player_killed(self, player, killed_name: str, killer_name: str):
+        if self._uses_new_arch_events():
+            self._on_player_killed_new(player, killed_name, killer_name)
+        else:
+            EventsMixin.on_player_killed(self, player, killed_name, killer_name)
+
+    def respond_to_event(self, player, state, event_type: str,
+                         event_data: dict) -> Optional[str]:
+        if self._uses_new_arch_events():
+            return self._respond_to_event_new(player, state, event_type, event_data)
+        return EventsMixin.respond_to_event(self, player, state, event_type, event_data)
+
+    def get_debug_info(self, player) -> dict:
+        if self._uses_new_arch_events():
+            return self._get_debug_info_new(player)
+        return EventsMixin.get_debug_info(self, player)
+
+
+    # ════════════════════════════════════════════════════════
     #  接口实现：get_command (原 lines 282-308)
     # ════════════════════════════════════════════════════════
 
@@ -1629,55 +1678,81 @@ class BasicAIController(
     #  新架构：事件回调（Phase 5）
     # ════════════════════════════════════════════════════════
 
+    def _mirror_ai_state_to_controller(self) -> None:
+        """把新架构当前维护的共享状态镜像到旧字段，供调试/choose/LLM 读取。"""
+        s = getattr(self, '_ai_state', None)
+        if not s:
+            return
+        self._threat_scores = dict(s.threat_scores)
+        self._low_threat_streak = dict(s.low_threat_streak)
+        self._been_attacked_by = set(s.been_attacked_by)
+        self._players_who_attacked = set(s.players_who_attacked)
+        self._in_combat = s.in_combat
+        self._combat_target = s.combat_target
+        self._danger_mode = s.danger_mode
+        if s.round_number:
+            self._round_number = s.round_number
+        if s.police_cache is not None:
+            self._police_cache = s.police_cache
+        self._virus_active = s.virus_active
+        self._virus_location = s.virus_location
+
     def _on_event_new(self, event: Dict) -> None:
         """新架构路径的事件处理"""
         self.event_log.append(event)
         event_type = event.get("type", "")
         target = event.get("target")
         attacker = event.get("attacker", "")
+        s = getattr(self, '_ai_state', None)
+        threat_scores = s.threat_scores if s else self._threat_scores
+        been_attacked_by = s.been_attacked_by if s else self._been_attacked_by
+        players_who_attacked = s.players_who_attacked if s else self._players_who_attacked
 
         if event_type == "attack" and self.player_name is not None:
             if target == self.player_name:
-                self._been_attacked_by.add(attacker)
-                self._threat_scores[attacker] = self._threat_scores.get(attacker, 0) + 20
-            self._players_who_attacked.add(attacker)
+                been_attacked_by.add(attacker)
+                threat_scores[attacker] = threat_scores.get(attacker, 0) + 20
+            players_who_attacked.add(attacker)
 
         if event_type == "find" and self._my_id is not None:
             finder = event.get("player", "")
             if target == self._my_id:
                 finder_name = self._pid_to_name(finder)
                 if finder_name:
-                    self._threat_scores[finder_name] = self._threat_scores.get(finder_name, 0) + 10
+                    threat_scores[finder_name] = threat_scores.get(finder_name, 0) + 10
 
         if event_type == "lock" and self._my_id is not None:
             locker = event.get("player", "")
             if target == self._my_id:
                 locker_name = self._pid_to_name(locker)
                 if locker_name:
-                    self._threat_scores[locker_name] = self._threat_scores.get(locker_name, 0) + 15
+                    threat_scores[locker_name] = threat_scores.get(locker_name, 0) + 15
 
         if event_type == "release_virus":
             releaser_pid = event.get("player", "")
             releaser_name = self._pid_to_name(releaser_pid)
             if releaser_name and releaser_name != self.player_name:
-                self._threat_scores[releaser_name] = self._threat_scores.get(releaser_name, 0) + 20
+                threat_scores[releaser_name] = threat_scores.get(releaser_name, 0) + 20
 
         if event_type == "death":
             killer = event.get("killer", "")
             if killer:
-                self._threat_scores[killer] = self._threat_scores.get(killer, 0) + 30
+                threat_scores[killer] = threat_scores.get(killer, 0) + 30
 
         if event_type == "election":
             candidate_pid = event.get("player", "")
             candidate_name = self._pid_to_name(candidate_pid)
             if candidate_name and candidate_name != self.player_name:
-                self._threat_scores[candidate_name] = self._threat_scores.get(candidate_name, 0) + 10
+                threat_scores[candidate_name] = threat_scores.get(candidate_name, 0) + 10
 
         if event_type == "captain_elected":
             captain_pid = event.get("captain", "")
             captain_name = self._pid_to_name(captain_pid)
             if captain_name and captain_name != self.player_name:
-                self._threat_scores[captain_name] = self._threat_scores.get(captain_name, 0) + 30
+                threat_scores[captain_name] = threat_scores.get(captain_name, 0) + 30
+
+        if s:
+            self._mirror_ai_state_to_controller()
 
     def _on_round_start_new(self, player, state, round_number: int):
         """新架构路径的轮次开始"""
@@ -1685,29 +1760,47 @@ class BasicAIController(
         self._action_used = False
         self._missile_cooldown = max(0, self._missile_cooldown - 1)
         self._update_caches_new(player, state)
+        s = getattr(self, '_ai_state', None)
+        if s:
+            s.round_number = round_number
+            s.action_used = False
+            s.missile_cooldown = self._missile_cooldown
+            self._mirror_ai_state_to_controller()
         debug_ai_basic(player.name,
             f"轮次{round_number}开始，人格={self.personality}，"
             f"阶段={self._current_phase}")
 
     def _on_round_end_new(self, player, state, round_number: int):
         """新架构路径的轮次结束"""
-        self._been_attacked_by.clear()
+        s = getattr(self, '_ai_state', None)
+        if s:
+            s.been_attacked_by.clear()
+            self._mirror_ai_state_to_controller()
+        else:
+            self._been_attacked_by.clear()
 
     def _on_damaged_new(self, player, attacker_name: str, damage: float):
         """新架构路径的被攻击处理"""
-        self._been_attacked_by.add(attacker_name)
-        self._threat_scores[attacker_name] = \
-            self._threat_scores.get(attacker_name, 0) + damage * 10
+        s = getattr(self, '_ai_state', None)
+        threat_scores = s.threat_scores if s else self._threat_scores
+        been_attacked_by = s.been_attacked_by if s else self._been_attacked_by
+        been_attacked_by.add(attacker_name)
+        threat_scores[attacker_name] = threat_scores.get(attacker_name, 0) + damage * 10
+        if s:
+            self._mirror_ai_state_to_controller()
         debug_ai_basic(player.name,
             f"被 {attacker_name} 攻击，伤害={damage}")
 
     def _on_player_killed_new(self, player, killed_name: str, killer_name: str):
         """新架构路径的玩家死亡处理"""
-        if killed_name in self._threat_scores:
-            del self._threat_scores[killed_name]
+        s = getattr(self, '_ai_state', None)
+        threat_scores = s.threat_scores if s else self._threat_scores
+        if killed_name in threat_scores:
+            del threat_scores[killed_name]
         if killer_name and killer_name != player.name:
-            self._threat_scores[killer_name] = \
-                self._threat_scores.get(killer_name, 0) + 30
+            threat_scores[killer_name] = threat_scores.get(killer_name, 0) + 30
+        if s:
+            self._mirror_ai_state_to_controller()
         debug_ai_basic(player.name,
             f"玩家 {killed_name} 被 {killer_name} 杀死")
 
@@ -1721,6 +1814,11 @@ class BasicAIController(
         else:
             self._virus_active = False
             self._virus_location = None
+        s = getattr(self, '_ai_state', None)
+        if s:
+            s.police_cache = self._police_cache
+            s.virus_active = self._virus_active
+            s.virus_location = self._virus_location
 
     def _respond_to_event_new(self, player, state, event_type: str,
                                event_data: dict) -> Optional[str]:
@@ -1756,7 +1854,12 @@ class BasicAIController(
         attacker = data.get("attacker")
         if not attacker:
             return None
-        self._been_attacked_by.add(attacker)
+        s = getattr(self, '_ai_state', None)
+        if s:
+            s.been_attacked_by.add(attacker)
+            self._mirror_ai_state_to_controller()
+        else:
+            self._been_attacked_by.add(attacker)
         options = data.get("options", [])
         personality = self.personality
         if "dodge" in options and personality in ("assassin", "defensive"):

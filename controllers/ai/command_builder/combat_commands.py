@@ -576,8 +576,8 @@ class CombatCommandBuilder:
             return "魔法所"
         if len(candidates) == 1:
             return candidates[0]
-        enemies_magic = Q.count_enemies_at(player, state, "魔法所")
-        enemies_military = Q.count_enemies_at(player, state, "军事基地")
+        enemies_magic = Q.count_enemies_at("魔法所", player, state)
+        enemies_military = Q.count_enemies_at("军事基地", player, state)
         return "军事基地" if enemies_military <= enemies_magic else "魔法所"
 
     @staticmethod

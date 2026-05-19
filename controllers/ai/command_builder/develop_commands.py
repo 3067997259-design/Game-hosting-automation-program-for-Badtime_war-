@@ -246,7 +246,7 @@ class DevelopCommandBuilder:
             for dest in ["商店", "医院", "魔法所"]:
                 if dest == loc:
                     continue
-                enemies = Q.count_enemies_at(player, state, dest)
+                enemies = Q.count_enemies_at(dest, player, state)
                 candidates.append((dest, enemies))
             candidates.sort(key=lambda x: x[1])
             if candidates:
@@ -422,7 +422,7 @@ class DevelopCommandBuilder:
                     continue
                 score += priority
                 break
-        enemies = Q.count_enemies_at(player, state, dest)
+        enemies = Q.count_enemies_at(dest, player, state)
         if personality in ("aggressive", "assassin"):
             score -= enemies * 0.5
         else:
