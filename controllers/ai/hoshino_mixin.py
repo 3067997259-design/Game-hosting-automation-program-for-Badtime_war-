@@ -1,4 +1,10 @@
-"""HoshinoMixin —— 神代天赋7 AI 专属逻辑"""
+"""
+[FROZEN] 旧架构 Mixin —— 仅供 use_new_arch=False 时使用。
+新逻辑请添加到对应的新架构模块（game_query / command_builder / talents）。
+不要修改此文件，除非是修复旧架构专属的 bug。
+
+HoshinoMixin —— 神代天赋7 AI 专属逻辑
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any
 from controllers.ai.constants import PROTECTED_ITEMS, debug_ai_basic

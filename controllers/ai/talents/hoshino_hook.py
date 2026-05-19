@@ -12,8 +12,9 @@ HoshinoAIHook —— 星野(G7)天赋AI钩子（完整生命周期）
 """
 
 from __future__ import annotations
-from typing import List, Optional, Any
+from typing import Dict, List, Optional, Any
 from controllers.ai.talents.base_hook import BaseTalentAIHook
+from controllers.ai.game_query import GameQuery
 from controllers.ai.constants import debug_ai_basic
 
 
@@ -40,60 +41,150 @@ class HoshinoAIHook(BaseTalentAIHook):
 
     # ── T0 / choose 决策 ──
     def handle_choose(
-        self, player: Any, situation: str, options: List[str]
+        self, player: Any, state: Any, situation: str,
+        options: List[str], context: Dict,
     ) -> Optional[str]:
-        """覆盖星野的 choose 决策（T0自我怀疑 + 守夜人之诗）"""
+        """覆盖星野的 choose 决策"""
+        personality = context.get("personality", "balanced")
+        threat_scores = context.get("threat_scores", {})
 
-        # ── 自我怀疑声明 ──
+        if situation == "hoshino_form_choice":
+            if personality == "aggressive":
+                priority = ["临战-Archer", "临战-shielder", "水着-shielder"]
+            elif personality == "defensive":
+                priority = ["水着-shielder", "临战-shielder", "临战-Archer"]
+            else:
+                priority = ["水着-shielder", "临战-Archer", "临战-shielder"]
+            for form in priority:
+                if form in options:
+                    return form
+            return options[0]
+
+        if situation == "hoshino_form":
+            if personality in ("balanced", "defensive"):
+                for opt in options:
+                    if "水着" in opt:
+                        return opt
+            elif personality == "aggressive":
+                for opt in options:
+                    if "Archer" in opt:
+                        return opt
+            else:
+                for opt in options:
+                    if "shielder" in opt:
+                        return opt
+            return options[0]
+
         if situation == "hoshino_self_doubt":
-            state = getattr(self._ctrl, '_game_state', None)
             if state:
                 alive_count = sum(1 for pid in state.player_order
                                   if state.get_player(pid) and state.get_player(pid).is_alive())
                 if alive_count <= 2:
                     for opt in options:
-                        if "接受" in opt:
+                        if "接受" in opt or "terror" in opt.lower():
                             return opt
             for opt in options:
-                if "拒绝" in opt:
+                if "拒绝" in opt or "抵抗" in opt:
                     return opt
             return options[-1]
 
-        # ── 自我怀疑后选择："是因为我……" vs "不，不是这样的" ──
         if situation == "hoshino_self_doubt_choice":
-            return options[0]  # "是因为我……"（进入自我怀疑）
+            if state:
+                alive_count = sum(1 for pid in state.player_order
+                                  if state.get_player(pid) and state.get_player(pid).is_alive())
+                if alive_count <= 2:
+                    return options[0]
+            return options[1] if len(options) > 1 else options[0]
 
-        # ── 守夜人之诗：Terror下战力不足时接受解除 ──
+        if situation == "hoshino_tactical_equip":
+            talent = getattr(player, 'talent', None)
+            owned_items = getattr(talent, 'tactical_items', []) if talent else []
+            owned_meds = getattr(talent, 'medicines', []) if talent else []
+            priority_items = ["闪光弹", "烟雾弹", "破片手雷", "震撼弹"]
+            for item_name in priority_items:
+                for opt in options:
+                    if item_name in opt and item_name not in owned_items:
+                        return opt
+            for opt in options:
+                if "肾上腺素" in opt and "肾上腺素" not in owned_meds:
+                    return opt
+            for opt in options:
+                if "子弹" in opt:
+                    return opt
+            return options[0]
+
+        if situation == "hoshino_repair_material":
+            for opt in options:
+                if "盾牌" in opt:
+                    return opt
+            return options[0]
+
+        if situation == "hoshino_throw_item":
+            priority = ["闪光弹", "烟雾弹", "破片手雷", "震撼弹", "燃烧瓶"]
+            for item in priority:
+                if item in options:
+                    return item
+            return options[0]
+
+        if situation == "hoshino_medicine":
+            for opt in options:
+                if "EPO" in opt:
+                    return opt
+            for opt in options:
+                if "巧克力" in opt:
+                    return opt
+            return options[0] if options else ""
+
+        if situation == "hoshino_dash_target":
+            if not options:
+                return ""
+            return max(options, key=lambda name: threat_scores.get(name, 0))
+
+        if situation == "hoshino_shoot_target":
+            if not options:
+                return ""
+            return max(options, key=lambda name: threat_scores.get(name, 0))
+
+        if situation == "hoshino_find_target":
+            if not options:
+                return ""
+            return max(options, key=lambda name: threat_scores.get(name, 0))
+
+        if situation == "hoshino_throw_location":
+            combat_target = context.get("combat_target")
+            if combat_target:
+                target_loc = GameQuery.get_location_str(combat_target)
+                if target_loc in options:
+                    return target_loc
+            return options[0]
+
         if situation == "poem_nightwatch_choice":
             talent = getattr(player, 'talent', None)
             if talent and getattr(talent, 'is_terror', False):
-                terror_hp = getattr(talent, 'terror_extra_hp', 0.0)
-                max_enemy_power = self._max_enemy_total_power(player)
-                if terror_hp < max_enemy_power:
-                    for opt in options:
-                        if "接受" in opt:
-                            return opt
+                for opt in options:
+                    if "接受" in opt:
+                        return opt
             for opt in options:
                 if "拒绝" in opt:
                     return opt
             return options[-1]
 
-        return None  # 不处理其他情况
+        return None
 
-    def _max_enemy_total_power(self, player) -> float:
-        """计算场上其他存活玩家的最大 (HP + 外层护甲数 + 内层护甲数)"""
-        max_power = 0.0
-        state = getattr(self._ctrl, '_game_state', None)
+    def _max_enemy_total_power(self, player, state=None) -> float:
+        if state is None:
+            state = getattr(self._ctrl, '_game_state', None)
         if not state:
-            return 999.0  # 无法确定时保守接受
+            return 999.0
+        max_power = 0.0
         for pid in state.player_order:
             if pid == player.player_id:
                 continue
             p = state.get_player(pid)
             if not p or not p.is_alive():
                 continue
-            outer = self._ctrl._count_outer_armor(p)
-            inner = self._ctrl._count_inner_armor(p)
+            outer = GameQuery.count_outer_armor(p)
+            inner = GameQuery.count_inner_armor(p)
             power = p.hp + outer + inner
             if power > max_power:
                 max_power = power

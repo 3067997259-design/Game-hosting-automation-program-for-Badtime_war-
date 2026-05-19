@@ -13,8 +13,9 @@ OneSlashAIHook —— T1「一刀缭断」天赋AI钩子
 """
 
 from __future__ import annotations
-from typing import List, Optional, Any
+from typing import Dict, List, Optional, Any
 from controllers.ai.talents.base_hook import BaseTalentAIHook
+from controllers.ai.game_query import GameQuery
 
 
 class OneSlashAIHook(BaseTalentAIHook):
@@ -22,6 +23,118 @@ class OneSlashAIHook(BaseTalentAIHook):
 
     def __init__(self, controller: Any):
         self._ctrl = controller
+
+    # ════════════════════════════════════════════════════════
+    #  Choose 决策
+    # ════════════════════════════════════════════════════════
+
+    def handle_choose(
+        self, player: Any, state: Any, situation: str,
+        options: List[str], context: Dict,
+    ) -> Optional[str]:
+        threat_scores = context.get("threat_scores", {})
+
+        if situation == "oneslash_pick_weapon":
+            if player:
+                best_name = None
+                best_dmg = -1
+                best_is_sharpened_knife = False
+                for w in getattr(player, 'weapons', []):
+                    if w and w.name in options:
+                        dmg = GameQuery.get_weapon_damage(w)
+                        is_sharpened_knife = (
+                            w.name == "小刀"
+                            and getattr(w, 'base_damage', 0) >= 2
+                        )
+                        if (is_sharpened_knife and not best_is_sharpened_knife) or \
+                           (is_sharpened_knife == best_is_sharpened_knife and dmg > best_dmg):
+                            best_dmg = dmg
+                            best_name = w.name
+                            best_is_sharpened_knife = is_sharpened_knife
+                if best_name:
+                    return best_name
+            return options[0]
+
+        if situation == "oneslash_pick_target":
+            return max(options, key=lambda name: threat_scores.get(name, 0), default=options[0])
+
+        if situation == "talent_t0":
+            talent_name = context.get("talent_name", "")
+            if talent_name != "一刀缭断":
+                return None
+            if player and state:
+                has_sharpened_knife = any(
+                    w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
+                    for w in getattr(player, 'weapons', [])
+                )
+                has_charged_gauss = any(
+                    w.name == "高斯步枪" and getattr(w, 'is_charged', False)
+                    for w in getattr(player, 'weapons', [])
+                )
+                if not (has_sharpened_knife or has_charged_gauss):
+                    for opt in options:
+                        if "不发动" in opt or "正常" in opt:
+                            return opt
+                    return options[-1]
+
+                talent = getattr(player, 'talent', None)
+                uses_left = getattr(talent, 'uses_remaining', 0) if talent else 0
+
+                markers = getattr(state, 'markers', None)
+                engaged_target = None
+                if markers:
+                    for pid in state.player_order:
+                        if pid == player.player_id:
+                            continue
+                        t = state.get_player(pid)
+                        if t and t.is_alive() and markers.has_relation(
+                                player.player_id, "ENGAGED_WITH", pid):
+                            engaged_target = t
+                            break
+
+                alive_count = sum(
+                    1 for pid in state.player_order
+                    if state.get_player(pid) and state.get_player(pid).is_alive()
+                )
+
+                terror_found = any(
+                    getattr(getattr(state.get_player(pid), 'talent', None), 'is_terror', False)
+                    for pid in state.player_order
+                    if pid != player.player_id
+                    and state.get_player(pid) and state.get_player(pid).is_alive()
+                )
+
+                if uses_left >= 2:
+                    for opt in options:
+                        if "发动" in opt:
+                            return opt
+
+                if uses_left == 1:
+                    should_activate = False
+                    if alive_count == 2 and engaged_target is not None:
+                        should_activate = True
+                    if not should_activate and getattr(self._ctrl, '_danger_mode', False):
+                        if terror_found:
+                            should_activate = True
+                    if not should_activate and terror_found:
+                        should_activate = True
+                    if should_activate and engaged_target:
+                        outer = GameQuery.count_outer_armor(engaged_target)
+                        inner = GameQuery.count_inner_armor(engaged_target)
+                        total_def = engaged_target.hp + outer + inner
+                        if total_def < 4:
+                            should_activate = False
+                    if should_activate:
+                        for opt in options:
+                            if "发动" in opt:
+                                return opt
+
+            for opt in options:
+                if "不发动" in opt or "正常" in opt:
+                    return opt
+            return options[-1]
+
+        return None
 
     # ════════════════════════════════════════════════════════
     #  get_development_needs_override：注入发育需求

@@ -1,9 +1,10 @@
 """火萤IV型(G1) + 全息影像(G2) + 救世主(G4) 天赋AI钩子"""
 
 from __future__ import annotations
-from typing import List, Optional, Any
+from typing import Dict, List, Optional, Any
 import random
 from controllers.ai.talents.base_hook import BaseTalentAIHook
+from controllers.ai.game_query import GameQuery
 from controllers.ai.constants import debug_ai_basic
 
 
@@ -148,6 +149,99 @@ class HologramAIHook(BaseTalentAIHook):
         has_two_aoe = self._ctrl._count_distinct_aoe_attrs(player) >= 2
         return has_two_aoe and self._ctrl._count_outer_armor(player) >= 1
 
+    def handle_choose(
+        self, player: Any, state: Any, situation: str,
+        options: List[str], context: Dict,
+    ) -> Optional[str]:
+        if situation == "talent_t0":
+            talent_name = context.get("talent_name", "")
+            if "注视" not in talent_name:
+                return None
+            should_activate = False
+            if player and state:
+                my_loc = GameQuery.get_location_str(player)
+                pc = context.get("police_cache") or {}
+                outer = GameQuery.count_outer_armor(player)
+                inner = GameQuery.count_inner_armor(player)
+                total_armor = outer + inner
+                nearby_players = GameQuery.get_same_location_targets(player, state)
+                nearby_police_count = 0
+                for unit in pc.get("units", []):
+                    if (unit.get("is_alive")
+                            and unit.get("location")
+                            and unit["location"] == my_loc):
+                        nearby_police_count += 1
+                nearby_total = len(nearby_players) + nearby_police_count
+                has_two_aoe = GameQuery.count_distinct_aoe_attrs(player) >= 2
+                been_attacked_by = context.get("been_attacked_by", set())
+
+                if (not should_activate
+                        and self._ctrl._is_development_complete(player, state)
+                        and total_armor >= 1
+                        and nearby_total >= 1):
+                    emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
+                    if emr and not getattr(emr, 'is_charged', False):
+                        other_aoe = [w for w in player.weapons
+                                     if w and w.name != "电磁步枪" and w.name != "拳击"
+                                     and GameQuery.get_weapon_range(w) == "area"]
+                        if other_aoe:
+                            should_activate = True
+                        else:
+                            self._ctrl._emr_needs_charge_before_hologram = True
+                    else:
+                        should_activate = True
+
+                if not should_activate and player.hp <= 1.0 and been_attacked_by:
+                    for attacker_name in been_attacked_by:
+                        for pid in state.player_order:
+                            atk = state.get_player(pid)
+                            if (atk and atk.is_alive()
+                                    and atk.name == attacker_name
+                                    and GameQuery.same_location(player, atk)):
+                                should_activate = True
+                                break
+                        if should_activate:
+                            break
+
+                if not should_activate and has_two_aoe:
+                    has_captain = pc.get("captain_id") is not None
+                    if has_captain:
+                        should_activate = True
+
+                if not should_activate and has_two_aoe:
+                    for pid in state.player_order:
+                        if pid == player.player_id:
+                            continue
+                        t = state.get_player(pid)
+                        if (t and t.is_alive() and t.talent
+                                and getattr(t.talent, 'has_supernova', False)):
+                            should_activate = True
+                            break
+
+                if not should_activate:
+                    markers = getattr(state, 'markers', None)
+                    if markers and hasattr(markers, 'has_relation'):
+                        for pid in state.player_order:
+                            if pid == player.player_id:
+                                continue
+                            t = state.get_player(pid)
+                            if t and t.is_alive() and markers.has_relation(
+                                    player.player_id, "ENGAGED_WITH", pid):
+                                if GameQuery.same_location(player, t):
+                                    if GameQuery.count_distinct_aoe_attrs(player) >= 1:
+                                        should_activate = True
+                                break
+
+            if should_activate:
+                for opt in options:
+                    if "发动" in opt:
+                        return opt
+            for opt in options:
+                if "不发动" in opt or "正常" in opt:
+                    return opt
+            return options[-1]
+        return None
+
     def should_override_candidates(
         self, player: Any, state: Any, available: List[str]
     ) -> Optional[List[str]]:
@@ -203,6 +297,32 @@ class SaviorAIHook(BaseTalentAIHook):
         if divinity <= 4:
             return base_score + 30
         return base_score
+
+    def handle_choose(
+        self, player: Any, state: Any, situation: str,
+        options: List[str], context: Dict,
+    ) -> Optional[str]:
+        if situation == "talent_t0":
+            talent_name = context.get("talent_name", "")
+            if "愿负世" not in talent_name:
+                return None
+            talent = getattr(player, 'talent', None)
+            divinity = getattr(talent, 'divinity', 0) if talent else 0
+            if divinity >= 8:
+                for opt in options:
+                    if "发动" in opt:
+                        return opt
+            elif player and player.hp <= 1.0 and divinity >= 4:
+                nearby = GameQuery.get_same_location_targets(player, state) if state else []
+                if nearby:
+                    for opt in options:
+                        if "发动" in opt:
+                            return opt
+            for opt in options:
+                if "不发动" in opt or "正常" in opt:
+                    return opt
+            return options[-1]
+        return None
 
     def should_override_candidates(
         self, player: Any, state: Any, available: List[str]

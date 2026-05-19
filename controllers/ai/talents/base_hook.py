@@ -6,7 +6,7 @@ BaseTalentAIHook —— 天赋AI行为钩子基类
 """
 
 from __future__ import annotations
-from typing import List, Optional, Any
+from typing import Dict, List, Optional, Any
 
 
 class BaseTalentAIHook:
@@ -55,9 +55,18 @@ class BaseTalentAIHook:
     # ════════════════════════════════════════════════════════
 
     def handle_choose(
-        self, player: Any, situation: str, options: List[str]
+        self, player: Any, state: Any, situation: str,
+        options: List[str], context: Dict,
     ) -> Optional[str]:
-        """天赋覆盖的 choose 决策。返回 None 表示用默认逻辑。"""
+        """天赋覆盖的 choose 决策。返回 None 表示用默认逻辑。
+
+        参数:
+            player: 当前玩家
+            state: 游戏状态
+            situation: 选择场景标识
+            options: 可选项列表
+            context: 额外上下文 (threat_scores, personality, etc.)
+        """
         return None
 
     # ════════════════════════════════════════════════════════

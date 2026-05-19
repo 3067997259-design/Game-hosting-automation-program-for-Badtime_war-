@@ -1,4 +1,9 @@
-"""DevelopMixin —— 发育命令、目的地选择、病毒应急
+"""
+[FROZEN] 旧架构 Mixin —— 仅供 use_new_arch=False 时使用。
+新逻辑请添加到对应的新架构模块（game_query / command_builder / talents）。
+不要修改此文件，除非是修复旧架构专属的 bug。
+
+DevelopMixin —— 发育命令、目的地选择、病毒应急
 
 @deprecated 部分逻辑已迁移到新架构:
   - 已迁移: _is_development_complete() 人格判断 → BasePersonalityStrategy.is_development_complete()

@@ -1,4 +1,10 @@
-"""EvaluationMixin —— 威胁评估、战力估算、阶段判定"""
+"""
+[FROZEN] 旧架构 Mixin —— 仅供 use_new_arch=False 时使用。
+新逻辑请添加到对应的新架构模块（game_query / command_builder / talents）。
+不要修改此文件，除非是修复旧架构专属的 bug。
+
+EvaluationMixin —— 威胁评估、战力估算、阶段判定
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.constants import EFFECTIVE_AGAINST, debug_ai_basic, debug_ai_kill_opportunity

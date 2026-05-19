@@ -1,4 +1,10 @@
-"""ChooseMixin —— choose/choose_multi/confirm 接口实现"""
+"""
+[FROZEN] 旧架构 Mixin —— 仅供 use_new_arch=False 时使用。
+新逻辑请添加到对应的新架构模块（game_query / command_builder / talents）。
+不要修改此文件，除非是修复旧架构专属的 bug。
+
+ChooseMixin —— choose/choose_multi/confirm 接口实现
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Dict, Any
 import random
@@ -37,7 +43,18 @@ class ChooseMixin(_Base):
             hook_instances = getattr(self, '_talent_hook_instances', {})
             hook = hook_instances.get(talent_name)
             if hook and hasattr(hook, 'handle_choose'):
-                result = hook.handle_choose(self._player, situation, options)
+                hook_ctx = {
+                    "situation": situation,
+                    "personality": getattr(self, 'personality', 'balanced'),
+                    "threat_scores": getattr(self, '_threat_scores', {}),
+                    "been_attacked_by": getattr(self, '_been_attacked_by', set()),
+                    "combat_target": getattr(self, '_combat_target', None),
+                    "danger_mode": getattr(self, '_danger_mode', False),
+                    "police_cache": getattr(self, '_police_cache', None),
+                    **(context or {}),
+                }
+                result = hook.handle_choose(
+                    self._player, self._game_state, situation, options, hook_ctx)
                 if result is not None:
                     return result
 

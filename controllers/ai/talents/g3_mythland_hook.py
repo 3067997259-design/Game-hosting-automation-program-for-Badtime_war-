@@ -12,7 +12,7 @@ MythlandAIHook —— G3「神话之外」天赋AI钩子
 """
 
 from __future__ import annotations
-from typing import List, Optional, Any
+from typing import Dict, List, Optional, Any
 import random
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.constants import debug_ai_basic
@@ -56,7 +56,8 @@ class MythlandAIHook(BaseTalentAIHook):
     # ════════════════════════════════════════════════════════
 
     def handle_choose(
-        self, player: Any, situation: str, options: List[str]
+        self, player: Any, state: Any, situation: str,
+        options: List[str], context: Dict,
     ) -> Optional[str]:
         """处理 G3 相关的 choose 决策。返回 None 表示走默认逻辑。"""
 
@@ -64,53 +65,25 @@ class MythlandAIHook(BaseTalentAIHook):
         if situation == "mythland_rps":
             return random.choice(options)
 
-        # ── 结界选拉入目标：优先受保护队长 > 最弱者 ──
+        # ── 结界选拉入目标：旧架构按威胁分选择最高目标 ──
         if situation == "mythland_pick_target":
+            threat_scores = context.get("threat_scores", {})
             player_opts = [o for o in options if o != "不拉人"]
-            if not player_opts:
-                return "不拉人"
-
-            state = getattr(self._ctrl, '_game_state', None)
-            if not state:
-                return player_opts[0]
-
-            # 优先：同地点受保护的队长
-            for name in player_opts:
-                t = next((p for p in state.alive_players() if p.name == name), None)
-                if t and getattr(t, 'is_captain', False):
-                    pe = getattr(state, 'police_engine', None)
-                    if pe and pe.is_protected_by_police(t.player_id):
-                        return name
-
-            # 选最弱的（战力最低）→ 保证击杀，不再选最强
-            weakest_name = None
-            weakest_power = 999.0
-            for name in player_opts:
-                t = next((p for p in state.alive_players() if p.name == name), None)
-                if t and t.player_id != player.player_id:
-                    power = self._estimate_combat_power(t)
-                    if power < weakest_power:
-                        weakest_power = power
-                        weakest_name = name
-            if weakest_name:
-                return weakest_name
-
+            if player_opts:
+                return max(player_opts, key=lambda name: threat_scores.get(name, 0))
             return "不拉人"
 
         # ── 天赋T0：是否发动 ──
         if situation == "talent_t0":
+            talent_name = context.get("talent_name", "")
+            if "幻想乡" not in talent_name and "神话之外" not in talent_name:
+                return None
             return self._decide_activation(player, options)
 
         return None  # 不处理其他情况
 
     def _decide_activation(self, player: Any, options: List[str]) -> Optional[str]:
-        """G3 发动决策：优先级重排
-        
-        1. 同地点受保护的队长 → 拉！(警察保护在结界外无效)
-        2. 残局（存活≤3）→ 拉最弱的保证击杀
-        3. 危险模式 + move/interact被禁用 → 拉最近的目标赌反杀
-        4. 其他情况 → 不发动（保留）
-        """
+        """G3 发动决策：受保护队长优先，否则发育完成且同地点有目标才发动。"""
         state = getattr(self._ctrl, '_game_state', None)
         if not state:
             for opt in options:
@@ -125,12 +98,7 @@ class MythlandAIHook(BaseTalentAIHook):
                     return opt
             return options[-1] if options else None
 
-        alive_count = sum(
-            1 for pid in state.player_order
-            if state.get_player(pid) and state.get_player(pid).is_alive()
-        )
-
-        # Priority 1：同地点有受警察保护的队长 → 拉入结界（警察保护无效）
+        # 同地点有受警察保护的队长 → 拉入结界（警察保护无效）
         for t in same_loc:
             if getattr(t, 'is_captain', False):
                 pe = getattr(state, 'police_engine', None)
@@ -139,20 +107,11 @@ class MythlandAIHook(BaseTalentAIHook):
                         if "发动" in opt:
                             return opt
 
-        # Priority 2：残局（存活≤3）→ 拉最弱的保证击杀
-        if alive_count <= 3:
+        if self._ctrl._is_development_complete(player, state):
             for opt in options:
                 if "发动" in opt:
                     return opt
 
-        # Priority 3：危险模式 → 赌反杀
-        danger_mode = getattr(self._ctrl, '_danger_mode', False)
-        if danger_mode:
-            for opt in options:
-                if "发动" in opt:
-                    return opt
-
-        # Priority 4：其他情况 → 不发动
         for opt in options:
             if "不发动" in opt or "正常" in opt:
                 return opt
