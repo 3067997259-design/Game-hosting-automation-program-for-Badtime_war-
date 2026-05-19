@@ -21,6 +21,30 @@ from controllers.ai.develop_mixin import DevelopMixin
 from controllers.ai.police_mixin import PoliceMixin
 from controllers.ai.events_mixin import EventsMixin
 
+# 新架构模块（组合优于继承）
+from controllers.ai.minds.police_mind import PoliceMind, PoliceSituation, PoliceStance
+from controllers.ai.minds.threat_mind import ThreatMind
+from controllers.ai.minds.develop_mind import DevelopMind
+from controllers.ai.minds.combat_mind import CombatMind
+from controllers.ai.talents.terror_defense import TerrorDefenseAI
+from controllers.ai.goals.base_goal import GoalStack
+from controllers.ai.goals.develop_goal import DevelopGoal
+from controllers.ai.goals.combat_goal import CombatGoal
+from controllers.ai.goals.flee_goal import FleeGoal
+from controllers.ai.goals.virus_goal import VirusCureGoal
+from controllers.ai.goals.captain_goal import CaptainGoal
+from controllers.ai.goals.political_goal import PoliticalGoal
+from controllers.ai.strategies.registry import create_strategy
+from controllers.ai.talents.base_hook import BaseTalentAIHook
+from controllers.ai.talents.terror_defense import TerrorDefenseAI
+from controllers.ai.talents.hoshino_hook import HoshinoAIHook
+from controllers.ai.talents.g1_g2_g4_hooks import HologramAIHook, SaviorAIHook, FireflyAIHook
+from controllers.ai.talents.g3_mythland_hook import MythlandAIHook
+from controllers.ai.talents.t1_oneslash_hook import OneSlashAIHook
+
+# 新架构决策编排器
+from controllers.ai.orchestrator import DecisionOrchestrator
+
 
 
 class BasicAIController(
@@ -43,9 +67,10 @@ class BasicAIController(
     #  __init__ (原 lines 199-246)
     # ════════════════════════════════════════════════════════
 
-    def __init__(self, personality: str = "balanced"):
+    def __init__(self, personality: str = "balanced", new_arch_enabled: bool = True):
         super().__init__()
         self.personality = personality
+        self._new_arch_enabled = new_arch_enabled
         self.event_log: List[Dict] = []
         self._round_number = 0
 
@@ -105,6 +130,59 @@ class BasicAIController(
         # 初始化 DevelopMixin 所需的 fallback level 属性
         self._political_fallback_level = "none"
 
+        # ════════════════════════════════════════════════════════
+        #  新架构开关：通过构造函数参数 new_arch_enabled 控制
+        #  False时：不创建任何新模块，hasattr检查自然回退到旧行为
+        # ════════════════════════════════════════════════════════
+        self._shadow_mode = False
+        self._shadow_log: List[Dict] = []
+
+        # ════════════════════════════════════════════════════════
+        #  新架构模块：仅在 _new_arch_enabled=True 时创建
+        #  禁用时 hasattr 自然返回 False，所有代码回退到旧行为
+        # ════════════════════════════════════════════════════════
+        self._talent_hook_instances = {}
+        self._decision_log: List[Dict] = []
+        if self._new_arch_enabled:
+            self._police_mind = PoliceMind(debug_name="AI")
+            self._goal_stack = GoalStack(max_goals=5)
+            self._strategy = create_strategy(personality)
+            self._talent_hook_instances = {
+                "大叔我啊，剪短发了": HoshinoAIHook(self),
+                "请一直，注视着我": HologramAIHook(self),
+                "愿负世，照拂黎明": SaviorAIHook(self),
+                "火萤IV型-完全燃烧": FireflyAIHook(self),
+                "神话之外": MythlandAIHook(self),
+                "一刀缭断": OneSlashAIHook(self),
+            }
+            self._terror_defense = TerrorDefenseAI(debug_name="AI")
+
+            # ════════════════════════════════════════════════════════
+            #  ★ 新架构 DecisionOrchestrator：替代旧瀑布流的独立管道
+            #  包含所有 Mind 实例 + Orchestrator 编排器
+            # ════════════════════════════════════════════════════════
+            self._minds = [
+                PoliceMind(debug_name="AI"),
+                ThreatMind(debug_name="AI"),
+                DevelopMind(debug_name="AI"),
+                CombatMind(debug_name="AI"),
+            ]
+            self._orchestrator = DecisionOrchestrator(
+                strategy=self._strategy,
+                goal_stack=self._goal_stack,
+                talent_hooks=self._talent_hook_instances,
+                minds=self._minds,
+                controller=self,
+            )
+
+        # ════════════════════════════════════════════════════
+        #  LLM 行为调整接口（由 AIChatModule 通过 [ADJUST] 写入）
+        #  - _llm_alliance: LLM认为的盟友集合 → _pick_target 降低对其的攻击优先级
+        #  - _llm_aggression_mod: LLM调整的攻击倾向 [-20, +20] → 全局影响威胁评估
+        # ════════════════════════════════════════════════════
+        self._llm_alliance: set = set()
+        self._llm_aggression_mod: float = 0.0
+
 
     # ════════════════════════════════════════════════════════
     #  对外只读决策上下文（供 LLM 战略社交模块读取）
@@ -139,6 +217,9 @@ class BasicAIController(
             "consecutive_forfeits": self._consecutive_forfeits,
             "my_kills": self._my_kills,
             "been_attacked_by": list(self._been_attacked_by),
+            # 新增：LLM 可读写的状态
+            "llm_alliance": list(getattr(self, '_llm_alliance', set())),
+            "llm_aggression_mod": getattr(self, '_llm_aggression_mod', 0.0),
         }
 
 
@@ -152,6 +233,14 @@ class BasicAIController(
     ) -> str:
         self.player_name = player.name
         self._my_id = player.player_id
+        # 同步新架构模块的调试名称
+        if hasattr(self, '_police_mind'):
+            self._police_mind._debug_name = player.name
+        if hasattr(self, '_terror_defense'):
+            self._terror_defense._debug_name = player.name
+        # 同步所有 Mind 的调试名称
+        for mind in getattr(self, '_minds', []):
+            mind._debug_name = player.name
         attempt = context.get("attempt", 1) if context else 1
         situation = (context or {}).get("situation", "")
 
@@ -201,9 +290,19 @@ class BasicAIController(
             return cmd
 
         if attempt == 1:
-            self._candidates = self._generate_candidates(
-                player, game_state, available_actions
-            )
+            # ════════════════════════════════════════════════════════
+            #  ★ 管道选择：新架构 Orchestrator vs 旧架构 waterfall
+            #  new_arch_enabled=True 时走新管道，False 时走旧管道
+            # ════════════════════════════════════════════════════════
+            if hasattr(self, '_orchestrator') and self._new_arch_enabled:
+                self._candidates = self._orchestrator.generate(
+                    player, game_state, available_actions,
+                    getattr(game_state, 'current_round', 0)
+                )
+            else:
+                self._candidates = self._generate_candidates(
+                    player, game_state, available_actions
+                )
             self._attempt_index = 0
             debug_ai_candidate_commands(self._pname(),
                 [f"候选命令列表（共{len(self._candidates)}条）"])
@@ -282,17 +381,18 @@ class BasicAIController(
         commands = []
         pc = self._police_cache or {}
         captain_id = pc.get("captain_id")
-        if not captain_id or captain_id == player.player_id:
+        if not captain_id:
             return commands
 
-        # 检查队长是否在来源玩家中
-        captain_in_sources = (
-            captain_id in source_lookup.get("police_command", [])
-            or captain_id in source_lookup.get("designate", [])
-            or captain_id in source_lookup.get("study", [])
-        )
-        if not captain_in_sources:
-            return commands
+        # 检查队长是否在来源玩家中（如果自己就是队长，跳过此检查）
+        if captain_id != player.player_id:
+            captain_in_sources = (
+                captain_id in source_lookup.get("police_command", [])
+                or captain_id in source_lookup.get("designate", [])
+                or captain_id in source_lookup.get("study", [])
+            )
+            if not captain_in_sources:
+                return commands
 
         captain = state.get_player(captain_id)
         if not captain or not captain.is_alive():
@@ -533,6 +633,33 @@ class BasicAIController(
         self._update_combat_status(player, state)
         self._cleanup_dead_players(state)
 
+        # ════════════════════════════════════════════════════════
+        #  PoliceMind：统一警察态势评估（调试可见性，不改变行为）
+        #  每轮评估一次，输出结构化日志到 debug_ai_basic
+        # ════════════════════════════════════════════════════════
+        if hasattr(self, '_police_mind'):
+            self._police_mind.assess(
+                player, state,
+                police_cache=self._police_cache or {},
+                threat_scores=self._threat_scores,
+                my_location=self._get_location_str(player),
+                strategy=getattr(self, '_strategy', None),
+            )
+
+        # ════════════════════════════════════════════════════════
+        #  目标系统：清理过期目标，获取活跃目标的下一步命令
+        # ════════════════════════════════════════════════════════
+        if hasattr(self, '_goal_stack'):
+            removed = self._goal_stack.pop_expired(player, state)
+            for g in removed:
+                debug_ai_basic(player.name, f"目标完成/过期: {g.description}")
+            # 记录当前活跃目标（调试可见）
+            if not self._goal_stack.is_empty:
+                top = self._goal_stack.top()
+                if top:
+                    debug_ai_basic(player.name,
+                        f"活跃目标: {top.description} (优先级={top.priority})")
+
         if self.personality == "political":
             self._political_fallback_level = self._political_should_fallback(player, state)
             self._political_in_balanced_fallback = (self._political_fallback_level == "full_balanced")
@@ -548,14 +675,31 @@ class BasicAIController(
         if not player.is_awake:
             return ["wake"]
 
-        # ===== 星野 Terror 状态 =====
-        if self._has_hoshino_talent(player) and self._hoshino_is_terror(player):
-            debug_ai_basic(player.name, "Terror 状态：全图攻击")
-            return self._hoshino_terror_command(player, state, available_actions)
+        # ════════════════════════════════════════════════════════
+        #  天赋AI钩子分发：天赋可完全接管候选命令生成
+        #  替代散落在各处的 _has_hoshino_talent / _has_firefly 等硬编码
+        # ════════════════════════════════════════════════════════
+        talent_name = getattr(getattr(player, 'talent', None), 'name', '')
+        self._talent_hook_handled = False
+        if talent_name and hasattr(self, '_talent_hook_instances'):
+            hook = self._talent_hook_instances.get(talent_name)
+            if hook:
+                override = hook.should_override_candidates(player, state, available_actions)
+                if override is not None:
+                    self._talent_hook_handled = True
+                    return override
 
         # ===== 病毒应急（最高优先级，优先于terror以外所有战术决策）=====
         if self._needs_virus_cure(player, state):
             debug_ai_basic(player.name, "进入病毒应急模式（优先于战术宏）")
+            # 推入持久化目标：不会因为其他优先级劫持而忘记治病毒
+            if hasattr(self, '_goal_stack') and not self._has_virus_immunity(player):
+                goal = VirusCureGoal(
+                    preferred_location=self._pick_virus_cure_location(player, state),
+                    debug_name=player.name,
+                )
+                goal.set_round(self._round_number)
+                self._goal_stack.push(goal)
             virus_cmds = self._cmd_virus(player, state, available_actions)
             if virus_cmds:
                 candidates.extend(virus_cmds)
@@ -563,7 +707,10 @@ class BasicAIController(
                 return candidates
 
         # ===== 星野肾上腺素（宏外使用，不消耗行动回合）=====
+        # @deprecated 已迁移到 HoshinoAIHook.should_override_candidates()
+        # 仅当钩子未处理时作为fallback
         if (self._has_hoshino_talent(player)
+                and not self._talent_hook_handled
                 and self._hoshino_tactical_unlocked(player)
                 and not self._hoshino_is_terror(player)
                 and "special" in available_actions):
@@ -573,7 +720,9 @@ class BasicAIController(
                 candidates.insert(0, "special 肾上腺素")
 
         # ===== 星野反警察：搏命模式（被追击时）=====
+        # @deprecated 已迁移到 HoshinoAIHook
         if (self._has_hoshino_talent(player)
+                and not self._talent_hook_handled
                 and self._hoshino_tactical_unlocked(player)
                 and not self._hoshino_is_terror(player)
                 and self._is_pursued_by_police_extended(player, state)):
@@ -613,7 +762,9 @@ class BasicAIController(
                         return [f"move {captain_loc}", "forfeit"]
 
         # ===== 星野战术指令已解锁：优先使用 special Hoshino =====
+        # @deprecated 已迁移到 HoshinoAIHook
         if (self._has_hoshino_talent(player)
+                and not self._talent_hook_handled
                 and self._hoshino_tactical_unlocked(player)
                 and not self._hoshino_is_terror(player)):
             # 前置检查：有弹药或可装填物品，且铁之荷鲁斯未破损
@@ -748,6 +899,14 @@ class BasicAIController(
         # ===== 队长指挥 =====
         if getattr(player, 'is_captain', False) and "police_command" in available_actions:
             debug_ai_basic(player.name, "作为队长，生成警察指挥命令")
+            # 推入持久化队长目标
+            if hasattr(self, '_goal_stack'):
+                cap_goal = CaptainGoal(
+                    cmd_captain_fn=self._cmd_captain,
+                    debug_name=player.name,
+                )
+                cap_goal.set_round(self._round_number)
+                self._goal_stack.push(cap_goal)
             captain_cmds = self._cmd_captain(player, state, available_actions)
             if captain_cmds:
                 candidates.append(captain_cmds[0])
@@ -848,11 +1007,42 @@ class BasicAIController(
         # ===== 危险情况 =====
         if self._is_critical(player, state):
             self._danger_mode = True
+            # 进入危险模式时，打断所有持久化目标（保命优先）
+            if hasattr(self, '_goal_stack'):
+                self._goal_stack.interrupt_all()
+                # 推入逃跑目标：队长优先去警察所在地，普通玩家去安全地点
+                if getattr(player, 'is_captain', False):
+                    safe_loc = self._pick_captain_safe_destination(player, state)
+                else:
+                    safe_loc = self._pick_safe_armor_destination(player, state)
+                if safe_loc:
+                    flee = FleeGoal(
+                        destination=safe_loc,
+                        debug_name=player.name,
+                    )
+                    flee.set_round(self._round_number)
+                    self._goal_stack.push(flee)
 
         if self._danger_mode:
             if self._is_danger_resolved(player):
                 debug_ai_basic(player.name, "危险解除，退出危险模式")
                 self._danger_mode = False
+                # 危险解除，恢复被打断的目标，清理FleeGoal
+                if hasattr(self, '_goal_stack'):
+                    # 标记所有FleeGoal为完成
+                    count_flee = 0
+                    for g in self._goal_stack.all_goals:
+                        if hasattr(g, '_danger_resolved'):
+                            g._danger_resolved = True
+                            count_flee += 1
+                    debug_ai_basic(player.name, f"危险解除: 标记{count_flee}个FleeGoal完成")
+                    self._goal_stack.resume_all()
+                    # 立即清理已完成的FleeGoal
+                    removed = self._goal_stack.pop_expired(player, state)
+                    for g in removed:
+                        debug_ai_basic(player.name, f"危险解除: 清理 {g.description}")
+                    if count_flee > 0 and not removed:
+                        debug_ai_basic(player.name, "警告: FleeGoal标记了但pop_expired未移除!")
             else:
                 debug_ai_basic(player.name, "处于危险模式")
                 if self._is_pursued_by_police(player, state):
@@ -866,6 +1056,54 @@ class BasicAIController(
                                     candidates.append(cmd)
                             candidates.append("forfeit")
                             return candidates
+                    # ════════════════════════════════════════════════════
+                    #  PoliceMind 补充：打不过警察时，主动获取AOE武器
+                    #  替代仅逃跑的默认行为
+                    # ════════════════════════════════════════════════════
+                    elif hasattr(self, '_police_mind'):
+                        pe = getattr(state, 'police_engine', None)
+                        if pe:
+                            # 收集受保护目标的护甲属性
+                            target_armor_attrs: set = set()
+                            for pid in state.player_order:
+                                if pid == player.player_id:
+                                    continue
+                                t = state.get_player(pid)
+                                if t and t.is_alive() and pe.is_protected_by_police(t.player_id):
+                                    attrs = self._get_outer_armor_attr(t)
+                                    if not attrs:
+                                        attrs = self._get_inner_armor_attr(t)
+                                    target_armor_attrs.update(attrs)
+                            aoe_cmds = self._police_mind.get_aoe_acquisition_commands(
+                                player, state, available_actions,
+                                target_armor_attrs=target_armor_attrs,
+                                my_location=self._get_location_str(player),
+                                has_pass=getattr(player, 'has_military_pass', False),
+                                learned_spells=self._get_learned_spells(player),
+                            )
+                            if aoe_cmds:
+                                debug_ai_basic(player.name,
+                                    "PoliceMind: 被警察追击，主动获取AOE武器反制")
+                                # ════════════════════════════════════════════
+                                #  推入持久化目标：AI会记住要去拿AOE武器
+                                # ════════════════════════════════════════════
+                                if hasattr(self, '_goal_stack') and aoe_cmds:
+                                    first_cmd = aoe_cmds[0]
+                                    if first_cmd.startswith("move "):
+                                        dest = first_cmd[5:]
+                                        weapon = self._infer_aoe_weapon(dest)
+                                        if weapon:
+                                            goal = DevelopGoal(
+                                                target_item=weapon,
+                                                target_location=dest,
+                                                priority=8,  # 高于一般发育
+                                                debug_name=player.name,
+                                            )
+                                            goal.set_round(self._round_number)
+                                            self._goal_stack.push(goal)
+                                candidates.extend(aoe_cmds)
+                                candidates.append("forfeit")
+                                return candidates
 
                 danger_cmds = self._cmd_danger_develop(player, state, available_actions)
                 candidates.extend(danger_cmds)
@@ -877,6 +1115,14 @@ class BasicAIController(
         if (not getattr(player, 'is_captain', False)
             and self.personality == "political"):
             if not self._political_in_balanced_fallback:
+                # 推入持久化政治目标
+                if hasattr(self, '_goal_stack'):
+                    pol_goal = PoliticalGoal(
+                        cmd_political_fn=self._cmd_police_political,
+                        debug_name=player.name,
+                    )
+                    pol_goal.set_round(self._round_number)
+                    self._goal_stack.push(pol_goal)
                 political = self._cmd_police_political(player, state, available_actions)
                 candidates.extend(political)
                 develop = self._cmd_develop(player, state, available_actions)
@@ -914,6 +1160,7 @@ class BasicAIController(
                         debug_ai_basic(player.name, f"紧急：发现救世主 {t.name}，用远程武器集火")
                         self._in_combat = True
                         self._combat_target = t
+                        self._push_combat_goal(t, player, priority=8)  # 救世主集火高优先级
                         break
         # ===== 超新星紧急分散 =====
         if (not self._has_firefly_talent(player)
@@ -949,6 +1196,7 @@ class BasicAIController(
                 # Terror 存在 → 最高优先级集火
                 if getattr(t_talent, 'is_terror', False):
                     debug_ai_basic(player.name, f"Terror 存在！集火 {t.name}")
+                    self._push_combat_goal(t, player, priority=9)
                     attack_cmds = self._cmd_attack(player, state, available_actions, t)
                     if attack_cmds:
                         candidates.extend(attack_cmds)
@@ -957,6 +1205,7 @@ class BasicAIController(
                 # 自我怀疑 → 紧急集火（下回合变 Terror）
                 if getattr(t_talent, 'self_doubt_pending', False):
                     debug_ai_basic(player.name, f"星野自我怀疑！紧急集火 {t.name}")
+                    self._push_combat_goal(t, player, priority=9)
                     attack_cmds = self._cmd_attack(player, state, available_actions, t)
                     if attack_cmds:
                         candidates.extend(attack_cmds)
@@ -994,8 +1243,10 @@ class BasicAIController(
                         candidates.append("forfeit")
                         return candidates
 
-        # ===== 火萤专用逻辑 =====                       # ★ 改动：此处不再有全息影像块（已提前）
-        if self._has_firefly_talent(player):
+        # ===== 火萤专用逻辑 =====
+        # @deprecated 已迁移到 FireflyAIHook.should_override_candidates()
+        if (self._has_firefly_talent(player)
+                and not self._talent_hook_handled):
             # 超新星优先：有超新星就用
             if self._has_supernova(player) and "move" in available_actions:
                 best_loc = self._pick_supernova_target(player, state)
@@ -1054,6 +1305,7 @@ class BasicAIController(
         kill_target = self._find_kill_target(player, state)
         if kill_target and not self._political_develop_only:
             debug_ai_basic(player.name, "发现击杀机会！")
+            self._push_combat_goal(kill_target, player, priority=7)
             kill_cmds = self._cmd_attack(player, state, available_actions,
                                         forced_target=kill_target)
             if kill_cmds:
@@ -1095,6 +1347,49 @@ class BasicAIController(
         if self._is_stuck_by_police(player, state):
             debug_ai_basic(player.name, "所有目标受警察保护且无法穿透，去获取有效武器")
             aoe_cmds = self._cmd_fight_police(player, state, available_actions)
+            # ════════════════════════════════════════════════════════
+            #  PoliceMind 补充：现有逻辑可能只返回空列表，
+            #  PoliceMind 提供明确的AOE获取路径（去军事基地/魔法所）
+            # ════════════════════════════════════════════════════════
+            if not aoe_cmds and hasattr(self, '_police_mind'):
+                pe = getattr(state, 'police_engine', None)
+                if pe:
+                    target_armor_attrs: set = set()
+                    for pid in state.player_order:
+                        if pid == player.player_id:
+                            continue
+                        t = state.get_player(pid)
+                        if t and t.is_alive() and pe.is_protected_by_police(t.player_id):
+                            attrs = self._get_outer_armor_attr(t)
+                            if not attrs:
+                                attrs = self._get_inner_armor_attr(t)
+                            target_armor_attrs.update(attrs)
+                    supplement = self._police_mind.get_aoe_acquisition_commands(
+                        player, state, available_actions,
+                        target_armor_attrs=target_armor_attrs,
+                        my_location=self._get_location_str(player),
+                        has_pass=getattr(player, 'has_military_pass', False),
+                        learned_spells=self._get_learned_spells(player),
+                    )
+                    if supplement:
+                        debug_ai_basic(player.name,
+                            "PoliceMind: 补充AOE获取路径")
+                        aoe_cmds = supplement
+                        # 推入持久化目标：记住要去拿AOE
+                        if hasattr(self, '_goal_stack') and supplement:
+                            first_cmd = supplement[0]
+                            if first_cmd.startswith("move "):
+                                dest = first_cmd[5:]
+                                weapon = self._infer_aoe_weapon(dest)
+                                if weapon:
+                                    goal = DevelopGoal(
+                                        target_item=weapon,
+                                        target_location=dest,
+                                        priority=7,
+                                        debug_name=player.name,
+                                    )
+                                    goal.set_round(self._round_number)
+                                    self._goal_stack.push(goal)
             for cmd in aoe_cmds:
                 if cmd not in candidates:
                     candidates.insert(0, cmd)
@@ -1117,6 +1412,25 @@ class BasicAIController(
                 if cmd not in candidates:
                     candidates.append(cmd)
 
+        # ════════════════════════════════════════════════════════
+        #  目标系统：遍历所有活跃目标，每个都贡献命令（容纳制）
+        #  匹配旧架构的瀑布流：所有优先级层都有发言权
+        # ════════════════════════════════════════════════════════
+        if (hasattr(self, '_goal_stack')
+                and not self._goal_stack.is_empty
+                and not self._danger_mode):
+            has_combat = any(
+                c.startswith(("attack", "special", "lock", "find"))
+                for c in candidates
+            )
+            for goal in self._goal_stack.all_goals:
+                goal_cmd = goal.get_next_command(player, state, available_actions)
+                if goal_cmd and goal_cmd not in candidates:
+                    if has_combat:
+                        candidates.append(goal_cmd)  # 有战斗命令时追加
+                    else:
+                        candidates.insert(0, goal_cmd)  # 无战斗命令时优先
+
         candidates.append("forfeit")
 
         # 去重
@@ -1126,7 +1440,114 @@ class BasicAIController(
             if cmd not in seen:
                 seen.add(cmd)
                 deduped.append(cmd)
+
+        # ════════════════════════════════════════════════════════
+        #  Shadow模式：记录决策上下文用于新旧对比
+        #  每次get_command调用都会记录一行，包含该决策点的关键状态
+        # ════════════════════════════════════════════════════════
+        if self._shadow_mode:
+            goals = []
+            if hasattr(self, '_goal_stack') and self._goal_stack:
+                goals = [g.description for g in self._goal_stack.all_goals]
+            self._shadow_log.append({
+                "round": self._round_number,
+                "personality": self.personality,
+                "talent": getattr(getattr(player, 'talent', None), 'name', ''),
+                "candidates": deduped[:5],
+                "in_combat": self._in_combat,
+                "danger_mode": self._danger_mode,
+                "active_goals": goals,
+                "police_cache": (
+                    {k: v for k, v in (self._police_cache or {}).items()
+                     if k in ("has_police", "captain_id", "alive_count", "active_count")}
+                    if self._police_cache else {}
+                ),
+                "location": self._get_location_str(player),
+            })
         return deduped
+
+    def dump_shadow_log(self) -> List[Dict]:
+        """导出shadow日志（用于新旧对比分析），并清空内部缓存"""
+        log = self._shadow_log
+        self._shadow_log = []
+        return log
+
+
+    @staticmethod
+    def _infer_aoe_weapon(destination: str) -> Optional[str]:
+        """根据目的地推断AI要去拿什么AOE武器"""
+        if destination == "军事基地":
+            return "电磁步枪"
+        if destination == "魔法所":
+            return "地动山摇"  # 优先升级版
+        return None
+
+    @staticmethod
+    def _pick_virus_cure_location(player: Any, state: Any) -> str:
+        """选择获取病毒免疫的最佳地点（人最少 + 能获取）"""
+        loc = str(getattr(player, 'location', ''))
+        vouchers = getattr(player, 'vouchers', 0)
+        virus = getattr(state, 'virus', None)
+        virus_active = getattr(virus, 'is_active', False) if virus else False
+
+        candidates = []
+        # 商店：病毒期间免费，否则需凭证
+        if virus_active or vouchers >= 1:
+            candidates.append("商店")
+        # 医院：需凭证
+        if vouchers >= 1:
+            candidates.append("医院")
+        # 魔法所：免费学封闭（2回合）
+        candidates.append("魔法所")
+
+        if not candidates:
+            return "商店"
+
+        # 选人最少的
+        best = candidates[0]
+        best_count = 999
+        for dest in candidates:
+            count = 0
+            for pid in state.player_order:
+                p = state.get_player(pid)
+                if p and p.is_alive():
+                    p_loc = str(getattr(p, 'location', ''))
+                    if p_loc == dest:
+                        count += 1
+            if count < best_count:
+                best_count = count
+                best = dest
+
+        return best
+
+    def _push_combat_goal(self, target: Any, player: Any, priority: int = 6) -> None:
+        """推入持久化战斗目标（避免被其他优先级劫持）"""
+        if not hasattr(self, '_goal_stack'):
+            return
+        goal = CombatGoal(
+            target_id=target.player_id,
+            target_name=target.name,
+            priority=priority,
+            debug_name=player.name,
+        )
+        goal.set_round(self._round_number)
+        self._goal_stack.push(goal)
+
+    def _is_hoshino_handled_by_hook(self, player: Any) -> bool:
+        """检查Hoshino逻辑是否已被天赋钩子处理"""
+        talent_name = getattr(getattr(player, 'talent', None), 'name', '')
+        if talent_name and hasattr(self, '_talent_hook_instances'):
+            hook = self._talent_hook_instances.get(talent_name)
+            if hook and getattr(hook, 'talent_name', '') == "大叔我啊，剪短发了":
+                return True
+        return False
+
+    def _is_talent_handled_by_hook(self, player: Any) -> bool:
+        """检查当前天赋是否有活跃钩子（通用版本）"""
+        talent_name = getattr(getattr(player, 'talent', None), 'name', '')
+        if talent_name and hasattr(self, '_talent_hook_instances'):
+            return talent_name in self._talent_hook_instances
+        return False
 
 
     def _pick_fallback_destination(self, player, state) -> Optional[str]:

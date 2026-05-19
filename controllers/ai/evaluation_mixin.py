@@ -61,34 +61,46 @@ class EvaluationMixin(_Base):
         # 星野（G7）：铁之荷鲁斯替代常规护甲
         if self._has_hoshino_talent(player):
             return self._is_critical_hoshino(player, state)
+        # ════════════════════════════════════════════════════════
+        #  队长危险判定：Strategy评估警察保护是否足够
+        # ════════════════════════════════════════════════════════
+        if getattr(player, 'is_captain', False):
+            strategy = getattr(self, '_strategy', None)
+            if strategy and hasattr(strategy, 'assess_captain_danger'):
+                return strategy.assess_captain_danger(
+                    player, state,
+                    police_cache=self._police_cache or {},
+                    count_outer_armor_fn=self._count_outer_armor,
+                )
+        # 基础：HP极低
         if player.hp <= 0.5:
                 return True
+        # HP低 + 无外甲
         if player.hp <= 1.0 and self._count_outer_armor(player) == 0:
             return True
-        # 被警察围攻
+        # 被警察围攻（已派出的警察）
         pc = self._police_cache or {}
         if pc.get("report_target") == player.player_id:
             phase = pc.get("report_phase", "idle")
             if phase == "dispatched":
                 return True
-        # 被锁定且完全没有护甲
+        # 被多个玩家锁定且护甲不足
         locked_count = self._count_locked_by(player, state)
-        if locked_count >= 1:
+        if locked_count >= 2:
             total_armor = self._count_outer_armor(player) + self._count_inner_armor(player)
             if total_armor <= 1:
                 return True
         # 被锚定
         if self._is_anchored(player, state):
             return True
-        # 被灼烧且护甲不足
+        # 被灼烧且完全无护甲
         for pid in state.player_order:
             p = state.get_player(pid)
             if (p and p.is_alive() and p.talent
                     and hasattr(p.talent, 'burn_targets')
                     and player.player_id in p.talent.burn_targets):
-                # 正在被灼烧
-                if self._count_outer_armor(player) + self._count_inner_armor(player) <= 1:
-                    return True  # 触发危险模式，去补甲
+                if self._count_outer_armor(player) + self._count_inner_armor(player) == 0:
+                    return True
                 break
         return False
 
@@ -302,6 +314,21 @@ class EvaluationMixin(_Base):
                 return False
         if self._is_at_disadvantage(player, target) and self.personality == "defensive":
             return False
+        # ════════════════════════════════════════════════════════
+        #  人格策略：统一撤退判定
+        # ════════════════════════════════════════════════════════
+        if hasattr(self, '_strategy'):
+            try:
+                result = self._strategy.should_continue_combat(
+                    player, target,
+                    is_at_disadvantage=self._is_at_disadvantage(player, target))
+                if result is not None:
+                    return result
+            except Exception:
+                pass  # 策略调用失败时回退到默认逻辑
+        # 旧逻辑：defensive 劣势时撤退
+        if self._is_at_disadvantage(player, target) and self.personality == "defensive":
+            return False
         # 超新星威胁：如果同地点有>=2个其他玩家且场上有火萤持超新星，考虑撤退分散
         state = getattr(self, '_game_state', None)
         if state and self._firefly_supernova_threat(player, state):
@@ -458,17 +485,29 @@ class EvaluationMixin(_Base):
             # 星野特殊威胁调整：加在 power 上参与 EMA 衰减，避免无限累积
             t_talent = getattr(target, 'talent', None)
             if t_talent and getattr(t_talent, 'name', '') == "大叔我啊，剪短发了":
-                if getattr(t_talent, 'is_terror', False):
-                    power += 200  # Terror 最高优先级
-                elif getattr(t_talent, 'self_doubt_pending', False):
-                    power += 150  # 即将变 Terror
-                elif getattr(t_talent, 'tactical_unlocked', False) and len(getattr(t_talent, 'ammo', [])) > 0:
+                if getattr(t_talent, 'tactical_unlocked', False) and len(getattr(t_talent, 'ammo', [])) > 0:
                     power += 50  # 有弹药，爆发威胁
                 elif not getattr(t_talent, 'tactical_unlocked', False):
                     power -= 20  # 未解锁，前期脆弱
+            # ════════════════════════════════════════════════════
+            #  TerrorDefenseAI：统一Terror/自我怀疑威胁评估
+            #  （替代硬编码的 is_terror/self_doubt_pending 判断）
+            # ════════════════════════════════════════════════════
+            terror_defense = getattr(self, '_terror_defense', None)
+            if terror_defense is not None:
+                power = terror_defense.modify_threat_power(target, power)
             existing = self._threat_scores.get(target.name, 0)
             # 衰减历史威胁 + 新威胁
-            self._threat_scores[target.name] = existing * 0.8 + power * 0.2
+            updated = existing * 0.8 + power * 0.2
+            # ════════════════════════════════════════════════════
+            #  LLM 行为调整：攻击倾向影响威胁敏感度
+            #  aggression_mod > 0 → 全局提高威胁评估（更激进）
+            #  aggression_mod < 0 → 全局降低威胁评估（更保守）
+            # ════════════════════════════════════════════════════
+            llm_aggression = getattr(self, '_llm_aggression_mod', 0.0)
+            if llm_aggression != 0.0:
+                updated += llm_aggression * 0.5  # 每点aggression加0.5威胁分
+            self._threat_scores[target.name] = updated
         # 检测安静发育者：连续多轮处于最低威胁的玩家
         alive_threats = {
             name: score for name, score in self._threat_scores.items()
@@ -600,6 +639,32 @@ class EvaluationMixin(_Base):
             scored.append((dest, enemies))
         scored.sort(key=lambda x: x[1])
         return scored[0][0]
+
+    def _pick_captain_safe_destination(self, player, state) -> Optional[str]:
+        """队长危险模式目的地：优先去有最强活跃警察的地点"""
+        pc = self._police_cache or {}
+        units = pc.get("units", [])
+        my_loc = self._get_location_str(player)
+
+        # 1. 按地点汇总活跃警察的有效HP（HP+护甲）
+        loc_strength = {}
+        for unit in units:
+            if not unit.get("is_alive") or not unit.get("is_active"):
+                continue
+            uloc = unit.get("location")
+            if not uloc:
+                continue
+            hp = unit.get("hp", 1) + (1 if unit.get("outer_armor") else 0)
+            loc_strength[uloc] = loc_strength.get(uloc, 0) + hp
+
+        if loc_strength:
+            # 选最强的，排除当前位置
+            best = max(loc_strength, key=loc_strength.get)  # type: ignore
+            if best != my_loc:
+                return best
+
+        # 2. 能拿护甲的地方（按敌人最少）
+        return self._pick_safe_armor_destination(player, state)
 
     def _is_critical_hoshino(self, player, state) -> bool:
         """星野的危险判定：铁之荷鲁斯视为护甲"""

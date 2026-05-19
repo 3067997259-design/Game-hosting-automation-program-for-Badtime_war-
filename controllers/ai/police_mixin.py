@@ -1,4 +1,16 @@
-"""PoliceMixin —— 警察系统相关：缓存、队长、政治、反击"""
+"""
+PoliceMixin —— 警察系统相关：缓存、队长、政治、反击
+
+@deprecated 部分逻辑已迁移到 PoliceMind (controllers/ai/minds/police_mind.py)
+  - 已迁移: 警察态势评估 (_is_pursued, _is_stuck, _can_fight)
+  - 已迁移: AOE武器查询 (_has_aoe_weapon, _has_effective_aoe_against, _get_all_aoe_weapon_names)
+  - 已迁移: 警察保护穿透评估 (can_damage_through_protection)
+  - 仍在此: _cmd_captain 队长指挥
+  - 仍在此: _cmd_police_political 政治行动
+  - 仍在此: _cmd_fight_police 警察反击
+  - 仍在此: _find_criminal_target / _police_attack_criminal
+  - 仍在此: _init_police_dev_plan / _police_develop_step / _police_deploy_step
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Dict, Optional, Any
 from controllers.ai.constants import (
@@ -49,7 +61,10 @@ class PoliceMixin(_Base):
         active_count = 0
         for unit in getattr(police, 'units', []):
             alive = unit.is_alive() if hasattr(unit, 'is_alive') else False
-            active = unit.is_active() if hasattr(unit, 'is_active') else False
+            # 队长死亡/倒台后，单位虽然存活但缺少指挥，不构成威胁
+            active = (
+                unit.is_active() if hasattr(unit, 'is_active') else False
+            ) if cache["captain_id"] is not None else False
             info = {
                 "id": getattr(unit, 'unit_id', 'unknown'),
                 "location": getattr(unit, 'location', None),
@@ -778,7 +793,10 @@ class PoliceMixin(_Base):
         if not best_unit:
             return None
         uid = best_unit["id"]
-        unit_loc = best_unit.get("location")
+        # ★ 从 live state 验证警察实际位置，避免缓存不一致导致误判
+        unit_loc = self._get_police_unit_location_from_state(state, uid)
+        if unit_loc is None:
+            unit_loc = best_unit.get("location")  # fallback to cache
         if unit_loc != target_loc:
             if uid in self._police_dev_assignments:
                 self._police_dev_assignments[uid]["phase"] = "combat"
@@ -807,3 +825,15 @@ class PoliceMixin(_Base):
             if uid in self._police_dev_assignments:
                 self._police_dev_assignments[uid]["phase"] = "combat"
             return f"police attack {uid} {target_player.player_id}"
+
+    @staticmethod
+    def _get_police_unit_location_from_state(state, unit_id: str) -> Optional[str]:
+        """从 live game state 读取警察单位的实际位置"""
+        police = getattr(state, 'police', None)
+        if not police:
+            return None
+        for unit in getattr(police, 'units', []):
+            if getattr(unit, 'unit_id', '') == unit_id:
+                loc = getattr(unit, 'location', None)
+                return str(loc) if loc else None
+        return None

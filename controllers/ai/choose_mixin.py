@@ -27,6 +27,20 @@ class ChooseMixin(_Base):
         context: Optional[Dict] = None
     ) -> str:
         situation = (context or {}).get("situation", "")
+
+        # ════════════════════════════════════════════════════════
+        #  ★ 天赋AI钩子分发：天赋覆盖 choose() 决策
+        #  返回非 None 时直接采用，返回 None 时走旧逻辑
+        # ════════════════════════════════════════════════════════
+        talent_name = getattr(getattr(self._player, 'talent', None), 'name', '')
+        if talent_name and hasattr(self, '_new_arch_enabled') and self._new_arch_enabled:
+            hook_instances = getattr(self, '_talent_hook_instances', {})
+            hook = hook_instances.get(talent_name)
+            if hook and hasattr(hook, 'handle_choose'):
+                result = hook.handle_choose(self._player, situation, options)
+                if result is not None:
+                    return result
+
         # ---- 猜拳 ----
         if situation == "hexagram_my_choice":
             if self._player and self._game_state:
@@ -213,13 +227,32 @@ class ChooseMixin(_Base):
                     if "不发动" in opt or "正常" in opt:
                         return opt
                 return options[-1]
-            # 一刀缭断：满足任一条件即发动（前提：面对面）
+            # 一刀缭断：四级发动规则（武器条件 + 消耗控制）
             if talent_name == "一刀缭断":
                 if self._player and self._game_state:
                     state = self._game_state
                     player = self._player
+
+                    # ── 条件0：必须有磨刀或蓄力高斯 ──
+                    has_sharpened_knife = any(
+                        w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
+                        for w in getattr(player, 'weapons', [])
+                    )
+                    has_charged_gauss = any(
+                        w.name == "高斯步枪" and getattr(w, 'is_charged', False)
+                        for w in getattr(player, 'weapons', [])
+                    )
+                    if not (has_sharpened_knife or has_charged_gauss):
+                        for opt in options:
+                            if "不发动" in opt or "正常" in opt:
+                                return opt
+                        return options[-1]
+
+                    talent = getattr(player, 'talent', None)
+                    uses_left = getattr(talent, 'uses_remaining', 0) if talent else 0
+
+                    # 找面对面目标
                     markers = getattr(state, 'markers', None)
-                    # Find a face-to-face target
                     engaged_target = None
                     if markers:
                         for pid in state.player_order:
@@ -230,24 +263,57 @@ class ChooseMixin(_Base):
                                     player.player_id, "ENGAGED_WITH", pid):
                                 engaged_target = t
                                 break
-                    if engaged_target:
+
+                    alive_count = sum(
+                        1 for pid in state.player_order
+                        if state.get_player(pid) and state.get_player(pid).is_alive()
+                    )
+
+                    # 检测场上是否有Terror
+                    terror_found = any(
+                        getattr(getattr(state.get_player(pid), 'talent', None), 'is_terror', False)
+                        for pid in state.player_order
+                        if pid != player.player_id
+                        and state.get_player(pid) and state.get_player(pid).is_alive()
+                    )
+
+                    # ── Tier 1：有武器 + 非最后一次 → 随时发动 ──
+                    if uses_left >= 2:
+                        for opt in options:
+                            if "发动" in opt:
+                                return opt
+
+                    # ── 最后一次时按四级规则判断 ──
+                    if uses_left == 1:
                         should_activate = False
-                        # Condition 1: In combat AND all weapons countered by target's armor
-                        # (一刀缭断 ignores element countering, so it's the perfect counter)
-                        if self._in_combat and self._all_weapons_countered(player, engaged_target):
+
+                        # Tier 2：残局1v1面对面
+                        if alive_count == 2 and engaged_target is not None:
                             should_activate = True
-                        # Condition 2: Target's effective HP + total armor count >= 3
-                        # (target is tanky enough to warrant the burst)
-                        if not should_activate:
-                            eff_hp = self._get_effective_hp(engaged_target)
-                            total_armor = (self._count_outer_armor(engaged_target)
-                                         + self._count_inner_armor(engaged_target))
-                            if eff_hp + total_armor >= 3:
+
+                        # Tier 2 alt：危险模式 + move/interact被禁用
+                        if not should_activate and getattr(self, '_danger_mode', False):
+                            # Terror状态下全场禁用interact
+                            if terror_found:
                                 should_activate = True
+
+                        # Tier 3：Terror集火模式
+                        if not should_activate and terror_found:
+                            should_activate = True
+
+                        # Tier 4：目标可斩杀(HP+外甲+内甲<4) → 最后1次不浪费
+                        if should_activate and engaged_target:
+                            outer = self._count_outer_armor(engaged_target)
+                            inner = self._count_inner_armor(engaged_target)
+                            total_def = engaged_target.hp + outer + inner
+                            if total_def < 4:
+                                should_activate = False  # 可斩杀→不浪费最后1次
+
                         if should_activate:
                             for opt in options:
                                 if "发动" in opt:
                                     return opt
+
                 for opt in options:
                     if "不发动" in opt or "正常" in opt:
                         return opt
@@ -360,8 +426,16 @@ class ChooseMixin(_Base):
             # 遗世独立的幻想乡/神话之外：发育完成且有目标时发动
             if "幻想乡" in talent_name or "神话之外" in talent_name:
                 if self._player and self._game_state:
+                    nearby = self._get_same_location_targets(self._player, self._game_state)
+                    # ★ 警察感知：同地点有受保护的队长 → 立即拉入结界（警察保护在结界内无效）
+                    for t in nearby:
+                        if getattr(t, 'is_captain', False):
+                            pe = getattr(self._game_state, 'police_engine', None)
+                            if pe and pe.is_protected_by_police(t.player_id):
+                                for opt in options:
+                                    if "发动" in opt:
+                                        return opt
                     if self._is_development_complete(self._player, self._game_state):
-                        nearby = self._get_same_location_targets(self._player, self._game_state)
                         if nearby:
                             for opt in options:
                                 if "发动" in opt:
@@ -370,30 +444,105 @@ class ChooseMixin(_Base):
                     if "不发动" in opt or "正常" in opt:
                         return opt
                 return options[-1]
-            # 天星：被攻击或同地点有多个敌人时发动（与全息影像一致）
+            # 天星：动态伤害评估 + 消耗控制 + 补刀意识
             if talent_name == "天星":
-                talent = getattr(self._player, 'talent', None) if self._player else None
-                uses = getattr(talent, 'uses_remaining', 0) if talent else 0
-                if uses >= 2:
-                    # 有2次，更积极发动
-                    if self._player and self._game_state:
-                        nearby = self._get_same_location_targets(self._player, self._game_state)
-                        if len(nearby) >= 1:  # 原来是 >= 2
-                            for opt in options:
-                                if "发动" in opt:
-                                    return opt
-                # uses == 1 时保留原有的发动条件（被攻击或同地点有多个敌人）
                 if self._player and self._game_state:
-                    attackers = len(self._been_attacked_by)
-                    if attackers >= 1:
+                    state = self._game_state
+                    player = self._player
+                    talent = getattr(player, 'talent', None)
+                    uses = getattr(talent, 'uses_remaining', 0) if talent else 0
+                    if uses <= 0:
+                        for opt in options:
+                            if "不发动" in opt or "正常" in opt:
+                                return opt
+                        return options[-1]
+
+                    nearby = self._get_same_location_targets(player, state)
+                    if not nearby:
+                        for opt in options:
+                            if "不发动" in opt or "正常" in opt:
+                                return opt
+                        return options[-1]
+
+                    # 计算动态伤害：min(1 + 0.5 * 目标数, 3)
+                    police_count = 0
+                    if hasattr(state, 'police') and state.police:
+                        police_at_loc = [u for u in state.police.units_at(player.location) if u.is_alive()]
+                        police_count = len(police_at_loc)
+                    target_count = len(nearby) + police_count
+                    damage_per_target = min(1.0 + 0.5 * target_count, 3.0)
+
+                    # 检查是否有可斩杀目标（HP + 外甲 <= 动态伤害）
+                    has_executable = False
+                    for t in nearby:
+                        outer = self._count_outer_armor(t)
+                        if t.hp + outer <= damage_per_target:
+                            has_executable = True
+                            break
+
+                    # 检查是否有受警察保护的队长
+                    has_protected_captain = False
+                    for t in nearby:
+                        if getattr(t, 'is_captain', False):
+                            pe = getattr(state, 'police_engine', None)
+                            if pe and pe.is_protected_by_police(t.player_id):
+                                has_protected_captain = True
+                                break
+
+                    # 检测场上是否有Terror
+                    terror_found = any(
+                        getattr(getattr(state.get_player(pid), 'talent', None), 'is_terror', False)
+                        for pid in state.player_order
+                        if pid != player.player_id
+                        and state.get_player(pid) and state.get_player(pid).is_alive()
+                    )
+
+                    alive_count = sum(
+                        1 for pid in state.player_order
+                        if state.get_player(pid) and state.get_player(pid).is_alive()
+                    )
+
+                    should_activate = False
+
+                    # 条件A：同地点有受保护的队长 → 立即发动（AOE无视警察保护）
+                    if has_protected_captain:
+                        should_activate = True
+
+                    # 条件B：目标数 >= 3 → 伤害 >= 2.5 → 高价值发动
+                    if not should_activate and target_count >= 3:
+                        should_activate = True
+
+                    # 条件C：目标数 == 2 → 伤害 = 2.0 → 有可斩杀目标才发动
+                    if not should_activate and target_count == 2 and has_executable:
+                        should_activate = True
+
+                    # 条件D：目标数 == 1 → 伤害 = 1.5 → 只有能斩杀且不是最后一次才发动
+                    if not should_activate and target_count == 1:
+                        if has_executable and uses >= 2:
+                            should_activate = True
+
+                    # 条件E：Terror集火 + 同地点有Terror
+                    if not should_activate and terror_found:
+                        for t in nearby:
+                            t_talent = getattr(t, 'talent', None)
+                            if t_talent and getattr(t_talent, 'is_terror', False):
+                                should_activate = True
+                                break
+
+                    # 条件F：残局1v1且能斩杀
+                    if not should_activate and alive_count == 2 and has_executable:
+                        should_activate = True
+
+                    # 条件G：危险模式 + 被攻击过 → 保命发动
+                    if not should_activate and getattr(self, '_danger_mode', False):
+                        if len(self._been_attacked_by) >= 1:
+                            should_activate = True
+
+                    if should_activate:
                         for opt in options:
                             if "发动" in opt:
                                 return opt
-                    nearby = self._get_same_location_targets(self._player, self._game_state)
-                    if len(nearby) >= 2:
-                        for opt in options:
-                            if "发动" in opt:
-                                return opt
+
                 for opt in options:
                     if "不发动" in opt or "正常" in opt:
                         return opt
