@@ -143,11 +143,9 @@ class DevelopGoal(BaseGoal):
         if item in ("热成像仪", "雷达"):
             return getattr(player, 'has_detection', False)
         if item in ("隐身衣", "隐形涂层", "隐身术"):
-            from controllers.ai.helpers_mixin import HelpersMixin
-            return HelpersMixin._has_stealth(player)
+            return self._has_stealth(player)
         if item == "防毒面具":
-            from controllers.ai.helpers_mixin import HelpersMixin
-            return HelpersMixin._has_virus_immunity(player)
+            return self._has_virus_immunity(player)
         return False
 
     @staticmethod
@@ -164,3 +162,25 @@ class DevelopGoal(BaseGoal):
             if getattr(piece, 'name', '') == name and not getattr(piece, 'is_broken', False):
                 return True
         return False
+
+    @staticmethod
+    def _has_stealth(player: Any) -> bool:
+        if getattr(player, 'is_invisible', False):
+            return True
+        for item in getattr(player, 'items', []):
+            if getattr(item, 'name', '') in ("隐身衣", "隐形涂层"):
+                return True
+        return "隐身术" in getattr(player, 'learned_spells', set())
+
+    @staticmethod
+    def _has_virus_immunity(player: Any) -> bool:
+        for item in getattr(player, 'items', []):
+            if getattr(item, 'name', '') == "防毒面具":
+                return True
+        talent = getattr(player, 'talent', None)
+        if talent and getattr(talent, 'is_terror', False):
+            return True
+        learned = getattr(player, 'learned_spells', set())
+        if "封闭" in learned:
+            return True
+        return getattr(player, 'has_seal', False)
