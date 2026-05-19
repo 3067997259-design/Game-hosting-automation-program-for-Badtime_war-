@@ -66,7 +66,9 @@ class CombatMixin(_Base):
             best_dmg = self._estimate_talent_adjusted_damage(player, weapon)
 
             can_dmg, reason = (False, "无PoliceMind")
+            protection_eval_source = "旧架构"
             if hasattr(self, '_police_mind'):
+                protection_eval_source = "PoliceMind"
                 can_dmg, reason = self._police_mind.can_damage_through_protection(
                     player, target, state,
                     talent_adjusted_damage=best_dmg,
@@ -76,8 +78,19 @@ class CombatMixin(_Base):
                     player_weapons=getattr(player, 'weapons', []),
                     learned_spells=self._get_learned_spells(player),
                 )
-                debug_ai_attack_generation(player.name, weapon.name,
-                    f"目标 {target.name} 受警察保护 → PoliceMind: {reason}")
+            else:
+                threshold = pe.get_protection_threshold(target.player_id)
+                if best_dmg > threshold:
+                    can_dmg = True
+                    reason = (
+                        f"伤害({best_dmg:.1f})超过警察保护阈值({threshold})，可硬穿"
+                    )
+                else:
+                    reason = (
+                        f"伤害({best_dmg:.1f})不足穿透阈值({threshold})"
+                    )
+            debug_ai_attack_generation(player.name, weapon.name,
+                f"目标 {target.name} 受警察保护 → {protection_eval_source}: {reason}")
 
             if can_dmg:
                 pass  # 能穿透，继续正常攻击流程
