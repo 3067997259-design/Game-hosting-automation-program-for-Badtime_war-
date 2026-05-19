@@ -36,7 +36,6 @@ from controllers.ai.goals.captain_goal import CaptainGoal
 from controllers.ai.goals.political_goal import PoliticalGoal
 from controllers.ai.strategies.registry import create_strategy
 from controllers.ai.talents.base_hook import BaseTalentAIHook
-from controllers.ai.talents.terror_defense import TerrorDefenseAI
 from controllers.ai.talents.hoshino_hook import HoshinoAIHook
 from controllers.ai.talents.g1_g2_g4_hooks import HologramAIHook, SaviorAIHook, FireflyAIHook
 from controllers.ai.talents.g3_mythland_hook import MythlandAIHook
