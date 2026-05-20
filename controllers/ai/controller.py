@@ -161,8 +161,9 @@ class BasicAIController(
         self._talent_hook_instances = {}
         self._decision_log: List[Dict] = []
         if self._new_arch_enabled:
+            _query = GameQuery()
             self._ai_state = AIState()
-            self._police_mind = PoliceMind(debug_name="AI")
+            self._police_mind = PoliceMind(debug_name="AI", query=_query)
             self._goal_stack = GoalStack(max_goals=5)
             self._strategy = create_strategy(personality)
             self._talent_hook_instances = {
@@ -183,10 +184,10 @@ class BasicAIController(
             #  包含所有 Mind 实例 + Orchestrator 编排器
             # ════════════════════════════════════════════════════════
             self._minds = [
-                PoliceMind(debug_name="AI"),
-                ThreatMind(debug_name="AI"),
-                DevelopMind(debug_name="AI"),
-                CombatMind(debug_name="AI"),
+                PoliceMind(debug_name="AI", query=_query),
+                ThreatMind(debug_name="AI", query=_query),
+                DevelopMind(debug_name="AI", query=_query),
+                CombatMind(debug_name="AI", query=_query),
             ]
             self._orchestrator = DecisionOrchestrator(
                 strategy=self._strategy,
@@ -195,6 +196,8 @@ class BasicAIController(
                 minds=self._minds,
                 controller=self,
                 ai_state=self._ai_state,
+                query=_query,
+                personality=personality,
             )
 
         # ════════════════════════════════════════════════════
@@ -392,6 +395,11 @@ class BasicAIController(
                     player, game_state, available_actions,
                     getattr(game_state, 'current_round', 0)
                 )
+                if hasattr(self, '_ai_state'):
+                    self._threat_scores = self._ai_state.threat_scores
+                    self._in_combat = self._ai_state.in_combat
+                    self._combat_target = self._ai_state.combat_target
+                    self._danger_mode = self._ai_state.danger_mode
             else:
                 self._candidates = self._generate_candidates(
                     player, game_state, available_actions

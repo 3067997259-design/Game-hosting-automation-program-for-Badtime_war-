@@ -47,10 +47,6 @@ class ThreatMind(BaseMind):
         been_attacked_by: Optional[Set[str]] = None,
         llm_aggression_mod: float = 0.0,
         polices_cache: Optional[Dict[str, Any]] = None,
-        count_outer_armor_fn=None,
-        count_inner_armor_fn=None,
-        count_locked_by_fn=None,
-        is_anchored_fn=None,
         ctx=None,
     ) -> MindAssessment:
         """分析威胁态势。
@@ -64,11 +60,6 @@ class ThreatMind(BaseMind):
             been_attacked_by: 本局攻击过我的玩家名集合
             llm_aggression_mod: LLM 攻击倾向调整（目标选择阶段按相对威胁使用）
             polices_cache: 警察态势缓存（来自 PoliceMind）
-            count_outer_armor_fn: 统计外甲数量函数
-            count_inner_armor_fn: 统计内甲数量函数
-            count_locked_by_fn: 统计锁定者数量函数
-            is_anchored_fn: 被锚定判定函数
-
         Returns:
             MindAssessment with data containing:
                 - threat_scores: {name: score} 更新后的威胁分
@@ -89,14 +80,6 @@ class ThreatMind(BaseMind):
             been_attacked_by = been_attacked_by if been_attacked_by is not None else ctx.been_attacked_by
             llm_aggression_mod = llm_aggression_mod or ctx.llm_aggression_mod
             polices_cache = polices_cache if polices_cache is not None else ctx.police_cache
-            if count_outer_armor_fn is None and self._query:
-                count_outer_armor_fn = self._query.count_outer_armor
-            if count_inner_armor_fn is None and self._query:
-                count_inner_armor_fn = self._query.count_inner_armor
-            if count_locked_by_fn is None and self._query:
-                count_locked_by_fn = self._query.count_locked_by
-            if is_anchored_fn is None and self._query:
-                is_anchored_fn = self._query.is_anchored
         threat_scores = dict(previous_threat_scores or {})
         streak = dict(low_threat_streak or {})
 
@@ -112,7 +95,7 @@ class ThreatMind(BaseMind):
                 continue
             alive_names.add(target.name)
 
-            power = self._estimate_power(target)
+            power = self._query.estimate_power(target)
 
             # ★ 队长威胁度：纳入指挥的警察单位力量
             if getattr(target, 'is_captain', False):
@@ -159,10 +142,6 @@ class ThreatMind(BaseMind):
         danger = self._is_critical(
             player, state, strategy,
             polices_cache=polices_cache,
-            count_outer_armor_fn=count_outer_armor_fn,
-            count_inner_armor_fn=count_inner_armor_fn,
-            count_locked_by_fn=count_locked_by_fn,
-            is_anchored_fn=is_anchored_fn,
         )
 
         # ── 病毒应急 ──
@@ -177,7 +156,7 @@ class ThreatMind(BaseMind):
         kill_targets = self._find_kill_targets(player, state)
 
         # ── 最强武器伤害 ──
-        best_dmg = self._best_weapon_damage(player)
+        best_dmg = self._query.best_weapon_damage(player)
 
         return MindAssessment(
             mind_name="threat",
@@ -222,31 +201,27 @@ class ThreatMind(BaseMind):
     def _is_critical(
         self, player, state, strategy,
         polices_cache=None,
-        count_outer_armor_fn=None,
-        count_inner_armor_fn=None,
-        count_locked_by_fn=None,
-        is_anchored_fn=None,
     ) -> bool:
+        Q = self._query
         # 火萤自定义判定
-        if self._has_talent(player, "火萤IV型-完全燃烧"):
-            return self._is_critical_firefly(player, state, polices_cache, count_outer_armor_fn, is_anchored_fn)
+        if Q.has_talent(player, "火萤IV型-完全燃烧"):
+            return self._is_critical_firefly(player, state, polices_cache)
 
         # 星野自定义判定
-        if self._has_talent(player, "大叔我啊，剪短发了"):
-            return self._is_critical_hoshino(player, state, polices_cache, count_outer_armor_fn, count_inner_armor_fn, count_locked_by_fn, is_anchored_fn)
+        if Q.has_talent(player, "大叔我啊，剪短发了"):
+            return self._is_critical_hoshino(player, state, polices_cache)
 
         # 队长危险判定：Strategy可额外标记危险，但不跳过基础判定
         if getattr(player, 'is_captain', False) and hasattr(strategy, 'assess_captain_danger'):
             if strategy.assess_captain_danger(
                 player, state,
                 police_cache=polices_cache or {},
-                count_outer_armor_fn=count_outer_armor_fn,
+                count_outer_armor_fn=Q.count_outer_armor,
             ):
                 return True
 
-        # 基础判定
-        outer = count_outer_armor_fn(player) if count_outer_armor_fn else 0
-        inner = count_inner_armor_fn(player) if count_inner_armor_fn else 0
+        outer = Q.count_outer_armor(player)
+        inner = Q.count_inner_armor(player)
 
         if player.hp <= 0.5:
             return True
@@ -258,12 +233,11 @@ class ThreatMind(BaseMind):
             if pc.get("report_phase", "idle") == "dispatched":
                 return True
 
-        if count_locked_by_fn:
-            locked = count_locked_by_fn(player, state)
-            if locked >= 2 and (outer + inner) <= 1:
-                return True
+        locked = Q.count_locked_by(player, state)
+        if locked >= 2 and (outer + inner) <= 1:
+            return True
 
-        if is_anchored_fn and is_anchored_fn(player, state):
+        if Q.is_anchored(player, state):
             return True
 
         # 被灼烧且无护甲
@@ -278,51 +252,41 @@ class ThreatMind(BaseMind):
 
         return False
 
-    def _is_critical_firefly(self, player, state, polices_cache, count_outer_armor_fn, is_anchored_fn) -> bool:
+    def _is_critical_firefly(self, player, state, polices_cache) -> bool:
+        Q = self._query
         pc = polices_cache or {}
         if pc.get("report_target") == player.player_id:
             if pc.get("report_phase", "idle") == "dispatched":
                 return True
-        if is_anchored_fn and is_anchored_fn(player, state):
+        if Q.is_anchored(player, state):
             return True
-        if self._firefly_debuff_active(player):
+        if Q.firefly_debuff_active(player):
             return False
-        else:
-            if count_outer_armor_fn:
-                outer = count_outer_armor_fn(player)
-            else:
-                outer = 0
-            if outer > 0:
-                return False
-            markers = getattr(state, 'markers', None)
-            if markers:
-                engaged = markers.get_related(player.player_id, "ENGAGED_WITH")
-                for eid in engaged:
-                    enemy = state.get_player(eid)
-                    if enemy and enemy.is_alive():
-                        enemy_best = self._best_weapon_damage(enemy)
-                        if enemy_best > 1.0:
-                            return True
-            locked = 0
-            for pid in state.player_order:
-                if pid == player.player_id:
-                    continue
-                t = state.get_player(pid)
-                if t and t.is_alive():
-                    locked_target = getattr(t, 'locked_target', None)
-                    if locked_target and (locked_target == player.name or locked_target == player.player_id):
-                        locked += 1
-            if locked > 1:
-                return True
+        outer = Q.count_outer_armor(player)
+        if outer > 0:
             return False
+        markers = getattr(state, 'markers', None)
+        if markers:
+            engaged = markers.get_related(player.player_id, "ENGAGED_WITH")
+            for eid in engaged:
+                enemy = state.get_player(eid)
+                if enemy and enemy.is_alive():
+                    enemy_best = Q.best_weapon_damage(enemy)
+                    if enemy_best > 1.0:
+                        return True
+        locked = Q.count_locked_by(player, state)
+        if locked > 1:
+            return True
+        return False
 
-    def _is_critical_hoshino(self, player, state, polices_cache, count_outer_armor_fn, count_inner_armor_fn, count_locked_by_fn, is_anchored_fn) -> bool:
+    def _is_critical_hoshino(self, player, state, polices_cache) -> bool:
+        Q = self._query
         if player.hp <= 0.5:
             return True
         talent = getattr(player, 'talent', None)
         iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
         has_horus = iron_horus_hp > 0
-        regular = (count_outer_armor_fn(player) if count_outer_armor_fn else 0) + (count_inner_armor_fn(player) if count_inner_armor_fn else 0)
+        regular = Q.count_outer_armor(player) + Q.count_inner_armor(player)
         effective = regular + (2 if has_horus else 0)
 
         if player.hp <= 1.0 and effective == 0:
@@ -331,11 +295,10 @@ class ThreatMind(BaseMind):
         if pc.get("report_target") == player.player_id:
             if pc.get("report_phase", "idle") == "dispatched":
                 return True
-        if count_locked_by_fn:
-            locked = count_locked_by_fn(player, state)
-            if locked >= 1 and effective <= 1:
-                return True
-        if is_anchored_fn and is_anchored_fn(player, state):
+        locked = Q.count_locked_by(player, state)
+        if locked >= 1 and effective <= 1:
+            return True
+        if Q.is_anchored(player, state):
             return True
         for pid in state.player_order:
             p = state.get_player(pid)
@@ -357,7 +320,7 @@ class ThreatMind(BaseMind):
             return False
         if not getattr(virus, 'is_active', False):
             return False
-        if self._has_virus_immunity(player):
+        if self._query.has_virus_immunity(player):
             return False
         return True
 
@@ -387,7 +350,7 @@ class ThreatMind(BaseMind):
 
     def _detect_supernova_threat(self, player, state) -> bool:
         """检测场上是否存在超新星威胁"""
-        if self._has_talent(player, "火萤IV型-完全燃烧"):
+        if self._query.has_talent(player, "火萤IV型-完全燃烧"):
             return False  # 自己有火萤不怕超新星
         for pid in state.player_order:
             if pid == player.player_id:
@@ -423,7 +386,7 @@ class ThreatMind(BaseMind):
     def _find_kill_targets(self, player, state) -> List[Dict]:
         """找到所有可击杀目标"""
         results = []
-        best_dmg = self._best_weapon_damage(player)
+        best_dmg = self._query.best_weapon_damage(player)
         if best_dmg <= 0:
             return results
         for pid in state.player_order:
@@ -432,169 +395,18 @@ class ThreatMind(BaseMind):
             target = state.get_player(pid)
             if not target or not target.is_alive():
                 continue
-            if not self._is_valid_attack_target(player, target, state):
+            if not self._query.is_valid_attack_target(player, target, state):
                 continue
-            outer = self._count_armor(target, "outer")
-            inner = self._count_armor(target, "inner")
-            eff_hp = self._get_effective_hp(target)
+            outer = self._query.count_outer_armor(target)
+            inner = self._query.count_inner_armor(target)
+            eff_hp = self._query.get_effective_hp(target)
             if outer == 0 and inner == 0:
                 if eff_hp <= best_dmg:
-                    if self._can_attack_target(player, target, state):
+                    if self._query.can_attack_target(player, target, state):
                         debug_ai_kill_opportunity(player.name, target.name, eff_hp)
                         results.append({"target": target, "damage": best_dmg})
             elif outer == 0 and inner > 0:
                 if eff_hp <= 0.5 and best_dmg >= 1.0:
-                    if self._can_attack_target(player, target, state):
+                    if self._query.can_attack_target(player, target, state):
                         results.append({"target": target, "damage": best_dmg})
         return results
-
-    # ════════════════════════════════════════════════════════
-    #  战力估算
-    # ════════════════════════════════════════════════════════
-
-    def _estimate_power(self, player) -> float:
-        power = self._get_effective_hp(player) * 10
-        weapons = getattr(player, 'weapons', [])
-        for w in weapons:
-            if w:
-                power += self._estimate_talent_adjusted_damage(player, w) * 15
-        outer = self._count_armor(player, "outer")
-        inner = self._count_armor(player, "inner")
-        power += outer * 20
-        power += inner * 15
-        if self._has_stealth(player):
-            power += 10
-        if getattr(player, 'has_detection', False):
-            power += 5
-        t_talent = getattr(player, 'talent', None)
-        if t_talent and hasattr(t_talent, 'iron_horus_hp'):
-            iron_hp = getattr(t_talent, 'iron_horus_hp', 0)
-            if iron_hp > 0:
-                power += iron_hp * 15
-        return power
-
-    def _estimate_talent_adjusted_damage(self, player, weapon=None) -> float:
-        if weapon is not None:
-            base_dmg = self._get_weapon_damage(weapon)
-        else:
-            weapons = getattr(player, 'weapons', [])
-            base_dmg = max((self._get_weapon_damage(w) for w in weapons if w), default=0.0)
-        talent = getattr(player, 'talent', None)
-        if not talent:
-            return base_dmg
-        if hasattr(talent, 'name') and talent.name == "火萤IV型-完全燃烧":
-            return base_dmg * 2.0
-        if hasattr(talent, 'is_savior') and talent.is_savior:
-            bonus = getattr(talent, 'temp_attack_bonus', 0.0)
-            aoe_bonus = getattr(talent, 'aoe_bonus', 0.0)
-            if weapon and self._get_weapon_range(weapon) == "area":
-                return base_dmg + aoe_bonus
-            return base_dmg + bonus
-        return base_dmg
-
-    def _best_weapon_damage(self, player) -> float:
-        weapons = getattr(player, 'weapons', [])
-        return max((self._estimate_talent_adjusted_damage(player, w) for w in weapons if w), default=0.0)
-
-    def _get_effective_hp(self, player) -> float:
-        hp = player.hp
-        talent = getattr(player, 'talent', None)
-        if talent:
-            temp_hp = getattr(talent, 'temp_hp', 0.0)
-            if temp_hp > 0:
-                hp += temp_hp
-            charges = getattr(talent, 'ardent_wish_charges', 0)
-            if charges > 0:
-                hp += charges * 0.5
-        return hp
-
-    # ════════════════════════════════════════════════════════
-    #  工具方法
-    # ════════════════════════════════════════════════════════
-
-    @staticmethod
-    def _has_talent(player, name: str) -> bool:
-        t = getattr(player, 'talent', None)
-        return t is not None and getattr(t, 'name', '') == name
-
-    @staticmethod
-    def _has_virus_immunity(player) -> bool:
-        talent = getattr(player, 'talent', None)
-        if talent:
-            if getattr(talent, 'virus_immune', False):
-                return True
-            name = getattr(talent, 'name', '')
-            if name == "你们，由我守护":
-                return True
-            if name == "愿负世，照拂黎明" and getattr(talent, 'is_savior', False):
-                return True
-        for item_name in getattr(player, 'items', []):
-            if "防毒面具" in (item_name or ""):
-                return True
-        return "封闭" in getattr(player, 'learned_spells', set())
-
-    @staticmethod
-    def _has_stealth(player) -> bool:
-        if getattr(player, 'is_invisible', False):
-            return True
-        for w in getattr(player, 'weapons', []):
-            if w and getattr(w, 'name', '') == "隐形涂层":
-                return True
-        return False
-
-    @staticmethod
-    def _get_weapon_damage(weapon) -> float:
-        if not weapon:
-            return 0.0
-        if hasattr(weapon, 'get_effective_damage'):
-            return weapon.get_effective_damage()
-        return getattr(weapon, 'base_damage', 1.0)
-
-    @staticmethod
-    def _get_weapon_range(weapon) -> str:
-        return getattr(weapon, 'range', 'melee')
-
-    @staticmethod
-    def _count_armor(player, layer: str) -> int:
-        armor = getattr(player, 'armor', None)
-        if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
-            layer_enum = {"outer": ArmorLayer.OUTER, "inner": ArmorLayer.INNER}.get(layer)
-            if layer_enum is None:
-                return 0
-            return len(armor.get_active(layer_enum))
-        return 0
-
-    @staticmethod
-    def _firefly_debuff_active(player) -> bool:
-        talent = getattr(player, 'talent', None)
-        if not talent or getattr(talent, 'name', '') != "火萤IV型-完全燃烧":
-            return False
-        return getattr(talent, 'debuff_active', False)
-
-    @staticmethod
-    def _is_valid_attack_target(player, target, state) -> bool:
-        if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
-            if not getattr(target, 'is_criminal', False):
-                return False
-        if (target.talent and hasattr(target.talent, 'has_love_wish')
-                and target.talent.has_love_wish(player.player_id)):
-            return False
-        if getattr(target, 'is_invisible', False) and not getattr(player, 'has_detection', False):
-            markers_obj = getattr(state, 'markers', None)
-            if markers_obj and hasattr(markers_obj, 'is_visible_to'):
-                if not markers_obj.is_visible_to(target.player_id, player.player_id, player.has_detection):
-                    return False
-        return True
-
-    @staticmethod
-    def _can_attack_target(player, target, state) -> bool:
-        """检查是否能攻击目标（同地点或有远程武器）"""
-        my_loc = str(getattr(player, 'location', ''))
-        target_loc = str(getattr(target, 'location', ''))
-        if my_loc == target_loc:
-            return True
-        for w in getattr(player, 'weapons', []):
-            if w and ThreatMind._get_weapon_range(w) in ("ranged", "area"):
-                return True
-        return False

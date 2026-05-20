@@ -58,85 +58,131 @@ class DecisionOrchestrator:
         goal_stack: Any,
         talent_hooks: Dict[str, Any],
         minds: List[Any],
-        controller: Any,  # BasicAIController 实例，用于访问 helper 方法
+        controller: Any,  # BasicAIController 实例，仅保留旧 choose/on_event 所需最小上下文
         ai_state: Any = None,
+        query: GameQuery = None,
+        personality: str = "balanced",
     ):
         self._strategy = strategy
         self._goal_stack = goal_stack
         self._talent_hooks = talent_hooks
         self._minds = minds
+        if ai_state is None:
+            from controllers.ai.ai_state import AIState
+            ai_state = AIState()
         self._ctrl = controller
         self._shared_state = ai_state  # AIState 共享引用（Phase 6）
+        self._personality = personality
+        self._player_name = "?"
 
         # 新架构基础设施
-        self._query = GameQuery()
+        self._query = query or GameQuery()
         self._combat_cmd = CombatCommandBuilder(self._query)
         self._develop_cmd = DevelopCommandBuilder(self._query)
         self._police_cmd = PoliceCommandBuilder(self._query)
 
-        # Orchestrator 维护的跨轮次状态
-        # 当 _shared_state 存在时优先使用，否则退回到本地状态
-        self._threat_scores: Dict[str, float] = {}
-        self._low_threat_streak: Dict[str, int] = {}
-        self._in_combat: bool = False
-        self._combat_target: Any = None
-        self._danger_mode: bool = False
-        self._been_attacked_by: Set[str] = set()
-        self._last_combat_location = None
-        self._combat_just_ended_at = None
-
         # T3 天星补刀追踪
         self._star_prev_uses: Optional[int] = None   # 上轮剩余次数（检测是否刚发动）
-        self._star_follow_up_rounds: int = 0          # 补刀标记剩余轮数
+
+    @property
+    def _threat_scores(self):
+        return self._shared_state.threat_scores
+
+    @_threat_scores.setter
+    def _threat_scores(self, value):
+        self._shared_state.threat_scores = value
+
+    @property
+    def _low_threat_streak(self):
+        return self._shared_state.low_threat_streak
+
+    @_low_threat_streak.setter
+    def _low_threat_streak(self, value):
+        self._shared_state.low_threat_streak = value
+
+    @property
+    def _been_attacked_by(self):
+        return self._shared_state.been_attacked_by
+
+    @_been_attacked_by.setter
+    def _been_attacked_by(self, value):
+        self._shared_state.been_attacked_by = value
+
+    @property
+    def _in_combat(self):
+        return self._shared_state.in_combat
+
+    @_in_combat.setter
+    def _in_combat(self, value):
+        self._shared_state.in_combat = value
+
+    @property
+    def _combat_target(self):
+        return self._shared_state.combat_target
+
+    @_combat_target.setter
+    def _combat_target(self, value):
+        self._shared_state.combat_target = value
+
+    @property
+    def _danger_mode(self):
+        return self._shared_state.danger_mode
+
+    @_danger_mode.setter
+    def _danger_mode(self, value):
+        self._shared_state.danger_mode = value
+
+    @property
+    def _last_combat_location(self):
+        return self._shared_state.last_combat_location
+
+    @_last_combat_location.setter
+    def _last_combat_location(self, value):
+        self._shared_state.last_combat_location = value
+
+    @property
+    def _combat_just_ended_at(self):
+        return self._shared_state.combat_just_ended_at
+
+    @_combat_just_ended_at.setter
+    def _combat_just_ended_at(self, value):
+        self._shared_state.combat_just_ended_at = value
+
+    @property
+    def _star_follow_up_rounds(self):
+        return self._shared_state.star_follow_up_rounds
+
+    @_star_follow_up_rounds.setter
+    def _star_follow_up_rounds(self, value):
+        self._shared_state.star_follow_up_rounds = value
 
     def _sync_from_shared_state(self):
-        """从 AIState 读入状态到 orchestrator 本地变量"""
-        s = self._shared_state
-        if not s:
-            return
-        self._threat_scores = s.threat_scores
-        self._low_threat_streak = s.low_threat_streak
-        self._been_attacked_by = s.been_attacked_by
-        self._in_combat = s.in_combat
-        self._combat_target = s.combat_target
-        self._danger_mode = s.danger_mode
-        self._last_combat_location = s.last_combat_location
-        self._combat_just_ended_at = s.combat_just_ended_at
-        self._star_follow_up_rounds = s.star_follow_up_rounds
+        """AIState 现在由 Orchestrator 直接引用，无需复制。"""
+        return
 
     def _sync_to_shared_state(self):
-        """将 orchestrator 本地修改写回 AIState"""
-        s = self._shared_state
-        if not s:
-            return
-        s.threat_scores = self._threat_scores
-        s.low_threat_streak = self._low_threat_streak
-        s.been_attacked_by = self._been_attacked_by
-        s.in_combat = self._in_combat
-        s.combat_target = self._combat_target
-        s.danger_mode = self._danger_mode
-        s.last_combat_location = self._last_combat_location
-        s.combat_just_ended_at = self._combat_just_ended_at
-        s.police_cache = getattr(self._ctrl, '_police_cache', None)
-        s.star_follow_up_rounds = self._star_follow_up_rounds
+        """AIState 现在由 Orchestrator 直接引用，无需复制。"""
+        return
 
     def _sync_to_controller_state(self):
-        """将 Orchestrator/AIState 状态镜像回 controller，供旧接口读取。"""
-        self._ctrl._threat_scores = dict(self._threat_scores)
-        self._ctrl._low_threat_streak = dict(self._low_threat_streak)
-        self._ctrl._been_attacked_by = set(self._been_attacked_by)
-        if self._shared_state:
-            self._ctrl._players_who_attacked = set(self._shared_state.players_who_attacked)
-        self._ctrl._in_combat = self._in_combat
-        self._ctrl._combat_target = self._combat_target
-        self._ctrl._danger_mode = self._danger_mode
-        self._ctrl._last_combat_location = self._last_combat_location
-        self._ctrl._combat_just_ended_at = self._combat_just_ended_at
+        """Controller 在 generate() 返回后主动从 AIState 读取暴露状态。"""
+        return
 
     def _persist_state(self):
-        """统一保存新架构状态，覆盖正常返回和提前返回路径。"""
-        self._sync_to_shared_state()
-        self._sync_to_controller_state()
+        """兼容早退路径；状态已经实时写入 AIState。"""
+        return
+
+    def _cleanup_dead_players(self, state):
+        dead_names = []
+        for pid in state.player_order:
+            target = state.get_player(pid)
+            if target and not target.is_alive():
+                dead_names.append(target.name)
+        for name in dead_names:
+            self._shared_state.threat_scores.pop(name, None)
+            self._shared_state.low_threat_streak.pop(name, None)
+            self._shared_state.been_attacked_by.discard(name)
+            self._shared_state.players_who_attacked.discard(name)
 
     def _sync_combat_status_from_markers(self, player, state):
         """复刻旧 _update_combat_status：用 ENGAGED_WITH 标记维护战斗状态。"""
@@ -167,29 +213,30 @@ class DecisionOrchestrator:
             self._combat_target = None
 
     def _build_ctx(self, state=None) -> OrchestratorContext:
-        """从当前 Orchestrator 状态构建上下文快照供 CommandBuilder 使用。"""
-        police_protected: Set[str] = set()
-        if state:
-            pe = getattr(state, 'police_engine', None)
-            if pe:
-                for pid in state.player_order:
-                    if pe.is_protected_by_police(pid):
-                        police_protected.add(pid)
+        """从 AIState 构建上下文快照供 Mind / CommandBuilder 使用。"""
+        s = self._shared_state
+        police_protected = GameQuery.get_police_protected_ids(state) if state else set()
         return OrchestratorContext(
-            threat_scores=dict(self._threat_scores),
-            low_threat_streak=dict(self._low_threat_streak),
-            been_attacked_by=set(self._been_attacked_by),
-            players_who_attacked=set(getattr(self._shared_state, 'players_who_attacked', set())),
-            in_combat=self._in_combat,
-            combat_target=self._combat_target,
-            danger_mode=self._danger_mode,
-            llm_aggression_mod=getattr(self._ctrl, '_llm_aggression_mod', 0.0),
-            llm_alliance=getattr(self._ctrl, '_llm_alliance', set()),
-            star_follow_up_rounds=self._star_follow_up_rounds,
-            terror_defense=getattr(self._ctrl, '_terror_defense', None),
+            threat_scores=dict(s.threat_scores),
+            low_threat_streak=dict(s.low_threat_streak),
+            been_attacked_by=set(s.been_attacked_by),
+            players_who_attacked=set(s.players_who_attacked),
+            in_combat=s.in_combat,
+            combat_target=s.combat_target,
+            danger_mode=s.danger_mode,
+            llm_aggression_mod=s.llm_aggression_mod,
+            llm_alliance=set(s.llm_alliance),
+            star_follow_up_rounds=s.star_follow_up_rounds,
+            terror_defense=s.terror_defense,
             police_protected_ids=police_protected,
             police_stance=None,
-            police_cache=getattr(self._ctrl, '_police_cache', None) or {},
+            police_cache=s.police_cache or {},
+            political_fallback_level=s.political_fallback_level,
+            personality=self._personality,
+            police_dev_assignments=s.police_dev_assignments,
+            police_dev_initialized=s.police_dev_initialized,
+            last_criminal_target_id=s.last_criminal_target_id,
+            ai_state=s,
         )
 
     # ════════════════════════════════════════════════════════
@@ -212,7 +259,7 @@ class DecisionOrchestrator:
                 return
         except Exception:
             return
-        name = getattr(self._ctrl, 'player_name', '?')
+        name = self._player_name
         prefix = {1: "  [Orch]", 2: "  [Orch·]", 3: "  [Orch··]"}.get(level, "  [Orch]")
         print(f"{prefix} {name}: {msg}")
 
@@ -226,34 +273,26 @@ class DecisionOrchestrator:
     ) -> List[str]:
         """产出候选指令列表（与旧 _generate_candidates 同签名）。"""
 
-        # Step 0: 从共享 AIState 同步状态
-        self._sync_from_shared_state()
-
-        # Step 0.5: 同步 controller 状态（必须在任何 _dbg 之前，因为 _dbg 读取 _ctrl.player_name）
+        # Step 0: 更新本轮上下文；Controller 旧字段仅保留 choose/on_event 所需最小集合。
+        self._player_name = player.name
         self._ctrl._my_id = player.player_id
         self._ctrl.player_name = player.name
         self._ctrl._player = player
         self._ctrl._game_state = state
         self._ctrl._round_number = round_num
-        if self._shared_state:
-            self._shared_state.round_number = round_num
-        self._ctrl._read_police_state(state)
-        if self._shared_state:
-            self._shared_state.police_cache = getattr(self._ctrl, '_police_cache', None)
-        if hasattr(self._ctrl, '_cleanup_dead_players_new'):
-            self._ctrl._cleanup_dead_players_new(state)
-            self._sync_from_shared_state()
-        self._sync_combat_status_from_markers(player, state)
 
-        # 同步 political 降级状态（旧 mixin 方法依赖）
-        if self._ctrl.personality == "political":
-            self._ctrl._political_fallback_level = self._ctrl._political_should_fallback(player, state)
-            self._ctrl._political_in_balanced_fallback = (self._ctrl._political_fallback_level == "full_balanced")
-            self._ctrl._political_develop_only = (self._ctrl._political_fallback_level == "develop_only")
-        else:
-            self._ctrl._political_fallback_level = "none"
-            self._ctrl._political_in_balanced_fallback = False
-            self._ctrl._political_develop_only = False
+        s = self._shared_state
+        s.round_number = round_num
+        s.llm_aggression_mod = getattr(self._ctrl, '_llm_aggression_mod', s.llm_aggression_mod)
+        s.llm_alliance = set(getattr(self._ctrl, '_llm_alliance', s.llm_alliance))
+        s.terror_defense = getattr(self._ctrl, '_terror_defense', s.terror_defense)
+        s.police_cache = self._query.read_police_state(state, player.player_id)
+        s.political_fallback_level = (
+            self._query.political_should_fallback(player, state)
+            if self._personality == "political" else "none"
+        )
+        self._cleanup_dead_players(state)
+        self._sync_combat_status_from_markers(player, state)
 
         # ★ T3 天星补刀追踪：每轮递减，检测发动时重置为2
         if self._star_follow_up_rounds > 0:
@@ -427,8 +466,8 @@ class DecisionOrchestrator:
                 raw_result = mind.assess(
                     player, state,
                     police_cache=police_ctx.get("cache", {}),
-                    threat_scores=self._threat_scores,
-                    my_location=GameQuery.get_location_str(player),
+                    threat_scores=self._shared_state.threat_scores,
+                    my_location=self._query.get_location_str(player),
                     strategy=self._strategy,
                 )
                 # PoliceMind.assess() 返回 PoliceSituation，包装为 MindAssessment
@@ -446,7 +485,7 @@ class DecisionOrchestrator:
         police_snapshot = snapshots.get("police")
         if police_snapshot:
             police_sit_obj = police_snapshot.data.get("police_situation")
-        polices_cache = self._extract_police_cache_from_situation(police_sit_obj) if police_sit_obj else {}
+        polices_cache = self._shared_state.police_cache or {}
 
         # 2. ThreatMind
         for mind in self._minds:
@@ -455,15 +494,12 @@ class DecisionOrchestrator:
             if mind_name == "ThreatMind":
                 snapshots["threat"] = mind.assess(
                     player, state, self._strategy,
-                    previous_threat_scores=self._threat_scores,
+                    previous_threat_scores=self._shared_state.threat_scores,
                     low_threat_streak=self._low_threat_streak,
                     been_attacked_by=self._been_attacked_by,
-                    llm_aggression_mod=getattr(self._ctrl, '_llm_aggression_mod', 0.0),
+                    llm_aggression_mod=self._shared_state.llm_aggression_mod,
                     polices_cache=polices_cache,
-                    count_outer_armor_fn=GameQuery.count_outer_armor,
-                    count_inner_armor_fn=GameQuery.count_inner_armor,
-                    count_locked_by_fn=GameQuery.count_locked_by,
-                    is_anchored_fn=GameQuery.is_anchored,
+                    ctx=self._build_ctx(state),
                 )
                 # 更新 EMA 威胁分
                 self._threat_scores = snapshots["threat"].data.get("threat_scores", {})
@@ -499,7 +535,7 @@ class DecisionOrchestrator:
                         break
                 snapshots["combat"] = mind.assess(
                     player, state, self._strategy,
-                    threat_scores=self._threat_scores,
+                    threat_scores=self._shared_state.threat_scores,
                     combat_target=self._combat_target,
                     in_combat=self._in_combat,
                     police_protected_ids=police_protected,
@@ -518,7 +554,7 @@ class DecisionOrchestrator:
     def _build_police_context(self, player, state) -> Dict:
         """构建 PoliceMind 需要的上下文"""
         return {
-            "cache": getattr(self._ctrl, '_police_cache', None) or {},
+            "cache": self._shared_state.police_cache or {},
         }
 
     @staticmethod
@@ -573,7 +609,7 @@ class DecisionOrchestrator:
         if cmds:
             if self._goal_stack:
                 from controllers.ai.goals.virus_goal import VirusCureGoal
-                preferred_loc = self._ctrl._pick_virus_cure_location(player, state)
+                preferred_loc = self._develop_cmd.pick_virus_cure_location(player, state)
                 goal = VirusCureGoal(
                     preferred_location=preferred_loc,
                     debug_name=player.name,
@@ -657,9 +693,9 @@ class DecisionOrchestrator:
             if self._goal_stack:
                 self._goal_stack.interrupt_all()
                 if getattr(player, 'is_captain', False):
-                    safe_loc = self._ctrl._pick_captain_safe_destination(player, state)
+                    safe_loc = self._develop_cmd.pick_captain_safe_destination(player, state, self._shared_state.police_cache or {})
                 else:
-                    safe_loc = self._ctrl._pick_safe_armor_destination(player, state)
+                    safe_loc = self._develop_cmd.pick_safe_armor_destination(player, state)
                 if safe_loc:
                     from controllers.ai.goals.flee_goal import FleeGoal
                     flee = FleeGoal(destination=safe_loc, debug_name=player.name)
@@ -667,7 +703,7 @@ class DecisionOrchestrator:
                     self._goal_stack.push(flee)
 
         if self._danger_mode:
-            if self._ctrl._is_danger_resolved(player):
+            if self._query.is_danger_resolved(player, state, self._shared_state.police_cache):
                 debug_ai_basic(player.name, "危险解除")
                 self._danger_mode = False
                 if self._goal_stack:
@@ -682,7 +718,6 @@ class DecisionOrchestrator:
             ctx = self._build_ctx(state)
             return self._develop_cmd.build_danger_develop(
                 player, state, self._strategy, available, ctx,
-                controller_ref=self._ctrl,
             )
 
         # ════════════════════════════════════════════════════════
@@ -702,13 +737,13 @@ class DecisionOrchestrator:
                             self._dbg(2, "RESIST: 已有AOE，交COMBAT处理")
                         else:
                             self._dbg(2, "RESIST: 无AOE，获取AOE武器")
-                            target_armor_attrs = self._get_all_protected_armor_attrs(state, player)
+                            target_armor_attrs = self._query.get_all_protected_armor_attrs(state, player.player_id)
                             for pm in self._minds:
                                 if pm.__class__.__name__ == "PoliceMind":
                                     aoe_cmds = pm.get_aoe_acquisition_commands(
                                         player, state, available,
                                         target_armor_attrs=target_armor_attrs,
-                                        my_location=GameQuery.get_location_str(player),
+                                        my_location=self._query.get_location_str(player),
                                         has_pass=getattr(player, 'has_military_pass', False),
                                         learned_spells=getattr(player, 'learned_spells', set()),
                                     )
@@ -726,15 +761,13 @@ class DecisionOrchestrator:
         if getattr(player, 'is_captain', False) and "police_command" in available:
             self._dbg(2, "队长: 生成警察指挥")
             ctx = self._build_ctx(state)
-            cmds = self._police_cmd.build_captain(player, state, self._strategy, available, ctx,
-                                                   controller_ref=self._ctrl)
+            cmds = self._police_cmd.build_captain(player, state, self._strategy, available, ctx)
             if cmds:
                 if self._goal_stack:
                     from controllers.ai.goals.captain_goal import CaptainGoal
                     goal = CaptainGoal(
                         cmd_captain_fn=lambda p, s, a: self._police_cmd.build_captain(
-                            p, s, self._strategy, a, self._build_ctx(s),
-                            controller_ref=self._ctrl),
+                            p, s, self._strategy, a, self._build_ctx(s)),
                         debug_name=player.name,
                     )
                     goal.set_round(round_num)
@@ -752,8 +785,7 @@ class DecisionOrchestrator:
                         self._dbg(2, "political: 尝试警察建设")
                         ctx = self._build_ctx(state)
                         cmds = self._police_cmd.build_police_political(
-                            player, state, self._strategy, available, ctx,
-                            controller_ref=self._ctrl)
+                            player, state, self._strategy, available, ctx)
                         if cmds:
                             self._dbg(2, f"political: 警察建设 → {cmds}")
                             return cmds
@@ -794,13 +826,13 @@ class DecisionOrchestrator:
             # 队长存在且可触及 → 切换目标
             if not getattr(self._combat_target, 'is_captain', False):
                 captain = self._find_captain_in_viable_targets(combat, state)
-                if captain and self._can_reach_target(player, state, captain):
+                if captain and self._query.can_reach_target_in_barrier(player, state, captain):
                     self._dbg(1, f"RESIST: 切换目标 {self._combat_target.name} → 队长 {captain.name}")
                     self._combat_target = captain
 
         # 如果正在战斗中
         if self._in_combat and self._combat_target:
-            if self._ctrl._should_continue_combat(player, self._combat_target):
+            if self._query.should_continue_combat(player, self._combat_target, state, self._strategy, self._personality, self._shared_state.political_fallback_level):
                 combat_cmds = self._build_forced_attack_commands(
                     player, state, available, self._combat_target)
                 if combat_cmds:
@@ -823,7 +855,7 @@ class DecisionOrchestrator:
             # 但结界内只能攻击同地点目标——队长在结界外则跳过
             captain = self._find_captain_in_viable_targets(combat, state)
             if captain and self._can_damage_via_combat(combat, captain):
-                if self._can_reach_target(player, state, captain):
+                if self._query.can_reach_target_in_barrier(player, state, captain):
                     best_target = captain
                     self._dbg(1, f"RESIST: 队长优先 → {captain.name}")
                 else:
@@ -935,7 +967,7 @@ class DecisionOrchestrator:
                     if best_target:
                         return self._build_forced_attack_commands(player, state, available, best_target)
 
-            fallback_loc = self._ctrl._pick_fallback_destination(player, state)
+            fallback_loc = self._develop_cmd.pick_fallback_destination(player, state, self._strategy, self._personality, self._build_ctx(state))
             if fallback_loc and "move" in available:
                 if not self._is_same_location(fallback_loc, my_loc):
                     cmds.append(f"move {fallback_loc}")
@@ -963,7 +995,7 @@ class DecisionOrchestrator:
 
         # 2. 移动到安全地点
         if not cmds and "move" in available:
-            safe_loc = self._ctrl._pick_fallback_destination(player, state)
+            safe_loc = self._develop_cmd.pick_fallback_destination(player, state, self._strategy, self._personality, self._build_ctx(state))
             if safe_loc and not self._is_same_location(safe_loc, my_loc):
                 cmds.append(f"move {safe_loc}")
                 self._dbg(2, f"兜底: 移动到 {safe_loc}")
@@ -998,26 +1030,6 @@ class DecisionOrchestrator:
     #  GameQuery 辅助（保留少量编排层需要的战术判断）
     # ════════════════════════════════════════════════════════
 
-    def _get_all_protected_armor_attrs(self, state, player) -> set:
-        """收集所有警察保护目标的护甲属性（用于AOE获取决策）"""
-        attrs: set = set()
-        pe = getattr(state, 'police_engine', None)
-        if not pe:
-            return attrs
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            t = state.get_player(pid)
-            if not t or not t.is_alive() or not pe.is_protected_by_police(pid):
-                continue
-            outer = GameQuery.get_outer_armor_attr(t)
-            if outer:
-                attrs.update(outer)
-            else:
-                inner = GameQuery.get_inner_armor_attr(t)
-                attrs.update(inner)
-        return attrs
-
     @staticmethod
     def _find_captain_in_viable_targets(combat_snapshot, state) -> Optional[Any]:
         """在 CombatMind 的 viable_targets 中找队长"""
@@ -1038,23 +1050,6 @@ class DecisionOrchestrator:
                 score = entry[1] if isinstance(entry, (list, tuple)) and len(entry) > 1 else 0
                 return score > -400
         return False
-
-    @staticmethod
-    def _can_reach_target(player, state, target) -> bool:
-        """检查玩家能否接触到目标（结界内无法攻击结界外目标）"""
-        barrier = getattr(state, 'active_barrier', None)
-        if barrier:
-            in_barrier = False
-            if hasattr(barrier, 'is_in_barrier'):
-                in_barrier = barrier.is_in_barrier(player.player_id)
-            else:
-                barrier_players = getattr(barrier, 'barrier_players', [])
-                in_barrier = player.player_id in barrier_players
-            if in_barrier:
-                if hasattr(barrier, 'barrier_players'):
-                    return target.player_id in barrier.barrier_players
-                return False
-        return True
 
     def _push_combat_goal(self, target, player, round_num, priority: int = 6):
         if not self._goal_stack:
