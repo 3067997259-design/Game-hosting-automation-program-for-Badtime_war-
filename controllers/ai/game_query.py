@@ -216,6 +216,9 @@ class GameQuery:
         from models.equipment import WeaponRange
         if not weapon:
             return "melee"
+        raw_range = getattr(weapon, 'range', None)
+        if raw_range in ("melee", "ranged", "area"):
+            return raw_range
         wr = getattr(weapon, 'weapon_range', None)
         if wr == WeaponRange.MELEE:
             return "melee"
@@ -224,6 +227,46 @@ class GameQuery:
         elif wr == WeaponRange.AREA:
             return "area"
         return "melee"
+
+    @staticmethod
+    def can_reach(player, target) -> bool:
+        """同地点，或拥有远程/范围武器、远程/范围法术时视为可触及。"""
+        if GameQuery.same_location(player, target):
+            return True
+        for weapon in getattr(player, 'weapons', []):
+            if weapon and GameQuery.get_weapon_range(weapon) in ("ranged", "area"):
+                return True
+        learned = getattr(player, 'learned_spells', set())
+        return any(
+            spell in learned
+            for spell in ("魔法弹幕", "远程魔法弹幕", "地震", "地动山摇")
+        )
+
+    @staticmethod
+    def can_attack_target(player, target, state=None) -> bool:
+        """只读攻击可达性判断；如传入 state，同时检查基础目标合法性。"""
+        if state is not None and not GameQuery.is_valid_attack_target(player, target, state):
+            return False
+        return GameQuery.can_reach(player, target)
+
+    @staticmethod
+    def best_weapon_damage_raw(player) -> float:
+        weapons = getattr(player, 'weapons', [])
+        return max((GameQuery.get_weapon_damage(w) for w in weapons if w), default=0.0)
+
+    @staticmethod
+    def has_real_weapon(player) -> bool:
+        return any(
+            weapon for weapon in getattr(player, 'weapons', [])
+            if weapon and getattr(weapon, 'name', '') != "拳击"
+        )
+
+    @staticmethod
+    def count_real_weapons(player) -> int:
+        return sum(
+            1 for weapon in getattr(player, 'weapons', [])
+            if weapon and getattr(weapon, 'name', '') != "拳击"
+        )
 
     @staticmethod
     def get_weapon_attr(weapon):
@@ -406,6 +449,14 @@ class GameQuery:
         loc1 = GameQuery.get_location_str(player1)
         loc2 = GameQuery.get_location_str(player2)
         return loc1 == loc2 and loc1 != "unknown"
+
+    @staticmethod
+    def is_home_location(loc: str) -> bool:
+        return loc == "home" or str(loc).startswith("home_") or "家" in str(loc)
+
+    @staticmethod
+    def normalize_location(loc: str) -> str:
+        return "home" if GameQuery.is_home_location(str(loc)) else str(loc)
 
     @staticmethod
     def get_same_location_targets(player, state) -> List[Any]:

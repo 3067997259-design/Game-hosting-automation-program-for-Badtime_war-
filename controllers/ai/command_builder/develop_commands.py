@@ -32,63 +32,42 @@ class DevelopCommandBuilder:
         strategy: Any,
         available: List[str],
         ctx: "OrchestratorContext",
-        personality: str = "balanced",
+        develop_assessment: Any = None,
+        combat_assessment: Any = None,
         talent_hooks: Optional[Dict] = None,
-        controller_ref: Any = None,
+        combat_builder: Any = None,
     ) -> List[str]:
-        """通用发育命令（复制自 DevelopMixin._cmd_develop）。
-
-        controller_ref: 为了兼容天赋专属子路径中对 controller 内部方法的调用，
-        这里传入旧 controller 引用。Phase 3+ 会逐步消除这个依赖。
-        """
+        """将 DevelopMind 的评估结果转换为发育命令。"""
         Q = self._query
         commands: List[str] = []
         loc = Q.get_location_str(player)
+        personality = getattr(ctx, 'personality', None) or getattr(
+            strategy, 'personality_name', 'balanced')
+        develop_data = getattr(develop_assessment, 'data', {}) if develop_assessment else {}
+        if develop_data.get("development_complete"):
+            return []
+
+        talent_cmds = self._get_talent_develop_commands(
+            player, state, available, talent_hooks)
+        if talent_cmds is not None:
+            return talent_cmds
+
         weapons = getattr(player, 'weapons', [])
-        has_weapon = any(w for w in weapons if w and getattr(w, 'name', '') != "拳击")
         outer = Q.count_outer_armor(player)
-        inner = Q.count_inner_armor(player)
         vouchers = getattr(player, 'vouchers', 0)
-        has_pass = getattr(player, 'has_military_pass', False)
-        has_detection = getattr(player, 'has_detection', False)
 
         # 磨刀优先
-        if "special" in available:
-            has_stone = any(getattr(i, 'name', '') == "磨刀石"
-                           for i in getattr(player, 'items', []))
-            has_unsharpened = any(w.name == "小刀" and w.base_damage < 2
-                                 for w in player.weapons if w)
-            if has_stone and has_unsharpened:
-                commands.append("special 磨刀")
-                return commands
+        sharpen = self._build_sharpen_command(player, available)
+        if sharpen:
+            return sharpen
 
         debug_ai_development_plan(player.name,
-            f"状态: loc={loc} vouchers={vouchers} weapon={has_weapon} "
-            f"outer={outer} inner={inner} pass={has_pass} detect={has_detection}")
-
-        # 天赋专用发育路径（委托给 controller 的旧路径）
-        if controller_ref is not None:
-            if Q.has_firefly_talent(player):
-                return controller_ref._cmd_develop_firefly(player, state, available)
-            talent = getattr(player, 'talent', None)
-            if talent and hasattr(talent, 'name') and talent.name == "请一直，注视着我":
-                hologram_exhausted = (getattr(talent, 'used', False)
-                                      and getattr(talent, 'max_uses', 0) <= 0
-                                      and not getattr(talent, 'active', False))
-                if hologram_exhausted:
-                    post_cmds = controller_ref._cmd_develop_hologram_post(player, state, available)
-                    if post_cmds:
-                        return post_cmds
-                else:
-                    holo_cmds = controller_ref._cmd_develop_hologram(player, state, available)
-                    if holo_cmds:
-                        return holo_cmds
-            if Q.has_hoshino_talent(player):
-                return controller_ref._cmd_develop_hoshino(player, state, available)
+            f"状态: loc={loc} vouchers={vouchers} "
+            f"outer={outer} needs={develop_data.get('needs', [])}")
 
         # Political 特殊处理
-        if personality == "political" and controller_ref is not None:
-            fallback = getattr(controller_ref, '_political_fallback_level', 'none')
+        if personality == "political":
+            fallback = getattr(ctx, 'political_fallback_level', 'none')
             if (fallback == "none"
                     and not getattr(player, 'is_captain', False)
                     and outer >= 1):
@@ -102,14 +81,10 @@ class DevelopCommandBuilder:
                 if commands:
                     return commands
 
-        # 通用 interact 逻辑
-        if "interact" in available:
-            cmds = self._general_interact(
-                player, state, loc, has_weapon, outer, inner,
-                vouchers, has_pass, has_detection, personality,
-                controller_ref,
-            )
-            commands.extend(cmds)
+        # 当前地点可交互：直接消费 DevelopMind 的 current_location_actions
+        current_interact = develop_data.get("current_location_actions", [])
+        if current_interact and "interact" in available:
+            commands.extend(current_interact)
 
         # 蓄力
         if "special" in available and not commands:
@@ -122,12 +97,30 @@ class DevelopCommandBuilder:
                 if gauss and not getattr(gauss, 'is_charged', False):
                     commands.append("special 蓄力高斯步枪")
 
-        # 移动
+        # 移动到 DevelopMind 选出的最优地点
         if "move" in available and not commands:
-            next_loc = self.pick_destination(player, state, strategy, personality, controller_ref)
-            if next_loc and next_loc != loc:
-                if not (next_loc == "home" and Q.is_at_home(player)):
-                    commands.append(f"move {next_loc}")
+            best_move = develop_data.get("best_move")
+            if best_move:
+                dest = best_move.replace("move ", "", 1)
+                if Q.normalize_location(dest) != Q.normalize_location(loc):
+                    commands.append(best_move)
+
+        # 发育受阻：攻击型人格可转进攻；否则移动到安全兜底地点。
+        if not commands:
+            if personality in ("aggressive", "assassin", "balanced"):
+                combat_data = getattr(combat_assessment, 'data', {}) if combat_assessment else {}
+                target = combat_data.get("best_target") if combat_data.get("combat_ready") else None
+                if target and combat_builder is not None:
+                    commands.extend(combat_builder.build_attack(
+                        player, state, strategy, available, ctx,
+                        forced_target=target,
+                    ))
+                    if commands:
+                        return commands
+            fallback = Q.find_safe_location(player, state)
+            if fallback and "move" in available:
+                if Q.normalize_location(fallback) != Q.normalize_location(loc):
+                    commands.append(f"move {fallback}")
 
         return commands
 
@@ -153,14 +146,13 @@ class DevelopCommandBuilder:
     def pick_destination(
         self, player: Any, state: Any,
         strategy: Any, personality: str = "balanced",
-        controller_ref: Any = None,
     ) -> Optional[str]:
         """动态需求驱动的目的地选择（复制自 _pick_ideal_destination）。"""
         Q = self._query
-        unmet_needs = self._get_unmet_needs(player, state, personality, controller_ref)
+        unmet_needs = self._get_unmet_needs(player, state, personality)
         if not unmet_needs:
             if personality in ("aggressive", "assassin", "balanced"):
-                return Q.find_nearest_enemy_location(player, state)
+                return Q.find_nearest_enemy_location(player, state, {})
             return None
         # 死者苏生
         if (player.talent
@@ -171,11 +163,6 @@ class DevelopCommandBuilder:
             if Q.get_location_str(player) != "魔法所":
                 return "魔法所"
             return None
-        # Political 特殊路径
-        if personality == "political" and controller_ref is not None:
-            result = self._political_destination(player, state, unmet_needs, controller_ref)
-            if result is not None:
-                return result
         # 评分
         loc = Q.get_location_str(player)
         vouchers = getattr(player, 'vouchers', 0)
@@ -189,7 +176,7 @@ class DevelopCommandBuilder:
             if dest == "home" and Q.is_at_home(player):
                 continue
             score = self._score_destination(dest, unmet_needs, player, state,
-                                            vouchers, has_pass, personality, controller_ref)
+                                            vouchers, has_pass, personality)
             if score > best_score:
                 best_score = score
                 best_loc = dest
@@ -205,7 +192,6 @@ class DevelopCommandBuilder:
         self, player: Any, state: Any,
         strategy: Any, available: List[str],
         ctx: "OrchestratorContext",
-        controller_ref: Any = None,
     ) -> List[str]:
         """危险模式下的发育指令。"""
         Q = self._query
@@ -249,10 +235,7 @@ class DevelopCommandBuilder:
                 if has_pass and outer < 2 and not Q.has_armor_by_name(player, "AT力场"):
                     commands.append("interact AT力场")
 
-        if controller_ref and hasattr(controller_ref, '_pick_safe_armor_destination'):
-            safe_loc = controller_ref._pick_safe_armor_destination(player, state)
-        else:
-            safe_loc = Q.find_safe_location(player, state)
+        safe_loc = Q.find_safe_location(player, state)
         if safe_loc and safe_loc != loc and "move" in available:
             commands.append(f"move {safe_loc}")
         return commands
@@ -301,9 +284,35 @@ class DevelopCommandBuilder:
     #  内部辅助
     # ════════════════════════════════════════════════════════
 
+    def _get_talent_develop_commands(
+        self, player: Any, state: Any, available: List[str],
+        talent_hooks: Optional[Dict],
+    ) -> Optional[List[str]]:
+        if not talent_hooks:
+            return None
+        talent_name = getattr(getattr(player, 'talent', None), 'name', '')
+        hook = talent_hooks.get(talent_name) if talent_name else None
+        if not hook or not hasattr(hook, 'get_develop_commands'):
+            return None
+        return hook.get_develop_commands(player, state, available)
+
+    @staticmethod
+    def _build_sharpen_command(player: Any, available: List[str]) -> List[str]:
+        if "special" not in available:
+            return []
+        has_stone = any(
+            getattr(item, 'name', '') == "磨刀石"
+            for item in getattr(player, 'items', [])
+        )
+        has_unsharpened = any(
+            weapon.name == "小刀" and getattr(weapon, 'base_damage', 0) < 2
+            for weapon in getattr(player, 'weapons', []) if weapon
+        )
+        return ["special 磨刀"] if has_stone and has_unsharpened else []
+
     def _general_interact(
         self, player, state, loc, has_weapon, outer, inner,
-        vouchers, has_pass, has_detection, personality, controller_ref,
+        vouchers, has_pass, has_detection, personality,
     ) -> List[str]:
         """通用地点 interact 逻辑（复制自 _cmd_develop 的 interact 段落）。"""
         Q = self._query
@@ -398,13 +407,10 @@ class DevelopCommandBuilder:
                     commands.append("election")
         return commands
 
-    def _get_unmet_needs(self, player, state, personality, controller_ref) -> list:
+    def _get_unmet_needs(self, player, state, personality) -> list:
         """返回当前未满足的需求列表。"""
         Q = self._query
-        effective_personality = personality
-        if controller_ref and getattr(controller_ref, '_political_in_balanced_fallback', False):
-            effective_personality = "balanced"
-        needs_order = PERSONALITY_NEEDS.get(effective_personality, PERSONALITY_NEEDS["balanced"])
+        needs_order = PERSONALITY_NEEDS.get(personality, PERSONALITY_NEEDS["balanced"])
         weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
         has_weapon = len(weapons) > 0
         outer = Q.count_outer_armor(player)
@@ -438,7 +444,7 @@ class DevelopCommandBuilder:
 
     def _score_destination(
         self, dest, unmet_needs, player, state, vouchers, has_pass,
-        personality, controller_ref,
+        personality,
     ) -> float:
         """对候选地点评分。"""
         Q = self._query
@@ -520,37 +526,3 @@ class DevelopCommandBuilder:
         if item_name == "打工":
             return getattr(player, 'vouchers', 0) >= 1
         return False
-
-    def _political_destination(self, player, state, unmet_needs, controller_ref) -> Optional[str]:
-        """Political 人格的特殊目的地逻辑。"""
-        Q = self._query
-        fallback = getattr(controller_ref, '_political_fallback_level', 'none')
-        if fallback in ("full_balanced", "develop_only"):
-            return None
-        is_police = getattr(player, 'is_police', False)
-        is_captain = getattr(player, 'is_captain', False)
-        loc = Q.get_location_str(player)
-        if not is_police:
-            has_basic = (any(w for w in player.weapons if w and w.name != "拳击")
-                         and Q.count_outer_armor(player) > 0)
-            if has_basic:
-                if loc != "警察局":
-                    return "警察局"
-            else:
-                return None
-        if is_police and not is_captain:
-            if loc != "警察局":
-                return "警察局"
-            return None
-        if is_captain:
-            assignments = getattr(controller_ref, '_police_dev_assignments', {})
-            all_deployed = all(
-                a.get("phase") in ("stationed", "stationed_default", None)
-                for a in assignments.values()
-            ) if assignments else False
-            if not all_deployed:
-                if loc != "警察局":
-                    return "警察局"
-                return None
-            return None
-        return None
