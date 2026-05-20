@@ -703,7 +703,9 @@ class DecisionOrchestrator:
                     self._goal_stack.push(flee)
 
         if self._danger_mode:
-            if self._query.is_danger_resolved(player, state, self._shared_state.police_cache):
+            if self._query.is_danger_resolved(
+                player, state, self._shared_state.police_cache, self._strategy,
+            ):
                 debug_ai_basic(player.name, "危险解除")
                 self._danger_mode = False
                 if self._goal_stack:

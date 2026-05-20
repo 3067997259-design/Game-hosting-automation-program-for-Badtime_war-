@@ -672,13 +672,26 @@ class GameQuery:
     # ════════════════════════════════════════════════════════
 
     @staticmethod
-    def is_critical(player, state, police_cache: Optional[Dict] = None) -> bool:
+    def is_critical(
+        player, state,
+        police_cache: Optional[Dict] = None,
+        strategy: Optional[Any] = None,
+    ) -> bool:
         if GameQuery.has_firefly_talent(player):
             return GameQuery.is_critical_firefly(player, state, police_cache)
         if GameQuery.has_hoshino_talent(player):
             return GameQuery.is_critical_hoshino(player, state, police_cache)
-        if getattr(player, 'is_captain', False):
-            pass  # Strategy 层的 assess_captain_danger 需要由调用方处理
+        if (
+            getattr(player, 'is_captain', False)
+            and strategy
+            and hasattr(strategy, 'assess_captain_danger')
+        ):
+            if strategy.assess_captain_danger(
+                player, state,
+                police_cache=police_cache or {},
+                count_outer_armor_fn=GameQuery.count_outer_armor,
+            ):
+                return True
         if player.hp <= 0.5:
             return True
         if player.hp <= 1.0 and GameQuery.count_outer_armor(player) == 0:
@@ -827,16 +840,6 @@ class GameQuery:
     # ════════════════════════════════════════════════════════
 
     @staticmethod
-    def can_reach(player, target) -> bool:
-        """同地点或有远程/AOE武器。"""
-        if GameQuery.same_location(player, target):
-            return True
-        for weapon in getattr(player, 'weapons', []):
-            if weapon and GameQuery.get_weapon_range(weapon) in ("ranged", "area"):
-                return True
-        return False
-
-    @staticmethod
     def is_passive_player(target, state) -> bool:
         """无战斗关系的被动玩家。"""
         markers = getattr(state, 'markers', None)
@@ -919,9 +922,13 @@ class GameQuery:
         return True
 
     @staticmethod
-    def is_danger_resolved(player, state, police_cache: Optional[Dict] = None) -> bool:
+    def is_danger_resolved(
+        player, state,
+        police_cache: Optional[Dict] = None,
+        strategy: Optional[Any] = None,
+    ) -> bool:
         """判断危险状态是否已解除。"""
-        if GameQuery.is_critical(player, state, police_cache):
+        if GameQuery.is_critical(player, state, police_cache, strategy):
             return False
         if GameQuery.has_firefly_talent(player) and GameQuery.firefly_debuff_active(player):
             return True
