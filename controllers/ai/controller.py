@@ -49,6 +49,9 @@ from controllers.ai.talents.g5_ripple_hook import RippleAIHook
 # 新架构决策编排器
 from controllers.ai.orchestrator import DecisionOrchestrator
 
+# 诊断收集器
+from controllers.ai.diagnostics import DiagCollector
+
 
 
 class BasicAIController(
@@ -140,6 +143,9 @@ class BasicAIController(
         # ════════════════════════════════════════════════════════
         self._shadow_mode = False
         self._shadow_log: List[Dict] = []
+
+        # 诊断收集器（仅新架构启用时创建）
+        self._diag: Optional[DiagCollector] = DiagCollector() if new_arch_enabled else None
 
         # ════════════════════════════════════════════════════════
         #  新架构模块：仅在 _new_arch_enabled=True 时创建
@@ -345,6 +351,17 @@ class BasicAIController(
             else:
                 cmd = "forfeit"
                 debug_ai_basic(player.name, "插入式笑话候选耗尽，兜底forfeit")
+                if self._diag:
+                    self._diag.record_forfeit(
+                        round_num=self._round_number,
+                        player_name=player.name,
+                        talent=getattr(getattr(player, 'talent', None), 'name', ''),
+                        personality=self.personality,
+                        reason="direct_forfeit",
+                        candidates=list(self._candidates) if hasattr(self, '_candidates') else [],
+                        available_actions=list(available_actions) if available_actions else [],
+                        reject_reasons=[],
+                    )
             return cmd
 
         if attempt == 1:
@@ -375,7 +392,24 @@ class BasicAIController(
         else:
             cmd = "forfeit"
             debug_ai_basic(player.name, "候选耗尽，兜底forfeit")
+            if self._diag:
+                self._diag.record_forfeit(
+                    round_num=self._round_number,
+                    player_name=player.name,
+                    talent=getattr(getattr(player, 'talent', None), 'name', ''),
+                    personality=self.personality,
+                    reason="candidate_exhausted",
+                    candidates=list(self._candidates) if hasattr(self, '_candidates') else [],
+                    available_actions=list(available_actions) if available_actions else [],
+                    reject_reasons=[],
+                )
         return cmd
+
+    def export_diagnostics(self) -> Dict:
+        """导出诊断数据供 stats_runner 调用。"""
+        if self._diag:
+            return self._diag.export_summary()
+        return {}
 
     # ════════════════════════════════════════════════════════
     #  插入式笑话专用：候选命令生成

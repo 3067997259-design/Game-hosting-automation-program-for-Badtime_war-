@@ -332,6 +332,41 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
             if logs:
                 results["shadow_logs"][pid] = logs
 
+    # 诊断数据收集
+    diag_data = {}
+    for pid in game_state.player_order:
+        p = game_state.get_player(pid)
+        if p and hasattr(p.controller, 'export_diagnostics'):
+            d = p.controller.export_diagnostics()
+            if d:
+                diag_data[pid] = d
+    # 非 draw 局：清理 round_snapshots 以节省内存
+    if not is_draw:
+        for pid_data in diag_data.values():
+            pid_data.pop("round_snapshots", None)
+    results["diagnostics"] = diag_data
+
+    # draw_detail 快速预筛（不依赖 DiagCollector）
+    if draw_reason == "max_rounds":
+        from collections import Counter as _DrawCounter
+        last_20_events = [e for e in game_state.event_log
+                          if e.get("round", 0) > game_state.current_round - 20]
+        alive = game_state.alive_players()
+        results["draw_detail"] = {
+            "final_alive": [
+                {"pid": p.player_id, "name": p.name,
+                 "talent": getattr(p, 'talent_name', ''),
+                 "hp": round(p.hp, 1), "max_hp": round(p.max_hp, 1),
+                 "loc": p.location, "kills": p.kill_count,
+                 "personality": getattr(p.controller, 'personality', '')}
+                for p in alive
+            ],
+            "last_20_action_types": dict(_DrawCounter(
+                e.get("type") for e in last_20_events)),
+            "last_20_forfeit_count": sum(
+                1 for e in last_20_events if e.get("type") == "forfeit"),
+        }
+
     pid_to_personality = {info[0]: info[2] for info in ai_players_info}
 
     for pid in game_state.player_order:
@@ -444,7 +479,8 @@ def _fmt_count_pct(count: int, total: int) -> str:
 # ── Main batch runner ──
 
 def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mode: str = "random",
-              new_arch_enabled: bool = True, shadow_mode: bool = False) -> None:
+              new_arch_enabled: bool = True, shadow_mode: bool = False,
+              diag_mode: bool = False, diag_output: str = "logs/diag_report.json") -> None:
     """Run multiple games and collect statistics."""
 
     talent_stats: dict[int, TalentStats] = defaultdict(TalentStats)
@@ -468,6 +504,11 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
     draw_reasons: dict[str, int] = defaultdict(int)  # key → count
     # Shadow统计
     shadow_summary: dict[str, Any] = {}
+    # 诊断报告
+    diag_report = None
+    if diag_mode:
+        from controllers.ai.diagnostics import DiagReport
+        diag_report = DiagReport()
     # 分类标签映射
     DRAW_LABELS = {
         "terror_mutual": "Terror同归于尽(含G7)",
@@ -509,6 +550,10 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
                     "talents": result.get("talent_nums_picked", []),
                     "traceback": result.get("crash_traceback", ""),
                 })
+
+        # 诊断数据收集
+        if diag_report is not None:
+            diag_report.add_game(game_idx, result)
 
         # shadow模式：保存前N局的详细决策日志
         if shadow_mode and game_idx < 50:
@@ -564,6 +609,13 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
                   rl_games=rl_games, rl_wins=rl_wins,
                   rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins,
                   rl_talent_usage=rl_talent_usage)
+
+    # 诊断报告输出
+    if diag_report is not None:
+        diag_report.print_forfeit_summary()
+        diag_report.print_fallback_summary()
+        diag_report.print_draw_analysis()
+        diag_report.save_raw(diag_output)
 
 
 def print_results(
@@ -939,6 +991,10 @@ def main():
                         help="开启决策级对比模式（记录新旧候选命令差异）")
     parser.add_argument("--shadow", action="store_true",
                         help="开启shadow模式：记录每轮决策上下文用于新旧对比分析")
+    parser.add_argument("--diag", action="store_true",
+                        help="启用诊断模式：收集 forfeit/fallback/draw 的结构化数据")
+    parser.add_argument("--diag-output", type=str, default="logs/diag_report.json",
+                        help="诊断原始数据保存路径")
     args = parser.parse_args()
 
     if not 2 <= args.players <= 6:
@@ -963,7 +1019,8 @@ def main():
     print()
 
     run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
-              new_arch_enabled=not args.disable_new_arch, shadow_mode=args.shadow)
+              new_arch_enabled=not args.disable_new_arch, shadow_mode=args.shadow,
+              diag_mode=args.diag, diag_output=args.diag_output)
 
 
 if __name__ == "__main__":
