@@ -440,7 +440,8 @@ class ActionTurnManager:
                 display.show_available_actions(action_display)
                 continue
             # 记录 fallback 事件（第 1 条被拒但后续成功）
-            if attempts > 1 and hasattr(player.controller, '_diag') and player.controller._diag:
+            if (attempts > 1 and action_type != "forfeit"
+                    and hasattr(player.controller, '_diag') and player.controller._diag):
                 player.controller._diag.fallback_events.append({
                     "round": self.state.current_round,
                     "player_name": player.name,
@@ -673,7 +674,8 @@ class ActionTurnManager:
                 continue
 
             # 记录 fallback 事件（插入式笑话）
-            if attempts > 1 and hasattr(player.controller, '_diag') and player.controller._diag:
+            if (attempts > 1 and result != "forfeit"
+                    and hasattr(player.controller, '_diag') and player.controller._diag):
                 player.controller._diag.fallback_events.append({
                     "round": self.state.current_round,
                     "player_name": player.name,

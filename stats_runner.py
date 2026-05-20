@@ -151,7 +151,8 @@ COL_PERS = 14      # 人格列宽
 
 
 def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random",
-                    new_arch_enabled: bool = True, shadow_mode: bool = False) -> dict[str, Any]:
+                    new_arch_enabled: bool = True, shadow_mode: bool = False,
+                    diag_mode: bool = False) -> dict[str, Any]:
     """Run a single game (all-AI, or with one RL seat) and return results."""
     game_state = GameState()
 
@@ -178,7 +179,11 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         ai_name = available_names[i] if i < len(available_names) else f"AI_{i+1}"
         personality = random.choice(AI_PERSONALITIES)
         pid = f"p{i + 1 + start_idx}"
-        controller = BasicAIController(personality=personality, new_arch_enabled=new_arch_enabled)
+        controller = BasicAIController(
+            personality=personality,
+            new_arch_enabled=new_arch_enabled,
+            diag_enabled=diag_mode,
+        )
         controller._shadow_mode = shadow_mode
         player = Player(pid, ai_name, controller=controller)
         game_state.add_player(player)
@@ -533,7 +538,8 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
         try:
             result = run_single_game(num_players, rl_controller, rl_talent_mode,
                                      new_arch_enabled=new_arch_enabled,
-                                     shadow_mode=shadow_mode)
+                                     shadow_mode=shadow_mode,
+                                     diag_mode=diag_mode)
         except Exception:
             errors += 1
             continue

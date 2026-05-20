@@ -124,6 +124,8 @@ class DiagReport:
         self._games: List[Dict[str, Any]] = []
         self._forfeit_all: List[Dict[str, Any]] = []
         self._fallback_all: List[Dict[str, Any]] = []
+        self._candidate_attempts_all: List[Dict[str, Any]] = []
+        self._round_snapshots_by_game: List[Dict[str, Any]] = []
         self._draw_details: List[Dict[str, Any]] = []
         self._reject_reason_counter: Counter = Counter()
 
@@ -149,6 +151,17 @@ class DiagReport:
                     evt_copy = dict(evt)
                     evt_copy["game_idx"] = game_idx
                     self._fallback_all.append(evt_copy)
+                for att in pdata.get("candidate_attempts", []):
+                    att_copy = dict(att)
+                    att_copy["game_idx"] = game_idx
+                    att_copy["pid"] = pid
+                    self._candidate_attempts_all.append(att_copy)
+                if is_draw and pdata.get("round_snapshots"):
+                    self._round_snapshots_by_game.append({
+                        "game_idx": game_idx,
+                        "pid": pid,
+                        "snapshots": pdata.get("round_snapshots", []),
+                    })
                 reason_counts = pdata.get("reject_reason_counts", {})
                 for reason, cnt in reason_counts.items():
                     self._reject_reason_counter[reason] += cnt
@@ -301,6 +314,8 @@ class DiagReport:
                 "total_games": len(self._games),
                 "forfeit_events": self._forfeit_all,
                 "fallback_events": self._fallback_all,
+                "candidate_attempts": self._candidate_attempts_all,
+                "round_snapshots": self._round_snapshots_by_game,
                 "draw_details": self._draw_details,
                 "reject_reason_counts": dict(self._reject_reason_counter),
             }
