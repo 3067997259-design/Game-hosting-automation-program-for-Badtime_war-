@@ -47,6 +47,14 @@ class RoundManager:
         self._phase_r3()
         self._phase_r4()
 
+        # 诊断：通知所有 controller 记录轮次快照
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and hasattr(p.controller, '_diag') and p.controller._diag:
+                p.controller._diag.record_round_snapshot(
+                    self.state.current_round, self.state
+                )
+
     # ============================================
     # R0: 轮次开始结算
     # ============================================

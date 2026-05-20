@@ -395,12 +395,26 @@ class ActionTurnManager:
             parsed = parse(raw, player.player_id)
             if parsed is None:
                 display.show_info(f"⚠️ 无法解析指令: {raw}")
+                if hasattr(player.controller, '_diag') and player.controller._diag:
+                    player.controller._diag.record_candidate_attempt(
+                        round_num=self.state.current_round,
+                        attempt=attempts, cmd=raw,
+                        parse_ok=False, valid=False, reason="parse_failed",
+                        executed=False,
+                    )
                 continue
 
             # 校验
             valid, reason = validate(parsed, player, self.state)
             if not valid:
                 display.show_info(f"⚠️ 指令不合法: {reason}")
+                if hasattr(player.controller, '_diag') and player.controller._diag:
+                    player.controller._diag.record_candidate_attempt(
+                        round_num=self.state.current_round,
+                        attempt=attempts, cmd=raw,
+                        parse_ok=True, valid=False, reason=reason,
+                        executed=False,
+                    )
                 continue
 
             # 执行
@@ -425,12 +439,33 @@ class ActionTurnManager:
                     action_options = {}
                 display.show_available_actions(action_display)
                 continue
+            # 记录 fallback 事件（第 1 条被拒但后续成功）
+            if (attempts > 1 and action_type != "forfeit"
+                    and hasattr(player.controller, '_diag') and player.controller._diag):
+                player.controller._diag.fallback_events.append({
+                    "round": self.state.current_round,
+                    "player_name": player.name,
+                    "talent": getattr(getattr(player, 'talent', None), 'name', ''),
+                    "final_cmd": raw,
+                    "attempt_count": attempts,
+                })
             from utils.pacing import action_pause
             action_pause(self.state, label=f"{player.name} → {action_type}")
             return action_type
 
         # 重试耗尽 → 强制 forfeit
         display.show_info(f"[{player.name}] 重试次数耗尽，自动放弃行动。")
+        if hasattr(player.controller, '_diag') and player.controller._diag:
+            player.controller._diag.record_forfeit(
+                round_num=self.state.current_round,
+                player_name=player.name,
+                talent=getattr(getattr(player, 'talent', None), 'name', ''),
+                personality=getattr(player.controller, 'personality', ''),
+                reason="retry_exhausted",
+                candidates=[],
+                available_actions=list(action_names),
+                reject_reasons=[],
+            )
         msg = forfeit.execute(player, self.state)
         display.show_result(msg)
         return "forfeit"
@@ -587,6 +622,13 @@ class ActionTurnManager:
             parsed = parse(raw, player.player_id)
             if parsed is None:
                 display.show_info(f"⚠️ 无法解析指令: {raw}")
+                if hasattr(player.controller, '_diag') and player.controller._diag:
+                    player.controller._diag.record_candidate_attempt(
+                        round_num=self.state.current_round,
+                        attempt=attempts, cmd=raw,
+                        parse_ok=False, valid=False, reason="parse_failed",
+                        executed=False,
+                    )
                 continue
 
             action = parsed.get("action")
@@ -631,12 +673,33 @@ class ActionTurnManager:
                 # 校验/执行失败，重试
                 continue
 
+            # 记录 fallback 事件（插入式笑话）
+            if (attempts > 1 and result != "forfeit"
+                    and hasattr(player.controller, '_diag') and player.controller._diag):
+                player.controller._diag.fallback_events.append({
+                    "round": self.state.current_round,
+                    "player_name": player.name,
+                    "talent": getattr(getattr(player, 'talent', None), 'name', ''),
+                    "final_cmd": raw,
+                    "attempt_count": attempts,
+                })
             from utils.pacing import action_pause
             action_pause(self.state, label=f"{player.name} → {result} (插入式笑话)")
             return result
 
         # 重试耗尽
         display.show_info(f"[{player.name}] 插入式笑话重试耗尽，自动放弃。")
+        if hasattr(player.controller, '_diag') and player.controller._diag:
+            player.controller._diag.record_forfeit(
+                round_num=self.state.current_round,
+                player_name=player.name,
+                talent=getattr(getattr(player, 'talent', None), 'name', ''),
+                personality=getattr(player.controller, 'personality', ''),
+                reason="retry_exhausted",
+                candidates=[],
+                available_actions=list(action_names),
+                reject_reasons=[],
+            )
         from actions import forfeit as forfeit_mod
         msg = forfeit_mod.execute(player, self.state)
         display.show_result(msg)
