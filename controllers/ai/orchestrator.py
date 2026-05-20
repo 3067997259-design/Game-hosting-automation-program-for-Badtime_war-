@@ -286,6 +286,8 @@ class DecisionOrchestrator:
         s.llm_aggression_mod = getattr(self._ctrl, '_llm_aggression_mod', s.llm_aggression_mod)
         s.llm_alliance = set(getattr(self._ctrl, '_llm_alliance', s.llm_alliance))
         s.terror_defense = getattr(self._ctrl, '_terror_defense', s.terror_defense)
+        s.been_attacked_by.update(getattr(self._ctrl, '_been_attacked_by', set()))
+        s.players_who_attacked.update(getattr(self._ctrl, '_players_who_attacked', set()))
         s.police_cache = self._query.read_police_state(state, player.player_id)
         s.political_fallback_level = (
             self._query.political_should_fallback(player, state)
