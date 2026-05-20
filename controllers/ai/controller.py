@@ -397,6 +397,8 @@ class BasicAIController(
                 )
                 if hasattr(self, '_ai_state'):
                     self._threat_scores = self._ai_state.threat_scores
+                    self._been_attacked_by = self._ai_state.been_attacked_by
+                    self._players_who_attacked = self._ai_state.players_who_attacked
                     self._in_combat = self._ai_state.in_combat
                     self._combat_target = self._ai_state.combat_target
                     self._danger_mode = self._ai_state.danger_mode
