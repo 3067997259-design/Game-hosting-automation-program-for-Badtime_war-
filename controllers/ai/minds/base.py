@@ -58,6 +58,9 @@ class BaseMind(ABC):
 
     def __init__(self, debug_name: str = "AI", query: Any = None):
         self._debug_name = debug_name
+        if query is None:
+            from controllers.ai.game_query import GameQuery
+            query = GameQuery()
         self._query = query
 
     @abstractmethod

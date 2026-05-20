@@ -54,9 +54,12 @@ class GameQuery:
     @staticmethod
     def firefly_debuff_active(player) -> bool:
         talent = getattr(player, 'talent', None)
-        if talent and hasattr(talent, 'debuff_started'):
-            return talent.debuff_started
-        return False
+        if not talent or getattr(talent, 'name', '') != "火萤IV型-完全燃烧":
+            return False
+        return bool(
+            getattr(talent, 'debuff_active', False)
+            or getattr(talent, 'debuff_started', False)
+        )
 
     @staticmethod
     def is_in_savior_state(player) -> bool:
@@ -216,6 +219,9 @@ class GameQuery:
         from models.equipment import WeaponRange
         if not weapon:
             return "melee"
+        legacy_range = getattr(weapon, 'range', None)
+        if legacy_range in ("melee", "ranged", "area"):
+            return legacy_range
         wr = getattr(weapon, 'weapon_range', None)
         if wr == WeaponRange.MELEE:
             return "melee"
@@ -349,9 +355,12 @@ class GameQuery:
     def has_stealth(player) -> bool:
         if getattr(player, 'is_invisible', False):
             return True
+        for weapon in getattr(player, 'weapons', []):
+            if weapon and getattr(weapon, 'name', '') == "隐形涂层":
+                return True
         items = getattr(player, 'items', [])
         for item in items:
-            name = getattr(item, 'name', '')
+            name = getattr(item, 'name', item if isinstance(item, str) else '')
             if name in ("隐身衣", "隐形涂层"):
                 return True
         learned = getattr(player, 'learned_spells', set())
@@ -363,12 +372,20 @@ class GameQuery:
     def has_virus_immunity(player) -> bool:
         items = getattr(player, 'items', [])
         for item in items:
-            name = getattr(item, 'name', '')
-            if name == "防毒面具":
+            name = getattr(item, 'name', item if isinstance(item, str) else '')
+            if "防毒面具" in (name or ""):
                 return True
         talent = getattr(player, 'talent', None)
-        if talent and getattr(talent, 'is_terror', False):
-            return True
+        if talent:
+            if getattr(talent, 'virus_immune', False):
+                return True
+            if getattr(talent, 'is_terror', False):
+                return True
+            name = getattr(talent, 'name', '')
+            if name == "你们，由我守护":
+                return True
+            if name == "愿负世，照拂黎明" and getattr(talent, 'is_savior', False):
+                return True
         learned = getattr(player, 'learned_spells', set())
         if "封闭" in learned:
             return True
@@ -400,6 +417,17 @@ class GameQuery:
         loc = GameQuery.get_location_str(player)
         pid = getattr(player, 'player_id', '')
         return loc == "home" or loc == f"home_{pid}" or "家" in loc
+
+    @staticmethod
+    def is_home_location(loc: str) -> bool:
+        """检查是否在任何形式的家位置（home / home_p1 / 某某的家）"""
+        loc = loc or ""
+        return loc == "home" or loc.startswith("home_") or "家" in loc
+
+    @staticmethod
+    def normalize_location(loc: str) -> str:
+        """将 home_* 变体标准化为 'home'。"""
+        return "home" if GameQuery.is_home_location(loc or "") else loc
 
     @staticmethod
     def same_location(player1, player2) -> bool:
@@ -434,9 +462,36 @@ class GameQuery:
         return count
 
     @staticmethod
-    def find_nearest_enemy_location(player, state, threat_scores: Dict[str, float],
+    def get_alive_enemy_ids(state, my_id) -> List[str]:
+        """存活敌人 ID 列表。"""
+        enemies = []
+        for pid in state.player_order:
+            if pid == my_id:
+                continue
+            p = state.get_player(pid)
+            if p and p.is_alive():
+                enemies.append(p.player_id)
+        return enemies
+
+    @staticmethod
+    def count_players_at(location: str, state, my_id) -> int:
+        """指定地点其他存活玩家数。"""
+        count = 0
+        for pid in state.player_order:
+            if pid == my_id:
+                continue
+            p = state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            if GameQuery.get_location_str(p) == location:
+                count += 1
+        return count
+
+    @staticmethod
+    def find_nearest_enemy_location(player, state, threat_scores: Optional[Dict[str, float]] = None,
                                     personality: str = "balanced",
                                     players_who_attacked: Optional[Set[str]] = None) -> Optional[str]:
+        threat_scores = threat_scores or {}
         players_who_attacked = players_who_attacked or set()
         max_power = max(
             (GameQuery.estimate_power(state.get_player(other_pid))
@@ -555,6 +610,42 @@ class GameQuery:
         return best
 
     @staticmethod
+    def best_weapon_damage_raw(player) -> float:
+        """最强武器的原始伤害（不含天赋加成，含已学法术临时武器）。"""
+        best = 0.0
+        for weapon in getattr(player, 'weapons', []):
+            if not weapon:
+                continue
+            dmg = getattr(weapon, 'base_damage', 0)
+            if isinstance(dmg, (int, float)) and dmg > best:
+                best = float(dmg)
+        for spell in getattr(player, 'learned_spells', set()):
+            from models.equipment import make_weapon
+            temp_w = make_weapon(spell)
+            if not temp_w:
+                continue
+            dmg = getattr(temp_w, 'base_damage', 0)
+            if isinstance(dmg, (int, float)) and dmg > best:
+                best = float(dmg)
+        return best
+
+    @staticmethod
+    def has_real_weapon(player) -> bool:
+        """是否有非拳击武器。"""
+        return any(
+            weapon and getattr(weapon, 'name', '') != "拳击"
+            for weapon in getattr(player, 'weapons', [])
+        )
+
+    @staticmethod
+    def count_real_weapons(player) -> int:
+        """非拳击武器数量。"""
+        return sum(
+            1 for weapon in getattr(player, 'weapons', [])
+            if weapon and getattr(weapon, 'name', '') != "拳击"
+        )
+
+    @staticmethod
     def estimate_power(player) -> float:
         power = 0.0
         power += GameQuery.get_effective_hp(player) * 10
@@ -581,13 +672,26 @@ class GameQuery:
     # ════════════════════════════════════════════════════════
 
     @staticmethod
-    def is_critical(player, state, police_cache: Optional[Dict] = None) -> bool:
+    def is_critical(
+        player, state,
+        police_cache: Optional[Dict] = None,
+        strategy: Optional[Any] = None,
+    ) -> bool:
         if GameQuery.has_firefly_talent(player):
             return GameQuery.is_critical_firefly(player, state, police_cache)
         if GameQuery.has_hoshino_talent(player):
             return GameQuery.is_critical_hoshino(player, state, police_cache)
-        if getattr(player, 'is_captain', False):
-            pass  # Strategy 层的 assess_captain_danger 需要由调用方处理
+        if (
+            getattr(player, 'is_captain', False)
+            and strategy
+            and hasattr(strategy, 'assess_captain_danger')
+        ):
+            if strategy.assess_captain_danger(
+                player, state,
+                police_cache=police_cache or {},
+                count_outer_armor_fn=GameQuery.count_outer_armor,
+            ):
+                return True
         if player.hp <= 0.5:
             return True
         if player.hp <= 1.0 and GameQuery.count_outer_armor(player) == 0:
@@ -721,13 +825,45 @@ class GameQuery:
                     return False
         return True
 
+    @staticmethod
+    def can_attack_target(player, target, state) -> bool:
+        """检查是否能攻击目标（同地点或有远程/范围武器）。"""
+        if GameQuery.same_location(player, target):
+            return True
+        for weapon in getattr(player, 'weapons', []):
+            if weapon and GameQuery.get_weapon_range(weapon) in ("ranged", "area"):
+                return True
+        return False
+
     # ════════════════════════════════════════════════════════
     #  战斗查询（从 combat_mixin 复制）
     # ════════════════════════════════════════════════════════
 
     @staticmethod
+    def is_passive_player(target, state) -> bool:
+        """无战斗关系的被动玩家。"""
+        markers = getattr(state, 'markers', None)
+        if not markers:
+            return True
+        tid = getattr(target, 'player_id', None)
+        if not tid:
+            return True
+        engaged = markers.get_related(tid, "ENGAGED_WITH")
+        if engaged:
+            return False
+        for pid in getattr(state, 'player_order', []):
+            if pid == tid:
+                continue
+            if markers.has_relation(pid, "LOCKED_BY", tid):
+                return False
+        return True
+
+    @staticmethod
     def all_weapons_countered(player, target) -> bool:
-        weapons = getattr(player, 'weapons', [])
+        weapons = [
+            weapon for weapon in getattr(player, 'weapons', [])
+            if weapon and not getattr(weapon, '_hexagram_disabled', False)
+        ]
         if not weapons:
             return True
         target_outer = GameQuery.get_outer_armor_attr(target)
@@ -736,13 +872,74 @@ class GameQuery:
         if not target_attrs:
             return False
         for w in weapons:
-            if not w:
-                continue
             w_attr = GameQuery.get_weapon_attr(w)
             effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
             if any(a in effective_set for a in target_attrs):
                 return False
         return True
+
+    @staticmethod
+    def is_at_disadvantage(player, target) -> bool:
+        return GameQuery.estimate_power(player) < GameQuery.estimate_power(target) * 0.7
+
+    @staticmethod
+    def should_continue_combat(
+        player, target, state, strategy=None,
+        personality: str = "balanced",
+        political_fallback_level: str = "none",
+    ) -> bool:
+        if not target or not target.is_alive():
+            return False
+        if GameQuery.has_firefly_talent(player):
+            return not GameQuery.all_weapons_countered(player, target)
+        total_armor = GameQuery.count_outer_armor(player) + GameQuery.count_inner_armor(player)
+        if GameQuery.has_hoshino_talent(player):
+            talent = getattr(player, 'talent', None)
+            if getattr(talent, 'iron_horus_hp', 0) > 0:
+                total_armor += 2
+        if total_armor == 0 and GameQuery.get_effective_hp(player) <= 1.0:
+            return False
+        disadvantage = GameQuery.is_at_disadvantage(player, target)
+        if strategy and hasattr(strategy, 'should_continue_combat'):
+            try:
+                result = strategy.should_continue_combat(
+                    player, target, is_at_disadvantage=disadvantage)
+                if result is not None:
+                    return result
+            except Exception:
+                pass
+        if disadvantage and personality == "defensive":
+            return False
+        if state and GameQuery.firefly_supernova_threat(player, state):
+            if len(GameQuery.get_same_location_targets(player, state)) >= 2:
+                return False
+        if GameQuery.all_weapons_countered(player, target):
+            return False
+        if (personality == "political"
+                and political_fallback_level != "full_balanced"
+                and not getattr(player, 'is_captain', False)):
+            return False
+        return True
+
+    @staticmethod
+    def is_danger_resolved(
+        player, state,
+        police_cache: Optional[Dict] = None,
+        strategy: Optional[Any] = None,
+    ) -> bool:
+        """判断危险状态是否已解除。"""
+        if GameQuery.is_critical(player, state, police_cache, strategy):
+            return False
+        if GameQuery.has_firefly_talent(player) and GameQuery.firefly_debuff_active(player):
+            return True
+        if GameQuery.has_hoshino_talent(player):
+            talent = getattr(player, 'talent', None)
+            if getattr(talent, 'iron_horus_hp', 0) > 0:
+                return True
+            if getattr(talent, 'tactical_unlocked', False):
+                return True
+        total_armor = GameQuery.count_outer_armor(player) + GameQuery.count_inner_armor(player)
+        return total_armor >= 2
 
     # ════════════════════════════════════════════════════════
     #  警察状态读取（从 police_mixin 复制，返回 dict 不写 self）
@@ -841,3 +1038,63 @@ class GameQuery:
                 if pe.is_protected_by_police(pid):
                     protected.add(pid)
         return protected
+
+    @staticmethod
+    def get_all_protected_armor_attrs(state, player_id) -> set:
+        """收集所有警察保护目标的护甲属性。"""
+        attrs: set = set()
+        pe = getattr(state, 'police_engine', None)
+        if not pe:
+            return attrs
+        for pid in state.player_order:
+            if pid == player_id:
+                continue
+            target = state.get_player(pid)
+            if not target or not target.is_alive() or not pe.is_protected_by_police(pid):
+                continue
+            outer = GameQuery.get_outer_armor_attr(target)
+            if outer:
+                attrs.update(outer)
+            else:
+                attrs.update(GameQuery.get_inner_armor_attr(target))
+        return attrs
+
+    @staticmethod
+    def can_reach_target_in_barrier(player, state, target) -> bool:
+        """结界内只能接触同一结界内目标；非结界状态默认可接触。"""
+        barrier = getattr(state, 'active_barrier', None)
+        if not barrier:
+            return True
+        if hasattr(barrier, 'is_in_barrier'):
+            in_barrier = barrier.is_in_barrier(player.player_id)
+        else:
+            in_barrier = player.player_id in getattr(barrier, 'barrier_players', [])
+        if not in_barrier:
+            return True
+        if hasattr(barrier, 'barrier_players'):
+            return target.player_id in barrier.barrier_players
+        return False
+
+    @staticmethod
+    def political_should_fallback(player, state) -> str:
+        """Political 人格在警察路线不可用时的降级级别。"""
+        police = getattr(state, 'police', None)
+        if not police:
+            return "full_balanced"
+        if getattr(police, 'permanently_disabled', False):
+            return "full_balanced"
+        if getattr(police, 'captain_id', None) == player.player_id:
+            return "none"
+        if police.has_captain():
+            return "full_balanced"
+        is_criminal = getattr(player, 'is_criminal', False)
+        if not is_criminal and hasattr(police, 'is_criminal'):
+            is_criminal = police.is_criminal(player.player_id)
+        if is_criminal:
+            return "develop_only"
+        pe = getattr(state, 'police_engine', None)
+        if pe:
+            existing = pe.get_current_police_member_id()
+            if existing is not None and existing != player.player_id:
+                return "full_balanced"
+        return "none"

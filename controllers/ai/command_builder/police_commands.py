@@ -33,7 +33,6 @@ class PoliceCommandBuilder:
         strategy: Any,
         available: List[str],
         ctx: "OrchestratorContext",
-        controller_ref: Any = None,
     ) -> List[str]:
         """队长指挥命令（复制自 PoliceMixin._cmd_captain）。"""
         Q = self._query
@@ -58,20 +57,23 @@ class PoliceCommandBuilder:
                 return ["study"]
 
         # 初始化发育计划
-        assignments = self._get_assignments(controller_ref)
+        assignments = self._get_assignments(ctx)
         criminal_target = self._find_criminal_target(player, state, ctx)
         if criminal_target:
             new_target_id = criminal_target.player_id
-            if controller_ref:
-                if (hasattr(controller_ref, '_last_criminal_target_id')
-                        and controller_ref._last_criminal_target_id != new_target_id):
-                    controller_ref._police_dev_initialized = False
-                controller_ref._last_criminal_target_id = new_target_id
-        if controller_ref and not getattr(controller_ref, '_police_dev_initialized', False):
-            self._init_police_dev_plan(alive_units, player, state, controller_ref)
-            controller_ref._police_dev_initialized = True
+            if ctx.ai_state and ctx.last_criminal_target_id != new_target_id:
+                ctx.ai_state.police_dev_initialized = False
+                ctx.police_dev_initialized = False
+            if ctx.ai_state:
+                ctx.ai_state.last_criminal_target_id = new_target_id
+            ctx.last_criminal_target_id = new_target_id
+        if not ctx.police_dev_initialized:
+            self._init_police_dev_plan(alive_units, player, state, ctx)
+            if ctx.ai_state:
+                ctx.ai_state.police_dev_initialized = True
+            ctx.police_dev_initialized = True
 
-        personality = getattr(controller_ref, 'personality', 'balanced') if controller_ref else 'balanced'
+        personality = ctx.personality
 
         # political 优先唤醒
         if personality == "political" and disabled_units:
@@ -82,11 +84,11 @@ class PoliceCommandBuilder:
         # 攻击犯罪目标
         if criminal_target:
             attack_cmd = self._police_attack_criminal(
-                criminal_target, active_units, state, ctx, controller_ref)
+                criminal_target, active_units, state, ctx)
             if attack_cmd:
                 return [attack_cmd]
         # 重置 combat phase
-        assignments = self._get_assignments(controller_ref)
+        assignments = self._get_assignments(ctx)
         for _uid, _assign in assignments.items():
             if _assign.get("phase") == "combat":
                 _assign["phase"] = "stationed"
@@ -98,12 +100,12 @@ class PoliceCommandBuilder:
                 return [wake_cmd]
 
         # 发育
-        dev_cmd = self._police_develop_step(active_units, controller_ref)
+        dev_cmd = self._police_develop_step(active_units, ctx)
         if dev_cmd:
             return [dev_cmd]
 
         # 部署
-        deploy_cmd = self._police_deploy_step(alive_units, controller_ref)
+        deploy_cmd = self._police_deploy_step(alive_units, ctx)
         if deploy_cmd:
             return [deploy_cmd]
 
@@ -120,11 +122,10 @@ class PoliceCommandBuilder:
         strategy: Any,
         available: List[str],
         ctx: "OrchestratorContext",
-        controller_ref: Any = None,
     ) -> List[str]:
         """政治行动命令（复制自 PoliceMixin._cmd_police_political）。"""
         Q = self._query
-        fallback = getattr(controller_ref, '_political_fallback_level', 'none') if controller_ref else 'none'
+        fallback = ctx.political_fallback_level
         if fallback in ("full_balanced", "develop_only"):
             return []
         commands: List[str] = []
@@ -334,10 +335,8 @@ class PoliceCommandBuilder:
     # ════════════════════════════════════════════════════════
 
     @staticmethod
-    def _get_assignments(controller_ref) -> Dict:
-        if controller_ref and hasattr(controller_ref, '_police_dev_assignments'):
-            return controller_ref._police_dev_assignments
-        return {}
+    def _get_assignments(ctx) -> Dict:
+        return getattr(ctx, 'police_dev_assignments', {}) or {}
 
     def _find_criminal_target(self, player, state, ctx):
         """找到最高威胁的犯罪目标。"""
@@ -366,14 +365,13 @@ class PoliceCommandBuilder:
                         best = p
         return best
 
-    def _init_police_dev_plan(self, alive_units, player, state, controller_ref):
+    def _init_police_dev_plan(self, alive_units, player, state, ctx):
         """初始化警察发育计划。"""
         Q = self._query
         sorted_units = sorted(alive_units, key=lambda u: u["id"])
         criminal_target = self._find_criminal_target(
             player, state,
-            type('_Ctx', (), {'police_cache': getattr(controller_ref, '_police_cache', {}),
-                              'threat_scores': getattr(controller_ref, '_threat_scores', {})})())
+            ctx)
         target_armor_attrs: set = set()
         if criminal_target:
             outer = Q.get_outer_armor_attr(criminal_target)
@@ -434,11 +432,11 @@ class PoliceCommandBuilder:
                 "dest": None, "target_weapon": None,
                 "target_armor": None, "station": "魔法所", "phase": "stationed_default",
             }
-        controller_ref._police_dev_assignments = assignments
+        ctx.police_dev_assignments.clear(); ctx.police_dev_assignments.update(assignments)
 
-    def _police_develop_step(self, active_units, controller_ref) -> Optional[str]:
+    def _police_develop_step(self, active_units, ctx) -> Optional[str]:
         """执行一步警察发育。"""
-        assignments = self._get_assignments(controller_ref)
+        assignments = self._get_assignments(ctx)
         for unit in active_units:
             uid = unit["id"]
             assignment = assignments.get(uid)
@@ -481,9 +479,9 @@ class PoliceCommandBuilder:
                     assignment["phase"] = "ready_to_deploy"
         return None
 
-    def _police_deploy_step(self, alive_units, controller_ref) -> Optional[str]:
+    def _police_deploy_step(self, alive_units, ctx) -> Optional[str]:
         """部署警察到驻扎位置。"""
-        assignments = self._get_assignments(controller_ref)
+        assignments = self._get_assignments(ctx)
         for unit in alive_units:
             uid = unit["id"]
             assignment = assignments.get(uid)
@@ -520,7 +518,7 @@ class PoliceCommandBuilder:
             return f"police wake {uid}"
         return None
 
-    def _police_attack_criminal(self, target, active_units, state, ctx, controller_ref):
+    def _police_attack_criminal(self, target, active_units, state, ctx):
         """选择武器属性能有效打击目标的警察单位进行攻击。"""
         Q = self._query
         from utils.attribute import Attribute
@@ -560,7 +558,7 @@ class PoliceCommandBuilder:
         unit_loc = self._get_police_unit_location_from_state(state, uid)
         if unit_loc is None:
             unit_loc = best_unit.get("location")
-        assignments = self._get_assignments(controller_ref)
+        assignments = self._get_assignments(ctx)
         if unit_loc != target_loc:
             if uid in assignments:
                 assignments[uid]["phase"] = "combat"

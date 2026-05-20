@@ -118,7 +118,7 @@ class PoliceMind(BaseMind):
         # ── 对目标的保护程度 ──
         pe = getattr(state, 'police_engine', None)
         if pe:
-            alive_enemies = self._get_alive_enemy_ids(state, self._player_id(player))
+            alive_enemies = self._query.get_alive_enemy_ids(state, self._player_id(player))
             protected = [
                 eid for eid in alive_enemies
                 if pe.is_protected_by_police(eid)
@@ -317,8 +317,8 @@ class PoliceMind(BaseMind):
                 commands.append("move 军事基地")
         else:
             # 魔法AOE也可行 → 选人少的地点
-            enemies_magic = self._count_players_at("魔法所", state, player)
-            enemies_military = self._count_players_at("军事基地", state, player)
+            enemies_magic = self._query.count_players_at("魔法所", state, self._player_id(player))
+            enemies_military = self._query.count_players_at("军事基地", state, self._player_id(player))
 
             if enemies_magic <= enemies_military:
                 # 去魔法所
@@ -454,34 +454,6 @@ class PoliceMind(BaseMind):
         for unit in police_cache.get("units", []):
             if (unit.get("is_active") and unit.get("is_alive")
                     and unit.get("location") == location):
-                count += 1
-        return count
-
-    @staticmethod
-    def _get_alive_enemy_ids(state: Any, my_id: Optional[str]) -> List[str]:
-        enemies = []
-        for pid in state.player_order:
-            if pid == my_id:
-                continue
-            p = state.get_player(pid)
-            if p and p.is_alive():
-                enemies.append(p.player_id)
-        return enemies
-
-    @staticmethod
-    def _count_players_at(location: str, state: Any, self_player: Any) -> int:
-        """计算指定地点有多少个其他存活玩家"""
-        count = 0
-        my_id = getattr(self_player, 'player_id', None)
-        for pid in state.player_order:
-            if pid == my_id:
-                continue
-            p = state.get_player(pid)
-            if not p or not p.is_alive():
-                continue
-            p_loc = getattr(p, 'location', None)
-            p_loc_str = str(p_loc) if p_loc else ""
-            if p_loc_str == location:
                 count += 1
         return count
 

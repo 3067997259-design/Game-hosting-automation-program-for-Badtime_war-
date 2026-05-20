@@ -110,10 +110,6 @@ class ThreatEvaluationTest(unittest.TestCase):
             state,
             strategy,
             polices_cache=police_cache or {},
-            count_outer_armor_fn=lambda _: 0,
-            count_inner_armor_fn=lambda _: 0,
-            count_locked_by_fn=_count_locked_by,
-            is_anchored_fn=_is_anchored,
         )
 
         return result, strategy.called
@@ -187,7 +183,7 @@ class ThreatEvaluationTest(unittest.TestCase):
 
     def test_llm_aggression_is_not_added_uniformly_to_threat_mind_scores(self):
         mind = ThreatMind()
-        mind._estimate_power = MethodType(lambda self, target: 100.0, mind)
+        mind._query.estimate_power = lambda target: 100.0
 
         observer = _player("Observer", "p1")
         enemy_a = _player("EnemyA", "p2")

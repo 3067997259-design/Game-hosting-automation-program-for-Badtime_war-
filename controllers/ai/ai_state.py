@@ -24,6 +24,13 @@ class AIState:
     last_action: Optional[str] = None
     last_commands: List[str] = field(default_factory=list)
     police_cache: Optional[Dict] = None
+    llm_aggression_mod: float = 0.0
+    llm_alliance: Set[str] = field(default_factory=set)
+    terror_defense: Any = None
+    political_fallback_level: str = "none"
+    police_dev_assignments: Dict = field(default_factory=dict)
+    police_dev_initialized: bool = False
+    last_criminal_target_id: Optional[str] = None
     virus_active: bool = False
     virus_location: Optional[str] = None
     star_follow_up_rounds: int = 0
