@@ -706,6 +706,7 @@ class DecisionOrchestrator:
                         has_any_aoe = PM.has_any_aoe(player)
                         if has_any_aoe:
                             self._dbg(2, "RESIST: 已有AOE，反击警察")
+                            ctx = self._build_ctx(state)
                             fight_cmds = self._police_cmd.build_fight_police(
                                 player, state, self._strategy, available, ctx)
                             if fight_cmds:
