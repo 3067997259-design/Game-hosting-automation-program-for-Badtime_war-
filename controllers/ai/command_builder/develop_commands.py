@@ -44,8 +44,6 @@ class DevelopCommandBuilder:
         personality = getattr(ctx, 'personality', None) or getattr(
             strategy, 'personality_name', 'balanced')
         develop_data = getattr(develop_assessment, 'data', {}) if develop_assessment else {}
-        if develop_data.get("development_complete"):
-            return []
 
         # 磨刀优先
         sharpen = self._build_sharpen_command(player, available)

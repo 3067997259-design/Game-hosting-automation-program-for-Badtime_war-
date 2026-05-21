@@ -252,6 +252,9 @@ class BasicAIController(
 
         所有可变集合都会做浅拷贝/转列表，确保外部修改不会影响内部状态。
         """
+        if self._uses_new_arch_events():
+            self._expose_ai_state_for_legacy_views()
+
         combat_target_name = None
         if self._combat_target is not None:
             combat_target_name = getattr(self._combat_target, "name", None)
