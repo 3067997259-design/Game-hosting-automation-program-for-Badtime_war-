@@ -206,8 +206,11 @@ class BasicAIController(
         #  - _llm_alliance: LLM认为的盟友集合 → _pick_target 降低对其的攻击优先级
         #  - _llm_aggression_mod: LLM调整的攻击倾向 [-20, +20] → 影响目标选择评分
         # ════════════════════════════════════════════════════
-        self._llm_alliance: set = set()
-        self._llm_aggression_mod: float = 0.0
+        self._llm_alliance_local: set = set()
+        self._llm_aggression_mod_local: float = 0.0
+        if hasattr(self, '_ai_state'):
+            self._ai_state.llm_alliance = self._llm_alliance_local
+            self._ai_state.llm_aggression_mod = self._llm_aggression_mod_local
 
 
     @property
