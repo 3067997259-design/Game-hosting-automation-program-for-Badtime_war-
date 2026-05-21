@@ -50,6 +50,8 @@ class AggressiveStrategy(BasePersonalityStrategy):
         return base_score
 
     def get_combat_response_preference(self, options: List[str]) -> str:
+        if "block" in options:
+            return "block"
         if "counter" in options:
             return "counter"
         return ""
