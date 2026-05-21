@@ -71,7 +71,7 @@ class PoliceCommandBuilder:
         personality = getattr(ctx, 'personality', 'balanced')
 
         # political 优先唤醒
-        if personality == "political" and disabled_units:
+        if disabled_units and strategy and strategy.should_prioritize_police_wake():
             wake_cmd = self._police_wake_step(disabled_units, state)
             if wake_cmd:
                 return [wake_cmd]

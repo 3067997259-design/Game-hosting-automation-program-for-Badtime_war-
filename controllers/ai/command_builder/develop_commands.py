@@ -112,7 +112,7 @@ class DevelopCommandBuilder:
 
         # 发育受阻：攻击型人格可转进攻；否则移动到安全兜底地点。
         if not commands:
-            if personality in ("aggressive", "assassin", "balanced"):
+            if strategy and strategy.should_attack_when_develop_blocked():
                 combat_data = getattr(combat_assessment, 'data', {}) if combat_assessment else {}
                 target = combat_data.get("best_target") if combat_data.get("combat_ready") else None
                 if target and combat_builder is not None:
@@ -128,21 +128,6 @@ class DevelopCommandBuilder:
                 if Q.normalize_location(fallback) != Q.normalize_location(loc):
                     commands.append(f"move {fallback}")
 
-        return commands
-
-    # ════════════════════════════════════════════════════════
-    #  唤醒
-    # ════════════════════════════════════════════════════════
-
-    def build_wake(
-        self, player: Any, state: Any,
-        strategy: Any, available: List[str],
-        ctx: "OrchestratorContext",
-    ) -> List[str]:
-        """唤醒命令（简单 wrapper）。"""
-        commands: List[str] = []
-        if "special" in available:
-            commands.append("special 唤醒")
         return commands
 
     #  危险发育
@@ -304,7 +289,7 @@ class DevelopCommandBuilder:
     ) -> Optional[str]:
         """发育受阻时，在能满足需求的地点中选敌人最少的。"""
         Q = self._query
-        unmet_needs = self._get_unmet_needs(player, state, personality, ctx)
+        unmet_needs = self._get_unmet_needs(player, state, personality, ctx, strategy)
         if not unmet_needs:
             return Q.find_nearest_enemy_location(
                 player, state, ctx.threat_scores, personality,
@@ -354,7 +339,7 @@ class DevelopCommandBuilder:
         )
         return ["special 磨刀"] if has_stone and has_unsharpened else []
 
-    def _get_unmet_needs(self, player, state, personality, ctx=None) -> list:
+    def _get_unmet_needs(self, player, state, personality, ctx=None, strategy=None) -> list:
         """返回当前未满足的需求列表。"""
         Q = self._query
         effective_personality = personality
@@ -386,7 +371,7 @@ class DevelopCommandBuilder:
                 unmet.append(("stealth", 3))
             elif need == "second_weapon" and len(weapons) < 2:
                 unmet.append(("second_weapon", 3))
-        if personality == "builder":
+        if strategy and "military_pass" in strategy.get_development_needs_order():
             has_pass = getattr(player, 'has_military_pass', False)
             if not has_pass:
                 unmet.append(("military_pass", 4))

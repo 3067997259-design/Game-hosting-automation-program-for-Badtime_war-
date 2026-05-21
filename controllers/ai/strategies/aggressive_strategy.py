@@ -58,13 +58,3 @@ class AggressiveStrategy(BasePersonalityStrategy):
     def get_police_build_priority(self) -> List[str]:
         return ["警棍", "盾牌", "购买凭证"]
 
-    # ── 天赋偏好 ──
-    def get_hoshino_form_preference(self) -> str:
-        return "临战-Archer"
-
-    def get_anchor_fail_preference(self) -> str:
-        return "留在当下"
-
-    # ── 特殊 ──
-    def should_agree_military_pass(self) -> bool:
-        return True  # 激进型需要科技武器

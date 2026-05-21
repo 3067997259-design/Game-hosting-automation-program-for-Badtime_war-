@@ -67,9 +67,3 @@ class AssassinStrategy(BasePersonalityStrategy):
             return "dodge"
         return options[0] if options else ""
 
-    # ── 特殊：买隐身 + 放毒 ──
-    def should_buy_stealth_items(self) -> bool:
-        return True
-
-    def should_release_virus(self) -> bool:
-        return True  # 前置条件由 _should_release_virus 单独检查

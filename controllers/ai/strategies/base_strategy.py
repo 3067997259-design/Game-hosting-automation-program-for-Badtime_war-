@@ -87,41 +87,21 @@ class BasePersonalityStrategy:
         """加入警察时的装备选择优先级。"""
         return ["盾牌", "购买凭证", "警棍"]
 
-    def should_support_report(self) -> bool:
-        """被问是否支持举报时默认态度。"""
+    def supports_political_fallback(self) -> bool:
+        """是否需要计算 political 回落级别。"""
         return False
 
-    # ════════════════════════════════════════════════════════
-    #  天赋相关
-    # ════════════════════════════════════════════════════════
+    def should_attack_when_develop_blocked(self) -> bool:
+        """发育受阻时是否转为进攻。"""
+        return True
 
-    def get_hoshino_form_preference(self) -> str:
-        """星野形态选择偏好。"""
-        return "水着-shielder"
-
-    def get_anchor_fail_preference(self) -> str:
-        """锚定失败时的偏好。"""
-        return "回到过去"
-
-    # ════════════════════════════════════════════════════════
-    #  特殊地点 / 交互
-    # ════════════════════════════════════════════════════════
-
-    def should_agree_military_pass(self) -> bool:
-        """是否同意强买通行证。"""
+    def should_prioritize_police_wake(self) -> bool:
+        """作为队长时是否优先唤醒警察单位。"""
         return False
 
-    def should_buy_stealth_items(self) -> bool:
-        """是否购买隐身物品。"""
-        return False
-
-    def should_release_virus(self) -> bool:
-        """是否应在医院放毒。"""
-        return False
-
-    def wants_extra_inner_armor(self) -> bool:
-        """是否需要第二个内甲。"""
-        return False
+    def should_support_report(self, target_name: str, threat_score: float) -> bool:
+        """被问是否支持举报时的默认态度。Base: 威胁 > 30 时支持。"""
+        return threat_score > 30
 
     # ════════════════════════════════════════════════════════
     #  DecisionOrchestrator 接口 —— 控制决策阶段顺序与终止条件

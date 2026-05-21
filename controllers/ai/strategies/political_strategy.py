@@ -38,7 +38,7 @@ class PoliticalStrategy(BasePersonalityStrategy):
     def get_police_build_priority(self) -> List[str]:
         return ["购买凭证", "警棍", "盾牌"]
 
-    def should_support_report(self) -> bool:
+    def should_support_report(self, target_name: str = "", threat_score: float = 0.0) -> bool:
         return True
 
     def should_continue_combat(self, player, target, is_at_disadvantage):
@@ -67,3 +67,12 @@ class PoliticalStrategy(BasePersonalityStrategy):
                 return "ignore"
         # 可以build
         return "build"
+
+    def supports_political_fallback(self) -> bool:
+        return True
+
+    def should_attack_when_develop_blocked(self) -> bool:
+        return False
+
+    def should_prioritize_police_wake(self) -> bool:
+        return True
