@@ -9,9 +9,18 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from controllers.ai.controller import BasicAIController
+from controllers.ai.talents.hoshino_hook import HoshinoAIHook
 
 
 HOSHINO_TALENT_NAME = "大叔我啊，剪短发了"
+
+
+def _named(name):
+    return SimpleNamespace(name=name)
+
+
+def _empty_armor():
+    return SimpleNamespace(get_all_active=lambda: [])
 
 
 def _terror_hoshino():
@@ -66,6 +75,42 @@ class HoshinoTerrorLegacyFallbackTest(unittest.TestCase):
         self.assertEqual(
             controller._generate_candidates(player, _state(player), ["move"]),
             ["forfeit"],
+        )
+
+
+class HoshinoAmmoReloadSelectionTest(unittest.TestCase):
+    def _hook_for_outer_attrs(self, outer_attrs):
+        controller = SimpleNamespace(
+            _hoshino_get_target_outer_armor_attrs=lambda target: outer_attrs
+        )
+        return HoshinoAIHook(controller)
+
+    def test_same_attribute_consumable_is_effective_reload_candidate(self):
+        hook = self._hook_for_outer_attrs(["科技"])
+        player = SimpleNamespace(
+            weapons=[_named("电磁步枪")],
+            items=[],
+            armor=_empty_armor(),
+            talent=SimpleNamespace(iron_horus_hp=2, iron_horus_max_hp=2),
+        )
+
+        self.assertEqual(
+            hook._find_counter_consumable(player, SimpleNamespace()),
+            "电磁步枪",
+        )
+
+    def test_hard_counter_is_preferred_over_same_attribute_candidate(self):
+        hook = self._hook_for_outer_attrs(["科技"])
+        player = SimpleNamespace(
+            weapons=[_named("电磁步枪")],
+            items=[_named("魔法弹幕")],
+            armor=_empty_armor(),
+            talent=SimpleNamespace(iron_horus_hp=2, iron_horus_max_hp=2),
+        )
+
+        self.assertEqual(
+            hook._find_counter_consumable(player, SimpleNamespace()),
+            "魔法弹幕",
         )
 
 

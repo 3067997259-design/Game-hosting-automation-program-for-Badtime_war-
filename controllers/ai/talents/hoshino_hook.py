@@ -524,15 +524,22 @@ class HoshinoAIHook(BaseTalentAIHook):
         return None
 
     def _find_counter_consumable(self, player, target) -> Optional[str]:
-        """找能克制目标外甲的装填消耗品。
-        克制链：目标科技甲→找魔法属性物品，目标普通甲→找科技属性，目标魔法甲→找普通。
-        没有克制物品时返回 None（调用方应回退到通用路径）。"""
+        """找能有效打击目标外甲的装填消耗品。
+        优先克制链：目标科技甲→找魔法属性物品，目标普通甲→找科技属性，目标魔法甲→找普通。
+        若没有克制物品，同属性物品也可作为有效弹药。"""
         outer_attrs = self._ctrl._hoshino_get_target_outer_armor_attrs(target)
         if not outer_attrs:
             return None
         counter_map = {"科技": "魔法", "普通": "科技", "魔法": "普通"}
-        needed_attr = counter_map.get(outer_attrs[0])
-        if not needed_attr:
+        needed_attrs = []
+        for armor_attr in outer_attrs:
+            counter_attr = counter_map.get(armor_attr)
+            if counter_attr and counter_attr not in needed_attrs:
+                needed_attrs.append(counter_attr)
+        for armor_attr in outer_attrs:
+            if armor_attr and armor_attr not in needed_attrs:
+                needed_attrs.append(armor_attr)
+        if not needed_attrs:
             return None
         # 物品名 → 其属性 的映射（硬编码：只有这些常用装填品有明确属性）
         _ITEM_ATTRS = {
@@ -546,22 +553,23 @@ class HoshinoAIHook(BaseTalentAIHook):
         iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
         iron_horus_max = getattr(talent, 'iron_horus_max_hp', 2) if talent else 2
         repair_names = {"盾牌", "AT力场"} if iron_horus_hp < iron_horus_max else set()
-        # 武器
-        for w in getattr(player, 'weapons', []):
-            if w and w.name not in ("拳击", "荷鲁斯之眼"):
-                if _ITEM_ATTRS.get(w.name) == needed_attr:
-                    return w.name
-        # 物品
-        for item in getattr(player, 'items', []):
-            item_name = getattr(item, 'name', None)
-            if item_name and item_name not in repair_names and item_name not in PROTECTED_ITEMS:
-                if _ITEM_ATTRS.get(item_name) == needed_attr:
-                    return item_name
-        # 护甲
-        for a in getattr(getattr(player, 'armor', None), 'get_all_active', lambda: [])():
-            if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
-                if _ITEM_ATTRS.get(a.name) == needed_attr:
-                    return a.name
+        for needed_attr in needed_attrs:
+            # 武器
+            for w in getattr(player, 'weapons', []):
+                if w and w.name not in ("拳击", "荷鲁斯之眼"):
+                    if _ITEM_ATTRS.get(w.name) == needed_attr:
+                        return w.name
+            # 物品
+            for item in getattr(player, 'items', []):
+                item_name = getattr(item, 'name', None)
+                if item_name and item_name not in repair_names and item_name not in PROTECTED_ITEMS:
+                    if _ITEM_ATTRS.get(item_name) == needed_attr:
+                        return item_name
+            # 护甲
+            for a in getattr(getattr(player, 'armor', None), 'get_all_active', lambda: [])():
+                if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
+                    if _ITEM_ATTRS.get(a.name) == needed_attr:
+                        return a.name
         return None
 
     @staticmethod
