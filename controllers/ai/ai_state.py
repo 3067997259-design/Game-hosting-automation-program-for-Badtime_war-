@@ -28,7 +28,7 @@ class AIState:
     llm_alliance: Set[str] = field(default_factory=set)
     terror_defense: Any = None
     political_fallback_level: str = "none"
-    police_dev_assignments: Dict = field(default_factory=dict)
+    police_dev_assignments: Dict[str, Dict] = field(default_factory=dict)
     police_dev_initialized: bool = False
     last_criminal_target_id: Optional[str] = None
     virus_active: bool = False

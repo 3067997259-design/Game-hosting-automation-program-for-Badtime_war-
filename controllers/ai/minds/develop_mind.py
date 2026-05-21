@@ -190,7 +190,6 @@ class DevelopMind(BaseMind):
         elif need == "whetstone":
             return any(getattr(it, 'name', '') == "磨刀石" for it in getattr(player, 'items', []))
         return False
-
     # ════════════════════════════════════════════════════════
     #  地点选择
     # ════════════════════════════════════════════════════════
@@ -308,7 +307,6 @@ class DevelopMind(BaseMind):
             if w and getattr(w, 'name', '') == item_name:
                 return True
         return False
-
     @staticmethod
     def _can_afford(player, cost: str, vouchers: int, has_pass: bool, location: str) -> bool:
         if cost == "free":
@@ -320,4 +318,3 @@ class DevelopMind(BaseMind):
         if cost == "pass":
             return has_pass
         return False
-

@@ -61,19 +61,14 @@ class PoliceCommandBuilder:
         criminal_target = self._find_criminal_target(player, state, ctx)
         if criminal_target:
             new_target_id = criminal_target.player_id
-            if ctx.ai_state and ctx.last_criminal_target_id != new_target_id:
-                ctx.ai_state.police_dev_initialized = False
-                ctx.police_dev_initialized = False
-            if ctx.ai_state:
-                ctx.ai_state.last_criminal_target_id = new_target_id
-            ctx.last_criminal_target_id = new_target_id
-        if not ctx.police_dev_initialized:
+            if self._get_last_criminal_target_id(ctx) != new_target_id:
+                self._set_police_dev_initialized(ctx, False)
+            self._set_last_criminal_target_id(ctx, new_target_id)
+        if not self._get_police_dev_initialized(ctx):
             self._init_police_dev_plan(alive_units, player, state, ctx)
-            if ctx.ai_state:
-                ctx.ai_state.police_dev_initialized = True
-            ctx.police_dev_initialized = True
+            self._set_police_dev_initialized(ctx, True)
 
-        personality = ctx.personality
+        personality = getattr(ctx, 'personality', 'balanced')
 
         # political 优先唤醒
         if personality == "political" and disabled_units:
@@ -336,7 +331,29 @@ class PoliceCommandBuilder:
 
     @staticmethod
     def _get_assignments(ctx) -> Dict:
-        return getattr(ctx, 'police_dev_assignments', {}) or {}
+        return getattr(ctx, 'police_dev_assignments', {})
+
+    @staticmethod
+    def _get_police_dev_initialized(ctx) -> bool:
+        return getattr(ctx, 'police_dev_initialized', False)
+
+    @staticmethod
+    def _get_last_criminal_target_id(ctx) -> Optional[str]:
+        return getattr(ctx, 'last_criminal_target_id', None)
+
+    @staticmethod
+    def _set_police_dev_initialized(ctx, value: bool) -> None:
+        ctx.police_dev_initialized = value
+        ai_state = getattr(ctx, 'ai_state', None)
+        if ai_state is not None:
+            ai_state.police_dev_initialized = value
+
+    @staticmethod
+    def _set_last_criminal_target_id(ctx, value: Optional[str]) -> None:
+        ctx.last_criminal_target_id = value
+        ai_state = getattr(ctx, 'ai_state', None)
+        if ai_state is not None:
+            ai_state.last_criminal_target_id = value
 
     def _find_criminal_target(self, player, state, ctx):
         """找到最高威胁的犯罪目标。"""
@@ -370,8 +387,7 @@ class PoliceCommandBuilder:
         Q = self._query
         sorted_units = sorted(alive_units, key=lambda u: u["id"])
         criminal_target = self._find_criminal_target(
-            player, state,
-            ctx)
+            player, state, ctx)
         target_armor_attrs: set = set()
         if criminal_target:
             outer = Q.get_outer_armor_attr(criminal_target)
@@ -432,7 +448,10 @@ class PoliceCommandBuilder:
                 "dest": None, "target_weapon": None,
                 "target_armor": None, "station": "魔法所", "phase": "stationed_default",
             }
-        ctx.police_dev_assignments.clear(); ctx.police_dev_assignments.update(assignments)
+        ai_state = getattr(ctx, 'ai_state', None)
+        ctx.police_dev_assignments = assignments
+        if ai_state is not None:
+            ai_state.police_dev_assignments = assignments
 
     def _police_develop_step(self, active_units, ctx) -> Optional[str]:
         """执行一步警察发育。"""

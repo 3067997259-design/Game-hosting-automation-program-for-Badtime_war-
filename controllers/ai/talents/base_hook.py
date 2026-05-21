@@ -50,6 +50,12 @@ class BaseTalentAIHook:
         """天赋覆盖的发育需求。返回 None 表示用默认逻辑。"""
         return None
 
+    def get_develop_commands(
+        self, player: Any, state: Any, available: List[str]
+    ) -> Optional[List[str]]:
+        """天赋专属发育命令。返回 None 表示交给通用发育 Builder。"""
+        return None
+
     # ════════════════════════════════════════════════════════
     #  Choose 决策
     # ════════════════════════════════════════════════════════

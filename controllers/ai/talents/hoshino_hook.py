@@ -24,6 +24,18 @@ class HoshinoAIHook(BaseTalentAIHook):
     def __init__(self, controller: Any):
         self._ctrl = controller
 
+    def _get_threat_scores(self) -> Dict[str, float]:
+        state = getattr(self._ctrl, '_ai_state', None)
+        if state is not None:
+            return getattr(state, 'threat_scores', {})
+        return getattr(self._ctrl, '_threat_scores', {})
+
+    def _get_players_who_attacked(self) -> set:
+        state = getattr(self._ctrl, '_ai_state', None)
+        if state is not None:
+            return getattr(state, 'players_who_attacked', set())
+        return getattr(self._ctrl, '_players_who_attacked', set())
+
     # ── 威胁修改 ──
     def modify_threat_power(self, target: Any, base_power: float) -> float:
         t_talent = getattr(target, 'talent', None)
@@ -194,7 +206,7 @@ class HoshinoAIHook(BaseTalentAIHook):
     def should_override_candidates(
         self, player: Any, state: Any, available: List[str]
     ) -> Optional[List[str]]:
-        if not self._ctrl._has_hoshino_talent(player):
+        if not GameQuery.has_hoshino_talent(player):
             return None
 
         # 1. Terror: 全图攻击
@@ -236,13 +248,27 @@ class HoshinoAIHook(BaseTalentAIHook):
             if macro_result is not None:
                 return macro_result
             # 无目标 → 去敌人位置
-            enemy_loc = self._ctrl._find_nearest_enemy_location(player, state)
+            enemy_loc = GameQuery.find_nearest_enemy_location(
+                player, state, self._get_threat_scores(),
+                personality=getattr(self._ctrl, 'personality', 'balanced'),
+                players_who_attacked=self._get_players_who_attacked(),
+            )
             if enemy_loc and "move" in available:
-                loc = self._ctrl._get_location_str(player)
-                if enemy_loc != loc and not (enemy_loc == "home" and self._ctrl._is_at_home(player)):
+                loc = GameQuery.get_location_str(player)
+                if enemy_loc != loc and not (enemy_loc == "home" and GameQuery.is_at_home(player)):
                     return [f"move {enemy_loc}", "forfeit"]
 
         # 3c. 无法战斗 → 发育/修复（装填子弹、修复荷鲁斯）
+        return self._get_maintenance_commands(player, state, available)
+
+    def get_develop_commands(
+        self, player: Any, state: Any, available: List[str]
+    ) -> Optional[List[str]]:
+        if not GameQuery.has_hoshino_talent(player):
+            return None
+        talent = player.talent
+        if not getattr(talent, 'tactical_unlocked', False):
+            return self._get_development_commands(player, state, available)
         return self._get_maintenance_commands(player, state, available)
 
     # ════════════════════════════════════════════════════════════
@@ -254,11 +280,10 @@ class HoshinoAIHook(BaseTalentAIHook):
         self, player: Any, state: Any, available: List[str]
     ) -> List[str]:
         """未解锁战术时的发育：获取小刀→通行证→AT力场+盾牌→EMR+Gauss"""
-        ctrl = self._ctrl
-        loc = ctrl._get_location_str(player)
+        loc = GameQuery.get_location_str(player)
         talent = player.talent
         has_pass = getattr(player, 'has_military_pass', False)
-        is_home = (loc == "home" or ctrl._is_at_home(player))
+        is_home = GameQuery.is_at_home(player)
 
         fusion_shield_done = getattr(talent, 'fusion_shield_done', False)
         fusion_weapon_done = getattr(talent, 'fusion_weapon_done', False)
@@ -269,8 +294,8 @@ class HoshinoAIHook(BaseTalentAIHook):
             return ["interact 小刀", "forfeit"]
 
         # 阶段1：融合材料（需求驱动）
-        has_at = ctrl._has_armor_by_name(player, "AT力场")
-        has_shield = ctrl._has_armor_by_name(player, "盾牌")
+        has_at = GameQuery.has_armor_by_name(player, "AT力场")
+        has_shield = GameQuery.has_armor_by_name(player, "盾牌")
         has_emr = any(w.name == "电磁步枪" for w in player.weapons if w)
         has_gauss = any(w.name == "高斯步枪" for w in player.weapons if w)
 
@@ -319,7 +344,7 @@ class HoshinoAIHook(BaseTalentAIHook):
     ) -> List[str]:
         """已解锁但无法战斗时的维护：装填→修复→囤道具→找敌人"""
         ctrl = self._ctrl
-        loc = ctrl._get_location_str(player)
+        loc = GameQuery.get_location_str(player)
         talent = player.talent
         has_pass = getattr(player, 'has_military_pass', False)
         ammo_count = len(getattr(talent, 'ammo', []))
@@ -336,7 +361,7 @@ class HoshinoAIHook(BaseTalentAIHook):
                 if "move" in available:
                     best_loc = ctrl._hoshino_best_item_destination(player, state)
                     if best_loc and best_loc != loc:
-                        if not (best_loc == "home" and ctrl._is_at_home(player)):
+                        if not (best_loc == "home" and GameQuery.is_at_home(player)):
                             return [f"move {best_loc}", "forfeit"]
             # 有消耗品 → 需要在战术宏里装填（由 build_macro_commands 处理）
 
@@ -356,29 +381,33 @@ class HoshinoAIHook(BaseTalentAIHook):
         # 阶段3：修复铁之荷鲁斯
         max_hp = getattr(talent, 'iron_horus_max_hp', 2)
         if iron_horus_hp < max_hp:
-            has_material = (ctrl._has_armor_by_name(player, "盾牌")
-                            or ctrl._has_armor_by_name(player, "AT力场"))
+            has_material = (GameQuery.has_armor_by_name(player, "盾牌")
+                            or GameQuery.has_armor_by_name(player, "AT力场"))
             if has_material and "special" in available:
                 return ["special 修复", "forfeit"]
             if not has_material and "interact" in available:
-                if loc == "home" or ctrl._is_at_home(player):
+                if GameQuery.is_at_home(player):
                     return ["interact 盾牌", "forfeit"]
                 if loc == "军事基地" and has_pass:
                     return ["interact AT力场", "forfeit"]
             if not has_material and "move" in available:
                 dest = "军事基地" if has_pass else "home"
-                if loc != dest and not (dest == "home" and ctrl._is_at_home(player)):
+                if loc != dest and not (dest == "home" and GameQuery.is_at_home(player)):
                     return [f"move {dest}", "forfeit"]
 
         # 阶段4：发育完成 → 找敌人
         if "move" in available:
-            enemy_loc = ctrl._find_nearest_enemy_location(player, state)
+            enemy_loc = GameQuery.find_nearest_enemy_location(
+                player, state, self._get_threat_scores(),
+                personality=getattr(ctrl, 'personality', 'balanced'),
+                players_who_attacked=self._get_players_who_attacked(),
+            )
             if enemy_loc and enemy_loc != loc:
-                if not (enemy_loc == "home" and ctrl._is_at_home(player)):
+                if not (enemy_loc == "home" and GameQuery.is_at_home(player)):
                     return [f"move {enemy_loc}", "forfeit"]
 
         if "attack" in available:
-            same = ctrl._get_same_location_targets(player, state)
+            same = GameQuery.get_same_location_targets(player, state)
             if same:
                 # 选最佳近战武器攻击同地点目标
                 weapons = [w for w in getattr(player, 'weapons', [])
@@ -414,8 +443,8 @@ class HoshinoAIHook(BaseTalentAIHook):
                         ctrl._hoshino_anti_captain_target_id = target.player_id
                         return ["special Hoshino", "forfeit"]
                     else:
-                        target_loc = ctrl._get_location_str(target)
-                        my_loc = ctrl._get_location_str(player)
+                        target_loc = GameQuery.get_location_str(target)
+                        my_loc = GameQuery.get_location_str(player)
                         if target_loc == my_loc:
                             ctrl._hoshino_macro_queue = ctrl._hoshino_build_anti_captain_unshielded_macro(player, state, target)
                             return ["special Hoshino", "forfeit"]
@@ -470,11 +499,11 @@ class HoshinoAIHook(BaseTalentAIHook):
                     return ["special Hoshino", "forfeit"]
 
                 # ★ 目标在不同地点（如不同玩家的家）→ 先移动再进宏
-                my_loc = ctrl._get_location_str(player)
-                target_loc = ctrl._get_location_str(target)
+                my_loc = GameQuery.get_location_str(player)
+                target_loc = GameQuery.get_location_str(target)
                 if (my_loc != target_loc
                         and "move" in available
-                        and not (target_loc == "home" and ctrl._is_at_home(player))):
+                        and not (target_loc == "home" and GameQuery.is_at_home(player))):
                     return [f"move {target_loc}", "forfeit"]
 
                 ctrl._hoshino_macro_queue = []
@@ -484,7 +513,7 @@ class HoshinoAIHook(BaseTalentAIHook):
 
     # ── 发育判定 ──
     def is_development_complete(self, player: Any, state: Any) -> Optional[bool]:
-        if not self._ctrl._has_hoshino_talent(player):
+        if not GameQuery.has_hoshino_talent(player):
             return None
         talent = player.talent
         tactical_unlocked = getattr(talent, 'tactical_unlocked', False)

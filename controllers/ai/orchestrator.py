@@ -156,22 +156,6 @@ class DecisionOrchestrator:
     def _star_follow_up_rounds(self, value):
         self._shared_state.star_follow_up_rounds = value
 
-    def _sync_from_shared_state(self):
-        """AIState 现在由 Orchestrator 直接引用，无需复制。"""
-        return
-
-    def _sync_to_shared_state(self):
-        """AIState 现在由 Orchestrator 直接引用，无需复制。"""
-        return
-
-    def _sync_to_controller_state(self):
-        """Controller 在 generate() 返回后主动从 AIState 读取暴露状态。"""
-        return
-
-    def _persist_state(self):
-        """兼容早退路径；状态已经实时写入 AIState。"""
-        return
-
     def _cleanup_dead_players(self, state):
         dead_names = []
         for pid in state.player_order:
@@ -263,6 +247,13 @@ class DecisionOrchestrator:
         prefix = {1: "  [Orch]", 2: "  [Orch·]", 3: "  [Orch··]"}.get(level, "  [Orch]")
         print(f"{prefix} {name}: {msg}")
 
+    def _finish_generate(self, candidates: List[str]) -> List[str]:
+        """结束决策时把 AIState 暴露给遗留只读路径。"""
+        expose = getattr(self._ctrl, '_expose_ai_state_for_legacy_views', None)
+        if expose:
+            expose()
+        return candidates
+
     # ════════════════════════════════════════════════════════
     #  主入口
     # ════════════════════════════════════════════════════════
@@ -283,11 +274,6 @@ class DecisionOrchestrator:
 
         s = self._shared_state
         s.round_number = round_num
-        s.llm_aggression_mod = getattr(self._ctrl, '_llm_aggression_mod', s.llm_aggression_mod)
-        s.llm_alliance = set(getattr(self._ctrl, '_llm_alliance', s.llm_alliance))
-        s.terror_defense = getattr(self._ctrl, '_terror_defense', s.terror_defense)
-        s.been_attacked_by.update(getattr(self._ctrl, '_been_attacked_by', set()))
-        s.players_who_attacked.update(getattr(self._ctrl, '_players_who_attacked', set()))
         s.police_cache = self._query.read_police_state(state, player.player_id)
         s.political_fallback_level = (
             self._query.political_should_fallback(player, state)
@@ -331,15 +317,13 @@ class DecisionOrchestrator:
         # Step 0: 未起床
         if not player.is_awake:
             self._dbg(1, "未起床 → wake")
-            self._persist_state()
-            return ["wake"]
+            return self._finish_generate(["wake"])
 
         # Step 1: 天赋钩子接管
         override = self._check_talent_overrides(player, state, available_actions)
         if override is not None:
             self._dbg(1, f"天赋钩子接管 → {override}")
-            self._persist_state()
-            return override
+            return self._finish_generate(override)
 
         # Step 2: 运行所有 Mind，收集态势快照
         snapshots = self._run_all_minds(player, state)
@@ -372,8 +356,7 @@ class DecisionOrchestrator:
                         self._dbg(2, f"阶段 {phase.name} 终止后续 | 指令: {valid_cmds}")
                         candidates.append("forfeit")
                         result = self._dedup(candidates)
-                        self._persist_state()
-                        return result
+                        return self._finish_generate(result)
                 else:
                     self._dbg(2, f"阶段 {phase.name} 产出全被过滤(原:{phase_cmds})，继续")
             else:
@@ -392,8 +375,7 @@ class DecisionOrchestrator:
 
         candidates.append("forfeit")
         result = self._finalize(candidates, player, my_loc)
-        self._persist_state()
-        return result
+        return self._finish_generate(result)
 
     def _finalize(self, candidates: List[str], player, my_loc: str) -> List[str]:
         """去重 + 过滤无效指令（如 move 到当前位置）"""
@@ -483,11 +465,8 @@ class DecisionOrchestrator:
                 )
                 break
 
-        police_sit_obj = None
-        police_snapshot = snapshots.get("police")
-        if police_snapshot:
-            police_sit_obj = police_snapshot.data.get("police_situation")
-        polices_cache = self._shared_state.police_cache or {}
+        ctx = self._build_ctx(state)
+        polices_cache = ctx.police_cache or {}
 
         # 2. ThreatMind
         for mind in self._minds:
@@ -499,7 +478,7 @@ class DecisionOrchestrator:
                     previous_threat_scores=self._shared_state.threat_scores,
                     low_threat_streak=self._low_threat_streak,
                     been_attacked_by=self._been_attacked_by,
-                    llm_aggression_mod=self._shared_state.llm_aggression_mod,
+                    llm_aggression_mod=ctx.llm_aggression_mod,
                     polices_cache=polices_cache,
                     ctx=self._build_ctx(state),
                 )
@@ -520,7 +499,6 @@ class DecisionOrchestrator:
         # 4. CombatMind
         for mind in self._minds:
             if mind.__class__.__name__ == "CombatMind":
-                ctx = self._build_ctx(state)
                 police_protected = ctx.police_protected_ids
                 # 提取 police stance（来自 PoliceMind 评估）
                 police_stance = None
@@ -557,21 +535,6 @@ class DecisionOrchestrator:
         """构建 PoliceMind 需要的上下文"""
         return {
             "cache": self._shared_state.police_cache or {},
-        }
-
-    @staticmethod
-    def _extract_police_cache_from_situation(police_sit) -> Dict:
-        """从 PoliceSituation 提取 ThreatMind 需要的 police 上下文"""
-        if police_sit is None:
-            return {}
-        return {
-            "has_police": getattr(police_sit, 'police_exists', False),
-            "captain_id": getattr(police_sit, 'captain_id', None),
-            "is_captain": getattr(police_sit, 'i_am_captain', False),
-            "alive_count": getattr(police_sit, 'alive_units', 0),
-            "active_count": getattr(police_sit, 'active_units', 0),
-            "report_target": getattr(police_sit, 'i_am_report_target', False),
-            "report_phase": getattr(police_sit, 'report_phase', 'idle'),
         }
 
     # ════════════════════════════════════════════════════════
@@ -765,7 +728,8 @@ class DecisionOrchestrator:
         if getattr(player, 'is_captain', False) and "police_command" in available:
             self._dbg(2, "队长: 生成警察指挥")
             ctx = self._build_ctx(state)
-            cmds = self._police_cmd.build_captain(player, state, self._strategy, available, ctx)
+            cmds = self._police_cmd.build_captain(
+                player, state, self._strategy, available, ctx)
             if cmds:
                 if self._goal_stack:
                     from controllers.ai.goals.captain_goal import CaptainGoal
@@ -920,66 +884,17 @@ class DecisionOrchestrator:
             self._dbg(2, "发育: 已完成")
             return []
 
-        cmds = []
-        my_loc = GameQuery.get_location_str(player)
-
-        # 当前地点可交互
-        current_interact = develop.data.get("current_location_actions", [])
-        if current_interact and "interact" in available:
-            cmds.extend(current_interact)
-            self._dbg(2, f"发育: 本地交互 {current_interact}")
-        elif current_interact and "interact" not in available:
-            self._dbg(2, f"发育: 有本地交互{current_interact} 但 interact 不可用")
-
-        # 蓄力武器
-        charge_cmds = self._combat_cmd.build_charge(player, available)
-        for c in charge_cmds:
-            if c not in cmds:
-                cmds.append(c)
-                self._dbg(2, f"发育: 蓄力 {c}")
-
-        # 磨刀（通用：有任何AI持小刀+磨刀石就磨）
-        if "special" in available:
-            for w in getattr(player, 'weapons', []):
-                if w and w.name == "小刀" and getattr(w, 'base_damage', 0) < 2:
-                    if any(getattr(it, 'name', '') == "磨刀石" for it in getattr(player, 'items', [])):
-                        cmd = "special 磨刀"
-                        if cmd not in cmds:
-                            cmds.append(cmd)
-                            self._dbg(2, "发育: 磨刀")
-                        break
-
-        # 移动到最优地点（仅当没有其他指令时）
-        if not cmds:
-            best_move = develop.data.get("best_move")
-            if best_move and "move" in available:
-                dest = best_move.replace("move ", "")
-                if not self._is_same_location(dest, my_loc):
-                    cmds.append(best_move)
-                    self._dbg(2, f"发育: 移动到最优地点 {dest}")
-                else:
-                    self._dbg(2, f"发育: 最优地点={dest} 等于当前位置，跳过移动")
-
-        # 发育受阻 → 转为进攻 或 兜底目的地
-        if not cmds and not develop.data.get("development_complete"):
-            personality = self._strategy.personality_name
-            if personality in ("aggressive", "assassin", "balanced"):
-                combat = snapshots.get("combat")
-                if combat and combat.data.get("combat_ready"):
-                    self._dbg(2, "发育: 受阻 → 转为进攻")
-                    best_target = combat.data.get("best_target")
-                    if best_target:
-                        return self._build_forced_attack_commands(player, state, available, best_target)
-
-            fallback_loc = self._develop_cmd.pick_fallback_destination(player, state, self._strategy, self._personality, self._build_ctx(state))
-            if fallback_loc and "move" in available:
-                if not self._is_same_location(fallback_loc, my_loc):
-                    cmds.append(f"move {fallback_loc}")
-                    self._dbg(2, f"发育: 受阻 → 兜底移动到 {fallback_loc}")
-                else:
-                    self._dbg(2, f"发育: 兜底={fallback_loc} 等于当前位置，跳过移动")
-
-        if not cmds:
+        ctx = self._build_ctx(state)
+        cmds = self._develop_cmd.build_develop(
+            player, state, self._strategy, available, ctx,
+            develop_assessment=develop,
+            combat_assessment=snapshots.get("combat"),
+            talent_hooks=self._talent_hooks,
+            combat_builder=self._combat_cmd,
+        )
+        if cmds:
+            self._dbg(2, f"发育: Builder 产出 {cmds}")
+        else:
             self._dbg(2, "发育: 无可行指令")
         return cmds
 

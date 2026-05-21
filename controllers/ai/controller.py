@@ -161,9 +161,9 @@ class BasicAIController(
         self._talent_hook_instances = {}
         self._decision_log: List[Dict] = []
         if self._new_arch_enabled:
-            _query = GameQuery()
             self._ai_state = AIState()
-            self._police_mind = PoliceMind(debug_name="AI", query=_query)
+            self._query = GameQuery()
+            self._police_mind = PoliceMind(debug_name="AI", query=self._query)
             self._goal_stack = GoalStack(max_goals=5)
             self._strategy = create_strategy(personality)
             self._talent_hook_instances = {
@@ -178,16 +178,17 @@ class BasicAIController(
                 "往世的涟漪": RippleAIHook(self),
             }
             self._terror_defense = TerrorDefenseAI(debug_name="AI")
+            self._ai_state.terror_defense = self._terror_defense
 
             # ════════════════════════════════════════════════════════
             #  ★ 新架构 DecisionOrchestrator：替代旧瀑布流的独立管道
             #  包含所有 Mind 实例 + Orchestrator 编排器
             # ════════════════════════════════════════════════════════
             self._minds = [
-                PoliceMind(debug_name="AI", query=_query),
-                ThreatMind(debug_name="AI", query=_query),
-                DevelopMind(debug_name="AI", query=_query),
-                CombatMind(debug_name="AI", query=_query),
+                PoliceMind(debug_name="AI", query=self._query),
+                ThreatMind(debug_name="AI", query=self._query),
+                DevelopMind(debug_name="AI", query=self._query),
+                CombatMind(debug_name="AI", query=self._query),
             ]
             self._orchestrator = DecisionOrchestrator(
                 strategy=self._strategy,
@@ -196,7 +197,7 @@ class BasicAIController(
                 minds=self._minds,
                 controller=self,
                 ai_state=self._ai_state,
-                query=_query,
+                query=self._query,
                 personality=personality,
             )
 
@@ -205,8 +206,41 @@ class BasicAIController(
         #  - _llm_alliance: LLM认为的盟友集合 → _pick_target 降低对其的攻击优先级
         #  - _llm_aggression_mod: LLM调整的攻击倾向 [-20, +20] → 影响目标选择评分
         # ════════════════════════════════════════════════════
-        self._llm_alliance: set = set()
-        self._llm_aggression_mod: float = 0.0
+        self._llm_alliance_local: set = set()
+        self._llm_aggression_mod_local: float = 0.0
+        if hasattr(self, '_ai_state'):
+            self._ai_state.llm_alliance = self._llm_alliance_local
+            self._ai_state.llm_aggression_mod = self._llm_aggression_mod_local
+
+
+    @property
+    def _llm_alliance(self) -> set:
+        if self._uses_new_arch_events():
+            return self._ai_state.llm_alliance
+        return getattr(self, '_llm_alliance_local', set())
+
+    @_llm_alliance.setter
+    def _llm_alliance(self, value) -> None:
+        normalized = set(value or set())
+        self._llm_alliance_local = normalized
+        if hasattr(self, '_ai_state'):
+            self._ai_state.llm_alliance = normalized
+
+    @property
+    def _llm_aggression_mod(self) -> float:
+        if self._uses_new_arch_events():
+            return self._ai_state.llm_aggression_mod
+        return getattr(self, '_llm_aggression_mod_local', 0.0)
+
+    @_llm_aggression_mod.setter
+    def _llm_aggression_mod(self, value) -> None:
+        try:
+            normalized = float(value)
+        except (TypeError, ValueError):
+            normalized = 0.0
+        self._llm_aggression_mod_local = normalized
+        if hasattr(self, '_ai_state'):
+            self._ai_state.llm_aggression_mod = normalized
 
 
     # ════════════════════════════════════════════════════════
@@ -468,12 +502,13 @@ class BasicAIController(
         self._game_state = state
 
         if self._uses_new_arch_events():
-            self._mirror_ai_state_to_controller()
+            self._expose_ai_state_for_legacy_views()
         self._update_threat_scores(player, state)
         self._read_police_state(state)
         if self._uses_new_arch_events():
-            self._sync_controller_to_ai_state()
+            self._sync_legacy_views_to_ai_state()
             self._cleanup_dead_players_new(state)
+            self._expose_ai_state_for_legacy_views()
         else:
             self._cleanup_dead_players(state)
 
@@ -1757,8 +1792,8 @@ class BasicAIController(
     #  新架构：事件回调（Phase 5）
     # ════════════════════════════════════════════════════════
 
-    def _mirror_ai_state_to_controller(self) -> None:
-        """把新架构当前维护的共享状态镜像到旧字段，供调试/choose/LLM 读取。"""
+    def _expose_ai_state_for_legacy_views(self) -> None:
+        """把 AIState 暴露到旧字段，仅供遗留调试/choose 只读路径读取。"""
         s = getattr(self, '_ai_state', None)
         if not s:
             return
@@ -1775,8 +1810,8 @@ class BasicAIController(
         self._virus_active = s.virus_active
         self._virus_location = s.virus_location
 
-    def _sync_controller_to_ai_state(self) -> None:
-        """少数旧 helper 路径仍会写 controller 字段，写完后同步回 AIState。"""
+    def _sync_legacy_views_to_ai_state(self) -> None:
+        """把遗留路径更新过的字段写回 AIState。"""
         s = getattr(self, '_ai_state', None)
         if not s:
             return
@@ -1787,6 +1822,7 @@ class BasicAIController(
         s.in_combat = self._in_combat
         s.combat_target = self._combat_target
         s.danger_mode = self._danger_mode
+        s.round_number = self._round_number
         s.police_cache = self._police_cache
         s.virus_active = self._virus_active
         s.virus_location = self._virus_location
@@ -1805,7 +1841,6 @@ class BasicAIController(
             s.threat_scores.pop(name, None)
             s.been_attacked_by.discard(name)
             s.players_who_attacked.discard(name)
-        self._mirror_ai_state_to_controller()
 
     def _on_event_new(self, event: Dict) -> None:
         """新架构路径的事件处理"""
@@ -1866,9 +1901,6 @@ class BasicAIController(
             if captain_name and captain_name != self.player_name:
                 threat_scores[captain_name] = threat_scores.get(captain_name, 0) + 30
 
-        if s:
-            self._mirror_ai_state_to_controller()
-
     def _on_round_start_new(self, player, state, round_number: int):
         """新架构路径的轮次开始"""
         self._round_number = round_number
@@ -1881,7 +1913,6 @@ class BasicAIController(
             s.round_number = round_number
             s.action_used = False
             s.missile_cooldown = self._missile_cooldown
-            self._mirror_ai_state_to_controller()
         debug_ai_basic(player.name,
             f"轮次{round_number}开始，人格={self.personality}，"
             f"阶段={self._current_phase}")
@@ -1891,7 +1922,6 @@ class BasicAIController(
         s = getattr(self, '_ai_state', None)
         if s:
             s.been_attacked_by.clear()
-            self._mirror_ai_state_to_controller()
         else:
             self._been_attacked_by.clear()
 
@@ -1902,8 +1932,6 @@ class BasicAIController(
         been_attacked_by = s.been_attacked_by if s else self._been_attacked_by
         been_attacked_by.add(attacker_name)
         threat_scores[attacker_name] = threat_scores.get(attacker_name, 0) + damage * 10
-        if s:
-            self._mirror_ai_state_to_controller()
         debug_ai_basic(player.name,
             f"被 {attacker_name} 攻击，伤害={damage}")
 
@@ -1921,8 +1949,6 @@ class BasicAIController(
             self._players_who_attacked.discard(killed_name)
         if killer_name and killer_name != player.name:
             threat_scores[killer_name] = threat_scores.get(killer_name, 0) + 30
-        if s:
-            self._mirror_ai_state_to_controller()
         debug_ai_basic(player.name,
             f"玩家 {killed_name} 被 {killer_name} 杀死")
 
@@ -1979,7 +2005,6 @@ class BasicAIController(
         s = getattr(self, '_ai_state', None)
         if s:
             s.been_attacked_by.add(attacker)
-            self._mirror_ai_state_to_controller()
         else:
             self._been_attacked_by.add(attacker)
         options = data.get("options", [])

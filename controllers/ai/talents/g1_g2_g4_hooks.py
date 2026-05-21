@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Dict, List, Optional, Any
 import random
+from controllers.ai.command_builder.develop_commands import DevelopCommandBuilder
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.game_query import GameQuery
 from controllers.ai.constants import debug_ai_basic
@@ -19,11 +20,140 @@ class FireflyAIHook(BaseTalentAIHook):
         if not self._is_my_talent(player):
             return None
         real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
-        if not self._ctrl._firefly_debuff_active(player):
+        if not GameQuery.firefly_debuff_active(player):
             return len(real_weapons) >= 1
         has_sharpened = any(w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2 for w in real_weapons)
         has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
         return has_sharpened and has_gauss
+
+    def get_develop_commands(
+        self, player: Any, state: Any, available: List[str]
+    ) -> Optional[List[str]]:
+        if not self._is_my_talent(player):
+            return None
+        commands: List[str] = []
+        loc = GameQuery.get_location_str(player)
+        weapons = getattr(player, 'weapons', [])
+        real_weapons = [w for w in weapons if w and getattr(w, 'name', '') != "拳击"]
+        outer = GameQuery.count_outer_armor(player)
+        vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+
+        sharpen = DevelopCommandBuilder._build_sharpen_command(player, available)
+        if sharpen:
+            return sharpen
+
+        if GameQuery.firefly_debuff_active(player):
+            has_sharpened_knife = any(
+                w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
+                for w in real_weapons
+            )
+            has_gauss = any(w.name == "高斯步枪" for w in real_weapons)
+            if "interact" in available:
+                if not has_sharpened_knife:
+                    has_knife = any(w.name == "小刀" for w in real_weapons)
+                    if not has_knife:
+                        if GameQuery.is_at_home(player) or loc == "商店":
+                            commands.append("interact 小刀")
+                    else:
+                        has_stone = any(
+                            getattr(item, 'name', '') == "磨刀石"
+                            for item in getattr(player, 'items', [])
+                        )
+                        if not has_stone and loc == "商店":
+                            commands.append("interact 磨刀石" if vouchers >= 1 else "interact 打工")
+                if not has_gauss and loc == "军事基地":
+                    commands.append("interact 通行证" if not has_pass else "interact 高斯步枪")
+            if has_gauss and "special" in available and not commands:
+                gauss = next((w for w in weapons if w and w.name == "高斯步枪"), None)
+                if gauss and not getattr(gauss, 'is_charged', False):
+                    commands.append("special 蓄力高斯步枪")
+            if "move" in available and not commands:
+                if not has_sharpened_knife:
+                    has_knife = any(w.name == "小刀" for w in real_weapons)
+                    if not has_knife and not GameQuery.is_at_home(player):
+                        commands.append("move home")
+                    elif has_knife and not any(
+                        getattr(item, 'name', '') == "磨刀石"
+                        for item in getattr(player, 'items', [])
+                    ) and loc != "商店":
+                        commands.append("move 商店")
+                elif not has_gauss and loc != "军事基地":
+                    commands.append("move 军事基地")
+            return commands
+
+        if "interact" in available:
+            if GameQuery.is_at_home(player):
+                if vouchers < 1:
+                    commands.append("interact 凭证")
+                if not any(w.name == "小刀" for w in real_weapons):
+                    commands.append("interact 小刀")
+                if outer < 1 and not GameQuery.has_armor_by_name(player, "盾牌"):
+                    commands.append("interact 盾牌")
+            elif loc == "商店":
+                if vouchers < 1:
+                    commands.append("interact 打工")
+                if outer < 1 and not GameQuery.has_armor_by_name(player, "陶瓷护甲"):
+                    commands.append("interact 陶瓷护甲")
+                has_unsharpened = any(
+                    w.name == "小刀" and getattr(w, 'base_damage', 0) < 2
+                    for w in weapons if w
+                )
+                has_stone = any(
+                    getattr(item, 'name', '') == "磨刀石"
+                    for item in getattr(player, 'items', [])
+                )
+                if has_unsharpened and not has_stone and vouchers >= 1:
+                    commands.append("interact 磨刀石")
+            elif loc == "魔法所":
+                learned = GameQuery.get_learned_spells(player)
+                if "魔法弹幕" not in learned and len(real_weapons) < 2:
+                    commands.append("interact 魔法弹幕")
+                if "魔法护盾" not in learned and outer < 1:
+                    commands.append("interact 魔法护盾")
+                if "地震" not in learned:
+                    commands.append("interact 地震")
+                if "地震" in learned and "地动山摇" not in learned:
+                    commands.append("interact 地动山摇")
+            elif loc == "军事基地":
+                if not has_pass:
+                    commands.append("interact 通行证")
+                else:
+                    if len(real_weapons) < 2:
+                        commands.extend(["interact 高斯步枪", "interact 电磁步枪"])
+                    if outer < 1 and not GameQuery.has_armor_by_name(player, "AT力场"):
+                        commands.append("interact AT力场")
+            elif loc == "医院" and vouchers < 1:
+                commands.append("interact 打工")
+
+        if "special" in available and not commands:
+            for weapon_name in ("高斯步枪", "电磁步枪"):
+                weapon = next((w for w in weapons if w and w.name == weapon_name), None)
+                if weapon and not getattr(weapon, 'is_charged', False):
+                    commands.append(f"special 蓄力{weapon_name}")
+                    break
+
+        if "move" in available and not commands:
+            next_loc = GameQuery.find_safe_location(player, state)
+            if next_loc and GameQuery.normalize_location(next_loc) != GameQuery.normalize_location(loc):
+                commands.append(f"move {next_loc}")
+        return commands
+
+    def _build_minimal_develop_commands(
+        self, player: Any, state: Any, available: List[str]
+    ) -> List[str]:
+        commands: List[str] = []
+        loc = GameQuery.get_location_str(player)
+        outer = GameQuery.count_outer_armor(player)
+        if "interact" in available:
+            if GameQuery.is_at_home(player) and outer < 1:
+                if not GameQuery.has_armor_by_name(player, "盾牌"):
+                    commands.append("interact 盾牌")
+            elif loc == "商店" and outer < 1:
+                vouchers = getattr(player, 'vouchers', 0)
+                if vouchers >= 1 and not GameQuery.has_armor_by_name(player, "陶瓷护甲"):
+                    commands.append("interact 陶瓷护甲")
+        return commands
 
     def modify_target_score(self, target: Any, base_score: float, player: Any) -> float:
         target_name = getattr(target, 'name', '')
@@ -64,25 +194,25 @@ class FireflyAIHook(BaseTalentAIHook):
                 return candidates
 
         # Phase 1（debuff前）：拿到刀就冲
-        if not self._ctrl._firefly_debuff_active(player):
+        if not GameQuery.firefly_debuff_active(player):
             has_knife = any(w.name == "小刀" for w in player.weapons if w)
             if has_knife:
                 debug_ai_basic(player.name, "火萤Phase1：有刀就冲")
                 attack_cmds = self._ctrl._cmd_attack(player, state, available)
                 if attack_cmds:
                     candidates.extend(attack_cmds)
-                    dev = self._ctrl._cmd_develop_firefly_minimal(player, state, available)
+                    dev = self._build_minimal_develop_commands(player, state, available)
                     candidates.extend(dev)
                     candidates.append("forfeit")
                     return candidates
 
         # Phase 2/3（debuff后）：攻击优先
-        if self._ctrl._firefly_debuff_active(player):
+        if GameQuery.firefly_debuff_active(player):
             debug_ai_basic(player.name, "火萤Phase2/3：debuff已生效，攻击优先")
             attack_cmds = self._ctrl._cmd_attack(player, state, available)
             if attack_cmds:
                 candidates.extend(attack_cmds)
-            dev = self._ctrl._cmd_develop(player, state, available)
+            dev = self.get_develop_commands(player, state, available) or []
             for cmd in dev:
                 if cmd not in candidates:
                     candidates.append(cmd)
@@ -96,7 +226,7 @@ class FireflyAIHook(BaseTalentAIHook):
             kill_cmds = self._ctrl._cmd_attack(player, state, available, forced_target=kill_target)
             if kill_cmds:
                 candidates.extend(kill_cmds)
-                dev = self._ctrl._cmd_develop(player, state, available)
+                dev = self.get_develop_commands(player, state, available) or []
                 if dev:
                     candidates.append(dev[0])
                 candidates.append("forfeit")
@@ -145,9 +275,133 @@ class HologramAIHook(BaseTalentAIHook):
         if exhausted:
             real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
             has_ranged = any(w.name in ("魔法弹幕", "远程魔法弹幕", "高斯步枪") for w in real_weapons)
-            return has_ranged and self._ctrl._count_outer_armor(player) >= 2
-        has_two_aoe = self._ctrl._count_distinct_aoe_attrs(player) >= 2
-        return has_two_aoe and self._ctrl._count_outer_armor(player) >= 1
+            return has_ranged and GameQuery.count_outer_armor(player) >= 2
+        has_two_aoe = GameQuery.count_distinct_aoe_attrs(player) >= 2
+        return has_two_aoe and GameQuery.count_outer_armor(player) >= 1
+
+    def get_develop_commands(
+        self, player: Any, state: Any, available: List[str]
+    ) -> Optional[List[str]]:
+        if not self._is_my_talent(player):
+            return None
+        talent = player.talent
+        exhausted = (getattr(talent, 'used', False)
+                     and getattr(talent, 'max_uses', 0) <= 0
+                     and not getattr(talent, 'active', False))
+        if exhausted:
+            post_cmds = self._get_post_hologram_commands(player, state, available)
+            return post_cmds if post_cmds else None
+        cmds = self._get_hologram_commands(player, state, available)
+        return cmds if cmds else None
+
+    def _get_hologram_commands(
+        self, player: Any, state: Any, available: List[str]
+    ) -> List[str]:
+        commands: List[str] = []
+        loc = GameQuery.get_location_str(player)
+        outer = GameQuery.count_outer_armor(player)
+        vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
+        learned = GameQuery.get_learned_spells(player)
+        has_magic_aoe = "地震" in learned or "地动山摇" in learned
+        has_tech_aoe = any(w.name == "电磁步枪" for w in player.weapons if w)
+
+        if "interact" in available:
+            if GameQuery.is_at_home(player):
+                if vouchers < 1:
+                    commands.append("interact 凭证")
+                if outer < 1 and not GameQuery.has_armor_by_name(player, "盾牌"):
+                    commands.append("interact 盾牌")
+                if not any(w.name == "小刀" for w in player.weapons if w):
+                    commands.append("interact 小刀")
+            elif loc == "魔法所":
+                if "地震" not in learned:
+                    commands.append("interact 地震")
+                elif "地动山摇" not in learned:
+                    commands.append("interact 地动山摇")
+                if "魔法护盾" not in learned and outer < 2:
+                    commands.append("interact 魔法护盾")
+            elif loc == "军事基地":
+                if not has_pass:
+                    commands.append("interact 通行证")
+                elif not has_tech_aoe:
+                    commands.append("interact 电磁步枪")
+                elif not any(
+                    w.name in ("小刀", "高斯步枪")
+                    for w in player.weapons if w and w.name != "拳击"
+                ):
+                    commands.append("interact 高斯步枪")
+                if outer < 2 and not GameQuery.has_armor_by_name(player, "AT力场"):
+                    commands.append("interact AT力场")
+            elif loc == "商店":
+                if vouchers >= 1 and not any(w.name == "小刀" for w in player.weapons if w):
+                    commands.append("interact 小刀")
+                if vouchers >= 1 and outer < 2 and not GameQuery.has_armor_by_name(player, "陶瓷护甲"):
+                    commands.append("interact 陶瓷护甲")
+                if vouchers < 1:
+                    commands.append("interact 打工")
+
+        if "interact" in available and not commands:
+            has_real_melee = any(
+                w.name != "拳击" and GameQuery.get_weapon_range(w) == "melee"
+                for w in player.weapons if w
+            )
+            if not has_real_melee:
+                if GameQuery.is_at_home(player):
+                    if not any(w.name == "小刀" for w in player.weapons if w):
+                        commands.append("interact 小刀")
+                elif loc == "商店" and vouchers >= 1:
+                    if not any(w.name == "小刀" for w in player.weapons if w):
+                        commands.append("interact 小刀")
+
+        if "special" in available:
+            emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
+            if emr and not getattr(emr, 'is_charged', False):
+                return ["special 蓄力电磁步枪", *commands]
+
+        if "move" in available and not commands:
+            if not has_magic_aoe and loc != "魔法所":
+                commands.append("move 魔法所")
+            elif not has_tech_aoe and loc != "军事基地":
+                commands.append("move 军事基地")
+            elif outer < 2:
+                next_loc = GameQuery.find_safe_location(player, state)
+                if next_loc and GameQuery.normalize_location(next_loc) != GameQuery.normalize_location(loc):
+                    commands.append(f"move {next_loc}")
+            else:
+                enemy_loc = GameQuery.find_nearest_enemy_location(player, state, {})
+                if enemy_loc and enemy_loc != loc:
+                    commands.append(f"move {enemy_loc}")
+        return commands
+
+    def _get_post_hologram_commands(
+        self, player: Any, state: Any, available: List[str]
+    ) -> List[str]:
+        commands: List[str] = []
+        loc = GameQuery.get_location_str(player)
+        learned = GameQuery.get_learned_spells(player)
+        real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
+        has_ranged = any(w.name in ("魔法弹幕", "远程魔法弹幕", "高斯步枪") for w in real_weapons)
+        if has_ranged:
+            return []
+        if "interact" in available:
+            if loc == "魔法所":
+                if "魔法弹幕" not in learned:
+                    commands.append("interact 魔法弹幕")
+                elif "远程魔法弹幕" not in learned:
+                    commands.append("interact 远程魔法弹幕")
+            elif loc == "军事基地":
+                has_pass = getattr(player, 'has_military_pass', False)
+                if not has_pass:
+                    commands.append("interact 通行证")
+                elif not any(w.name == "高斯步枪" for w in real_weapons):
+                    commands.append("interact 高斯步枪")
+        if "move" in available and not commands:
+            if loc != "魔法所" and "魔法弹幕" not in learned:
+                commands.append("move 魔法所")
+            elif loc != "军事基地":
+                commands.append("move 军事基地")
+        return commands
 
     def handle_choose(
         self, player: Any, state: Any, situation: str,
@@ -176,7 +430,7 @@ class HologramAIHook(BaseTalentAIHook):
                 been_attacked_by = context.get("been_attacked_by", set())
 
                 if (not should_activate
-                        and self._ctrl._is_development_complete(player, state)
+                        and self.is_development_complete(player, state)
                         and total_armor >= 1
                         and nearby_total >= 1):
                     emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)

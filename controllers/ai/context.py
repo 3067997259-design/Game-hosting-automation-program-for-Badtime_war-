@@ -39,7 +39,7 @@ class OrchestratorContext:
     police_cache: Optional[Dict] = None
     political_fallback_level: str = "none"
     personality: str = "balanced"
-    police_dev_assignments: Dict = field(default_factory=dict)
+    police_dev_assignments: Dict[str, Dict] = field(default_factory=dict)
     police_dev_initialized: bool = False
     last_criminal_target_id: Optional[str] = None
     ai_state: Any = None

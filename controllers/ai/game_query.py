@@ -232,6 +232,20 @@ class GameQuery:
         return "melee"
 
     @staticmethod
+    def can_reach(player, target) -> bool:
+        """同地点，或拥有远程/范围武器、远程/范围法术时视为可触及。"""
+        if GameQuery.same_location(player, target):
+            return True
+        for weapon in getattr(player, 'weapons', []):
+            if weapon and GameQuery.get_weapon_range(weapon) in ("ranged", "area"):
+                return True
+        learned = getattr(player, 'learned_spells', set())
+        return any(
+            spell in learned
+            for spell in ("魔法弹幕", "远程魔法弹幕", "地震", "地动山摇")
+        )
+
+    @staticmethod
     def get_weapon_attr(weapon):
         from utils.attribute import Attribute
         attr = getattr(weapon, 'attribute', None)
@@ -824,16 +838,6 @@ class GameQuery:
                 if not markers_obj.is_visible_to(target.player_id, player.player_id, player.has_detection):
                     return False
         return True
-
-    @staticmethod
-    def can_attack_target(player, target, state) -> bool:
-        """检查是否能攻击目标（同地点或有远程/范围武器）。"""
-        if GameQuery.same_location(player, target):
-            return True
-        for weapon in getattr(player, 'weapons', []):
-            if weapon and GameQuery.get_weapon_range(weapon) in ("ranged", "area"):
-                return True
-        return False
 
     # ════════════════════════════════════════════════════════
     #  战斗查询（从 combat_mixin 复制）
