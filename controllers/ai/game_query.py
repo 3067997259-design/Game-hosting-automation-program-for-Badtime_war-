@@ -457,14 +457,6 @@ class GameQuery:
         return loc1 == loc2 and loc1 != "unknown"
 
     @staticmethod
-    def is_home_location(loc: str) -> bool:
-        return loc == "home" or str(loc).startswith("home_") or "家" in str(loc)
-
-    @staticmethod
-    def normalize_location(loc: str) -> str:
-        return "home" if GameQuery.is_home_location(str(loc)) else str(loc)
-
-    @staticmethod
     def get_same_location_targets(player, state) -> List[Any]:
         result = []
         for pid in state.player_order:
