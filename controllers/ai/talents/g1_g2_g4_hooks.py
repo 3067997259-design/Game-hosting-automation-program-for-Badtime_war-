@@ -291,7 +291,8 @@ class HologramAIHook(BaseTalentAIHook):
         if exhausted:
             post_cmds = self._get_post_hologram_commands(player, state, available)
             return post_cmds if post_cmds else None
-        return self._get_hologram_commands(player, state, available)
+        cmds = self._get_hologram_commands(player, state, available)
+        return cmds if cmds else None
 
     def _get_hologram_commands(
         self, player: Any, state: Any, available: List[str]
