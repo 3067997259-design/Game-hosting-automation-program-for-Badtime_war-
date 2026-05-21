@@ -149,9 +149,9 @@ class BasicAIController(
         self._shadow_mode = False
         self._shadow_log: List[Dict] = []
 
-        # 诊断收集器（仅新架构且显式启用诊断时创建）
+        # 诊断收集器（显式启用诊断时创建，与架构无关）
         self._diag: Optional[DiagCollector] = (
-            DiagCollector() if new_arch_enabled and diag_enabled else None
+            DiagCollector() if diag_enabled else None
         )
 
         # ════════════════════════════════════════════════════════
