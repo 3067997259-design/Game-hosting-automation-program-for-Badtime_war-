@@ -402,11 +402,11 @@ class ThreatMind(BaseMind):
             eff_hp = self._query.get_effective_hp(target)
             if outer == 0 and inner == 0:
                 if eff_hp <= best_dmg:
-                    if self._query.can_attack_target(player, target, state):
+                    if self._query.can_reach(player, target):
                         debug_ai_kill_opportunity(player.name, target.name, eff_hp)
                         results.append({"target": target, "damage": best_dmg})
             elif outer == 0 and inner > 0:
                 if eff_hp <= 0.5 and best_dmg >= 1.0:
-                    if self._query.can_attack_target(player, target, state):
+                    if self._query.can_reach(player, target):
                         results.append({"target": target, "damage": best_dmg})
         return results
