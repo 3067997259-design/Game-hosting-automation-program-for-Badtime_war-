@@ -247,9 +247,7 @@ class GameQuery:
 
     @staticmethod
     def can_attack_target(player, target, state=None) -> bool:
-        """只读攻击可达性判断；如传入 state，同时检查基础目标合法性。"""
-        if state is not None and not GameQuery.is_valid_attack_target(player, target, state):
-            return False
+        """只读攻击可达性判断。"""
         return GameQuery.can_reach(player, target)
 
     @staticmethod
