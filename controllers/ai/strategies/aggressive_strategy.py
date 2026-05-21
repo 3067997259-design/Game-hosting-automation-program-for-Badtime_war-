@@ -52,7 +52,7 @@ class AggressiveStrategy(BasePersonalityStrategy):
     def get_combat_response_preference(self, options: List[str]) -> str:
         if "counter" in options:
             return "counter"
-        return options[0] if options else ""
+        return ""
 
     # ── 警察：警棍优先 ──
     def get_police_build_priority(self) -> List[str]:

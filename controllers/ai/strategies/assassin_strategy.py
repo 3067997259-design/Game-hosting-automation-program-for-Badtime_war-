@@ -65,5 +65,5 @@ class AssassinStrategy(BasePersonalityStrategy):
     def get_combat_response_preference(self, options: List[str]) -> str:
         if "dodge" in options:
             return "dodge"
-        return options[0] if options else ""
+        return ""
 

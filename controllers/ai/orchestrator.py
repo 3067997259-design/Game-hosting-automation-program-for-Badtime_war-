@@ -337,6 +337,10 @@ class DecisionOrchestrator:
 
         # Step 4: 按 Strategy 的阶段顺序逐层决策
         candidates: List[str] = []
+        if "special" in available_actions and self._should_release_virus(player, state):
+            candidates.append("special 释放病毒")
+            self._dbg(1, "放毒: 释放病毒")
+
         phase_order = self._strategy.get_phase_order()
         handled_phases: List[str] = []
 
@@ -896,15 +900,6 @@ class DecisionOrchestrator:
             talent_hooks=self._talent_hooks,
             combat_builder=self._combat_cmd,
         )
-
-        # 病毒释放：assassin 在医院且条件满足时释放病毒
-        if "special" in available and self._should_release_virus(player, state):
-            release_cmd = "special 释放病毒"
-            if cmds:
-                cmds.insert(0, release_cmd)
-            else:
-                cmds = [release_cmd]
-            self._dbg(1, f"发育: 释放病毒")
 
         if cmds:
             self._dbg(2, f"发育: Builder 产出 {cmds}")
