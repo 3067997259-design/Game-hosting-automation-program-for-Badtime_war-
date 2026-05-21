@@ -47,6 +47,11 @@ class DevelopCommandBuilder:
         if develop_data.get("development_complete"):
             return []
 
+        # 磨刀优先
+        sharpen = self._build_sharpen_command(player, available)
+        if sharpen:
+            return sharpen
+
         talent_cmds = self._get_talent_develop_commands(
             player, state, available, talent_hooks)
         if talent_cmds is not None:
@@ -55,11 +60,6 @@ class DevelopCommandBuilder:
         weapons = getattr(player, 'weapons', [])
         outer = Q.count_outer_armor(player)
         vouchers = getattr(player, 'vouchers', 0)
-
-        # 磨刀优先
-        sharpen = self._build_sharpen_command(player, available)
-        if sharpen:
-            return sharpen
 
         debug_ai_development_plan(player.name,
             f"状态: loc={loc} vouchers={vouchers} "
