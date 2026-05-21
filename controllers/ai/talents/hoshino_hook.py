@@ -480,12 +480,10 @@ class HoshinoAIHook(BaseTalentAIHook):
                     # 有可用的克制装填来源 → 去装填
                     counter_item = self._find_counter_consumable(player, target)
                     if counter_item:
-                        if "special" in available:
-                            ctrl._hoshino_macro_queue = [
-                                f"重新装填 {counter_item}", "terminal"]
-                            return ["special Hoshino", "forfeit"]
-                    # 无克制装填来源 → 不进入宏，交给 maintenance
-                    return None
+                        ctrl._hoshino_macro_queue = [
+                            f"重新装填 {counter_item}", "terminal"]
+                        return ["special Hoshino", "forfeit"]
+                    # 无克制装填来源 → 继续通用战术宏，避免维护路径空转
 
                 pc = ctrl._police_cache or {}
                 captain_id = pc.get("captain_id")
