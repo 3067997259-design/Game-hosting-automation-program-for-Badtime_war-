@@ -51,9 +51,6 @@ class DefensiveStrategy(BasePersonalityStrategy):
     def get_police_build_priority(self) -> List[str]:
         return ["盾牌", "警棍", "购买凭证"]
 
-    # ── 天赋 ──
-    def get_hoshino_form_preference(self) -> str:
-        return "水着-shielder"
+    def should_attack_when_develop_blocked(self) -> bool:
+        return False
 
-    def wants_extra_inner_armor(self) -> bool:
-        return True

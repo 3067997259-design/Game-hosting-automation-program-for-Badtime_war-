@@ -65,11 +65,5 @@ class AssassinStrategy(BasePersonalityStrategy):
     def get_combat_response_preference(self, options: List[str]) -> str:
         if "dodge" in options:
             return "dodge"
-        return options[0] if options else ""
+        return ""
 
-    # ── 特殊：买隐身 + 放毒 ──
-    def should_buy_stealth_items(self) -> bool:
-        return True
-
-    def should_release_virus(self) -> bool:
-        return True  # 前置条件由 _should_release_virus 单独检查

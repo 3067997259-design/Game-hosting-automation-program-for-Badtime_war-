@@ -75,12 +75,3 @@ class BaseTalentAIHook:
         """
         return None
 
-    # ════════════════════════════════════════════════════════
-    #  特殊目标
-    # ════════════════════════════════════════════════════════
-
-    def get_special_goals(
-        self, player: Any, state: Any
-    ) -> List[Any]:
-        """返回天赋建议的持久化目标列表。"""
-        return []

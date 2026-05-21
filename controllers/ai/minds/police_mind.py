@@ -65,9 +65,7 @@ class PoliceMind(BaseMind):
 
     使用方式：
         mind = PoliceMind(debug_name="AI_张三")
-        situation = mind.assess(player, state, police_cache, threat_scores)
-        if situation.recommended_stance == PoliceStance.RESIST:
-            cmds = mind.get_resist_commands(player, state, available, situation)
+        situation = mind.assess(player, state, police_cache, threat_scores, my_location)
     """
 
     # ════════════════════════════════════════════════════════════
@@ -349,59 +347,6 @@ class PoliceMind(BaseMind):
         return commands
 
     # ════════════════════════════════════════════════════════════
-    #  对抗警察命令（替代 _cmd_fight_police）
-    #  @deprecated: 新架构 RESIST 流程已通过 CombatMind 评分 +
-    #  orchestrator._handle_combat 处理，此方法未被调用。
-    #  保留作为参考实现，迁移阶段统一清理。
-    # ════════════════════════════════════════════════════════════
-
-    def get_resist_commands(
-        self,
-        player: Any,
-        state: Any,
-        available: List[str],
-        police_cache: Dict[str, Any],
-        my_location: str,
-        aoe_weapon_name: Optional[str],
-    ) -> List[str]:
-        """生成对抗警察的命令：优先用AOE攻击身边的警察。"""
-        commands: List[str] = []
-
-        if not aoe_weapon_name:
-            return commands  # 没有AOE，先获取（由 get_aoe_acquisition_commands 处理）
-
-        # 检查AOE是否需要蓄力
-        aoe_w = self._find_weapon_by_name(getattr(player, 'weapons', []), aoe_weapon_name)
-        if aoe_w and self._needs_charge(aoe_w) and not self._is_charged(aoe_w):
-            if "special" in available:
-                debug_ai_basic(self._debug_name,
-                    f"PoliceMind: {aoe_weapon_name}需要蓄力")
-                commands.append(f"special 蓄力{aoe_weapon_name}")
-            return commands
-
-        # 找最近的警察
-        for unit in police_cache.get("units", []):
-            if not unit.get("is_alive"):
-                continue
-            unit_loc = unit.get("location")
-            if not unit_loc:
-                continue
-            if my_location == unit_loc:
-                # 同地点 → 攻击
-                debug_ai_basic(self._debug_name,
-                    f"PoliceMind: 用{aoe_weapon_name}攻击警察 {unit['id']}")
-                commands.append(f"attack {unit['id']} {aoe_weapon_name}")
-                return commands
-            elif "move" in available:
-                # 不同地点 → 移动过去
-                debug_ai_basic(self._debug_name,
-                    f"PoliceMind: 移动到警察位置 {unit_loc}")
-                commands.append(f"move {unit_loc}")
-                return commands
-
-        return commands
-
-    # ════════════════════════════════════════════════════════════
     #  工具方法
     # ════════════════════════════════════════════════════════════
 
@@ -415,34 +360,6 @@ class PoliceMind(BaseMind):
         learned = getattr(player, 'learned_spells', set())
         return "地震" in learned or "地动山摇" in learned
 
-    @staticmethod
-    def get_aoe_weapon_names(player: Any) -> List[str]:
-        """返回所有AOE武器名（武器优先，法术随后，去重）"""
-        names: List[str] = []
-        seen: Set[str] = set()
-        for w in getattr(player, 'weapons', []):
-            name = w.name if hasattr(w, 'name') else str(w)
-            if name in POLICE_AOE_WEAPONS and name not in seen:
-                names.append(name)
-                seen.add(name)
-        learned = getattr(player, 'learned_spells', set())
-        for spell in ("地动山摇", "地震"):
-            if spell in learned and spell not in seen:
-                names.append(spell)
-                seen.add(spell)
-        return names
-
-    @staticmethod
-    def get_best_aoe_name(player: Any) -> Optional[str]:
-        """返回最佳AOE武器名（优先地动山摇 > 电磁步枪 > 地震）"""
-        names = PoliceMind.get_aoe_weapon_names(player)
-        if not names:
-            return None
-        priority = ["地动山摇", "电磁步枪", "地震"]
-        for preferred in priority:
-            if preferred in names:
-                return preferred
-        return names[0]
 
     @staticmethod
     def _player_id(player: Any) -> Optional[str]:

@@ -2008,13 +2008,13 @@ class BasicAIController(
         else:
             self._been_attacked_by.add(attacker)
         options = data.get("options", [])
-        personality = self.personality
-        if "dodge" in options and personality in ("assassin", "defensive"):
-            return "dodge"
+        strategy = getattr(self, '_strategy', None)
+        if strategy:
+            pref = strategy.get_combat_response_preference(options)
+            if pref in options:
+                return pref
         if "block" in options:
             return "block"
-        if "counter" in options and personality == "aggressive":
-            return "counter"
         return options[0] if options else None
 
     def _respond_report_new(self, player, state, data) -> Optional[str]:
@@ -2027,9 +2027,12 @@ class BasicAIController(
             return options[0] if options else None
         if "support" in options and "oppose" in options:
             threat = self._threat_scores.get(target, 0)
-            if threat > 30:
+            strategy = getattr(self, '_strategy', None)
+            if strategy and strategy.should_support_report(target, threat):
                 return "support"
             elif self.personality == "political":
+                return "support"
+            elif threat > 30:
                 return "support"
             else:
                 return "oppose"

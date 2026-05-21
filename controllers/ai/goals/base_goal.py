@@ -129,10 +129,6 @@ class GoalStack:
         for g in self._goals:
             g.resume()
 
-    def clear(self) -> None:
-        """清空所有目标。"""
-        self._goals.clear()
-
     @property
     def is_empty(self) -> bool:
         return len(self._goals) == 0

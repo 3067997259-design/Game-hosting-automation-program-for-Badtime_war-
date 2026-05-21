@@ -77,10 +77,3 @@ class CombatGoal(BaseGoal):
         # 3. 在 L29 作为最后兜底注入命令
         return None  # 命令由外部生成后注入
 
-    def on_command_failed(self) -> None:
-        """当生成的命令被validator拒绝时调用"""
-        self._consecutive_failures += 1
-
-    def on_command_succeeded(self) -> None:
-        """当生成的命令成功执行时调用"""
-        self._consecutive_failures = 0

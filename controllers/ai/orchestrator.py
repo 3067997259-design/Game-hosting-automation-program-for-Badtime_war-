@@ -277,7 +277,7 @@ class DecisionOrchestrator:
         s.police_cache = self._query.read_police_state(state, player.player_id)
         s.political_fallback_level = (
             self._query.political_should_fallback(player, state)
-            if self._personality == "political" else "none"
+            if self._strategy.supports_political_fallback() else "none"
         )
         self._cleanup_dead_players(state)
         self._sync_combat_status_from_markers(player, state)
@@ -337,6 +337,10 @@ class DecisionOrchestrator:
 
         # Step 4: 按 Strategy 的阶段顺序逐层决策
         candidates: List[str] = []
+        if "special" in available_actions and self._should_release_virus(player, state):
+            candidates.append("special 释放病毒")
+            self._dbg(1, "放毒: 释放病毒")
+
         phase_order = self._strategy.get_phase_order()
         handled_phases: List[str] = []
 
@@ -701,7 +705,12 @@ class DecisionOrchestrator:
                     if stance == PoliceStance.RESIST:
                         has_any_aoe = PM.has_any_aoe(player)
                         if has_any_aoe:
-                            self._dbg(2, "RESIST: 已有AOE，交COMBAT处理")
+                            self._dbg(2, "RESIST: 已有AOE，反击警察")
+                            ctx = self._build_ctx(state)
+                            fight_cmds = self._police_cmd.build_fight_police(
+                                player, state, self._strategy, available, ctx)
+                            if fight_cmds:
+                                return fight_cmds
                         else:
                             self._dbg(2, "RESIST: 无AOE，获取AOE武器")
                             target_armor_attrs = self._query.get_all_protected_armor_attrs(state, player.player_id)
@@ -892,6 +901,7 @@ class DecisionOrchestrator:
             talent_hooks=self._talent_hooks,
             combat_builder=self._combat_cmd,
         )
+
         if cmds:
             self._dbg(2, f"发育: Builder 产出 {cmds}")
         else:
@@ -982,6 +992,27 @@ class DecisionOrchestrator:
         )
         goal.set_round(round_num)
         self._goal_stack.push(goal)
+
+    def _should_release_virus(self, player, state) -> bool:
+        """判断是否应释放病毒（移植自 develop_mixin._should_release_virus）。"""
+        if self._strategy.personality_name != "assassin":
+            return False
+        if GameQuery.get_location_str(player) != "医院":
+            return False
+        virus = getattr(state, 'virus', None)
+        if virus and getattr(virus, 'is_active', False):
+            return False
+        if not GameQuery.has_virus_immunity(player):
+            return False
+        if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
+            return False
+        alive = [p for p in state.players.values() if p.is_alive()]
+        vulnerable = sum(1 for p in alive
+                        if p.player_id != player.player_id
+                        and not GameQuery.has_virus_immunity(p))
+        if len(alive) >= 4:
+            return vulnerable >= 2
+        return vulnerable >= 1
 
     # ════════════════════════════════════════════════════════
     #  工具

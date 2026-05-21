@@ -24,7 +24,7 @@ class BuilderStrategy(BasePersonalityStrategy):
     def get_development_needs_order(self) -> List[str]:
         return [
             "voucher", "outer_armor", "weapon",
-            "second_outer_armor", "inner_armor",
+            "second_outer_armor", "inner_armor", "military_pass",
         ]
 
     def is_development_complete(self, player, state,
@@ -35,9 +35,6 @@ class BuilderStrategy(BasePersonalityStrategy):
                 and count_inner_armor(player) >= 1
                 and has_pass)
 
-    # ── 特殊：愿意买通行证 + 额外内甲 ──
-    def should_agree_military_pass(self) -> bool:
-        return True
+    def should_attack_when_develop_blocked(self) -> bool:
+        return False
 
-    def wants_extra_inner_armor(self) -> bool:
-        return True
