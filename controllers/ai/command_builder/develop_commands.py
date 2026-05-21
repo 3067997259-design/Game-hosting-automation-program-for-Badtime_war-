@@ -67,7 +67,7 @@ class DevelopCommandBuilder:
 
         # Political 特殊处理
         if personality == "political":
-            fallback = getattr(ctx, 'political_fallback_level', 'none')
+            fallback = ctx.political_fallback_level
             if (fallback == "none"
                     and not getattr(player, 'is_captain', False)
                     and outer >= 1):
@@ -117,7 +117,8 @@ class DevelopCommandBuilder:
                     ))
                     if commands:
                         return commands
-            fallback = Q.find_safe_location(player, state)
+            fallback = self.pick_fallback_destination(
+                player, state, strategy, personality, ctx)
             if fallback and "move" in available:
                 if Q.normalize_location(fallback) != Q.normalize_location(loc):
                     commands.append(f"move {fallback}")
@@ -146,10 +147,11 @@ class DevelopCommandBuilder:
     def pick_destination(
         self, player: Any, state: Any,
         strategy: Any, personality: str = "balanced",
+        ctx: "OrchestratorContext" = None,
     ) -> Optional[str]:
         """动态需求驱动的目的地选择（复制自 _pick_ideal_destination）。"""
         Q = self._query
-        unmet_needs = self._get_unmet_needs(player, state, personality)
+        unmet_needs = self._get_unmet_needs(player, state, personality, ctx)
         if not unmet_needs:
             if personality in ("aggressive", "assassin", "balanced"):
                 return Q.find_nearest_enemy_location(player, state, {})
@@ -163,6 +165,11 @@ class DevelopCommandBuilder:
             if Q.get_location_str(player) != "魔法所":
                 return "魔法所"
             return None
+        # Political 特殊路径
+        if personality == "political":
+            result = self._political_destination(player, state, unmet_needs, ctx)
+            if result is not None:
+                return result
         # 评分
         loc = Q.get_location_str(player)
         vouchers = getattr(player, 'vouchers', 0)
@@ -235,7 +242,7 @@ class DevelopCommandBuilder:
                 if has_pass and outer < 2 and not Q.has_armor_by_name(player, "AT力场"):
                     commands.append("interact AT力场")
 
-        safe_loc = Q.find_safe_location(player, state)
+        safe_loc = self.pick_safe_armor_destination(player, state)
         if safe_loc and safe_loc != loc and "move" in available:
             commands.append(f"move {safe_loc}")
         return commands
@@ -279,6 +286,90 @@ class DevelopCommandBuilder:
             else:
                 commands.append("move 商店")
         return commands
+
+    def pick_virus_cure_location(self, player: Any, state: Any) -> str:
+        """选择获取病毒免疫的最佳地点（人最少 + 能获取）。"""
+        Q = self._query
+        vouchers = getattr(player, 'vouchers', 0)
+        virus = getattr(state, 'virus', None)
+        virus_active = getattr(virus, 'is_active', False) if virus else False
+        candidates = []
+        if virus_active or vouchers >= 1:
+            candidates.append("商店")
+        if vouchers >= 1:
+            candidates.append("医院")
+        candidates.append("魔法所")
+        candidates.sort(key=lambda dest: Q.count_enemies_at(dest, player, state))
+        return candidates[0] if candidates else "商店"
+
+    def pick_safe_armor_destination(self, player, state) -> Optional[str]:
+        """危险模式下选择目的地：安全 + 能拿护甲。"""
+        Q = self._query
+        loc = Q.get_location_str(player)
+        outer = Q.count_outer_armor(player)
+        inner = Q.count_inner_armor(player)
+        has_pass = getattr(player, 'has_military_pass', False)
+        armor_locations = []
+        if outer < 1 and loc != "home":
+            armor_locations.append("home")
+        if outer < 2 and loc != "商店":
+            armor_locations.append("商店")
+        if outer < 2 and loc != "魔法所":
+            armor_locations.append("魔法所")
+        if inner < 1 and loc != "医院":
+            armor_locations.append("医院")
+        if has_pass and outer < 2 and loc != "军事基地":
+            armor_locations.append("军事基地")
+        if not armor_locations:
+            return Q.find_safe_location(player, state)
+        armor_locations.sort(key=lambda dest: Q.count_enemies_at(dest, player, state))
+        return armor_locations[0]
+
+    def pick_captain_safe_destination(self, player, state, police_cache: Optional[Dict] = None) -> Optional[str]:
+        """队长危险模式目的地：优先去有最强活跃警察的地点。"""
+        Q = self._query
+        pc = police_cache or {}
+        my_loc = Q.get_location_str(player)
+        loc_strength = {}
+        for unit in pc.get("units", []):
+            if not unit.get("is_alive") or not unit.get("is_active"):
+                continue
+            uloc = unit.get("location")
+            if not uloc:
+                continue
+            hp = unit.get("hp", 1) + (1 if unit.get("outer_armor") else 0)
+            loc_strength[uloc] = loc_strength.get(uloc, 0) + hp
+        if loc_strength:
+            best = max(loc_strength, key=loc_strength.get)
+            if best != my_loc:
+                return best
+        return self.pick_safe_armor_destination(player, state)
+
+    def pick_fallback_destination(
+        self, player, state, strategy, personality: str,
+        ctx: "OrchestratorContext",
+    ) -> Optional[str]:
+        """发育受阻时，在能满足需求的地点中选敌人最少的。"""
+        Q = self._query
+        unmet_needs = self._get_unmet_needs(player, state, personality, ctx)
+        if not unmet_needs:
+            return Q.find_nearest_enemy_location(
+                player, state, ctx.threat_scores, personality,
+                ctx.players_who_attacked)
+        loc = Q.get_location_str(player)
+        useful_locs = set()
+        for need_key, _ in unmet_needs:
+            for ploc, item_name, _ in NEED_PROVIDERS.get(need_key, []):
+                if not self._already_has_item(player, item_name):
+                    useful_locs.add(ploc)
+        useful_locs.discard(loc)
+        if Q.is_at_home(player):
+            useful_locs.discard("home")
+        if not useful_locs:
+            return Q.find_nearest_enemy_location(
+                player, state, ctx.threat_scores, personality,
+                ctx.players_who_attacked)
+        return sorted(useful_locs, key=lambda dest: Q.count_enemies_at(dest, player, state))[0]
 
     # ════════════════════════════════════════════════════════
     #  内部辅助
@@ -407,10 +498,13 @@ class DevelopCommandBuilder:
                     commands.append("election")
         return commands
 
-    def _get_unmet_needs(self, player, state, personality) -> list:
+    def _get_unmet_needs(self, player, state, personality, ctx=None) -> list:
         """返回当前未满足的需求列表。"""
         Q = self._query
-        needs_order = PERSONALITY_NEEDS.get(personality, PERSONALITY_NEEDS["balanced"])
+        effective_personality = personality
+        if ctx and getattr(ctx, 'political_fallback_level', 'none') == "full_balanced":
+            effective_personality = "balanced"
+        needs_order = PERSONALITY_NEEDS.get(effective_personality, PERSONALITY_NEEDS["balanced"])
         weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
         has_weapon = len(weapons) > 0
         outer = Q.count_outer_armor(player)
@@ -526,3 +620,37 @@ class DevelopCommandBuilder:
         if item_name == "打工":
             return getattr(player, 'vouchers', 0) >= 1
         return False
+
+    def _political_destination(self, player, state, unmet_needs, ctx=None) -> Optional[str]:
+        """Political 人格的特殊目的地逻辑。"""
+        Q = self._query
+        fallback = getattr(ctx, 'political_fallback_level', 'none') if ctx else 'none'
+        if fallback in ("full_balanced", "develop_only"):
+            return None
+        is_police = getattr(player, 'is_police', False)
+        is_captain = getattr(player, 'is_captain', False)
+        loc = Q.get_location_str(player)
+        if not is_police:
+            has_basic = (any(w for w in player.weapons if w and w.name != "拳击")
+                         and Q.count_outer_armor(player) > 0)
+            if has_basic:
+                if loc != "警察局":
+                    return "警察局"
+            else:
+                return None
+        if is_police and not is_captain:
+            if loc != "警察局":
+                return "警察局"
+            return None
+        if is_captain:
+            assignments = getattr(ctx, 'police_dev_assignments', {}) if ctx else {}
+            all_deployed = all(
+                a.get("phase") in ("stationed", "stationed_default", None)
+                for a in assignments.values()
+            ) if assignments else False
+            if not all_deployed:
+                if loc != "警察局":
+                    return "警察局"
+                return None
+            return None
+        return None

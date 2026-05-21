@@ -41,19 +41,19 @@ class DevelopMind(BaseMind):
             - current_location_actions: List[str] 当前地点可执行的交互
             - best_move: Optional[str] 推荐移动指令
         """
-        my_loc = self._get_location_str(player)
+        my_loc = self._query.get_location_str(player)
         vouchers = getattr(player, 'vouchers', 0)
         has_pass = getattr(player, 'has_military_pass', False)
 
         # 发育完成判定（委托给 Strategy）
         development_complete = strategy.is_development_complete(
             player, state,
-            count_outer_armor=self._count_outer_armor,
-            count_inner_armor=self._count_inner_armor,
-            has_real_weapon=self._has_real_weapon(player),
+            count_outer_armor=self._query.count_outer_armor,
+            count_inner_armor=self._query.count_inner_armor,
+            has_real_weapon=self._query.has_real_weapon(player),
             has_pass=has_pass,
-            has_stealth=self._has_stealth(player),
-            real_weapon_count=self._count_real_weapons(player),
+            has_stealth=self._query.has_stealth(player),
+            real_weapon_count=self._query.count_real_weapons(player),
         )
 
         if development_complete:
@@ -98,7 +98,7 @@ class DevelopMind(BaseMind):
         # 推荐移动（标准化后比较，home_p5 应视为已在 home）
         best_move = None
         if (not current_actions and best_location
-                and self._normalize_location(best_location) != self._normalize_location(my_loc)):
+                and self._query.normalize_location(best_location) != self._query.normalize_location(my_loc)):
             best_move = f"move {best_location}"
 
         return MindAssessment(
@@ -151,7 +151,7 @@ class DevelopMind(BaseMind):
         learned = getattr(player, 'learned_spells', set())
         weapons = getattr(player, 'weapons', [])
         real_weapons = [w for w in weapons if w and getattr(w, 'name', '') != "拳击"]
-        outer = self._count_outer_armor(player)
+        outer = self._query.count_outer_armor(player)
 
         for need in needs_order:
             providers = NEED_PROVIDERS.get(need, [])
@@ -182,23 +182,22 @@ class DevelopMind(BaseMind):
         elif need == "detection":
             return getattr(player, 'has_detection', False)
         elif need == "inner_armor":
-            return self._count_inner_armor(player) >= 1
+            return self._query.count_inner_armor(player) >= 1
         elif need == "stealth":
-            return self._has_stealth(player)
+            return self._query.has_stealth(player)
         elif need == "military_pass":
             return has_pass
         elif need == "whetstone":
             return any(getattr(it, 'name', '') == "磨刀石" for it in getattr(player, 'items', []))
         return False
-
     # ════════════════════════════════════════════════════════
     #  地点选择
     # ════════════════════════════════════════════════════════
 
     def _pick_ideal_destination(self, player, state, unmet: List[tuple]) -> Optional[str]:
         """选择最优发育地点"""
-        my_loc = self._get_location_str(player)
-        my_loc_norm = self._normalize_location(my_loc)
+        my_loc = self._query.get_location_str(player)
+        my_loc_norm = self._query.normalize_location(my_loc)
 
         # 对所有未满足需求的所有提供者地点评分
         scores: Dict[str, float] = {}
@@ -209,7 +208,7 @@ class DevelopMind(BaseMind):
                     continue
                 score = self._score_location(loc, player, state)
                 # 当前位置加分（归一化比较）
-                if self._normalize_location(loc) == my_loc_norm:
+                if self._query.normalize_location(loc) == my_loc_norm:
                     score += 50
                 scores[loc] = max(scores.get(loc, 0), score)
 
@@ -219,26 +218,26 @@ class DevelopMind(BaseMind):
 
         best = max(scores, key=scores.get)
         # 如果最优地点就是当前位置（归一化），返回 None（不移动）
-        if self._normalize_location(best) == my_loc_norm:
+        if self._query.normalize_location(best) == my_loc_norm:
             return None
         return best
 
     def _score_location(self, location: str, player, state) -> float:
         """对发育地点评分：人越少越好"""
-        enemies = self._count_enemies_at(location, player, state)
+        enemies = self._query.count_enemies_at(location, player, state)
         base = 100.0
         base -= enemies * 25  # 每个敌人扣25分
         return max(base, 10.0)
 
     def _find_safe_location(self, player, state) -> str:
         """找人最少的地点"""
-        my_loc = self._get_location_str(player)
+        my_loc = self._query.get_location_str(player)
         best = my_loc
         best_count = 999
         for loc in LOCATIONS:
             if loc == my_loc:
                 continue
-            count = self._count_enemies_at(loc, player, state)
+            count = self._query.count_enemies_at(loc, player, state)
             if count < best_count:
                 best_count = count
                 best = loc
@@ -255,14 +254,14 @@ class DevelopMind(BaseMind):
         """获取当前地点可直接执行的交互指令"""
         commands = []
         # ★ 归一化：home_p5 → home，便于查询 LOCATION_ITEMS
-        norm_loc = self._normalize_location(location)
+        norm_loc = self._query.normalize_location(location)
         items = LOCATION_ITEMS.get(norm_loc, [])
         learned = getattr(player, 'learned_spells', set())
 
         for need_type, providers in unmet:
             for loc, item, cost in providers:
                 # ★ 标准化位置比较：home_p5 应匹配 home
-                if self._normalize_location(loc) != self._normalize_location(location):
+                if self._query.normalize_location(loc) != self._query.normalize_location(location):
                     continue
                 # ★ 已学会的法术跳过（必须在任何 add 之前检查）
                 if item in learned:
@@ -295,58 +294,6 @@ class DevelopMind(BaseMind):
     # ════════════════════════════════════════════════════════
 
     @staticmethod
-    def _get_location_str(player) -> str:
-        loc = getattr(player, 'location', None)
-        return str(loc) if loc else "home"
-
-    @staticmethod
-    def _is_home_location(loc: str) -> bool:
-        """检查是否在任何形式的家位置（home / home_p1 / 某某的家）"""
-        return loc == "home" or loc.startswith("home_") or "家" in loc
-
-    @staticmethod
-    def _normalize_location(loc: str) -> str:
-        """将 home_* 变体标准化为 'home'"""
-        return "home" if DevelopMind._is_home_location(loc) else loc
-
-    @staticmethod
-    def _count_outer_armor(player) -> int:
-        armor = getattr(player, 'armor', None)
-        if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
-            return len(armor.get_active(ArmorLayer.OUTER))
-        return 0
-
-    @staticmethod
-    def _count_inner_armor(player) -> int:
-        armor = getattr(player, 'armor', None)
-        if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
-            return len(armor.get_active(ArmorLayer.INNER))
-        return 0
-
-    @staticmethod
-    def _has_real_weapon(player) -> bool:
-        for w in getattr(player, 'weapons', []):
-            if w and getattr(w, 'name', '') != "拳击":
-                return True
-        return False
-
-    @staticmethod
-    def _count_real_weapons(player) -> int:
-        return sum(1 for w in getattr(player, 'weapons', [])
-                   if w and getattr(w, 'name', '') != "拳击")
-
-    @staticmethod
-    def _has_stealth(player) -> bool:
-        if getattr(player, 'is_invisible', False):
-            return True
-        for w in getattr(player, 'weapons', []):
-            if w and getattr(w, 'name', '') == "隐形涂层":
-                return True
-        return False
-
-    @staticmethod
     def _already_has_item(player, item_name: str) -> bool:
         """检查玩家是否已拥有同名装备（护甲/武器），避免建议重复获取"""
         # 护甲（使用旧代码的 get_all_active() 接口）
@@ -360,7 +307,6 @@ class DevelopMind(BaseMind):
             if w and getattr(w, 'name', '') == item_name:
                 return True
         return False
-
     @staticmethod
     def _can_afford(player, cost: str, vouchers: int, has_pass: bool, location: str) -> bool:
         if cost == "free":
@@ -372,18 +318,3 @@ class DevelopMind(BaseMind):
         if cost == "pass":
             return has_pass
         return False
-
-    @staticmethod
-    def _count_enemies_at(location: str, player, state) -> int:
-        count = 0
-        my_id = getattr(player, 'player_id', None)
-        for pid in state.player_order:
-            if pid == my_id:
-                continue
-            p = state.get_player(pid)
-            if not p or not p.is_alive():
-                continue
-            p_loc = str(getattr(p, 'location', ''))
-            if p_loc == location:
-                count += 1
-        return count

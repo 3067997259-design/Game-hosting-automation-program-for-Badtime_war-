@@ -198,6 +198,7 @@ class BasicAIController(
                 controller=self,
                 ai_state=self._ai_state,
                 query=self._query,
+                personality=personality,
             )
 
         # ════════════════════════════════════════════════════
@@ -425,6 +426,13 @@ class BasicAIController(
                     player, game_state, available_actions,
                     getattr(game_state, 'current_round', 0)
                 )
+                if hasattr(self, '_ai_state'):
+                    self._threat_scores = self._ai_state.threat_scores
+                    self._been_attacked_by = self._ai_state.been_attacked_by
+                    self._players_who_attacked = self._ai_state.players_who_attacked
+                    self._in_combat = self._ai_state.in_combat
+                    self._combat_target = self._ai_state.combat_target
+                    self._danger_mode = self._ai_state.danger_mode
             else:
                 self._candidates = self._generate_candidates(
                     player, game_state, available_actions

@@ -120,7 +120,7 @@ class PoliceCommandBuilder:
     ) -> List[str]:
         """政治行动命令（复制自 PoliceMixin._cmd_police_political）。"""
         Q = self._query
-        fallback = getattr(ctx, 'political_fallback_level', 'none')
+        fallback = ctx.political_fallback_level
         if fallback in ("full_balanced", "develop_only"):
             return []
         commands: List[str] = []
