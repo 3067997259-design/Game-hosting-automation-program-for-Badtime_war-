@@ -246,11 +246,6 @@ class GameQuery:
         )
 
     @staticmethod
-    def can_attack_target(player, target, state=None) -> bool:
-        """只读攻击可达性判断。"""
-        return GameQuery.can_reach(player, target)
-
-    @staticmethod
     def get_weapon_attr(weapon):
         from utils.attribute import Attribute
         attr = getattr(weapon, 'attribute', None)
