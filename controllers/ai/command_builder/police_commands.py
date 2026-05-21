@@ -238,6 +238,11 @@ class PoliceCommandBuilder:
         """反击警察命令（复制自 PoliceMixin._cmd_fight_police）。"""
         Q = self._query
         commands: List[str] = []
+
+        pc = ctx.police_cache or {}
+        alive_units = [u for u in pc.get("units", []) if u.get("is_alive")]
+        if not alive_units:
+            return commands
         loc = Q.get_location_str(player)
 
         # 找受保护目标的护甲属性
@@ -266,7 +271,6 @@ class PoliceCommandBuilder:
                         has_effective_aoe = True
                         break
 
-        pc = ctx.police_cache or {}
         if has_effective_aoe:
             for unit in pc.get("units", []):
                 if unit.get("is_alive") and unit.get("location"):

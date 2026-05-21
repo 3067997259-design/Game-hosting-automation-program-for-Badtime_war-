@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Any
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.game_query import GameQuery
-from controllers.ai.constants import debug_ai_basic
+from controllers.ai.constants import debug_ai_basic, PROTECTED_ITEMS
 
 
 class HoshinoAIHook(BaseTalentAIHook):
@@ -473,6 +473,24 @@ class HoshinoAIHook(BaseTalentAIHook):
 
             target = ctrl._hoshino_find_target(player, state)
             if target and "special" in available:
+                # ★ 弹药有效性检查：弹匣里的子弹打不穿目标护甲 → 先去装填克制属性弹药
+                if (ctrl._hoshino_has_ammo(player)
+                        and not ctrl._hoshino_can_effectively_shoot(player, target)
+                        and self._target_has_outer_armor(target)):
+                    # 有可用的克制装填来源 → 去装填
+                    counter_item = self._find_counter_consumable(player, target)
+                    if counter_item:
+                        my_loc = GameQuery.get_location_str(player)
+                        item_loc = self._guess_item_location(counter_item)
+                        if item_loc and item_loc != my_loc and "move" in available:
+                            return [f"move {item_loc}", "forfeit"]
+                        if "special" in available:
+                            ctrl._hoshino_macro_queue = [
+                                f"重新装填 {counter_item}", "terminal"]
+                            return ["special Hoshino", "forfeit"]
+                    # 无克制装填来源 → 不进入宏，交给 maintenance
+                    return None
+
                 pc = ctrl._police_cache or {}
                 captain_id = pc.get("captain_id")
                 is_anti_captain = (
@@ -510,6 +528,68 @@ class HoshinoAIHook(BaseTalentAIHook):
                 return ["special Hoshino", "forfeit"]
 
         return None
+
+    def _find_counter_consumable(self, player, target) -> Optional[str]:
+        """找能克制目标外甲的装填消耗品。
+        克制链：目标科技甲→找魔法属性物品，目标普通甲→找科技属性，目标魔法甲→找普通。
+        没有克制物品时返回 None（调用方应回退到通用路径）。"""
+        outer_attrs = self._ctrl._hoshino_get_target_outer_armor_attrs(target)
+        if not outer_attrs:
+            return None
+        counter_map = {"科技": "魔法", "普通": "科技", "魔法": "普通"}
+        needed_attr = counter_map.get(outer_attrs[0])
+        if not needed_attr:
+            return None
+        # 物品名 → 其属性 的映射（硬编码：只有这些常用装填品有明确属性）
+        _ITEM_ATTRS = {
+            "小刀": "普通", "盾牌": "普通", "陶瓷护甲": "普通",
+            "电磁步枪": "科技", "高斯步枪": "科技", "AT力场": "科技",
+            "雷达": "科技", "热成像仪": "科技",
+            "魔法护盾": "魔法", "魔法弹幕": "魔法", "探测魔法": "魔法",
+            "肾上腺素": "科技", "EPO": "科技",
+        }
+        talent = getattr(player, 'talent', None)
+        iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
+        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 2) if talent else 2
+        repair_names = {"盾牌", "AT力场"} if iron_horus_hp < iron_horus_max else set()
+        # 武器
+        for w in getattr(player, 'weapons', []):
+            if w and w.name not in ("拳击", "荷鲁斯之眼"):
+                if _ITEM_ATTRS.get(w.name) == needed_attr:
+                    return w.name
+        # 物品
+        for item in getattr(player, 'items', []):
+            item_name = getattr(item, 'name', None)
+            if item_name and item_name not in repair_names and item_name not in PROTECTED_ITEMS:
+                if _ITEM_ATTRS.get(item_name) == needed_attr:
+                    return item_name
+        # 护甲
+        for a in getattr(getattr(player, 'armor', None), 'get_all_active', lambda: [])():
+            if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
+                if _ITEM_ATTRS.get(a.name) == needed_attr:
+                    return a.name
+        return None
+
+    @staticmethod
+    def _target_has_outer_armor(target) -> bool:
+        """检查目标是否有外层护甲（用于判断是否需要检查弹药克制）。"""
+        armor_obj = getattr(target, 'armor', None)
+        if not armor_obj or not hasattr(armor_obj, 'get_active'):
+            return False
+        from models.equipment import ArmorLayer
+        outer = armor_obj.get_active(ArmorLayer.OUTER)
+        return len(outer) > 0
+
+    @staticmethod
+    def _guess_item_location(item_name: str) -> Optional[str]:
+        """猜测物品所在位置（仅用于 Hoshino 装填时决定移动方向）。"""
+        _ITEM_LOCS = {
+            "小刀": "home", "盾牌": "home",
+            "陶瓷护甲": "商店", "磨刀石": "商店",
+            "魔法护盾": "魔法所", "探测魔法": "魔法所", "魔法弹幕": "魔法所",
+            "AT力场": "军事基地", "高斯步枪": "军事基地", "电磁步枪": "军事基地",
+        }
+        return _ITEM_LOCS.get(item_name)
 
     # ── 发育判定 ──
     def is_development_complete(self, player: Any, state: Any) -> Optional[bool]:

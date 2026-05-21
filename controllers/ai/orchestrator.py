@@ -703,14 +703,19 @@ class DecisionOrchestrator:
                     from controllers.ai.minds.police_mind import PoliceMind as PM
                     stance = getattr(police_sit, 'recommended_stance', None)
                     if stance == PoliceStance.RESIST:
-                        has_any_aoe = PM.has_any_aoe(player)
-                        if has_any_aoe:
+                        polices_cache = self._shared_state.police_cache or {}
+                        alive_police = sum(1 for u in polices_cache.get("units", [])
+                                          if u.get("is_alive"))
+                        if alive_police == 0:
+                            self._dbg(2, "RESIST: 无存活警察，跳过")
+                        elif PM.has_any_aoe(player):
                             self._dbg(2, "RESIST: 已有AOE，反击警察")
                             ctx = self._build_ctx(state)
                             fight_cmds = self._police_cmd.build_fight_police(
                                 player, state, self._strategy, available, ctx)
                             if fight_cmds:
                                 return fight_cmds
+                            self._dbg(2, "RESIST: build_fight_police 无产出，交COMBAT处理")
                         else:
                             self._dbg(2, "RESIST: 无AOE，获取AOE武器")
                             target_armor_attrs = self._query.get_all_protected_armor_attrs(state, player.player_id)
