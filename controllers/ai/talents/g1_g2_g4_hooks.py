@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Dict, List, Optional, Any
 import random
+from controllers.ai.command_builder.develop_commands import DevelopCommandBuilder
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.game_query import GameQuery
 from controllers.ai.constants import debug_ai_basic
@@ -38,7 +39,7 @@ class FireflyAIHook(BaseTalentAIHook):
         vouchers = getattr(player, 'vouchers', 0)
         has_pass = getattr(player, 'has_military_pass', False)
 
-        sharpen = self._build_sharpen_command(player, available)
+        sharpen = DevelopCommandBuilder._build_sharpen_command(player, available)
         if sharpen:
             return sharpen
 
@@ -153,20 +154,6 @@ class FireflyAIHook(BaseTalentAIHook):
                 if vouchers >= 1 and not GameQuery.has_armor_by_name(player, "陶瓷护甲"):
                     commands.append("interact 陶瓷护甲")
         return commands
-
-    @staticmethod
-    def _build_sharpen_command(player: Any, available: List[str]) -> List[str]:
-        if "special" not in available:
-            return []
-        has_stone = any(
-            getattr(item, 'name', '') == "磨刀石"
-            for item in getattr(player, 'items', [])
-        )
-        has_unsharpened = any(
-            w.name == "小刀" and getattr(w, 'base_damage', 0) < 2
-            for w in getattr(player, 'weapons', []) if w
-        )
-        return ["special 磨刀"] if has_stone and has_unsharpened else []
 
     def modify_target_score(self, target: Any, base_score: float, player: Any) -> float:
         target_name = getattr(target, 'name', '')
@@ -304,7 +291,8 @@ class HologramAIHook(BaseTalentAIHook):
         if exhausted:
             post_cmds = self._get_post_hologram_commands(player, state, available)
             return post_cmds if post_cmds else None
-        return self._get_hologram_commands(player, state, available)
+        cmds = self._get_hologram_commands(player, state, available)
+        return cmds if cmds else None
 
     def _get_hologram_commands(
         self, player: Any, state: Any, available: List[str]

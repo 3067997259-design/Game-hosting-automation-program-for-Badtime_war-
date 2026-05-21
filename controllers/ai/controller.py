@@ -503,7 +503,9 @@ class BasicAIController(
         self._update_threat_scores(player, state)
         self._read_police_state(state)
         if self._uses_new_arch_events():
+            self._sync_legacy_views_to_ai_state()
             self._cleanup_dead_players_new(state)
+            self._expose_ai_state_for_legacy_views()
         else:
             self._cleanup_dead_players(state)
 
@@ -1804,6 +1806,23 @@ class BasicAIController(
             self._police_cache = s.police_cache
         self._virus_active = s.virus_active
         self._virus_location = s.virus_location
+
+    def _sync_legacy_views_to_ai_state(self) -> None:
+        """把遗留路径更新过的字段写回 AIState。"""
+        s = getattr(self, '_ai_state', None)
+        if not s:
+            return
+        s.threat_scores = dict(self._threat_scores)
+        s.low_threat_streak = dict(self._low_threat_streak)
+        s.been_attacked_by = set(self._been_attacked_by)
+        s.players_who_attacked = set(self._players_who_attacked)
+        s.in_combat = self._in_combat
+        s.combat_target = self._combat_target
+        s.danger_mode = self._danger_mode
+        s.round_number = self._round_number
+        s.police_cache = self._police_cache
+        s.virus_active = self._virus_active
+        s.virus_location = self._virus_location
 
     def _cleanup_dead_players_new(self, state) -> None:
         s = getattr(self, '_ai_state', None)

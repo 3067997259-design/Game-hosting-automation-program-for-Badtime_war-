@@ -1,4 +1,4 @@
-"""DevelopCommandBuilder —— 发育指令、目的地选择、病毒应急
+"""DevelopCommandBuilder —— 发育指令、病毒应急
 
 从 develop_mixin.py 复制，所有 self._xxx 属性访问改为通过 GameQuery / ctx 参数。
 """
@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from controllers.ai.constants import (
     NEED_PROVIDERS, PERSONALITY_NEEDS,
-    debug_ai_basic, debug_ai_development_plan,
+    debug_ai_development_plan,
 )
 
 if TYPE_CHECKING:
@@ -86,16 +86,21 @@ class DevelopCommandBuilder:
         if current_interact and "interact" in available:
             commands.extend(current_interact)
 
-        # 蓄力
-        if "special" in available and not commands:
-            emr = next((w for w in weapons if w and getattr(w, 'name', '') == "电磁步枪"), None)
-            if emr and not getattr(emr, 'is_charged', False):
-                commands.append("special 蓄力电磁步枪")
-            if not commands:
-                gauss = next((w for w in weapons
-                              if w and getattr(w, 'name', '') == "高斯步枪"), None)
-                if gauss and not getattr(gauss, 'is_charged', False):
-                    commands.append("special 蓄力高斯步枪")
+        # 蓄力：与当前地点交互同级，交给最终选择逻辑排序。
+        if "special" in available:
+            if combat_builder is not None:
+                charge_cmds = combat_builder.build_charge(player, available)
+                for cmd in charge_cmds:
+                    if cmd not in commands:
+                        commands.append(cmd)
+            else:
+                for weapon_name in ("电磁步枪", "高斯步枪"):
+                    weapon = next((w for w in weapons
+                                   if w and getattr(w, 'name', '') == weapon_name), None)
+                    if weapon and not getattr(weapon, 'is_charged', False):
+                        cmd = f"special 蓄力{weapon_name}"
+                        if cmd not in commands:
+                            commands.append(cmd)
 
         # 移动到 DevelopMind 选出的最优地点
         if "move" in available and not commands:
@@ -140,58 +145,6 @@ class DevelopCommandBuilder:
             commands.append("special 唤醒")
         return commands
 
-    # ════════════════════════════════════════════════════════
-    #  目的地选择
-    # ════════════════════════════════════════════════════════
-
-    def pick_destination(
-        self, player: Any, state: Any,
-        strategy: Any, personality: str = "balanced",
-        ctx: "OrchestratorContext" = None,
-    ) -> Optional[str]:
-        """动态需求驱动的目的地选择（复制自 _pick_ideal_destination）。"""
-        Q = self._query
-        unmet_needs = self._get_unmet_needs(player, state, personality, ctx)
-        if not unmet_needs:
-            if personality in ("aggressive", "assassin", "balanced"):
-                return Q.find_nearest_enemy_location(player, state, {})
-            return None
-        # 死者苏生
-        if (player.talent
-                and hasattr(player.talent, 'learned')
-                and not player.talent.learned
-                and hasattr(player.talent, 'name')
-                and player.talent.name == "死者苏生"):
-            if Q.get_location_str(player) != "魔法所":
-                return "魔法所"
-            return None
-        # Political 特殊路径
-        if personality == "political":
-            result = self._political_destination(player, state, unmet_needs, ctx)
-            if result is not None:
-                return result
-        # 评分
-        loc = Q.get_location_str(player)
-        vouchers = getattr(player, 'vouchers', 0)
-        has_pass = getattr(player, 'has_military_pass', False)
-        candidate_locs = ["home", "商店", "魔法所", "医院", "军事基地"]
-        best_loc = None
-        best_score = -999.0
-        for dest in candidate_locs:
-            if dest == loc:
-                continue
-            if dest == "home" and Q.is_at_home(player):
-                continue
-            score = self._score_destination(dest, unmet_needs, player, state,
-                                            vouchers, has_pass, personality)
-            if score > best_score:
-                best_score = score
-                best_loc = dest
-        if best_score <= 0 and unmet_needs:
-            return None
-        return best_loc
-
-    # ════════════════════════════════════════════════════════
     #  危险发育
     # ════════════════════════════════════════════════════════
 
@@ -401,103 +354,6 @@ class DevelopCommandBuilder:
         )
         return ["special 磨刀"] if has_stone and has_unsharpened else []
 
-    def _general_interact(
-        self, player, state, loc, has_weapon, outer, inner,
-        vouchers, has_pass, has_detection, personality,
-    ) -> List[str]:
-        """通用地点 interact 逻辑（复制自 _cmd_develop 的 interact 段落）。"""
-        Q = self._query
-        commands: List[str] = []
-        if loc == "home" or Q.is_at_home(player):
-            if outer == 0 and not Q.has_armor_by_name(player, "盾牌"):
-                commands.append("interact 盾牌")
-            if not has_weapon:
-                commands.append("interact 小刀")
-            if vouchers < 1:
-                commands.append("interact 凭证")
-        elif loc == "商店":
-            if not has_weapon:
-                commands.append("interact 小刀")
-            if vouchers >= 1 and not has_detection:
-                commands.append("interact 热成像仪")
-            if vouchers >= 1 and outer < 2 and not Q.has_armor_by_name(player, "陶瓷护甲"):
-                commands.append("interact 陶瓷护甲")
-            if personality == "assassin" and vouchers >= 1:
-                commands.append("interact 隐身衣")
-            if has_weapon and Q.has_melee_only(player):
-                has_stone = any(getattr(i, 'name', '') == "磨刀石"
-                               for i in getattr(player, 'items', []))
-                has_unsharpened = any(w.name == "小刀" and w.base_damage < 2
-                                     for w in player.weapons if w)
-                if not has_stone and has_unsharpened:
-                    commands.append("interact 磨刀石")
-            if vouchers < 1:
-                commands.append("interact 打工")
-        elif loc == "魔法所":
-            learned = Q.get_learned_spells(player)
-            if "魔法弹幕" not in learned and not has_weapon:
-                commands.append("interact 魔法弹幕")
-            if "魔法弹幕" in learned and "远程魔法弹幕" not in learned:
-                commands.append("interact 远程魔法弹幕")
-            if "魔法护盾" not in learned and outer < 2:
-                commands.append("interact 魔法护盾")
-            if "探测魔法" not in learned and not has_detection:
-                commands.append("interact 探测魔法")
-            if "隐身术" not in learned and personality == "assassin":
-                commands.append("interact 隐身术")
-            if "地震" not in learned:
-                commands.append("interact 地震")
-            if "地震" in learned and "地动山摇" not in learned:
-                commands.append("interact 地动山摇")
-            if "封闭" not in learned:
-                commands.append("interact 封闭")
-            if (player.talent
-                    and hasattr(player.talent, 'learned')
-                    and not player.talent.learned
-                    and hasattr(player.talent, 'name')
-                    and player.talent.name == "死者苏生"):
-                if not commands:
-                    commands.append("forfeit")
-        elif loc == "医院":
-            if inner == 0:
-                if personality == "builder":
-                    commands.append("interact 晶化皮肤手术")
-                    commands.append("interact 额外心脏手术")
-                else:
-                    commands.append("interact 晶化皮肤手术")
-            elif inner < 2 and personality in ("builder", "defensive"):
-                commands.append("interact 额外心脏手术")
-            if not Q.has_virus_immunity(player) and vouchers >= 1:
-                commands.append("interact 防毒面具")
-            if vouchers < 1:
-                commands.append("interact 打工")
-        elif loc == "军事基地":
-            if not has_pass:
-                commands.append("interact 通行证")
-            elif has_pass:
-                if not has_weapon or personality in ("aggressive", "balanced"):
-                    commands.append("interact 电磁步枪")
-                    commands.append("interact 高斯步枪")
-                if outer < 2 and not Q.has_armor_by_name(player, "AT力场"):
-                    commands.append("interact AT力场")
-                if not has_detection:
-                    commands.append("interact 雷达")
-                if personality == "assassin":
-                    commands.append("interact 隐形涂层")
-        elif loc == "警察局":
-            if personality == "political":
-                police = getattr(state, 'police', None)
-                if (police and police.report_phase == "reported"
-                        and police.reporter_id == player.player_id):
-                    commands.append("assemble")
-                    return commands
-                if not getattr(player, 'is_police', False):
-                    commands.append("recruit")
-                elif (getattr(player, 'is_police', False)
-                      and not getattr(player, 'is_captain', False)):
-                    commands.append("election")
-        return commands
-
     def _get_unmet_needs(self, player, state, personality, ctx=None) -> list:
         """返回当前未满足的需求列表。"""
         Q = self._query
@@ -536,57 +392,6 @@ class DevelopCommandBuilder:
                 unmet.append(("military_pass", 4))
         return unmet
 
-    def _score_destination(
-        self, dest, unmet_needs, player, state, vouchers, has_pass,
-        personality,
-    ) -> float:
-        """对候选地点评分。"""
-        Q = self._query
-        score = 0.0
-        for need_key, priority in unmet_needs:
-            providers = NEED_PROVIDERS.get(need_key, [])
-            for (ploc, item_name, prereq) in providers:
-                if ploc != dest:
-                    continue
-                if prereq == "voucher" and vouchers < 1:
-                    score += priority * 0.3
-                    continue
-                if prereq == "pass" and not has_pass:
-                    if vouchers >= 1:
-                        score += priority * 0.5
-                    else:
-                        score += priority * 0.1
-                    continue
-                if prereq == "voucher_consume" and vouchers < 1:
-                    score += priority * 0.2
-                    continue
-                if self._already_has_item(player, item_name):
-                    continue
-                score += priority
-                break
-        enemies = Q.count_enemies_at(dest, player, state)
-        if personality in ("aggressive", "assassin"):
-            score -= enemies * 0.5
-        else:
-            if enemies == 1:
-                score -= 0.5
-            elif enemies == 2:
-                score -= 2.5
-            elif enemies >= 3:
-                score -= enemies * 2 + 3
-        satisfiable_count = 0
-        for need_key, _ in unmet_needs:
-            providers = NEED_PROVIDERS.get(need_key, [])
-            for (ploc, item_name, _) in providers:
-                if ploc == dest and not self._already_has_item(player, item_name):
-                    satisfiable_count += 1
-                    break
-        if satisfiable_count >= 2:
-            score += 3
-        if satisfiable_count >= 3:
-            score += 3
-        return score
-
     def _already_has_item(self, player, item_name) -> bool:
         """检查玩家是否已拥有某物品/装备/法术。"""
         Q = self._query
@@ -620,37 +425,3 @@ class DevelopCommandBuilder:
         if item_name == "打工":
             return getattr(player, 'vouchers', 0) >= 1
         return False
-
-    def _political_destination(self, player, state, unmet_needs, ctx=None) -> Optional[str]:
-        """Political 人格的特殊目的地逻辑。"""
-        Q = self._query
-        fallback = getattr(ctx, 'political_fallback_level', 'none') if ctx else 'none'
-        if fallback in ("full_balanced", "develop_only"):
-            return None
-        is_police = getattr(player, 'is_police', False)
-        is_captain = getattr(player, 'is_captain', False)
-        loc = Q.get_location_str(player)
-        if not is_police:
-            has_basic = (any(w for w in player.weapons if w and w.name != "拳击")
-                         and Q.count_outer_armor(player) > 0)
-            if has_basic:
-                if loc != "警察局":
-                    return "警察局"
-            else:
-                return None
-        if is_police and not is_captain:
-            if loc != "警察局":
-                return "警察局"
-            return None
-        if is_captain:
-            assignments = getattr(ctx, 'police_dev_assignments', {}) if ctx else {}
-            all_deployed = all(
-                a.get("phase") in ("stationed", "stationed_default", None)
-                for a in assignments.values()
-            ) if assignments else False
-            if not all_deployed:
-                if loc != "警察局":
-                    return "警察局"
-                return None
-            return None
-        return None

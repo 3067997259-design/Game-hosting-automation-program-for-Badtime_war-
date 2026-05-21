@@ -61,7 +61,7 @@ class PoliceCommandBuilder:
         criminal_target = self._find_criminal_target(player, state, ctx)
         if criminal_target:
             new_target_id = criminal_target.player_id
-            if ctx.last_criminal_target_id != new_target_id:
+            if self._get_last_criminal_target_id(ctx) != new_target_id:
                 self._set_police_dev_initialized(ctx, False)
             self._set_last_criminal_target_id(ctx, new_target_id)
         if not self._get_police_dev_initialized(ctx):
@@ -331,33 +331,29 @@ class PoliceCommandBuilder:
 
     @staticmethod
     def _get_assignments(ctx) -> Dict:
-        ai_state = getattr(ctx, 'ai_state', None)
-        if ai_state is not None:
-            return ai_state.police_dev_assignments
         return getattr(ctx, 'police_dev_assignments', {})
 
     @staticmethod
     def _get_police_dev_initialized(ctx) -> bool:
-        ai_state = getattr(ctx, 'ai_state', None)
-        if ai_state is not None:
-            return ai_state.police_dev_initialized
         return getattr(ctx, 'police_dev_initialized', False)
 
     @staticmethod
+    def _get_last_criminal_target_id(ctx) -> Optional[str]:
+        return getattr(ctx, 'last_criminal_target_id', None)
+
+    @staticmethod
     def _set_police_dev_initialized(ctx, value: bool) -> None:
+        ctx.police_dev_initialized = value
         ai_state = getattr(ctx, 'ai_state', None)
         if ai_state is not None:
             ai_state.police_dev_initialized = value
-        else:
-            ctx.police_dev_initialized = value
 
     @staticmethod
     def _set_last_criminal_target_id(ctx, value: Optional[str]) -> None:
+        ctx.last_criminal_target_id = value
         ai_state = getattr(ctx, 'ai_state', None)
         if ai_state is not None:
             ai_state.last_criminal_target_id = value
-        else:
-            ctx.last_criminal_target_id = value
 
     def _find_criminal_target(self, player, state, ctx):
         """找到最高威胁的犯罪目标。"""
@@ -453,10 +449,9 @@ class PoliceCommandBuilder:
                 "target_armor": None, "station": "魔法所", "phase": "stationed_default",
             }
         ai_state = getattr(ctx, 'ai_state', None)
+        ctx.police_dev_assignments = assignments
         if ai_state is not None:
             ai_state.police_dev_assignments = assignments
-        else:
-            ctx.police_dev_assignments = assignments
 
     def _police_develop_step(self, active_units, ctx) -> Optional[str]:
         """执行一步警察发育。"""
