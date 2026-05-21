@@ -24,6 +24,18 @@ class HoshinoAIHook(BaseTalentAIHook):
     def __init__(self, controller: Any):
         self._ctrl = controller
 
+    def _get_threat_scores(self) -> Dict[str, float]:
+        state = getattr(self._ctrl, '_ai_state', None)
+        if state is not None:
+            return getattr(state, 'threat_scores', {})
+        return getattr(self._ctrl, '_threat_scores', {})
+
+    def _get_players_who_attacked(self) -> set:
+        state = getattr(self._ctrl, '_ai_state', None)
+        if state is not None:
+            return getattr(state, 'players_who_attacked', set())
+        return getattr(self._ctrl, '_players_who_attacked', set())
+
     # ── 威胁修改 ──
     def modify_threat_power(self, target: Any, base_power: float) -> float:
         t_talent = getattr(target, 'talent', None)
@@ -237,9 +249,9 @@ class HoshinoAIHook(BaseTalentAIHook):
                 return macro_result
             # 无目标 → 去敌人位置
             enemy_loc = GameQuery.find_nearest_enemy_location(
-                player, state, getattr(self._ctrl, '_threat_scores', {}),
+                player, state, self._get_threat_scores(),
                 personality=getattr(self._ctrl, 'personality', 'balanced'),
-                players_who_attacked=getattr(self._ctrl, '_players_who_attacked', set()),
+                players_who_attacked=self._get_players_who_attacked(),
             )
             if enemy_loc and "move" in available:
                 loc = GameQuery.get_location_str(player)
@@ -386,9 +398,9 @@ class HoshinoAIHook(BaseTalentAIHook):
         # 阶段4：发育完成 → 找敌人
         if "move" in available:
             enemy_loc = GameQuery.find_nearest_enemy_location(
-                player, state, getattr(ctrl, '_threat_scores', {}),
+                player, state, self._get_threat_scores(),
                 personality=getattr(ctrl, 'personality', 'balanced'),
-                players_who_attacked=getattr(ctrl, '_players_who_attacked', set()),
+                players_who_attacked=self._get_players_who_attacked(),
             )
             if enemy_loc and enemy_loc != loc:
                 if not (enemy_loc == "home" and GameQuery.is_at_home(player)):

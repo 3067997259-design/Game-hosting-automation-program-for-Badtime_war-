@@ -86,16 +86,21 @@ class DevelopCommandBuilder:
         if current_interact and "interact" in available:
             commands.extend(current_interact)
 
-        # 蓄力
-        if "special" in available and not commands:
-            emr = next((w for w in weapons if w and getattr(w, 'name', '') == "电磁步枪"), None)
-            if emr and not getattr(emr, 'is_charged', False):
-                commands.append("special 蓄力电磁步枪")
-            if not commands:
-                gauss = next((w for w in weapons
-                              if w and getattr(w, 'name', '') == "高斯步枪"), None)
-                if gauss and not getattr(gauss, 'is_charged', False):
-                    commands.append("special 蓄力高斯步枪")
+        # 蓄力：与当前地点交互同级，交给最终选择逻辑排序。
+        if "special" in available:
+            if combat_builder is not None:
+                charge_cmds = combat_builder.build_charge(player, available)
+                for cmd in charge_cmds:
+                    if cmd not in commands:
+                        commands.append(cmd)
+            else:
+                for weapon_name in ("电磁步枪", "高斯步枪"):
+                    weapon = next((w for w in weapons
+                                   if w and getattr(w, 'name', '') == weapon_name), None)
+                    if weapon and not getattr(weapon, 'is_charged', False):
+                        cmd = f"special 蓄力{weapon_name}"
+                        if cmd not in commands:
+                            commands.append(cmd)
 
         # 移动到 DevelopMind 选出的最优地点
         if "move" in available and not commands:
