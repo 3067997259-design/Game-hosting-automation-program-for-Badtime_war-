@@ -576,17 +576,6 @@ class HoshinoAIHook(BaseTalentAIHook):
         outer = armor_obj.get_active(ArmorLayer.OUTER)
         return len(outer) > 0
 
-    @staticmethod
-    def _guess_item_location(item_name: str) -> Optional[str]:
-        """猜测物品所在位置（仅用于 Hoshino 装填时决定移动方向）。"""
-        _ITEM_LOCS = {
-            "小刀": "home", "盾牌": "home",
-            "陶瓷护甲": "商店", "磨刀石": "商店",
-            "魔法护盾": "魔法所", "探测魔法": "魔法所", "魔法弹幕": "魔法所",
-            "AT力场": "军事基地", "高斯步枪": "军事基地", "电磁步枪": "军事基地",
-        }
-        return _ITEM_LOCS.get(item_name)
-
     # ── 发育判定 ──
     def is_development_complete(self, player: Any, state: Any) -> Optional[bool]:
         if not GameQuery.has_hoshino_talent(player):
