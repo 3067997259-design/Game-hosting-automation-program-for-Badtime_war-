@@ -259,6 +259,13 @@ class DecisionOrchestrator:
         prefix = {1: "  [Orch]", 2: "  [Orch·]", 3: "  [Orch··]"}.get(level, "  [Orch]")
         print(f"{prefix} {name}: {msg}")
 
+    def _finish_generate(self, candidates: List[str]) -> List[str]:
+        """结束决策时把 AIState 暴露给遗留只读路径。"""
+        expose = getattr(self._ctrl, '_expose_ai_state_for_legacy_views', None)
+        if expose:
+            expose()
+        return candidates
+
     # ════════════════════════════════════════════════════════
     #  主入口
     # ════════════════════════════════════════════════════════
@@ -331,13 +338,13 @@ class DecisionOrchestrator:
         # Step 0: 未起床
         if not player.is_awake:
             self._dbg(1, "未起床 → wake")
-            return ["wake"]
+            return self._finish_generate(["wake"])
 
         # Step 1: 天赋钩子接管
         override = self._check_talent_overrides(player, state, available_actions)
         if override is not None:
             self._dbg(1, f"天赋钩子接管 → {override}")
-            return override
+            return self._finish_generate(override)
 
         # Step 2: 运行所有 Mind，收集态势快照
         snapshots = self._run_all_minds(player, state)
@@ -370,7 +377,7 @@ class DecisionOrchestrator:
                         self._dbg(2, f"阶段 {phase.name} 终止后续 | 指令: {valid_cmds}")
                         candidates.append("forfeit")
                         result = self._dedup(candidates)
-                        return result
+                        return self._finish_generate(result)
                 else:
                     self._dbg(2, f"阶段 {phase.name} 产出全被过滤(原:{phase_cmds})，继续")
             else:
@@ -389,7 +396,7 @@ class DecisionOrchestrator:
 
         candidates.append("forfeit")
         result = self._finalize(candidates, player, my_loc)
-        return result
+        return self._finish_generate(result)
 
     def _finalize(self, candidates: List[str], player, my_loc: str) -> List[str]:
         """去重 + 过滤无效指令（如 move 到当前位置）"""
