@@ -480,10 +480,6 @@ class HoshinoAIHook(BaseTalentAIHook):
                     # 有可用的克制装填来源 → 去装填
                     counter_item = self._find_counter_consumable(player, target)
                     if counter_item:
-                        my_loc = GameQuery.get_location_str(player)
-                        item_loc = self._guess_item_location(counter_item)
-                        if item_loc and item_loc != my_loc and "move" in available:
-                            return [f"move {item_loc}", "forfeit"]
                         if "special" in available:
                             ctrl._hoshino_macro_queue = [
                                 f"重新装填 {counter_item}", "terminal"]
