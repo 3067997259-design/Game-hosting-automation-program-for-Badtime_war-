@@ -176,7 +176,8 @@ class PoliceCommandBuilder:
                         if not target_is_criminal:
                             if police_data and hasattr(police_data, 'is_criminal'):
                                 target_is_criminal = police_data.is_criminal(target.player_id)
-                        if target_is_criminal:
+                        been_attacked = ctx.been_attacked_by
+                        if target_is_criminal and target.name in been_attacked:
                             commands.append(f"report {target.name}")
                             break
 

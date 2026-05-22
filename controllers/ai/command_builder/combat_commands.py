@@ -191,7 +191,19 @@ class CombatCommandBuilder:
         if Q.is_in_savior_state(player) and weapon_range == "ranged":
             weapon_range = "melee"
 
+        in_barrier = getattr(getattr(state, 'active_barrier', None),
+                           'is_in_barrier', lambda _: False)
+        in_hologram = in_barrier(player.player_id) if callable(in_barrier) else False
+
         if weapon_range == "melee":
+            # 全息影像区域内 cannot find → 跳过近战前置
+            if in_hologram and "attack" in available:
+                layer, attr = self.pick_attack_layer(player, target, weapon)
+                if layer and attr:
+                    commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
+                else:
+                    commands.append(f"attack {target.name} {weapon.name}")
+                return commands
             is_engaged = False
             if markers and hasattr(markers, 'has_relation'):
                 is_engaged = markers.has_relation(
@@ -227,6 +239,14 @@ class CombatCommandBuilder:
                     commands.append(f"attack {target.name} {weapon.name}")
 
         elif weapon_range == "ranged":
+            # 全息影像区域内 cannot lock → 直接攻击
+            if in_hologram and "attack" in available:
+                layer, attr = self.pick_attack_layer(player, target, weapon)
+                if layer and attr:
+                    commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
+                else:
+                    commands.append(f"attack {target.name} {weapon.name}")
+                return commands
             is_locked = False
             if markers and hasattr(markers, 'has_relation'):
                 is_locked = markers.has_relation(
