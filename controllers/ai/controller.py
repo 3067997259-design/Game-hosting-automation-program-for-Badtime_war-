@@ -45,7 +45,6 @@ from controllers.ai.talents.t1_oneslash_hook import OneSlashAIHook
 from controllers.ai.talents.t3_star_hook import StarAIHook
 from controllers.ai.talents.t4_hexagram_hook import HexagramAIHook
 from controllers.ai.talents.g5_ripple_hook import RippleAIHook
-from controllers.ai.talents.t2_scissor_rush_hook import ScissorRushAIHook
 
 # 新架构决策编排器
 from controllers.ai.orchestrator import DecisionOrchestrator
@@ -177,7 +176,6 @@ class BasicAIController(
                 "天星": StarAIHook(self),
                 "六爻": HexagramAIHook(self),
                 "往世的涟漪": RippleAIHook(self),
-                "剪刀手一突": ScissorRushAIHook(self),
             }
             self._terror_defense = TerrorDefenseAI(debug_name="AI")
             self._ai_state.terror_defense = self._terror_defense
