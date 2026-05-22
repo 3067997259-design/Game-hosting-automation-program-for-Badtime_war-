@@ -751,14 +751,6 @@ class DecisionOrchestrator:
 
     # ── 队长指挥 / Political 警察建设 ──
     def _handle_captain(self, player, state, available, snapshots, round_num) -> List[str]:
-        # 快速路径：所有警察沉沦/震荡 → 队长无法指挥 → 转为战斗
-        police = snapshots.get("police")
-        if police:
-            sit = police.data.get("police_situation")
-            if sit and getattr(sit, 'active_units', 0) == 0 and getattr(sit, 'alive_units', 0) > 0:
-                self._dbg(2, "队长: 所有警察不可用(沉沦/震荡)，转为战斗")
-                return []
-
         # 队长：警察指挥
         if getattr(player, 'is_captain', False) and "police_command" in available:
             self._dbg(2, "队长: 生成警察指挥")
