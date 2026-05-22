@@ -49,9 +49,12 @@ class BasePersonalityStrategy:
         count_outer_armor, count_inner_armor, has_real_weapon: bool,
         has_pass: bool, has_stealth: bool, real_weapon_count: int,
     ) -> bool:
-        """判断发育是否完成。"""
+        """判断发育是否完成。终局（≤2人存活）降级：有武器+1外甲即完成。"""
         outer = count_outer_armor(player)
         inner = count_inner_armor(player)
+        alive = state.alive_players()
+        if len(alive) <= 2:
+            return has_real_weapon and outer >= 1
         return has_real_weapon and outer >= 2 and inner >= 1
 
     # ════════════════════════════════════════════════════════
@@ -99,10 +102,6 @@ class BasePersonalityStrategy:
         """作为队长时是否优先唤醒警察单位。"""
         return False
 
-    def should_fight_police_over_captain(self) -> bool:
-        """Resist 态度下是否优先打警察单位而非队长。默认 False：优先打队长。"""
-        return False
-
     def should_support_report(self, target_name: str, threat_score: float) -> bool:
         """被问是否支持举报时的默认态度。Base: 威胁 > 30 时支持。"""
         return threat_score > 30
@@ -138,8 +137,11 @@ class BasePersonalityStrategy:
 
         默认：EMERGENCY_* 和 SURVIVAL 阶段产出指令后立即返回，
         不继续往下遍历（因为紧急情况必须优先处理）。
+        CAPTAIN 不终止——队长指挥失败后应有战斗/发育兜底。
         COMBAT 和 DEVELOP 阶段不终止，允许叠加（如战斗同时拿装备）。
         """
+        if phase == DecisionPhase.CAPTAIN:
+            return False
         return phase.value >= DecisionPhase.SPECIAL_TALENT.value
 
     # ════════════════════════════════════════════════════════

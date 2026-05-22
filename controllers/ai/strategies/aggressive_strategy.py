@@ -23,6 +23,8 @@ class AggressiveStrategy(BasePersonalityStrategy):
 
     def is_terminal_phase(self, phase: DecisionPhase) -> bool:
         # 激进型：战斗不终止，允许追发育和击杀
+        if phase == DecisionPhase.CAPTAIN:
+            return False
         return (
             phase.value >= DecisionPhase.SPECIAL_TALENT.value
             or phase == DecisionPhase.KILL_OPPORTUNITY

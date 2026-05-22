@@ -76,3 +76,7 @@ class PoliticalStrategy(BasePersonalityStrategy):
 
     def should_prioritize_police_wake(self) -> bool:
         return True
+
+    def is_terminal_phase(self, phase: DecisionPhase) -> bool:
+        """political: CAPTAIN 仍然是 terminal——队长事务最高优先。"""
+        return phase.value >= DecisionPhase.SPECIAL_TALENT.value
