@@ -93,13 +93,12 @@ class CombatMind(BaseMind):
 
         if best_target:
             best_weapon = self._pick_weapon(player, best_target, police_protected_ids)
-            if best_weapon:
+            all_countered = self._query.all_weapons_countered(player, best_target)
+            if best_weapon and not all_countered:
                 combat_ready = True
                 combat_commands = self._build_attack_commands(
                     player, best_target, best_weapon, state
                 )
-            else:
-                all_countered = self._query.all_weapons_countered(player, best_target)
 
         return MindAssessment(
             mind_name="combat",

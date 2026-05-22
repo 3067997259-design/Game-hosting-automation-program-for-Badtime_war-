@@ -371,6 +371,21 @@ class DecisionOrchestrator:
 
         self._dbg(1, f"阶段产出: {' → '.join(handled_phases) if handled_phases else '无'}")
 
+        # Step 4.5: 通用攻击补充（防御/建造/政治人格的最后兜底）
+        if not any(c.startswith(("attack", "find", "lock", "special"))
+                   for c in candidates):
+            combat = snapshots.get("combat")
+            if combat and combat.data.get("combat_ready"):
+                best_target = combat.data.get("best_target")
+                if best_target:
+                    attack_cmds = self._build_forced_attack_commands(
+                        player, state, available_actions, best_target)
+                    for cmd in attack_cmds:
+                        if cmd not in candidates:
+                            candidates.append(cmd)
+                    if attack_cmds:
+                        self._dbg(2, f"通用攻击补充: {attack_cmds}")
+
         # Step 5: GoalStack 补充收尾指令
         goal_cmds = self._collect_goal_commands(player, state, available_actions, candidates)
         if goal_cmds:
@@ -691,62 +706,6 @@ class DecisionOrchestrator:
                 player, state, self._strategy, available, ctx,
             )
 
-        # ════════════════════════════════════════════════════════
-        #  RESIST 消费：警察态度=resist，但无AOE武器 → 获取AOE
-        #  有AOE时 fallthrough 给 COMBAT 阶段（评分系统会处理队长加分）
-        # ════════════════════════════════════════════════════════
-        police_snap = snapshots.get("police")
-        if police_snap:
-            police_sit = police_snap.data.get("police_situation")
-            if police_sit:
-                try:
-                    from controllers.ai.minds.police_mind import PoliceMind as PM
-                    stance = getattr(police_sit, 'recommended_stance', None)
-                    if stance == PoliceStance.RESIST:
-                        polices_cache = self._shared_state.police_cache or {}
-                        alive_police = sum(1 for u in polices_cache.get("units", [])
-                                          if u.get("is_alive"))
-                        if alive_police == 0:
-                            self._dbg(2, "RESIST: 无存活警察，跳过")
-                        elif PM.has_any_aoe(player):
-                            # ★ 队长优先：有可触及队长且能打穿 → 交 COMBAT（+80 分）
-                            combat = snapshots.get("combat")
-                            captain = (
-                                self._find_captain_in_viable_targets(combat, state)
-                                if combat else None
-                            )
-                            if (captain
-                                    and not self._strategy.should_fight_police_over_captain()
-                                    and self._can_damage_via_combat(combat, captain)
-                                    and self._query.can_reach_target_in_barrier(
-                                        player, state, captain)):
-                                self._dbg(1, f"RESIST: 队长 {captain.name} 可触及，交COMBAT处理")
-                            else:
-                                self._dbg(2, "RESIST: 已有AOE，反击警察")
-                                ctx = self._build_ctx(state)
-                                fight_cmds = self._police_cmd.build_fight_police(
-                                    player, state, self._strategy, available, ctx)
-                                if fight_cmds:
-                                    return fight_cmds
-                                self._dbg(2, "RESIST: build_fight_police 无产出，交COMBAT处理")
-                        else:
-                            self._dbg(2, "RESIST: 无AOE，获取AOE武器")
-                            target_armor_attrs = self._query.get_all_protected_armor_attrs(state, player.player_id)
-                            for pm in self._minds:
-                                if pm.__class__.__name__ == "PoliceMind":
-                                    aoe_cmds = pm.get_aoe_acquisition_commands(
-                                        player, state, available,
-                                        target_armor_attrs=target_armor_attrs,
-                                        my_location=self._query.get_location_str(player),
-                                        has_pass=getattr(player, 'has_military_pass', False),
-                                        learned_spells=getattr(player, 'learned_spells', set()),
-                                    )
-                                    if aoe_cmds:
-                                        return aoe_cmds
-                                    break
-                except Exception:
-                    pass
-
         return []
 
     # ── 队长指挥 / Political 警察建设 ──
@@ -805,12 +764,41 @@ class DecisionOrchestrator:
         if not combat:
             return []
 
-        # ★ RESIST + 有队长目标：切换战斗目标为队长（优先级超越当前战斗）
+        # ★ RESIST 预处理：无 AOE → 获取 AOE（与战斗直接相关的武器准备）
         police_snap = snapshots.get("police")
         resist_active = False
         if police_snap:
             police_sit = police_snap.data.get("police_situation")
             if police_sit:
+                try:
+                    from controllers.ai.minds.police_mind import PoliceMind as PM
+                    stance = getattr(police_sit, 'recommended_stance', None)
+                    if stance == PoliceStance.RESIST:
+                        resist_active = True
+                        polices_cache = self._shared_state.police_cache or {}
+                        alive_police = sum(1 for u in polices_cache.get("units", [])
+                                          if u.get("is_alive"))
+                        if alive_police > 0 and not PM.has_any_aoe(player):
+                            self._dbg(2, "RESIST: 无AOE，获取AOE武器")
+                            target_armor_attrs = self._query.get_all_protected_armor_attrs(
+                                state, player.player_id)
+                            ctx = self._build_ctx(state)
+                            for pm in self._minds:
+                                if pm.__class__.__name__ == "PoliceMind":
+                                    aoe_cmds = pm.get_aoe_acquisition_commands(
+                                        player, state, available,
+                                        target_armor_attrs=target_armor_attrs,
+                                        my_location=self._query.get_location_str(player),
+                                        has_pass=getattr(player, 'has_military_pass', False),
+                                        learned_spells=getattr(player, 'learned_spells', set()),
+                                    )
+                                    if aoe_cmds:
+                                        return aoe_cmds
+                                    break
+                except Exception:
+                    pass
+
+        # ★ RESIST + 有队长目标：切换战斗目标为队长（优先级超越当前战斗）
                 try:
                     stance = getattr(police_sit, 'recommended_stance', None)
                     resist_active = (stance == PoliceStance.RESIST)
@@ -876,6 +864,18 @@ class DecisionOrchestrator:
                     self._combat_target = best_target
                     self._push_combat_goal(best_target, player, round_num)
                     return combat_cmds
+
+        # ★ RESIST 兜底：有 AOE + 存活警察 + 没有产出任何战斗指令 → 反击警察单位
+        if resist_active and not combat_cmds:
+            polices_cache = self._shared_state.police_cache or {}
+            alive_police = sum(1 for u in polices_cache.get("units", [])
+                              if u.get("is_alive"))
+            if alive_police > 0:
+                ctx = self._build_ctx(state)
+                fight_cmds = self._police_cmd.build_fight_police(
+                    player, state, self._strategy, available, ctx)
+                if fight_cmds:
+                    return fight_cmds
 
         return []
 

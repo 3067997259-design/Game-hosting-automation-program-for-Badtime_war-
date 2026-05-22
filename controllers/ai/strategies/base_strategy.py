@@ -49,9 +49,12 @@ class BasePersonalityStrategy:
         count_outer_armor, count_inner_armor, has_real_weapon: bool,
         has_pass: bool, has_stealth: bool, real_weapon_count: int,
     ) -> bool:
-        """判断发育是否完成。"""
+        """判断发育是否完成。终局（≤2人存活）降级：有武器+1外甲即完成。"""
         outer = count_outer_armor(player)
         inner = count_inner_armor(player)
+        alive = state.alive_players()
+        if len(alive) <= 2:
+            return has_real_weapon and outer >= 1
         return has_real_weapon and outer >= 2 and inner >= 1
 
     # ════════════════════════════════════════════════════════
@@ -138,8 +141,11 @@ class BasePersonalityStrategy:
 
         默认：EMERGENCY_* 和 SURVIVAL 阶段产出指令后立即返回，
         不继续往下遍历（因为紧急情况必须优先处理）。
+        CAPTAIN 不终止——队长指挥失败后应有战斗/发育兜底。
         COMBAT 和 DEVELOP 阶段不终止，允许叠加（如战斗同时拿装备）。
         """
+        if phase == DecisionPhase.CAPTAIN:
+            return False
         return phase.value >= DecisionPhase.SPECIAL_TALENT.value
 
     # ════════════════════════════════════════════════════════
