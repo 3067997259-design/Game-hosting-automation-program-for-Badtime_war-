@@ -800,12 +800,6 @@ class DecisionOrchestrator:
                     pass
 
         # ★ RESIST + 有队长目标：切换战斗目标为队长（优先级超越当前战斗）
-                try:
-                    stance = getattr(police_sit, 'recommended_stance', None)
-                    resist_active = (stance == PoliceStance.RESIST)
-                except Exception:
-                    pass
-
         if resist_active and self._in_combat and self._combat_target:
             # 队长存在且可触及 → 切换目标
             if not getattr(self._combat_target, 'is_captain', False):
