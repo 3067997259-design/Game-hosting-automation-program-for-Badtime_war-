@@ -189,8 +189,9 @@ class DecisionOrchestrator:
             self._combat_just_ended_at = None
         else:
             if self._in_combat:
-                self._combat_just_ended_at = self._last_combat_location
-                debug_ai_basic(player.name, f"战斗结束于 {self._last_combat_location}")
+                location = self._last_combat_location or GameQuery.get_location_str(player)
+                self._combat_just_ended_at = location
+                debug_ai_basic(player.name, f"战斗结束于 {location}")
             else:
                 self._combat_just_ended_at = None
             self._in_combat = False
@@ -837,7 +838,9 @@ class DecisionOrchestrator:
             # 但结界内只能攻击同地点目标——队长在结界外则跳过
             captain = self._find_captain_in_viable_targets(combat, state)
             if captain and self._can_damage_via_combat(combat, captain):
-                if self._query.can_reach_target_in_barrier(player, state, captain):
+                if not self._query.same_location(player, captain):
+                    self._dbg(2, f"RESIST: 队长 {captain.name} 不在同地点，跳过")
+                elif self._query.can_reach_target_in_barrier(player, state, captain):
                     best_target = captain
                     self._dbg(1, f"RESIST: 队长优先 → {captain.name}")
                 else:
