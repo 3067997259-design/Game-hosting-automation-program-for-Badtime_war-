@@ -763,6 +763,7 @@ class DecisionOrchestrator:
         combat = snapshots.get("combat")
         if not combat:
             return []
+        combat_cmds: List[str] = []
 
         # ★ RESIST 预处理：无 AOE → 获取 AOE（与战斗直接相关的武器准备）
         police_snap = snapshots.get("police")
