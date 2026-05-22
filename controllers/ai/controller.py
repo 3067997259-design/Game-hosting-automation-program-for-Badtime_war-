@@ -45,6 +45,7 @@ from controllers.ai.talents.t1_oneslash_hook import OneSlashAIHook
 from controllers.ai.talents.t3_star_hook import StarAIHook
 from controllers.ai.talents.t4_hexagram_hook import HexagramAIHook
 from controllers.ai.talents.g5_ripple_hook import RippleAIHook
+from controllers.ai.talents.t2_scissor_rush_hook import ScissorRushAIHook
 
 # 新架构决策编排器
 from controllers.ai.orchestrator import DecisionOrchestrator
@@ -176,6 +177,7 @@ class BasicAIController(
                 "天星": StarAIHook(self),
                 "六爻": HexagramAIHook(self),
                 "往世的涟漪": RippleAIHook(self),
+                "剪刀手一突": ScissorRushAIHook(self),
             }
             self._terror_defense = TerrorDefenseAI(debug_name="AI")
             self._ai_state.terror_defense = self._terror_defense
@@ -759,6 +761,7 @@ class BasicAIController(
         from controllers.ai.constants import LOCATION_ITEMS
         normalized_loc = "home" if my_loc.startswith("home") else my_loc
         my_items = LOCATION_ITEMS.get(normalized_loc, [])
+        needs_unfiltered = list(needs)
         needs = [(item, loc, pri) for item, loc, pri in needs if item not in my_items]
 
         # 按优先级排序
@@ -783,6 +786,40 @@ class BasicAIController(
                     if cmd not in commands:
                         commands.append(cmd)
                     break
+
+        # fallback：过滤后无匹配 → 用不过滤的 needs 重试
+        if not commands and needs_unfiltered:
+            needs_unfiltered.sort(key=lambda x: -x[2])
+            for item_name, item_loc, _ in needs_unfiltered:
+                for sp_id in interact_sources:
+                    sp = state.get_player(sp_id)
+                    if not sp:
+                        continue
+                    sp_loc = self._get_location_str(sp)
+                    if item_loc == "home":
+                        if sp_loc.startswith("home"):
+                            cmd = f"interact {item_name}"
+                            if cmd not in commands:
+                                commands.append(cmd)
+                            break
+                    elif sp_loc == item_loc:
+                        cmd = f"interact {item_name}"
+                        if cmd not in commands:
+                            commands.append(cmd)
+                        break
+
+        # 前置检查：通行证 / 武器蓄力
+        for i, cmd in enumerate(commands):
+            if cmd in ("interact 电磁步枪", "interact 高斯步枪"):
+                for w in getattr(player, 'weapons', []):
+                    if w and w.name == cmd.split()[-1]:
+                        if getattr(w, 'requires_charge', False) and not getattr(w, 'is_charged', False):
+                            commands[i] = f"special 蓄力{w.name}"
+                        break
+            elif cmd == "interact 通行证":
+                if getattr(player, 'has_military_pass', False):
+                    commands[i] = None  # 已有通行证，不需要
+        commands = [c for c in commands if c is not None]
 
         return commands[:3]  # 最多 3 个发育候选
 
