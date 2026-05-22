@@ -129,7 +129,8 @@ class PoemMixin:
         if poem_type not in ("爱与记忆", "守夜人") and target.player_id != self.player_id:
             alive_count = len([p for p in self.state.players.values() if p.is_alive()])
             rounds = 0 if alive_count <= 2 else max(12, alive_count * 2)
-            self.grant_love_wish(target.player_id, rounds)
+            if rounds > 0:
+                self.grant_love_wish(target.player_id, rounds)
 
         return self._dispatch_poem(player, target, poem_type), True  # 成功消耗行动
 
@@ -894,7 +895,8 @@ class PoemMixin:
         # ★ 接受时附加爱愿（终局2人不禁攻击）
         alive_count = len([p for p in self.state.players.values() if p.is_alive()])
         rounds = 0 if alive_count <= 2 else max(4, alive_count * 2)
-        self.grant_love_wish(target.player_id, rounds)
+        if rounds > 0:
+            self.grant_love_wish(target.player_id, rounds)
 
         # 色彩值永久赋为null
         talent.color_is_null = True
