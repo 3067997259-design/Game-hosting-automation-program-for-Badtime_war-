@@ -191,17 +191,23 @@ class CombatCommandBuilder:
         if Q.is_in_savior_state(player) and weapon_range == "ranged":
             weapon_range = "melee"
 
-        in_hologram = self._is_lock_find_blocked_by_hologram(player, state)
+        me_blocked, target_in_barrier = self._check_hologram_block(player, target, state)
 
         if weapon_range == "melee":
-            # 全息影像区域内 cannot find → 跳过近战前置
-            if in_hologram and "attack" in available:
-                layer, attr = self.pick_attack_layer(player, target, weapon)
-                if layer and attr:
-                    commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
-                else:
-                    commands.append(f"attack {target.name} {weapon.name}")
-                return commands
+            # 全息影像区域内 cannot find → 目标同在就攻击，目标在外就离开
+            if me_blocked:
+                if target_in_barrier and "attack" in available:
+                    layer, attr = self.pick_attack_layer(player, target, weapon)
+                    if layer and attr:
+                        commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
+                    else:
+                        commands.append(f"attack {target.name} {weapon.name}")
+                    return commands
+                if not target_in_barrier and "move" in available:
+                    target_loc = Q.get_location_str(target)
+                    if target_loc:
+                        commands.append(f"move {target_loc}")
+                    return commands
             is_engaged = False
             if markers and hasattr(markers, 'has_relation'):
                 is_engaged = markers.has_relation(
@@ -237,14 +243,20 @@ class CombatCommandBuilder:
                     commands.append(f"attack {target.name} {weapon.name}")
 
         elif weapon_range == "ranged":
-            # 全息影像区域内 cannot lock → 直接攻击
-            if in_hologram and "attack" in available:
-                layer, attr = self.pick_attack_layer(player, target, weapon)
-                if layer and attr:
-                    commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
-                else:
-                    commands.append(f"attack {target.name} {weapon.name}")
-                return commands
+            # 全息影像区域内 cannot lock → 目标同在就攻击，目标在外就离开
+            if me_blocked:
+                if target_in_barrier and "attack" in available:
+                    layer, attr = self.pick_attack_layer(player, target, weapon)
+                    if layer and attr:
+                        commands.append(f"attack {target.name} {weapon.name} {layer} {attr}")
+                    else:
+                        commands.append(f"attack {target.name} {weapon.name}")
+                    return commands
+                if not target_in_barrier and "move" in available:
+                    target_loc = Q.get_location_str(target)
+                    if target_loc:
+                        commands.append(f"move {target_loc}")
+                    return commands
             is_locked = False
             if markers and hasattr(markers, 'has_relation'):
                 is_locked = markers.has_relation(
@@ -617,13 +629,18 @@ class CombatCommandBuilder:
         return False
 
     @staticmethod
-    def _is_lock_find_blocked_by_hologram(player, state) -> bool:
-        """检查玩家是否被全息影像禁止锁定/找到。"""
-        for pid in getattr(state, 'player_order', []):
-            p = state.get_player(pid)
-            talent = getattr(p, 'talent', None) if p else None
-            if talent and hasattr(talent, 'can_lock_or_find'):
-                allowed, _ = talent.can_lock_or_find(player.player_id)
-                if not allowed:
-                    return True
-        return False
+    @staticmethod
+    def _check_hologram_block(player, target, state):
+        """返回 (blocked: 被禁find/lock, target_in_barrier: 目标同在影像内)。
+        全息影像内 find/lock 被禁，但同在影像内的目标自动面对面可直接攻击。"""
+        barrier = getattr(state, 'active_barrier', None)
+        if not barrier:
+            return False, False
+        if hasattr(barrier, 'is_in_barrier'):
+            me_in = barrier.is_in_barrier(player.player_id)
+            target_in = barrier.is_in_barrier(target.player_id) if target else False
+        else:
+            players = getattr(barrier, 'barrier_players', [])
+            me_in = player.player_id in players
+            target_in = target.player_id in players if target else False
+        return me_in, target_in
