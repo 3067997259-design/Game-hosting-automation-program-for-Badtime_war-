@@ -206,7 +206,9 @@ class Star(BaseTalent):
                         target_obj.take_damage(0.5, attacker_id=player.player_id)
                         lines.append(f"   ⭐🌊 弹射→ 警察{target_obj.unit_id} 受到0.5伤害 HP: {old_hp} → {target_obj.hp}")
                         if target_obj.hp <= 0:
-                            self.state.police.check_all_dead()
+                            pe = getattr(self.state, 'police_engine', None)
+                            if pe:
+                                pe.check_all_dead()
                             lines.append(f"   💀 警察{target_obj.unit_id} 被弹射击杀！")
 
         msg = "\n".join(lines)

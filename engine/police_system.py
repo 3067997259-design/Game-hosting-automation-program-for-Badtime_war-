@@ -344,7 +344,7 @@ class PoliceEngine:
             self.state.log_event("crime_cleared", player=attacker_id, reason="击杀警察")
 
         # 检查是否全灭
-        self.police.check_all_dead()
+        self.check_all_dead()
 
         return f"⚔️ {attacker.name} 用「{attack_method}」攻击警察！\n" + "\n".join(messages)
 
@@ -553,7 +553,7 @@ class PoliceEngine:
         result = unit.wake_up()
 
         if result.get("killed_by_petrify"):
-            self.police.check_all_dead()
+            self.check_all_dead()
             return f"🚔 唤醒 {police_id} 时，石化解除造成0.5伤害，{police_id} 被击杀！"
 
         msg = f"🚔 {police_id} 被唤醒！"
@@ -1036,6 +1036,22 @@ class PoliceEngine:
             if unit.is_alive():
                 unit.location = "警察局"
 
+    def check_all_dead(self):
+        """检查警察单位是否全灭，并同步清除玩家犯罪和队长标记。"""
+        captain_id = self.police.captain_id
+        all_dead = self.police.check_all_dead()
+        if all_dead:
+            for pid in self.state.player_order:
+                player = self.state.get_player(pid)
+                if player:
+                    player.is_criminal = False
+            if captain_id is not None:
+                captain = self.state.get_player(captain_id)
+                if captain:
+                    captain.is_captain = False
+                    self.state.markers.remove(captain_id, "IS_CAPTAIN")
+        return all_dead
+
     def on_player_death(self, player_id):
         """
         玩家死亡时的警察系统清理。
@@ -1233,7 +1249,7 @@ class PoliceEngine:
                                 break  # 威信归零后停止所有执法
 
         # 阶段4：检查全灭
-        if self.police.check_all_dead():
+        if self.check_all_dead():
             messages.append("⚠️ 所有警察单位已被消灭！警察局所有交互永久禁用。")
 
         return messages

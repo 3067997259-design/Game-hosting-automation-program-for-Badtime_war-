@@ -1041,7 +1041,7 @@ def resolve_location_damage(attacker, location, game_state,
             )
             unit.last_attacker_id = attacker.player_id if attacker else None
             results["police"].append(unit)
-        game_state.police.check_all_dead()
+        pe.check_all_dead()
 
     # 3. 未来扩展点：其他非玩家单位
     # for npc in game_state.npcs_at_location(location): ...
