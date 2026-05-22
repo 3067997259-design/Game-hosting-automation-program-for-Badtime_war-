@@ -1045,7 +1045,7 @@ class PoliceEngine:
                 player = self.state.get_player(pid)
                 if player:
                     player.is_criminal = False
-            if captain_id:
+            if captain_id is not None:
                 captain = self.state.get_player(captain_id)
                 if captain:
                     captain.is_captain = False
