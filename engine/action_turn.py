@@ -1585,7 +1585,7 @@ class ActionTurnManager:
                     self.state.police.clear_crimes(killer.player_id)
                     killer.is_criminal = False
                     lines.append(f"   💪 击杀警察！犯罪记录已清除")
-                self.state.police.check_all_dead()
+                pe.check_all_dead()
 
         if weapon.requires_charge and weapon.is_charged:
             weapon.is_charged = False
