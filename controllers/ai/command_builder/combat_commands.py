@@ -160,6 +160,14 @@ class CombatCommandBuilder:
                                 weapon = alt_w
                                 break
 
+        # 武器切换后也检查蓄力（替代武器可能未蓄力）
+        if (getattr(weapon, 'requires_charge', False)
+                and getattr(weapon, 'charge_mandatory', True)
+                and not getattr(weapon, 'is_charged', False)):
+            if "special" in available:
+                commands.append(f"special 蓄力{weapon.name}")
+            return commands
+
         cmds = self.build_attack_cmd(player, target, weapon, state, available)
         commands.extend(cmds)
         debug_ai_attack_generation(player.name,
