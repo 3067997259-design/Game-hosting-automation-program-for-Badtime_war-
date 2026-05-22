@@ -1037,14 +1037,19 @@ class PoliceEngine:
                 unit.location = "警察局"
 
     def check_all_dead(self):
-        """检查警察单位是否全灭，并同步清除队长玩家标记。"""
+        """检查警察单位是否全灭，并同步清除玩家犯罪和队长标记。"""
         captain_id = self.police.captain_id
         all_dead = self.police.check_all_dead()
-        if all_dead and captain_id:
-            captain = self.state.get_player(captain_id)
-            if captain:
-                captain.is_captain = False
-                self.state.markers.remove(captain_id, "IS_CAPTAIN")
+        if all_dead:
+            for pid in self.state.player_order:
+                player = self.state.get_player(pid)
+                if player:
+                    player.is_criminal = False
+            if captain_id:
+                captain = self.state.get_player(captain_id)
+                if captain:
+                    captain.is_captain = False
+                    self.state.markers.remove(captain_id, "IS_CAPTAIN")
         return all_dead
 
     def on_player_death(self, player_id):
