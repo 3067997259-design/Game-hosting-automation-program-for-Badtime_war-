@@ -191,9 +191,7 @@ class CombatCommandBuilder:
         if Q.is_in_savior_state(player) and weapon_range == "ranged":
             weapon_range = "melee"
 
-        in_barrier = getattr(getattr(state, 'active_barrier', None),
-                           'is_in_barrier', lambda _: False)
-        in_hologram = in_barrier(player.player_id) if callable(in_barrier) else False
+        in_hologram = self._is_lock_find_blocked_by_hologram(player, state)
 
         if weapon_range == "melee":
             # 全息影像区域内 cannot find → 跳过近战前置
@@ -615,5 +613,17 @@ class CombatCommandBuilder:
         if armor_obj and hasattr(armor_obj, 'get_all_active'):
             for a in armor_obj.get_all_active():
                 if "immune_electric" in getattr(a, 'special_tags', []) and not a.is_broken:
+                    return True
+        return False
+
+    @staticmethod
+    def _is_lock_find_blocked_by_hologram(player, state) -> bool:
+        """检查玩家是否被全息影像禁止锁定/找到。"""
+        for pid in getattr(state, 'player_order', []):
+            p = state.get_player(pid)
+            talent = getattr(p, 'talent', None) if p else None
+            if talent and hasattr(talent, 'can_lock_or_find'):
+                allowed, _ = talent.can_lock_or_find(player.player_id)
+                if not allowed:
                     return True
         return False
