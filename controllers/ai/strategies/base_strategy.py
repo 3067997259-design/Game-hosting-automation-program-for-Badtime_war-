@@ -102,10 +102,6 @@ class BasePersonalityStrategy:
         """作为队长时是否优先唤醒警察单位。"""
         return False
 
-    def should_fight_police_over_captain(self) -> bool:
-        """Resist 态度下是否优先打警察单位而非队长。默认 False：优先打队长。"""
-        return False
-
     def should_support_report(self, target_name: str, threat_score: float) -> bool:
         """被问是否支持举报时的默认态度。Base: 威胁 > 30 时支持。"""
         return threat_score > 30

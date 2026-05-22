@@ -23,6 +23,8 @@ class AssassinStrategy(BasePersonalityStrategy):
 
     def is_terminal_phase(self, phase: DecisionPhase) -> bool:
         # 刺客型：更激进，KILL_OPPORTUNITY 产出指令后不再继续
+        if phase == DecisionPhase.CAPTAIN:
+            return False
         return phase.value >= DecisionPhase.KILL_OPPORTUNITY.value
 
     def get_development_needs_order(self) -> List[str]:
