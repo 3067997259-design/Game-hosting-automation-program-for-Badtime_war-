@@ -371,15 +371,19 @@ class DecisionOrchestrator:
 
         self._dbg(1, f"阶段产出: {' → '.join(handled_phases) if handled_phases else '无'}")
 
-        # Step 4.5: 通用攻击补充（防御/建造/政治人格的最后兜底）
+        # Step 4.5: 通用攻击补充（有武器有敌人就试一下）
         if not any(c.startswith(("attack", "find", "lock", "special"))
                    for c in candidates):
-            combat = snapshots.get("combat")
-            if combat and combat.data.get("combat_ready"):
-                best_target = combat.data.get("best_target")
-                if best_target:
+            weapons = getattr(player, 'weapons', [])
+            if weapons:
+                enemies = [state.get_player(pid) for pid in state.player_order
+                           if pid != player.player_id and state.get_player(pid)
+                           and state.get_player(pid).is_alive()]
+                if enemies:
+                    target = max(enemies,
+                                 key=lambda t: self._threat_scores.get(t.name, 0))
                     attack_cmds = self._build_forced_attack_commands(
-                        player, state, available_actions, best_target)
+                        player, state, available_actions, target)
                     for cmd in attack_cmds:
                         if cmd not in candidates:
                             candidates.append(cmd)

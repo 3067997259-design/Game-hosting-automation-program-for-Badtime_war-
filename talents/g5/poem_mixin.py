@@ -128,7 +128,9 @@ class PoemMixin:
         # 施加爱愿（爱与记忆之诗是自我目标，不施加；守夜人在诗内按接受情况处理）
         if poem_type not in ("爱与记忆", "守夜人") and target.player_id != self.player_id:
             alive_count = len([p for p in self.state.players.values() if p.is_alive()])
-            self.grant_love_wish(target.player_id, max(12, alive_count * 2))
+            rounds = 0 if alive_count <= 2 else max(12, alive_count * 2)
+            if rounds > 0:
+                self.grant_love_wish(target.player_id, rounds)
 
         return self._dispatch_poem(player, target, poem_type), True  # 成功消耗行动
 
@@ -890,9 +892,11 @@ class PoemMixin:
         msg_parts = [prompt_manager.get_prompt("talent", "g7hoshino.poem_accept",
             default="昔涟接过了星野的愿望。献予「守夜人」之诗生效！色彩值永久赋值为null")]
 
-        # ★ 接受时附加爱愿
+        # ★ 接受时附加爱愿（终局2人不禁攻击）
         alive_count = len([p for p in self.state.players.values() if p.is_alive()])
-        self.grant_love_wish(target.player_id, max(4, alive_count * 2))
+        rounds = 0 if alive_count <= 2 else max(4, alive_count * 2)
+        if rounds > 0:
+            self.grant_love_wish(target.player_id, rounds)
 
         # 色彩值永久赋为null
         talent.color_is_null = True

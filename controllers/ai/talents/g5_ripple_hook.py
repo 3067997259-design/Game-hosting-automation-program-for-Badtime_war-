@@ -143,7 +143,7 @@ class RippleAIHook(BaseTalentAIHook):
         reason = getattr(self, '_ripple_priority_reason', '')
         hint = getattr(self, '_ripple_poem_target_hint', None)
 
-        if reason in ("斩首队长", "确定击杀", "反杀追杀者", "通用输出", "斩首队长（被警察追杀）"):
+        if reason in ("斩首队长", "确定击杀", "反杀追杀者", "通用输出", "斩首队长（被警察追杀）", "1v1输出"):
             if player.name in options:
                 return player.name
 
@@ -256,6 +256,30 @@ class RippleAIHook(BaseTalentAIHook):
                 poem_opt = opt
             if "锚定" in opt or "方式一" in opt:
                 anchor_opt = opt
+
+        # ★ 1v1 终局：只放爱与记忆之诗或守夜人之诗，放不起就锚定
+        alive_enemies = [p for p in state.players.values()
+                        if p.is_alive() and p.player_id != player.player_id]
+        if len(alive_enemies) == 1:
+            enemy = alive_enemies[0]
+            talent = getattr(player, 'talent', None)
+            if talent:
+                cost = getattr(talent, 'get_destiny_cost', lambda: 12)()
+                if getattr(talent, 'reminiscence', 0) >= cost and poem_opt:
+                    self._ripple_priority_reason = "1v1输出"
+                    return poem_opt  # target = self (爱与记忆之诗)
+                enemy_talent = getattr(enemy, 'talent', None)
+                if (enemy_talent
+                        and getattr(enemy_talent, 'name', '') == "大叔我啊，剪短发了"
+                        and not getattr(enemy_talent, 'is_terror', False)
+                        and poem_opt):
+                    self._ripple_priority_reason = "1v1守夜人"
+                    self._ripple_poem_target_hint = enemy.player_id
+                    return poem_opt
+            if anchor_opt:
+                self._ripple_priority_reason = "1v1锚定"
+                return anchor_opt
+            return options[0]
 
         pc = self._ripple_police_cache(context)
         captain_id = pc.get("captain_id")
