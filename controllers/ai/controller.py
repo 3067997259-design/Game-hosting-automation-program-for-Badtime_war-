@@ -806,17 +806,30 @@ class BasicAIController(
                             commands.append(cmd)
                         break
 
-        # 前置检查：通行证 / 武器蓄力
+        # 前置检查：通行证 / 武器蓄力 / 手术凭证 / 军事基地通行证
+        has_pass = getattr(player, 'has_military_pass', False)
         for i, cmd in enumerate(commands):
             if cmd in ("interact 电磁步枪", "interact 高斯步枪"):
+                # 已有该武器且需蓄力 → 改为蓄力指令
+                weapon_name = cmd.split()[-1]
                 for w in getattr(player, 'weapons', []):
-                    if w and w.name == cmd.split()[-1]:
+                    if w and w.name == weapon_name:
                         if getattr(w, 'requires_charge', False) and not getattr(w, 'is_charged', False):
                             commands[i] = f"special 蓄力{w.name}"
                         break
+                else:
+                    # 没有该武器 → 军事基地获取需要通行证
+                    if not has_pass and vouchers < 1:
+                        commands[i] = None
             elif cmd == "interact 通行证":
-                if getattr(player, 'has_military_pass', False):
+                if has_pass:
                     commands[i] = None  # 已有通行证，不需要
+            elif cmd in ("interact 晶化皮肤手术", "interact 额外心脏手术", "interact 不老泉手术"):
+                if vouchers < 1:
+                    commands[i] = None  # 手术需要凭证
+            elif cmd in ("interact AT力场", "interact 雷达", "interact 热成像仪"):
+                if not has_pass and vouchers < 1:
+                    commands[i] = None  # 军事基地需要通行证
         commands = [c for c in commands if c is not None]
 
         return commands[:3]  # 最多 3 个发育候选
