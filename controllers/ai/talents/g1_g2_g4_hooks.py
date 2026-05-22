@@ -508,13 +508,17 @@ class HologramAIHook(BaseTalentAIHook):
             if "move" in available:
                 return [f"move {hologram_loc}", "forfeit"]
             return ["forfeit"]
-        # 在影像区域内：AOE扫场
+        # 在影像区域内：AOE扫场（只选同地点目标）
         same_loc = self._ctrl._get_same_location_targets(player, state)
         if same_loc:
             emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
             if emr and not getattr(emr, 'is_charged', False) and "special" in available:
                 return ["special 蓄力电磁步枪", "forfeit"]
-            attack_cmds = self._ctrl._cmd_attack(player, state, available)
+            best_target = max(
+                same_loc,
+                key=lambda t: getattr(self._ctrl, '_threat_scores', {}).get(t.name, 0))
+            attack_cmds = self._ctrl._cmd_attack(
+                player, state, available, forced_target=best_target)
             if attack_cmds:
                 return [*attack_cmds, "forfeit"]
         return None  # 走常规流程

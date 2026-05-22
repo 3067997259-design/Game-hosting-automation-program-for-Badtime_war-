@@ -656,6 +656,9 @@ class AnchorMixin:
 
         display.show_info(self._format_anchor_start_msg(player, target))
 
+        # V1.92: 锚定确认时即应用「一页永恒的善见天」D4加成
+        self._apply_anchor_d4_bonus()
+
     def _format_anchor_start_msg(self, player, target):
         lines = [
             f"\n{'='*60}",
@@ -1034,8 +1037,6 @@ class AnchorMixin:
             )
             self._auto_resolve_event(me)
             self._restore_player_backup(me, self.anchor_caster_backup)
-            # V1.92: 应用「一页永恒的善见天」D4加成
-            self._apply_anchor_d4_bonus()
         else:
             # RL 事件日志：发动者死亡导致锚定失败
             self.state.log_event("ripple_anchor_fail",
@@ -1132,8 +1133,6 @@ class AnchorMixin:
             )
             self._auto_resolve_event(me)
             self._restore_player_backup(me, self.anchor_caster_backup)
-            # V1.92: 应用「一页永恒的善见天」D4加成
-            self._apply_anchor_d4_bonus()
         else:
             # RL 事件日志：锚定失败
             self.state.log_event("ripple_anchor_fail",

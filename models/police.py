@@ -262,6 +262,8 @@ class PoliceData:
         """检查是否所有警察单位都已死亡，如果是则设置永久禁用状态 - 对应README 10.10节"""
         if not self.any_alive():
             self.permanently_disabled = True
+            self.crime_records.clear()
+            self.captain_id = None
             return True
         return False
 

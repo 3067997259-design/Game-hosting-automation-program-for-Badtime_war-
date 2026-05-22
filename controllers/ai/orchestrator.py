@@ -709,13 +709,26 @@ class DecisionOrchestrator:
                         if alive_police == 0:
                             self._dbg(2, "RESIST: 无存活警察，跳过")
                         elif PM.has_any_aoe(player):
-                            self._dbg(2, "RESIST: 已有AOE，反击警察")
-                            ctx = self._build_ctx(state)
-                            fight_cmds = self._police_cmd.build_fight_police(
-                                player, state, self._strategy, available, ctx)
-                            if fight_cmds:
-                                return fight_cmds
-                            self._dbg(2, "RESIST: build_fight_police 无产出，交COMBAT处理")
+                            # ★ 队长优先：有可触及队长且能打穿 → 交 COMBAT（+80 分）
+                            combat = snapshots.get("combat")
+                            captain = (
+                                self._find_captain_in_viable_targets(combat, state)
+                                if combat else None
+                            )
+                            if (captain
+                                    and not self._strategy.should_fight_police_over_captain()
+                                    and self._can_damage_via_combat(combat, captain)
+                                    and self._query.can_reach_target_in_barrier(
+                                        player, state, captain)):
+                                self._dbg(1, f"RESIST: 队长 {captain.name} 可触及，交COMBAT处理")
+                            else:
+                                self._dbg(2, "RESIST: 已有AOE，反击警察")
+                                ctx = self._build_ctx(state)
+                                fight_cmds = self._police_cmd.build_fight_police(
+                                    player, state, self._strategy, available, ctx)
+                                if fight_cmds:
+                                    return fight_cmds
+                                self._dbg(2, "RESIST: build_fight_police 无产出，交COMBAT处理")
                         else:
                             self._dbg(2, "RESIST: 无AOE，获取AOE武器")
                             target_armor_attrs = self._query.get_all_protected_armor_attrs(state, player.player_id)
@@ -738,6 +751,14 @@ class DecisionOrchestrator:
 
     # ── 队长指挥 / Political 警察建设 ──
     def _handle_captain(self, player, state, available, snapshots, round_num) -> List[str]:
+        # 快速路径：所有警察沉沦/震荡 → 队长无法指挥 → 转为战斗
+        police = snapshots.get("police")
+        if police:
+            sit = police.data.get("police_situation")
+            if sit and getattr(sit, 'active_units', 0) == 0 and getattr(sit, 'alive_units', 0) > 0:
+                self._dbg(2, "队长: 所有警察不可用(沉沦/震荡)，转为战斗")
+                return []
+
         # 队长：警察指挥
         if getattr(player, 'is_captain', False) and "police_command" in available:
             self._dbg(2, "队长: 生成警察指挥")

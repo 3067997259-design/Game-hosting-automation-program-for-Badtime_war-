@@ -48,6 +48,9 @@ class PoliceCommandBuilder:
         disabled_units = [u for u in units if u.get("is_alive") and not u.get("is_active", True)]
         if not alive_units:
             return commands
+        if not active_units:
+            # 全部沉沦/震荡 → 队长无法指挥任何单位 → 转为战斗
+            return commands
 
         # study 优先
         authority = pc.get("authority", 0)
@@ -65,7 +68,7 @@ class PoliceCommandBuilder:
                 self._set_police_dev_initialized(ctx, False)
             self._set_last_criminal_target_id(ctx, new_target_id)
         if not self._get_police_dev_initialized(ctx):
-            self._init_police_dev_plan(alive_units, player, state, ctx)
+            self._init_police_dev_plan(active_units, player, state, ctx)
             self._set_police_dev_initialized(ctx, True)
 
         personality = getattr(ctx, 'personality', 'balanced')
@@ -100,7 +103,7 @@ class PoliceCommandBuilder:
             return [dev_cmd]
 
         # 部署
-        deploy_cmd = self._police_deploy_step(alive_units, ctx)
+        deploy_cmd = self._police_deploy_step(active_units, ctx)
         if deploy_cmd:
             return [deploy_cmd]
 
