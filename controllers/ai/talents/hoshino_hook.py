@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Any
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.game_query import GameQuery
-from controllers.ai.constants import debug_ai_basic
+from controllers.ai.constants import debug_ai_basic, PROTECTED_ITEMS
 
 
 class HoshinoAIHook(BaseTalentAIHook):
@@ -473,6 +473,18 @@ class HoshinoAIHook(BaseTalentAIHook):
 
             target = ctrl._hoshino_find_target(player, state)
             if target and "special" in available:
+                # ★ 弹药有效性检查：弹匣里的子弹打不穿目标护甲 → 先去装填克制属性弹药
+                if (ctrl._hoshino_has_ammo(player)
+                        and not ctrl._hoshino_can_effectively_shoot(player, target)
+                        and self._target_has_outer_armor(target)):
+                    # 有可用的克制装填来源 → 去装填
+                    counter_item = self._find_counter_consumable(player, target)
+                    if counter_item:
+                        ctrl._hoshino_macro_queue = [
+                            f"重新装填 {counter_item}", "terminal"]
+                        return ["special Hoshino", "forfeit"]
+                    # 无克制装填来源 → 继续通用战术宏，避免维护路径空转
+
                 pc = ctrl._police_cache or {}
                 captain_id = pc.get("captain_id")
                 is_anti_captain = (
@@ -510,6 +522,65 @@ class HoshinoAIHook(BaseTalentAIHook):
                 return ["special Hoshino", "forfeit"]
 
         return None
+
+    def _find_counter_consumable(self, player, target) -> Optional[str]:
+        """找能有效打击目标外甲的装填消耗品。
+        优先克制链：目标科技甲→找魔法属性物品，目标普通甲→找科技属性，目标魔法甲→找普通。
+        若没有克制物品，同属性物品也可作为有效弹药。"""
+        outer_attrs = self._ctrl._hoshino_get_target_outer_armor_attrs(target)
+        if not outer_attrs:
+            return None
+        counter_map = {"科技": "魔法", "普通": "科技", "魔法": "普通"}
+        needed_attrs = []
+        for armor_attr in outer_attrs:
+            counter_attr = counter_map.get(armor_attr)
+            if counter_attr and counter_attr not in needed_attrs:
+                needed_attrs.append(counter_attr)
+        for armor_attr in outer_attrs:
+            if armor_attr and armor_attr not in needed_attrs:
+                needed_attrs.append(armor_attr)
+        if not needed_attrs:
+            return None
+        # 物品名 → 其属性 的映射（硬编码：只有这些常用装填品有明确属性）
+        _ITEM_ATTRS = {
+            "小刀": "普通", "盾牌": "普通", "陶瓷护甲": "普通",
+            "电磁步枪": "科技", "高斯步枪": "科技", "AT力场": "科技",
+            "雷达": "科技", "热成像仪": "科技",
+            "魔法护盾": "魔法", "魔法弹幕": "魔法", "探测魔法": "魔法",
+            "肾上腺素": "科技", "EPO": "科技",
+        }
+        talent = getattr(player, 'talent', None)
+        iron_horus_hp = getattr(talent, 'iron_horus_hp', 0) if talent else 0
+        iron_horus_max = getattr(talent, 'iron_horus_max_hp', 2) if talent else 2
+        repair_names = {"盾牌", "AT力场"} if iron_horus_hp < iron_horus_max else set()
+        for needed_attr in needed_attrs:
+            # 武器
+            for w in getattr(player, 'weapons', []):
+                if w and w.name not in ("拳击", "荷鲁斯之眼"):
+                    if _ITEM_ATTRS.get(w.name) == needed_attr:
+                        return w.name
+            # 物品
+            for item in getattr(player, 'items', []):
+                item_name = getattr(item, 'name', None)
+                if item_name and item_name not in repair_names and item_name not in PROTECTED_ITEMS:
+                    if _ITEM_ATTRS.get(item_name) == needed_attr:
+                        return item_name
+            # 护甲
+            for a in getattr(getattr(player, 'armor', None), 'get_all_active', lambda: [])():
+                if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
+                    if _ITEM_ATTRS.get(a.name) == needed_attr:
+                        return a.name
+        return None
+
+    @staticmethod
+    def _target_has_outer_armor(target) -> bool:
+        """检查目标是否有外层护甲（用于判断是否需要检查弹药克制）。"""
+        armor_obj = getattr(target, 'armor', None)
+        if not armor_obj or not hasattr(armor_obj, 'get_active'):
+            return False
+        from models.equipment import ArmorLayer
+        outer = armor_obj.get_active(ArmorLayer.OUTER)
+        return len(outer) > 0
 
     # ── 发育判定 ──
     def is_development_complete(self, player: Any, state: Any) -> Optional[bool]:
