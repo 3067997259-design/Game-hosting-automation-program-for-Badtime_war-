@@ -860,7 +860,7 @@ class BasicAIController(
         if item_loc == "军事基地" and item_name != "通行证":
             if not has_pass:
                 return False
-        shop_paid = {"陶瓷护甲", "磨刀石", "热成像仪", "隐身衣", "防毒面具"}
+        shop_paid = {"小刀", "陶瓷护甲", "磨刀石", "热成像仪", "隐身衣", "防毒面具"}
         if item_loc == "商店" and item_name in shop_paid:
             if vouchers < 1:
                 return False
