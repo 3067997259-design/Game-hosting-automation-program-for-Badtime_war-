@@ -372,6 +372,16 @@ class DecisionOrchestrator:
 
         self._dbg(1, f"阶段产出: {' → '.join(handled_phases) if handled_phases else '无'}")
 
+        # ★ 战斗中：把 combat 类指令重排到 develop 类指令前面
+        if self._in_combat:
+            combat_cmds = [c for c in candidates
+                           if c.split()[0] in ("attack", "find", "lock", "special")]
+            other_cmds = [c for c in candidates
+                          if c.split()[0] not in ("attack", "find", "lock", "special")]
+            candidates = combat_cmds + other_cmds
+            if combat_cmds:
+                self._dbg(2, f"战斗中重排: combat={len(combat_cmds)}条 → 优先")
+
         # Step 4.5: 通用攻击补充（有武器有敌人就试一下）
         if not any(c.startswith(("attack", "find", "lock", "special"))
                    for c in candidates):
@@ -936,6 +946,31 @@ class DecisionOrchestrator:
 
         if cmds:
             self._dbg(2, f"发育: Builder 产出 {cmds}")
+            # ★ 产出 move 指令时持久化发育意图到 GoalStack
+            if any(c.startswith("move ") for c in cmds):
+                develop_data = develop.data if develop else {}
+                unmet = develop_data.get("unmet_needs", [])
+                best_location = develop_data.get("best_location")
+                if best_location and unmet:
+                    target_item = None
+                    for _need_type, providers in unmet:
+                        for loc, item, _cost in providers:
+                            if loc == best_location:
+                                target_item = item
+                                break
+                        if target_item:
+                            break
+                    if target_item:
+                        from controllers.ai.goals.develop_goal import DevelopGoal
+                        goal = DevelopGoal(
+                            target_item=target_item,
+                            target_location=best_location,
+                            priority=4,
+                            debug_name=player.name,
+                        )
+                        goal.set_round(round_num)
+                        self._goal_stack.push(goal)
+                        self._dbg(2, f"推送发育目标: {goal.description}")
         else:
             self._dbg(2, "发育: 无可行指令")
         return cmds
