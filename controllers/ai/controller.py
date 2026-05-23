@@ -840,7 +840,7 @@ class BasicAIController(
                     cmd = f"interact {item_name}"
                     if cmd not in commands:
                         commands.append(cmd)
-                    break
+                        break
                 if len(commands) >= 3:
                     break
 
@@ -851,15 +851,22 @@ class BasicAIController(
         """检查来源玩家是否有足够凭证/通行证在指定地点交互物品。"""
         vouchers = getattr(source, 'vouchers', 0)
         has_pass = getattr(source, 'has_military_pass', False)
+        if item_loc == "home" and item_name == "凭证" and vouchers >= 1:
+            return False
+        if item_loc in ("商店", "医院") and item_name == "打工" and vouchers >= 1:
+            return False
+        if item_loc == "军事基地" and item_name in ("通行证", "办理通行证"):
+            return not has_pass
         if item_loc == "军事基地" and item_name != "通行证":
             if not has_pass:
                 return False
-        paid_items = {"陶瓷护甲", "磨刀石", "热成像仪", "隐身衣", "防毒面具"}
-        if item_loc == "商店" and item_name in paid_items:
+        shop_paid = {"小刀", "陶瓷护甲", "磨刀石", "热成像仪", "隐身衣", "防毒面具"}
+        if item_loc == "商店" and item_name in shop_paid:
             if vouchers < 1:
                 return False
+        hospital_paid = {"防毒面具"}
         surgery = {"晶化皮肤手术", "额外心脏手术", "不老泉手术"}
-        if item_loc == "医院" and (item_name in paid_items or item_name in surgery):
+        if item_loc == "医院" and (item_name in hospital_paid or item_name in surgery):
             if vouchers < 1:
                 return False
         return True
