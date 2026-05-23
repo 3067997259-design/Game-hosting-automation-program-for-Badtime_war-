@@ -840,7 +840,7 @@ class BasicAIController(
                     cmd = f"interact {item_name}"
                     if cmd not in commands:
                         commands.append(cmd)
-                    break
+                        break
                 if len(commands) >= 3:
                     break
 
