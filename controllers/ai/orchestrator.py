@@ -935,6 +935,12 @@ class DecisionOrchestrator:
             self._dbg(2, "发育: 已完成")
             return []
 
+        if self._goal_stack:
+            from controllers.ai.goals.develop_goal import DevelopGoal
+            if any(isinstance(g, DevelopGoal) for g in self._goal_stack.all_goals):
+                self._dbg(2, "发育: 沿用已有发育目标")
+                return []
+
         ctx = self._build_ctx(state)
         cmds = self._develop_cmd.build_develop(
             player, state, self._strategy, available, ctx,
@@ -961,7 +967,6 @@ class DecisionOrchestrator:
                         if target_item:
                             break
                     if target_item and self._goal_stack:
-                        from controllers.ai.goals.develop_goal import DevelopGoal
                         goal = DevelopGoal(
                             target_item=target_item,
                             target_location=best_location,
