@@ -105,9 +105,13 @@ class DevelopMind(BaseMind):
             mind_name="develop",
             urgency=max(5, 10 - len(unmet) * 2) if unmet else 0,
             phase=DecisionPhase.DEVELOP,
-            summary=f"发育未完成: 缺{len(unmet)}项" if unmet else "发育已完成",
+            summary=(
+                "发育已完成" if development_complete else
+                f"发育未完成: 缺{len(unmet)}项" if unmet else
+                "发育未完成(策略判定)"
+            ),
             data={
-                "development_complete": False,
+                "development_complete": development_complete,
                 "needs": needs_order,
                 "unmet_needs": unmet,
                 "best_location": best_location,
@@ -213,8 +217,9 @@ class DevelopMind(BaseMind):
                 scores[loc] = max(scores.get(loc, 0), score)
 
         if not scores:
-            # 没有任何能拿的东西，找一个安全地点
-            return self._find_safe_location(player, state)
+            # 没有需要发育的地点 — 不是受阻，是已满足
+            # 移动到安全地点是 FALLBACK 阶段的职责，不是 DEVELOP 的
+            return None
 
         best = max(scores, key=scores.get)
         # 如果最优地点就是当前位置（归一化），返回 None（不移动）
@@ -228,20 +233,6 @@ class DevelopMind(BaseMind):
         base = 100.0
         base -= enemies * 25  # 每个敌人扣25分
         return max(base, 10.0)
-
-    def _find_safe_location(self, player, state) -> str:
-        """找人最少的地点"""
-        my_loc = self._query.get_location_str(player)
-        best = my_loc
-        best_count = 999
-        for loc in LOCATIONS:
-            if loc == my_loc:
-                continue
-            count = self._query.count_enemies_at(loc, player, state)
-            if count < best_count:
-                best_count = count
-                best = loc
-        return best
 
     # ════════════════════════════════════════════════════════
     #  当前地点交互

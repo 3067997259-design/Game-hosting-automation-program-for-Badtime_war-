@@ -708,7 +708,7 @@ class ActionTurnManager:
     # ================================================================
     #  插入式笑话：interact
     #  策略：G6 玩家 + 临时替换 location 为来源玩家的位置
-    #  个人状态（凭证、物品、武器等）保留 G6 自己的
+    #  来源玩家提供地点和前置资格（凭证/通行证），交互收益归 G6
     #  前置法术：临时注入，学完后移除注入的部分
     #  多回合学习：直接完成（跳过进度系统）
     # ================================================================
@@ -718,17 +718,25 @@ class ActionTurnManager:
 
         original_location = player.location
         original_spells = set(player.learned_spells)
+        original_vouchers = getattr(player, 'vouchers', 0)
+        original_has_pass = getattr(player, 'has_military_pass', False)
 
         source_player = None
         last_reason = ""
+        injected_prereqs = set()
+        borrowed_vouchers_before = original_vouchers
+        borrowed_has_pass_before = original_has_pass
 
         for sp_id in source_pids:
             sp = self.state.get_player(sp_id)
             if not sp:
                 continue
 
-            # 临时替换位置
+            # 临时替换位置和前置资格。validate()/interact.execute()
+            # 都读取 player，因此这里显式借用来源玩家的相关资格状态。
             player.location = sp.location
+            player.vouchers = getattr(sp, 'vouchers', 0)
+            player.has_military_pass = getattr(sp, 'has_military_pass', False)
 
             # 注入前置法术（如果需要）
             injected_prereqs = set()
@@ -743,15 +751,21 @@ class ActionTurnManager:
 
             if valid:
                 source_player = sp
+                borrowed_vouchers_before = getattr(sp, 'vouchers', 0)
+                borrowed_has_pass_before = getattr(sp, 'has_military_pass', False)
                 break
 
             # 校验失败，清理注入的前置
             player.learned_spells -= injected_prereqs
+            player.vouchers = original_vouchers
+            player.has_military_pass = original_has_pass
             last_reason = reason
 
         if not source_player:
             player.location = original_location
             player.learned_spells = original_spells
+            player.vouchers = original_vouchers
+            player.has_military_pass = original_has_pass
             display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
             return None
 
@@ -775,6 +789,9 @@ class ActionTurnManager:
 
             success = not msg.startswith("❌")
         finally:
+            borrowed_vouchers_after = getattr(player, 'vouchers', borrowed_vouchers_before)
+            borrowed_has_pass_after = getattr(player, 'has_military_pass', borrowed_has_pass_before)
+
             # ---- 清理 ----
             # 恢复位置
             player.location = original_location
@@ -790,6 +807,22 @@ class ActionTurnManager:
                     player.progress.pop(progress_key, None)
                 else:
                     player.progress[progress_key] = old_progress
+
+            # 恢复 G6 自己的资格状态，同时把 cutaway 的资源流向落到正确对象：
+            # - 消耗型凭证由来源玩家支付（例如手术清空凭证）
+            # - 获得型凭证/通行证作为交互收益归 G6
+            player.vouchers = original_vouchers
+            player.has_military_pass = original_has_pass
+            if success:
+                voucher_delta = borrowed_vouchers_after - borrowed_vouchers_before
+                if voucher_delta < 0:
+                    source_player.vouchers = max(0, borrowed_vouchers_after)
+                elif voucher_delta > 0:
+                    player.vouchers = original_vouchers + voucher_delta
+
+                gained_pass = borrowed_has_pass_after and not borrowed_has_pass_before
+                if gained_pass:
+                    player.has_military_pass = True
 
         if not success:
             display.show_info("⚠️ 行动执行失败，请重新选择。")

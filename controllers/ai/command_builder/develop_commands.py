@@ -111,7 +111,9 @@ class DevelopCommandBuilder:
                     commands.append(best_move)
 
         # 发育受阻：攻击型人格可转进攻；否则移动到安全兜底地点。
-        if not commands:
+        # ★ 只有在 unmet 非空时才进入受阻路径；unmet 为空说明已满足，不抢跑 FALLBACK
+        unmet = develop_data.get("unmet_needs", [])
+        if not commands and unmet:
             if strategy and strategy.should_attack_when_develop_blocked():
                 combat_data = getattr(combat_assessment, 'data', {}) if combat_assessment else {}
                 target = combat_data.get("best_target") if combat_data.get("combat_ready") else None

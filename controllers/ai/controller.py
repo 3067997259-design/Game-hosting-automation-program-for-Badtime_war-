@@ -765,25 +765,43 @@ class BasicAIController(
         # 按优先级排序
         needs.sort(key=lambda x: -x[2])
 
-        # 为每个需求找到对应的来源玩家
+        # 为每个需求找到对应的来源玩家（含来源玩家的前置条件检查）
         for item_name, item_loc, _ in needs:
             for sp_id in interact_sources:
                 sp = state.get_player(sp_id)
                 if not sp:
                     continue
                 sp_loc = self._get_location_str(sp)
-                # home 特殊处理
-                if item_loc == "home":
-                    if sp_loc.startswith("home"):
+                at_source = (
+                    (item_loc == "home" and sp_loc.startswith("home"))
+                    or sp_loc == item_loc
+                )
+                if not at_source:
+                    continue
+                # ★ 来源玩家能否负担此物品
+                if not self._source_can_afford(sp, item_name, item_loc):
+                    continue
+                # 武器蓄力自查（蓄力是 G6 自己的 self-action，查 G6 玩家不是来源玩家）
+                if item_name in ("电磁步枪", "高斯步枪"):
+                    weapon_found = False
+                    for w in getattr(player, 'weapons', []):
+                        if w and w.name == item_name:
+                            weapon_found = True
+                            if (getattr(w, 'requires_charge', False)
+                                    and not getattr(w, 'is_charged', False)):
+                                cmd = f"special 蓄力{item_name}"
+                                if cmd not in commands:
+                                    commands.append(cmd)
+                            break
+                    if not weapon_found:
                         cmd = f"interact {item_name}"
                         if cmd not in commands:
                             commands.append(cmd)
-                        break
-                elif sp_loc == item_loc:
+                else:
                     cmd = f"interact {item_name}"
                     if cmd not in commands:
                         commands.append(cmd)
-                    break
+                break
 
         # fallback：过滤后无匹配 → 用不过滤的 needs 重试
         if not commands and needs_unfiltered:
@@ -794,45 +812,64 @@ class BasicAIController(
                     if not sp:
                         continue
                     sp_loc = self._get_location_str(sp)
-                    if item_loc == "home":
-                        if sp_loc.startswith("home"):
-                            cmd = f"interact {item_name}"
-                            if cmd not in commands:
-                                commands.append(cmd)
-                            break
-                    elif sp_loc == item_loc:
-                        cmd = f"interact {item_name}"
-                        if cmd not in commands:
-                            commands.append(cmd)
-                        break
+                    at_source = (
+                        (item_loc == "home" and sp_loc.startswith("home"))
+                        or sp_loc == item_loc
+                    )
+                    if not at_source:
+                        continue
+                    if not self._source_can_afford(sp, item_name, item_loc):
+                        continue
+                    cmd = f"interact {item_name}"
+                    if cmd not in commands:
+                        commands.append(cmd)
+                    break
 
-        # 前置检查：通行证 / 武器蓄力 / 手术凭证 / 军事基地通行证
-        has_pass = getattr(player, 'has_military_pass', False)
-        for i, cmd in enumerate(commands):
-            if cmd in ("interact 电磁步枪", "interact 高斯步枪"):
-                # 已有该武器且需蓄力 → 改为蓄力指令
-                weapon_name = cmd.split()[-1]
-                for w in getattr(player, 'weapons', []):
-                    if w and w.name == weapon_name:
-                        if getattr(w, 'requires_charge', False) and not getattr(w, 'is_charged', False):
-                            commands[i] = f"special 蓄力{w.name}"
+        # 绝望模式：两轮过滤后仍无命令 → 不顾 own-location 和物品名，
+        # 只要来源玩家当前位置有可负担的物品就收下
+        if not commands:
+            for sp_id in interact_sources:
+                sp = state.get_player(sp_id)
+                if not sp:
+                    continue
+                sp_loc = self._get_location_str(sp)
+                item_loc = "home" if sp_loc.startswith("home") else sp_loc
+                for item_name in LOCATION_ITEMS.get(item_loc, []):
+                    if not self._source_can_afford(sp, item_name, item_loc):
+                        continue
+                    cmd = f"interact {item_name}"
+                    if cmd not in commands:
+                        commands.append(cmd)
                         break
-                else:
-                    # 没有该武器 → 军事基地获取需要通行证
-                    if not has_pass and vouchers < 1:
-                        commands[i] = None
-            elif cmd == "interact 通行证":
-                if has_pass:
-                    commands[i] = None  # 已有通行证，不需要
-            elif cmd in ("interact 晶化皮肤手术", "interact 额外心脏手术", "interact 不老泉手术"):
-                if vouchers < 1:
-                    commands[i] = None  # 手术需要凭证
-            elif cmd in ("interact AT力场", "interact 雷达", "interact 热成像仪"):
-                if not has_pass and vouchers < 1:
-                    commands[i] = None  # 军事基地需要通行证
-        commands = [c for c in commands if c is not None]
+                if len(commands) >= 3:
+                    break
 
         return commands[:3]  # 最多 3 个发育候选
+
+    @staticmethod
+    def _source_can_afford(source, item_name: str, item_loc: str) -> bool:
+        """检查来源玩家是否有足够凭证/通行证在指定地点交互物品。"""
+        vouchers = getattr(source, 'vouchers', 0)
+        has_pass = getattr(source, 'has_military_pass', False)
+        if item_loc == "home" and item_name == "凭证" and vouchers >= 1:
+            return False
+        if item_loc in ("商店", "医院") and item_name == "打工" and vouchers >= 1:
+            return False
+        if item_loc == "军事基地" and item_name in ("通行证", "办理通行证"):
+            return not has_pass
+        if item_loc == "军事基地" and item_name != "通行证":
+            if not has_pass:
+                return False
+        shop_paid = {"小刀", "陶瓷护甲", "磨刀石", "热成像仪", "隐身衣", "防毒面具"}
+        if item_loc == "商店" and item_name in shop_paid:
+            if vouchers < 1:
+                return False
+        hospital_paid = {"防毒面具"}
+        surgery = {"晶化皮肤手术", "额外心脏手术", "不老泉手术"}
+        if item_loc == "医院" and (item_name in hospital_paid or item_name in surgery):
+            if vouchers < 1:
+                return False
+        return True
 
     # ════════════════════════════════════════════════════════
     #  核心：候选命令生成 (原 lines 858-1154)
