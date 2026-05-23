@@ -783,7 +783,7 @@ class BasicAIController(
                     continue
                 # 已有该武器但未蓄力 → 改为蓄力指令
                 if item_name in ("电磁步枪", "高斯步枪"):
-                    for w in getattr(sp, 'weapons', []):
+                    for w in getattr(player, 'weapons', []):
                         if w and w.name == item_name:
                             if (getattr(w, 'requires_charge', False)
                                     and not getattr(w, 'is_charged', False)):
