@@ -851,6 +851,12 @@ class BasicAIController(
         """检查来源玩家是否有足够凭证/通行证在指定地点交互物品。"""
         vouchers = getattr(source, 'vouchers', 0)
         has_pass = getattr(source, 'has_military_pass', False)
+        if item_loc == "home" and item_name == "凭证" and vouchers >= 1:
+            return False
+        if item_loc in ("商店", "医院") and item_name == "打工" and vouchers >= 1:
+            return False
+        if item_loc == "军事基地" and item_name in ("通行证", "办理通行证"):
+            return not has_pass
         if item_loc == "军事基地" and item_name != "通行证":
             if not has_pass:
                 return False
