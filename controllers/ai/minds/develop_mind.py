@@ -111,7 +111,7 @@ class DevelopMind(BaseMind):
                 "发育未完成(策略判定)"
             ),
             data={
-                "development_complete": False,
+                "development_complete": development_complete,
                 "needs": needs_order,
                 "unmet_needs": unmet,
                 "best_location": best_location,
