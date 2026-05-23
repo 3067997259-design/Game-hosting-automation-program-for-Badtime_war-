@@ -796,6 +796,7 @@ class BasicAIController(
                         if cmd not in commands:
                             commands.append(cmd)
                         break
+                    break
                 cmd = f"interact {item_name}"
                 if cmd not in commands:
                     commands.append(cmd)
@@ -824,20 +825,15 @@ class BasicAIController(
                     break
 
         # 绝望模式：两轮过滤后仍无命令 → 不顾 own-location 和物品名，
-        # 只要来源玩家在同地点且能负担就收下
+        # 只要来源玩家当前位置有可负担的物品就收下
         if not commands:
-            for item_name, item_loc, _ in needs_unfiltered:
-                for sp_id in interact_sources:
-                    sp = state.get_player(sp_id)
-                    if not sp:
-                        continue
-                    sp_loc = self._get_location_str(sp)
-                    at_source = (
-                        (item_loc == "home" and sp_loc.startswith("home"))
-                        or sp_loc == item_loc
-                    )
-                    if not at_source:
-                        continue
+            for sp_id in interact_sources:
+                sp = state.get_player(sp_id)
+                if not sp:
+                    continue
+                sp_loc = self._get_location_str(sp)
+                item_loc = "home" if sp_loc.startswith("home") else sp_loc
+                for item_name in LOCATION_ITEMS.get(item_loc, []):
                     if not self._source_can_afford(sp, item_name, item_loc):
                         continue
                     cmd = f"interact {item_name}"
