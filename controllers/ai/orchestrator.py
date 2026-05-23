@@ -784,22 +784,34 @@ class DecisionOrchestrator:
                         alive_police = sum(1 for u in polices_cache.get("units", [])
                                           if u.get("is_alive"))
                         if alive_police > 0 and not PM.has_any_aoe(player):
-                            self._dbg(2, "RESIST: 无AOE，获取AOE武器")
-                            target_armor_attrs = self._query.get_all_protected_armor_attrs(
-                                state, player.player_id)
-                            ctx = self._build_ctx(state)
-                            for pm in self._minds:
-                                if pm.__class__.__name__ == "PoliceMind":
-                                    aoe_cmds = pm.get_aoe_acquisition_commands(
-                                        player, state, available,
-                                        target_armor_attrs=target_armor_attrs,
-                                        my_location=self._query.get_location_str(player),
-                                        has_pass=getattr(player, 'has_military_pass', False),
-                                        learned_spells=getattr(player, 'learned_spells', set()),
-                                    )
-                                    if aoe_cmds:
-                                        return aoe_cmds
-                                    break
+                            # ★ 只有所有可攻击目标都受保护时才去获取 AOE
+                            combat_data = combat.data if combat else {}
+                            viable = combat_data.get("viable_targets", [])
+                            police_protected = self._query.get_police_protected_ids(state)
+                            protected_viable = sum(
+                                1 for t, _ in viable
+                                if getattr(t, 'player_id', None) in police_protected
+                            )
+                            if len(viable) > 0 and protected_viable < len(viable):
+                                self._dbg(2, "RESIST: "
+                                    f"{len(viable)-protected_viable}个不受保护目标存在，跳过AOE获取")
+                            else:
+                                self._dbg(2, "RESIST: 无AOE，获取AOE武器")
+                                target_armor_attrs = self._query.get_all_protected_armor_attrs(
+                                    state, player.player_id)
+                                ctx = self._build_ctx(state)
+                                for pm in self._minds:
+                                    if pm.__class__.__name__ == "PoliceMind":
+                                        aoe_cmds = pm.get_aoe_acquisition_commands(
+                                            player, state, available,
+                                            target_armor_attrs=target_armor_attrs,
+                                            my_location=self._query.get_location_str(player),
+                                            has_pass=getattr(player, 'has_military_pass', False),
+                                            learned_spells=getattr(player, 'learned_spells', set()),
+                                        )
+                                        if aoe_cmds:
+                                            return aoe_cmds
+                                        break
                 except Exception:
                     pass
 
@@ -808,7 +820,8 @@ class DecisionOrchestrator:
             # 队长存在且可触及 → 切换目标
             if not getattr(self._combat_target, 'is_captain', False):
                 captain = self._find_captain_in_viable_targets(combat, state)
-                if captain and self._query.can_reach_target_in_barrier(player, state, captain):
+                if captain and self._query.same_location(player, captain) \
+                        and self._query.can_reach_target_in_barrier(player, state, captain):
                     self._dbg(1, f"RESIST: 切换目标 {self._combat_target.name} → 队长 {captain.name}")
                     self._combat_target = captain
 
