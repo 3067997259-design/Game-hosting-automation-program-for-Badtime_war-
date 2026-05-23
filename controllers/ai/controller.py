@@ -781,25 +781,26 @@ class BasicAIController(
                 # ★ 来源玩家能否负担此物品
                 if not self._source_can_afford(sp, item_name, item_loc):
                     continue
-                # 已有该武器但未蓄力 → 改为蓄力指令
+                # 武器蓄力自查（蓄力是 G6 自己的 self-action，查 G6 玩家不是来源玩家）
                 if item_name in ("电磁步枪", "高斯步枪"):
-                    for w in getattr(sp, 'weapons', []):
+                    weapon_found = False
+                    for w in getattr(player, 'weapons', []):
                         if w and w.name == item_name:
+                            weapon_found = True
                             if (getattr(w, 'requires_charge', False)
                                     and not getattr(w, 'is_charged', False)):
                                 cmd = f"special 蓄力{item_name}"
                                 if cmd not in commands:
                                     commands.append(cmd)
-                                break
-                    else:
+                            break
+                    if not weapon_found:
                         cmd = f"interact {item_name}"
                         if cmd not in commands:
                             commands.append(cmd)
-                        break
-                    break
-                cmd = f"interact {item_name}"
-                if cmd not in commands:
-                    commands.append(cmd)
+                else:
+                    cmd = f"interact {item_name}"
+                    if cmd not in commands:
+                        commands.append(cmd)
                 break
 
         # fallback：过滤后无匹配 → 用不过滤的 needs 重试
