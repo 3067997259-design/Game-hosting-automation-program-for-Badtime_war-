@@ -104,8 +104,8 @@ class DevelopGoal(BaseGoal):
         if self.target_location == "军事基地" and self.target_item in military_items:
             if not getattr(player, 'has_military_pass', False) and self.target_item != "通行证":
                 return "interact 通行证"
-        # 商店物品需要凭证（小刀除外）
-        shop_paid_items = {"陶瓷护甲", "磨刀石", "热成像仪", "隐身衣", "防毒面具"}
+        # 商店物品需要凭证
+        shop_paid_items = {"小刀", "陶瓷护甲", "磨刀石", "热成像仪", "隐身衣", "防毒面具"}
         if self.target_location == "商店" and self.target_item in shop_paid_items:
             if getattr(player, 'vouchers', 0) < 1:
                 return "interact 打工"
