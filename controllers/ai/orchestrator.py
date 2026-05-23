@@ -799,7 +799,6 @@ class DecisionOrchestrator:
                                 self._dbg(2, "RESIST: 无AOE，获取AOE武器")
                                 target_armor_attrs = self._query.get_all_protected_armor_attrs(
                                     state, player.player_id)
-                                ctx = self._build_ctx(state)
                                 for pm in self._minds:
                                     if pm.__class__.__name__ == "PoliceMind":
                                         aoe_cmds = pm.get_aoe_acquisition_commands(
