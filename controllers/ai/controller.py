@@ -854,12 +854,13 @@ class BasicAIController(
         if item_loc == "军事基地" and item_name != "通行证":
             if not has_pass:
                 return False
-        paid_items = {"陶瓷护甲", "磨刀石", "热成像仪", "隐身衣", "防毒面具"}
-        if item_loc == "商店" and item_name in paid_items:
+        shop_paid = {"陶瓷护甲", "磨刀石", "热成像仪", "隐身衣", "防毒面具"}
+        if item_loc == "商店" and item_name in shop_paid:
             if vouchers < 1:
                 return False
+        hospital_paid = {"防毒面具"}
         surgery = {"晶化皮肤手术", "额外心脏手术", "不老泉手术"}
-        if item_loc == "医院" and (item_name in paid_items or item_name in surgery):
+        if item_loc == "医院" and (item_name in hospital_paid or item_name in surgery):
             if vouchers < 1:
                 return False
         return True
