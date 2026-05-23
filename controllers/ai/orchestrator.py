@@ -960,7 +960,7 @@ class DecisionOrchestrator:
                                 break
                         if target_item:
                             break
-                    if target_item:
+                    if target_item and self._goal_stack:
                         from controllers.ai.goals.develop_goal import DevelopGoal
                         goal = DevelopGoal(
                             target_item=target_item,
