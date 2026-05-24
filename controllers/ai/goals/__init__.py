@@ -7,6 +7,7 @@
 - VirusCureGoal  — 病毒免疫（获取防毒面具/封闭）
 - CaptainGoal    — 队长指挥（管理警察单位）
 - PoliticalGoal  — 政治行动（加入警察/竞选队长）
+- RearmGoal      — 武器换装（获取克制目标护甲的武器）
 """
 
 from controllers.ai.goals.base_goal import BaseGoal, GoalStack
@@ -16,9 +17,10 @@ from controllers.ai.goals.flee_goal import FleeGoal
 from controllers.ai.goals.virus_goal import VirusCureGoal
 from controllers.ai.goals.captain_goal import CaptainGoal
 from controllers.ai.goals.political_goal import PoliticalGoal
+from controllers.ai.goals.rearm_goal import RearmGoal
 
 __all__ = [
     "BaseGoal", "GoalStack",
     "DevelopGoal", "CombatGoal", "FleeGoal", "VirusCureGoal",
-    "CaptainGoal", "PoliticalGoal",
+    "CaptainGoal", "PoliticalGoal", "RearmGoal",
 ]

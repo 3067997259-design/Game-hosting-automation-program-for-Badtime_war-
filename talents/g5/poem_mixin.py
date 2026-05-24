@@ -721,7 +721,7 @@ class PoemMixin:
             result = resolve_damage(
                 attacker=caster, target=target, weapon=None,
                 game_state=self.state,
-                raw_damage_override=1.0,
+                raw_damage_override=0.5,
                 damage_attribute_override=damage_attr,
                 ignore_counter=True,
                 is_talent_attack=True,

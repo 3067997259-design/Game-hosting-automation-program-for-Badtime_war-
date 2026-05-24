@@ -889,6 +889,23 @@ class DecisionOrchestrator:
                     self._push_combat_goal(best_target, player, round_num)
                     return combat_cmds
 
+        # 武器全被克制 + 发育已完成 → 推送 RearmGoal 换武器
+        if (not combat_cmds and dev_complete
+                and combat.data.get("all_countered")
+                and combat.data.get("best_target")):
+            target = combat.data.get("best_target")
+            if self._goal_stack:
+                from controllers.ai.goals.rearm_goal import RearmGoal
+                rearm_goal = RearmGoal(target.player_id, debug_name=player.name)
+                rearm_goal.set_round(round_num)
+                self._goal_stack.push(rearm_goal)
+                self._dbg(1, f"武器被克制，推送RearmGoal → {target.name}")
+            ctx = self._build_ctx(state)
+            rearm_cmds = self._combat_cmd.build_rearm(
+                player, state, self._strategy, available, ctx)
+            if rearm_cmds:
+                return rearm_cmds
+
         # ★ RESIST 兜底：有 AOE + 存活警察 + 没有产出任何战斗指令 → 反击警察单位
         if resist_active and not combat_cmds:
             polices_cache = self._shared_state.police_cache or {}

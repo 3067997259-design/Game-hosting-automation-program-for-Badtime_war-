@@ -727,39 +727,61 @@ class ActionTurnManager:
         borrowed_vouchers_before = original_vouchers
         borrowed_has_pass_before = original_has_pass
 
-        for sp_id in source_pids:
-            sp = self.state.get_player(sp_id)
-            if not sp:
-                continue
-
-            # 临时替换位置和前置资格。validate()/interact.execute()
-            # 都读取 player，因此这里显式借用来源玩家的相关资格状态。
-            player.location = sp.location
-            player.vouchers = getattr(sp, 'vouchers', 0)
-            player.has_military_pass = getattr(sp, 'has_military_pass', False)
-
-            # 注入前置法术（如果需要）
-            injected_prereqs = set()
-            from locations.magic_institute import PREREQUISITES
-            if item_name in PREREQUISITES:
-                prereq = PREREQUISITES[item_name]
-                if prereq not in player.learned_spells:
-                    player.learned_spells.add(prereq)
-                    injected_prereqs.add(prereq)
-
-            valid, reason = validate(parsed, player, self.state)
-
-            if valid:
-                source_player = sp
-                borrowed_vouchers_before = getattr(sp, 'vouchers', 0)
-                borrowed_has_pass_before = getattr(sp, 'has_military_pass', False)
-                break
-
-            # 校验失败，清理注入的前置
-            player.learned_spells -= injected_prereqs
+        # 优先尝试 G6 自己的状态（无需替换，避免状态污染）
+        my_id = player.player_id
+        own_state_ok = False
+        if my_id in source_pids:
+            # 确保 player 状态未被之前的操作污染
+            player.location = original_location
             player.vouchers = original_vouchers
             player.has_military_pass = original_has_pass
-            last_reason = reason
+            own_valid, own_reason = validate(parsed, player, self.state)
+            if own_valid:
+                sp = self.state.get_player(my_id)
+                if sp:
+                    source_player = sp
+                    borrowed_vouchers_before = getattr(sp, 'vouchers', 0)
+                    borrowed_has_pass_before = getattr(sp, 'has_military_pass', False)
+                    own_state_ok = True
+            else:
+                last_reason = own_reason
+
+        if not own_state_ok:
+            for sp_id in source_pids:
+                if sp_id == my_id:
+                    continue  # 已在上面用自己的 state 校验过
+                sp = self.state.get_player(sp_id)
+                if not sp:
+                    continue
+
+                # 临时替换位置和前置资格。validate()/interact.execute()
+                # 都读取 player，因此这里显式借用来源玩家的相关资格状态。
+                player.location = sp.location
+                player.vouchers = getattr(sp, 'vouchers', 0)
+                player.has_military_pass = getattr(sp, 'has_military_pass', False)
+
+                # 注入前置法术（如果需要）
+                injected_prereqs = set()
+                from locations.magic_institute import PREREQUISITES
+                if item_name in PREREQUISITES:
+                    prereq = PREREQUISITES[item_name]
+                    if prereq not in player.learned_spells:
+                        player.learned_spells.add(prereq)
+                        injected_prereqs.add(prereq)
+
+                valid, reason = validate(parsed, player, self.state)
+
+                if valid:
+                    source_player = sp
+                    borrowed_vouchers_before = getattr(sp, 'vouchers', 0)
+                    borrowed_has_pass_before = getattr(sp, 'has_military_pass', False)
+                    break
+
+                # 校验失败，清理注入的前置
+                player.learned_spells -= injected_prereqs
+                player.vouchers = original_vouchers
+                player.has_military_pass = original_has_pass
+                last_reason = reason
 
         if not source_player:
             player.location = original_location

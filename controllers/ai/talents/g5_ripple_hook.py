@@ -111,7 +111,21 @@ class RippleAIHook(BaseTalentAIHook):
                     return opt
             return options[-1]
 
-        if situation in ("poem_law_extra_action", "poem_law_police_action"):
+        if situation == "poem_law_extra_action":
+            # 选择与战斗目标同地点的警察单位
+            combat_target = context.get("combat_target")
+            police_cache = context.get("police_cache") or {}
+            if combat_target:
+                from controllers.ai.game_query import GameQuery
+                target_loc = GameQuery.get_location_str(combat_target)
+                for unit in police_cache.get("units", []):
+                    if (unit.get("is_alive") and unit.get("is_active", True)
+                            and unit.get("location") == target_loc):
+                        unit_id = unit.get("id", "")
+                        if unit_id in options:
+                            return unit_id
+            return options[0] if options else ""
+        if situation == "poem_law_police_action":
             return options[0] if options else ""
 
         return None

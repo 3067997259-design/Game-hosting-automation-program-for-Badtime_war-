@@ -706,7 +706,19 @@ class ChooseMixin(_Base):
                     return opt
             return options[0]
         # ---- 献予律法之诗：额外行动 ----
-        if situation in ("poem_law_extra_action", "poem_law_police_action"):
+        if situation == "poem_law_extra_action":
+            # 选择与战斗目标同地点的警察单位，确保后续攻击不会因位置失败
+            if self._combat_target and self._game_state:
+                target_loc = self._get_location_str(self._combat_target)
+                pc = self._police_cache or {}
+                for unit in pc.get("units", []):
+                    if (unit.get("is_alive") and unit.get("is_active", True)
+                            and unit.get("location") == target_loc):
+                        unit_id = unit.get("id", "")
+                        if unit_id in options:
+                            return unit_id
+            return options[0] if options else ""
+        if situation == "poem_law_police_action":
             return options[0] if options else ""
         # ---- 星野（神代天赋7）备用形态选择 ----
         # 注意：hoshino_form 和 hoshino_form_choice 是不同的 situation key，
