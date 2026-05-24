@@ -727,6 +727,16 @@ class ActionTurnManager:
         borrowed_vouchers_before = original_vouchers
         borrowed_has_pass_before = original_has_pass
 
+        from locations.magic_institute import PREREQUISITES
+
+        def inject_prereq_spell():
+            prereqs = set()
+            prereq = PREREQUISITES.get(item_name)
+            if prereq and prereq not in player.learned_spells:
+                player.learned_spells.add(prereq)
+                prereqs.add(prereq)
+            return prereqs
+
         # 优先尝试 G6 自己的状态（无需替换，避免状态污染）
         my_id = player.player_id
         own_state_ok = False
@@ -735,6 +745,7 @@ class ActionTurnManager:
             player.location = original_location
             player.vouchers = original_vouchers
             player.has_military_pass = original_has_pass
+            injected_prereqs = inject_prereq_spell()
             own_valid, own_reason = validate(parsed, player, self.state)
             if own_valid:
                 sp = self.state.get_player(my_id)
@@ -744,6 +755,8 @@ class ActionTurnManager:
                     borrowed_has_pass_before = getattr(sp, 'has_military_pass', False)
                     own_state_ok = True
             else:
+                player.learned_spells -= injected_prereqs
+                injected_prereqs = set()
                 last_reason = own_reason
 
         if not own_state_ok:
@@ -761,13 +774,7 @@ class ActionTurnManager:
                 player.has_military_pass = getattr(sp, 'has_military_pass', False)
 
                 # 注入前置法术（如果需要）
-                injected_prereqs = set()
-                from locations.magic_institute import PREREQUISITES
-                if item_name in PREREQUISITES:
-                    prereq = PREREQUISITES[item_name]
-                    if prereq not in player.learned_spells:
-                        player.learned_spells.add(prereq)
-                        injected_prereqs.add(prereq)
+                injected_prereqs = inject_prereq_spell()
 
                 valid, reason = validate(parsed, player, self.state)
 
