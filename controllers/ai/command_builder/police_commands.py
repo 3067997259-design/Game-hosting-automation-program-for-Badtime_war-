@@ -371,8 +371,7 @@ class PoliceCommandBuilder:
             target_player = state.get_player(report_target)
             if target_player and target_player.is_alive():
                 # 爱愿检查：队长持有爱愿时，排除G5持有玩家
-                if not (target_player.talent and hasattr(target_player.talent, 'has_love_wish')
-                        and target_player.talent.has_love_wish(player.player_id)):
+                if not GameQuery.has_love_wish_for(player.player_id, target_player):
                     return target_player
         best = None
         best_score = -1.0
@@ -382,8 +381,7 @@ class PoliceCommandBuilder:
             p = state.get_player(pid)
             if p and p.is_alive():
                 # 爱愿检查：队长持有爱愿时，排除G5持有玩家（攻击会被免疫）
-                if (p.talent and hasattr(p.talent, 'has_love_wish')
-                        and p.talent.has_love_wish(player.player_id)):
+                if GameQuery.has_love_wish_for(player.player_id, p):
                     continue
                 is_criminal = getattr(p, 'is_criminal', False)
                 if not is_criminal:

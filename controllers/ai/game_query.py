@@ -825,12 +825,32 @@ class GameQuery:
         return count
 
     @staticmethod
+    def has_love_wish_for(player_id: str, target) -> bool:
+        """检查 target 的 G5 天赋是否对 player_id 持有爱愿。"""
+        talent = getattr(target, 'talent', None)
+        return (talent and hasattr(talent, 'has_love_wish')
+                and talent.has_love_wish(player_id))
+
+    @staticmethod
+    def select_police_unit_at_target(combat_target, police_cache, options: List[str]) -> Optional[str]:
+        """在 police_cache 中选择与 combat_target 同地点的活跃警察单位。"""
+        if not combat_target or not police_cache:
+            return None
+        target_loc = GameQuery.get_location_str(combat_target)
+        for unit in police_cache.get("units", []):
+            if (unit.get("is_alive") and unit.get("is_active", True)
+                    and unit.get("location") == target_loc):
+                unit_id = unit.get("id", "")
+                if unit_id in options:
+                    return unit_id
+        return None
+
+    @staticmethod
     def is_valid_attack_target(player, target, state) -> bool:
         if getattr(player, 'is_police', False) and not getattr(player, 'is_captain', False):
             if not getattr(target, 'is_criminal', False):
                 return False
-        if (target.talent and hasattr(target.talent, 'has_love_wish')
-                and target.talent.has_love_wish(player.player_id)):
+        if GameQuery.has_love_wish_for(player.player_id, target):
             return False
         if getattr(target, 'is_invisible', False) and not getattr(player, 'has_detection', False):
             markers_obj = getattr(state, 'markers', None)

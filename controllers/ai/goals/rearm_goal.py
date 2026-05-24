@@ -28,7 +28,6 @@ class RearmGoal(BaseGoal):
         self._target_id = target_id
         self._state: str = "MOVING"  # MOVING → INTERACTING → ACHIEVED
         self._dest: Optional[str] = None
-        self._query = GameQuery()
         self.description = f"武器换装→{debug_name}" if debug_name else "武器换装"
         self._debug_name = debug_name
 
@@ -84,14 +83,14 @@ class RearmGoal(BaseGoal):
     def _pick_destination(self, player: Any, state: Any, loc: str) -> Optional[str]:
         """选择获取非普通属性武器的目的地。"""
         from utils.attribute import Attribute
-        Q = self._query
         vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
         has_magic = any(
-            Q.get_weapon_attr(w) == Attribute.MAGIC
+            GameQuery.get_weapon_attr(w) == Attribute.MAGIC
             for w in getattr(player, 'weapons', []) if w
         )
         has_tech = any(
-            Q.get_weapon_attr(w) == Attribute.TECH
+            GameQuery.get_weapon_attr(w) == Attribute.TECH
             for w in getattr(player, 'weapons', []) if w
         )
         if vouchers < 1:
@@ -99,14 +98,14 @@ class RearmGoal(BaseGoal):
         candidates: List[str] = []
         if not has_magic:
             candidates.append("魔法所")
-        if not has_tech:
+        if not has_tech and has_pass:
             candidates.append("军事基地")
         if not candidates:
             return "魔法所"
         if len(candidates) == 1:
             return candidates[0]
-        enemies_magic = Q.count_enemies_at("魔法所", player, state)
-        enemies_military = Q.count_enemies_at("军事基地", player, state)
+        enemies_magic = GameQuery.count_enemies_at("魔法所", player, state)
+        enemies_military = GameQuery.count_enemies_at("军事基地", player, state)
         return "军事基地" if enemies_military <= enemies_magic else "魔法所"
 
     def _interact_cmd(self, player: Any, loc: str) -> Optional[str]:

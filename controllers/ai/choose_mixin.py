@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Dict, Any
 import random
 from controllers.ai.constants import debug_ai_basic
+from controllers.ai.game_query import GameQuery
 
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController
@@ -709,14 +710,10 @@ class ChooseMixin(_Base):
         if situation == "poem_law_extra_action":
             # 选择与战斗目标同地点的警察单位，确保后续攻击不会因位置失败
             if self._combat_target and self._game_state:
-                target_loc = self._get_location_str(self._combat_target)
-                pc = self._police_cache or {}
-                for unit in pc.get("units", []):
-                    if (unit.get("is_alive") and unit.get("is_active", True)
-                            and unit.get("location") == target_loc):
-                        unit_id = unit.get("id", "")
-                        if unit_id in options:
-                            return unit_id
+                result = GameQuery.select_police_unit_at_target(
+                    self._combat_target, self._police_cache or {}, options)
+                if result:
+                    return result
             return options[0] if options else ""
         if situation == "poem_law_police_action":
             return options[0] if options else ""
