@@ -924,6 +924,43 @@ class DecisionOrchestrator:
                 if fight_cmds:
                     return fight_cmds
 
+        # ════════════════════════════════════════════════════════════
+        #  警察保护降级：best_target 被保护拦住时，按 stance 分流处理
+        #  - IGNORE/BUILD: 降级到 viable_targets 中第一个不受保护的目标
+        #  - RESIST:       推 DevelopGoal 拿 AOE，后续自动打队长
+        # ════════════════════════════════════════════════════════════
+        if not combat_cmds and dev_complete:
+            best_target = combat.data.get("best_target")
+            if best_target and self._is_blocked_by_police_protection(
+                    player, state, best_target):
+                stance = self._get_police_stance(snapshots)
+                if stance == "resist":
+                    self._dbg(1,
+                        f"RESIST: best_target {best_target.name} 被警察保护拦住 → 获取AOE")
+                    aoe_cmds = self._push_aoe_develop_goal(
+                        player, state, available, best_target, round_num)
+                    if aoe_cmds:
+                        return aoe_cmds
+                else:
+                    viable = combat.data.get("viable_targets", [])
+                    self._dbg(1,
+                        f"IGNORE: best_target {best_target.name} 被保护 → "
+                        f"降级遍历 {len(viable)-1} 个次优目标")
+                    for entry in viable[1:]:
+                        t = entry[0] if isinstance(entry, (list, tuple)) else entry
+                        if not t or not t.is_alive():
+                            continue
+                        if self._is_blocked_by_police_protection(player, state, t):
+                            continue
+                        fb_cmds = self._build_forced_attack_commands(
+                            player, state, available, t)
+                        if fb_cmds:
+                            self._dbg(1, f"降级目标 → {t.name}")
+                            self._in_combat = True
+                            self._combat_target = t
+                            self._push_combat_goal(t, player, round_num)
+                            return fb_cmds
+
         return []
 
     # ── 击杀机会 ──
@@ -1087,6 +1124,95 @@ class DecisionOrchestrator:
         )
         goal.set_round(round_num)
         self._goal_stack.push(goal)
+
+    # ════════════════════════════════════════════════════════════
+    #  警察保护降级 helper
+    # ════════════════════════════════════════════════════════════
+
+    def _get_police_stance(self, snapshots: Dict[str, Any]) -> str:
+        """从 police 快照中提取推荐 stance 字符串。"""
+        ps = snapshots.get("police")
+        if ps:
+            sit = ps.data.get("police_situation")
+            if sit:
+                raw = getattr(sit, 'recommended_stance', None)
+                if raw is not None:
+                    return raw.value if hasattr(raw, 'value') else str(raw)
+        return "ignore"
+
+    def _get_police_mind(self):
+        """获取 PoliceMind 实例。"""
+        for mind in self._minds:
+            if mind.__class__.__name__ == "PoliceMind":
+                return mind
+        return None
+
+    def _is_blocked_by_police_protection(
+        self, player: Any, state: Any, target: Any
+    ) -> bool:
+        """检查目标是否因警察保护而无法被当前武器库击穿。"""
+        pe = getattr(state, 'police_engine', None)
+        if not pe or not pe.is_protected_by_police(target.player_id):
+            return False
+        pm = self._get_police_mind()
+        if pm is None:
+            threshold = pe.get_protection_threshold(target.player_id)
+            return threshold >= 1.5
+        can_dmg, _ = pm.can_damage_through_protection(
+            player, target, state,
+            talent_adjusted_damage=self._query.estimate_talent_adjusted_damage(player),
+            outer_armor_attrs=set(self._query.get_outer_armor_attr(target)),
+            inner_armor_attrs=set(self._query.get_inner_armor_attr(target)),
+            aoe_weapon_names=self._query.get_all_aoe_weapon_names(player),
+            player_weapons=getattr(player, 'weapons', []),
+            learned_spells=self._query.get_learned_spells(player),
+        )
+        return not can_dmg
+
+    def _push_aoe_develop_goal(
+        self, player: Any, state: Any, available: List[str],
+        target: Any, round_num: int,
+    ) -> List[str]:
+        """RESIST 下 best_target 被保护拦住时：推 DevelopGoal 拿 AOE。"""
+        from controllers.ai.goals.develop_goal import DevelopGoal
+        pm = self._get_police_mind()
+        if pm is None:
+            return []
+        target_armor_attrs = (
+            self._query.get_outer_armor_attr(target)
+            or self._query.get_inner_armor_attr(target)
+        )
+        aoe_cmds = pm.get_aoe_acquisition_commands(
+            player, state, available,
+            target_armor_attrs=set(target_armor_attrs),
+            my_location=self._query.get_location_str(player),
+            has_pass=getattr(player, 'has_military_pass', False),
+            learned_spells=getattr(player, 'learned_spells', set()),
+        )
+        if aoe_cmds and self._goal_stack:
+            goal = DevelopGoal(
+                target_item=self._extract_item_from_cmd(aoe_cmds[0]),
+                target_location=self._extract_dest_from_cmd(aoe_cmds[0]),
+                priority=5,
+                debug_name=player.name,
+            )
+            goal.set_round(round_num)
+            self._goal_stack.push(goal)
+        return aoe_cmds
+
+    @staticmethod
+    def _extract_item_from_cmd(cmd: str) -> str:
+        """从 'interact <item>' 中提取物品名。"""
+        if cmd.startswith("interact "):
+            return cmd[len("interact "):]
+        return cmd
+
+    @staticmethod
+    def _extract_dest_from_cmd(cmd: str) -> str:
+        """从 'move <dest>' 中提取目的地，否则返回空字符串。"""
+        if cmd.startswith("move "):
+            return cmd[len("move "):]
+        return ""
 
     def _should_release_virus(self, player, state) -> bool:
         """判断是否应释放病毒（移植自 develop_mixin._should_release_virus）。"""
