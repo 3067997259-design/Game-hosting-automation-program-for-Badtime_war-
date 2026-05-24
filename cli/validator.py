@@ -666,6 +666,9 @@ def validate_police_command(player, parsed, game_state):
         unit = game_state.police.get_unit(police_id)
         if unit and not unit.is_active():
             return False, f"{police_id} 处于行动阻碍状态，无法攻击"
+        # 同地点检查（献予律法之诗等额外行动中，AI 选的单位可能与目标不同地点）
+        if unit and target and unit.location != target.location:
+            return False, f"{police_id} 与 {target.name} 不在同一地点（{police_id}在{unit.location}，目标在{target.location}）"
 
     # move 子命令也验证警察单位是否可移动
     if subcommand == "move":

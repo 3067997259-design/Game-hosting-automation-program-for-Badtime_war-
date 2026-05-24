@@ -468,8 +468,15 @@ class HoshinoAIHook(BaseTalentAIHook):
                 if captain_id:
                     captain = state.get_player(captain_id)
                     if captain and captain.is_alive():
-                        ctrl._hoshino_macro_queue = ctrl._hoshino_build_fullfire_macro(player, state, captain)
-                        return ["special Hoshino", "forfeit"]
+                        # 检查警察保护是否已恢复（烟雾过期等因素）
+                        pe = getattr(state, 'police_engine', None)
+                        threshold = pe.get_protection_threshold(captain.player_id) if pe else 0
+                        if threshold < 1.5:
+                            ctrl._hoshino_macro_queue = ctrl._hoshino_build_fullfire_macro(
+                                player, state, captain)
+                            return ["special Hoshino", "forfeit"]
+                        # 保护已恢复，清除标记后 fall through → _hoshino_find_target
+                        # → is_anti_captain 会重新判定是否需要新的反队长接近宏
 
             target = ctrl._hoshino_find_target(player, state)
             if target and "special" in available:

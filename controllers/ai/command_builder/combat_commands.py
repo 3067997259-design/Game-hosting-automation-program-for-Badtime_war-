@@ -595,6 +595,7 @@ class CombatCommandBuilder:
         from utils.attribute import Attribute
         Q = self._query
         vouchers = getattr(player, 'vouchers', 0)
+        has_pass = getattr(player, 'has_military_pass', False)
         has_magic = any(
             Q.get_weapon_attr(w) == Attribute.MAGIC
             for w in getattr(player, 'weapons', []) if w
@@ -608,7 +609,7 @@ class CombatCommandBuilder:
         candidates = []
         if not has_magic:
             candidates.append("魔法所")
-        if not has_tech:
+        if not has_tech and has_pass:
             candidates.append("军事基地")
         if not candidates:
             return "魔法所"
