@@ -896,10 +896,16 @@ class DecisionOrchestrator:
             target = combat.data.get("best_target")
             if self._goal_stack:
                 from controllers.ai.goals.rearm_goal import RearmGoal
-                rearm_goal = RearmGoal(target.player_id, debug_name=player.name)
-                rearm_goal.set_round(round_num)
-                self._goal_stack.push(rearm_goal)
-                self._dbg(1, f"武器被克制，推送RearmGoal → {target.name}")
+                has_rearm_goal = any(
+                    isinstance(goal, RearmGoal)
+                    and getattr(goal, '_target_id', None) == target.player_id
+                    for goal in self._goal_stack.all_goals
+                )
+                if not has_rearm_goal:
+                    rearm_goal = RearmGoal(target.player_id, debug_name=player.name)
+                    rearm_goal.set_round(round_num)
+                    self._goal_stack.push(rearm_goal)
+                    self._dbg(1, f"武器被克制，推送RearmGoal → {target.name}")
             ctx = self._build_ctx(state)
             rearm_cmds = self._combat_cmd.build_rearm(
                 player, state, self._strategy, available, ctx)
