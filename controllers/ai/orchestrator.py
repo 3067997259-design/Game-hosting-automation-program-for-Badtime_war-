@@ -1196,9 +1196,10 @@ class DecisionOrchestrator:
             learned_spells=getattr(player, 'learned_spells', set()),
         )
         if aoe_cmds and self._goal_stack:
+            target_item, target_location = self._resolve_aoe_goal_params(aoe_cmds[0])
             goal = DevelopGoal(
-                target_item=self._extract_item_from_cmd(aoe_cmds[0]),
-                target_location=self._extract_dest_from_cmd(aoe_cmds[0]),
+                target_item=target_item,
+                target_location=target_location,
                 priority=5,
                 debug_name=player.name,
             )
@@ -1206,19 +1207,46 @@ class DecisionOrchestrator:
             self._goal_stack.push(goal)
         return aoe_cmds
 
-    @staticmethod
-    def _extract_item_from_cmd(cmd: str) -> str:
-        """从 'interact <item>' 中提取物品名。"""
-        if cmd.startswith("interact "):
-            return cmd[len("interact "):]
-        return cmd
+    # AOE 物品 ↔ 地点映射，用于 _resolve_aoe_goal_params 从单步命令中
+    # 推断完整的 (target_item, target_location) 对。
+    _AOE_ITEM_TO_LOCATION = {
+        "电磁步枪": "军事基地",
+        "通行证": "军事基地",
+        "地震": "魔法所",
+        "地动山摇": "魔法所",
+    }
 
-    @staticmethod
-    def _extract_dest_from_cmd(cmd: str) -> str:
-        """从 'move <dest>' 中提取目的地，否则返回空字符串。"""
+    _AOE_LOCATION_TO_ITEM = {
+        "军事基地": "电磁步枪",
+        "魔法所": "地动山摇",
+    }
+
+    @classmethod
+    def _resolve_aoe_goal_params(cls, cmd: str) -> tuple:
+        """从 AOE 获取单步命令中解析完整的 (target_item, target_location)。
+
+        get_aoe_acquisition_commands() 返回的命令是单步的（move、interact 或
+        special），因此从首命令只能提取 item 和 location 之一。这里通过领域映射
+        补全缺失字段，确保 DevelopGoal 能正确生成后续回合的 move / interact 指令。
+        """
+        item = ""
+        location = ""
+
         if cmd.startswith("move "):
-            return cmd[len("move "):]
-        return ""
+            location = cmd[len("move "):]
+        elif cmd.startswith("interact "):
+            item = cmd[len("interact "):]
+        elif cmd.startswith("special "):
+            special = cmd[len("special "):]
+            if "电磁步枪" in special:
+                item = "电磁步枪"
+
+        if location and not item:
+            item = cls._AOE_LOCATION_TO_ITEM.get(location, "")
+        if item and not location:
+            location = cls._AOE_ITEM_TO_LOCATION.get(item, "")
+
+        return item, location
 
     def _should_release_virus(self, player, state) -> bool:
         """判断是否应释放病毒（移植自 develop_mixin._should_release_virus）。"""
