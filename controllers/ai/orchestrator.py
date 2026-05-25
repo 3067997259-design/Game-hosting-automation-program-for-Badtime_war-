@@ -823,52 +823,13 @@ class DecisionOrchestrator:
                                 # 有不受保护目标 → 不中断当前战斗，但把AOE获取压入GoalStack
                                 self._dbg(2, f"RESIST: {unprotected_count}个不受保护目标存在，AOE获取压入GoalStack")
                                 if aoe_cmds and self._goal_stack:
-                                    first_cmd = aoe_cmds[0]
-                                    if first_cmd.startswith("move "):
-                                        dest = first_cmd[5:]
-                                        weapon = self._ctrl._infer_aoe_weapon(dest)
-                                        if weapon:
-                                            from controllers.ai.goals.develop_goal import DevelopGoal
-                                            has_aoe_goal = any(
-                                                isinstance(g, DevelopGoal)
-                                                and getattr(g, 'target_item', None) == weapon
-                                                for g in self._goal_stack.all_goals
-                                            )
-                                            if not has_aoe_goal:
-                                                goal = DevelopGoal(
-                                                    target_item=weapon,
-                                                    target_location=dest,
-                                                    priority=6,
-                                                    debug_name=player.name,
-                                                )
-                                                goal.set_round(round_num)
-                                                self._goal_stack.push(goal)
-                                                self._dbg(2, f"RESIST: 推送AOE获取目标: {weapon}（去{dest}）")
+                                    self._try_push_aoe_goal(aoe_cmds, player, round_num, 6)
                                 # 不 return —— 让控制流继续到 COMBAT 阶段
                             else:
                                 # 全受保护 → 立即获取AOE
                                 self._dbg(2, "RESIST: 无AOE，获取AOE武器")
                                 if aoe_cmds:
-                                    first_cmd = aoe_cmds[0]
-                                    if first_cmd.startswith("move ") and self._goal_stack:
-                                        dest = first_cmd[5:]
-                                        weapon = self._ctrl._infer_aoe_weapon(dest)
-                                        if weapon:
-                                            from controllers.ai.goals.develop_goal import DevelopGoal
-                                            has_aoe_goal = any(
-                                                isinstance(g, DevelopGoal)
-                                                and getattr(g, 'target_item', None) == weapon
-                                                for g in self._goal_stack.all_goals
-                                            )
-                                            if not has_aoe_goal:
-                                                goal = DevelopGoal(
-                                                    target_item=weapon,
-                                                    target_location=dest,
-                                                    priority=8,
-                                                    debug_name=player.name,
-                                                )
-                                                goal.set_round(round_num)
-                                                self._goal_stack.push(goal)
+                                    self._try_push_aoe_goal(aoe_cmds, player, round_num, 8)
                                     return aoe_cmds
                 except Exception:
                     pass
@@ -1223,12 +1184,44 @@ class DecisionOrchestrator:
         )
         return not can_dmg
 
+    def _try_push_aoe_goal(
+        self, aoe_cmds: List[str], player: Any, round_num: int, priority: int,
+    ) -> None:
+        """从 aoe_cmds 提取目标并推入 GoalStack（含命令格式处理+去重）。"""
+        if not aoe_cmds or not self._goal_stack:
+            return
+        from controllers.ai.goals.develop_goal import DevelopGoal
+        first_cmd = aoe_cmds[0]
+        if first_cmd.startswith("move "):
+            dest = first_cmd[5:]
+            weapon = self._ctrl._infer_aoe_weapon(dest)
+        else:
+            dest = self._extract_dest_from_cmd(first_cmd)
+            weapon = self._extract_item_from_cmd(first_cmd)
+        if not weapon:
+            return
+        has_aoe_goal = any(
+            isinstance(g, DevelopGoal)
+            and getattr(g, 'target_item', None) == weapon
+            for g in self._goal_stack.all_goals
+        )
+        if has_aoe_goal:
+            return
+        goal = DevelopGoal(
+            target_item=weapon,
+            target_location=dest,
+            priority=priority,
+            debug_name=player.name,
+        )
+        goal.set_round(round_num)
+        self._goal_stack.push(goal)
+        self._dbg(2, f"推送AOE获取目标: {weapon}（去{dest}）")
+
     def _push_aoe_develop_goal(
         self, player: Any, state: Any, available: List[str],
         target: Any, round_num: int,
     ) -> List[str]:
         """RESIST 下 best_target 被保护拦住时：推 DevelopGoal 拿 AOE。"""
-        from controllers.ai.goals.develop_goal import DevelopGoal
         pm = self._get_police_mind()
         if pm is None:
             return []
@@ -1243,29 +1236,7 @@ class DecisionOrchestrator:
             has_pass=getattr(player, 'has_military_pass', False),
             learned_spells=getattr(player, 'learned_spells', set()),
         )
-        if aoe_cmds and self._goal_stack:
-            first_cmd = aoe_cmds[0]
-            if first_cmd.startswith("move "):
-                dest = first_cmd[5:]
-                weapon = self._ctrl._infer_aoe_weapon(dest)
-            else:
-                dest = self._extract_dest_from_cmd(first_cmd)
-                weapon = self._extract_item_from_cmd(first_cmd)
-            if weapon:
-                has_aoe_goal = any(
-                    isinstance(g, DevelopGoal)
-                    and getattr(g, 'target_item', None) == weapon
-                    for g in self._goal_stack.all_goals
-                )
-                if not has_aoe_goal:
-                    goal = DevelopGoal(
-                        target_item=weapon,
-                        target_location=dest,
-                        priority=5,
-                        debug_name=player.name,
-                    )
-                    goal.set_round(round_num)
-                    self._goal_stack.push(goal)
+        self._try_push_aoe_goal(aoe_cmds, player, round_num, 5)
         return aoe_cmds
 
     @staticmethod
