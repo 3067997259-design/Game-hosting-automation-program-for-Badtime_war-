@@ -829,15 +829,21 @@ class DecisionOrchestrator:
                                         weapon = self._ctrl._infer_aoe_weapon(dest)
                                         if weapon:
                                             from controllers.ai.goals.develop_goal import DevelopGoal
-                                            goal = DevelopGoal(
-                                                target_item=weapon,
-                                                target_location=dest,
-                                                priority=6,
-                                                debug_name=player.name,
+                                            has_aoe_goal = any(
+                                                isinstance(g, DevelopGoal)
+                                                and getattr(g, 'target_item', None) == weapon
+                                                for g in self._goal_stack.all_goals
                                             )
-                                            goal.set_round(round_num)
-                                            self._goal_stack.push(goal)
-                                            self._dbg(2, f"RESIST: 推送AOE获取目标: {weapon}（去{dest}）")
+                                            if not has_aoe_goal:
+                                                goal = DevelopGoal(
+                                                    target_item=weapon,
+                                                    target_location=dest,
+                                                    priority=6,
+                                                    debug_name=player.name,
+                                                )
+                                                goal.set_round(round_num)
+                                                self._goal_stack.push(goal)
+                                                self._dbg(2, f"RESIST: 推送AOE获取目标: {weapon}（去{dest}）")
                                 # 不 return —— 让控制流继续到 COMBAT 阶段
                             else:
                                 # 全受保护 → 立即获取AOE
@@ -849,14 +855,20 @@ class DecisionOrchestrator:
                                         weapon = self._ctrl._infer_aoe_weapon(dest)
                                         if weapon:
                                             from controllers.ai.goals.develop_goal import DevelopGoal
-                                            goal = DevelopGoal(
-                                                target_item=weapon,
-                                                target_location=dest,
-                                                priority=8,
-                                                debug_name=player.name,
+                                            has_aoe_goal = any(
+                                                isinstance(g, DevelopGoal)
+                                                and getattr(g, 'target_item', None) == weapon
+                                                for g in self._goal_stack.all_goals
                                             )
-                                            goal.set_round(round_num)
-                                            self._goal_stack.push(goal)
+                                            if not has_aoe_goal:
+                                                goal = DevelopGoal(
+                                                    target_item=weapon,
+                                                    target_location=dest,
+                                                    priority=8,
+                                                    debug_name=player.name,
+                                                )
+                                                goal.set_round(round_num)
+                                                self._goal_stack.push(goal)
                                     return aoe_cmds
                 except Exception:
                     pass
@@ -1232,14 +1244,28 @@ class DecisionOrchestrator:
             learned_spells=getattr(player, 'learned_spells', set()),
         )
         if aoe_cmds and self._goal_stack:
-            goal = DevelopGoal(
-                target_item=self._extract_item_from_cmd(aoe_cmds[0]),
-                target_location=self._extract_dest_from_cmd(aoe_cmds[0]),
-                priority=5,
-                debug_name=player.name,
-            )
-            goal.set_round(round_num)
-            self._goal_stack.push(goal)
+            first_cmd = aoe_cmds[0]
+            if first_cmd.startswith("move "):
+                dest = first_cmd[5:]
+                weapon = self._ctrl._infer_aoe_weapon(dest)
+            else:
+                dest = self._extract_dest_from_cmd(first_cmd)
+                weapon = self._extract_item_from_cmd(first_cmd)
+            if weapon:
+                has_aoe_goal = any(
+                    isinstance(g, DevelopGoal)
+                    and getattr(g, 'target_item', None) == weapon
+                    for g in self._goal_stack.all_goals
+                )
+                if not has_aoe_goal:
+                    goal = DevelopGoal(
+                        target_item=weapon,
+                        target_location=dest,
+                        priority=5,
+                        debug_name=player.name,
+                    )
+                    goal.set_round(round_num)
+                    self._goal_stack.push(goal)
         return aoe_cmds
 
     @staticmethod
