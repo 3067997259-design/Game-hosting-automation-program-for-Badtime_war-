@@ -1,7 +1,7 @@
 name: Claude Review
  
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize]
     # Optional: Only run on specific file changes
     # paths:
@@ -28,6 +28,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
  
       - name: Run Claude Review
@@ -38,7 +39,7 @@ jobs:
           ANTHROPIC_BASE_URL: https://api.deepseek.com/anthropic
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          anthropic_model: deepseek-v4-pro[1m]
+          allowed_bots: '*'
           track_progress: true
           prompt: |
             REPO: ${{ github.repository }}
