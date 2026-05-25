@@ -722,7 +722,7 @@ class ActionTurnManager:
         original_has_pass = getattr(player, 'has_military_pass', False)
 
         source_player = None
-        injected_prereqs = set()
+        injected_prereqs = set()  # reassigned each iteration; last value used post-loop for success cleanup
         borrowed_vouchers_before = original_vouchers
         borrowed_has_pass_before = original_has_pass
 
@@ -759,7 +759,8 @@ class ActionTurnManager:
                 borrowed_has_pass_before = getattr(sp, 'has_military_pass', False)
                 break
 
-            # 校验失败，清理注入的前置
+            # 校验失败，清理注入的前置和借用的状态
+            player.location = original_location
             player.learned_spells -= injected_prereqs
             player.vouchers = original_vouchers
             player.has_military_pass = original_has_pass
