@@ -795,7 +795,21 @@ class DecisionOrchestrator:
                         alive_police = sum(1 for u in polices_cache.get("units", [])
                                           if u.get("is_alive"))
                         if alive_police > 0 and not PM.has_any_aoe(player):
-                            # ★ 只有所有可攻击目标都受保护时才去获取 AOE
+                            # ★ 无AOE：始终尝试获取AOE指令
+                            target_armor_attrs = self._query.get_all_protected_armor_attrs(
+                                state, player.player_id)
+                            aoe_cmds = None
+                            for pm in self._minds:
+                                if pm.__class__.__name__ == "PoliceMind":
+                                    aoe_cmds = pm.get_aoe_acquisition_commands(
+                                        player, state, available,
+                                        target_armor_attrs=target_armor_attrs,
+                                        my_location=self._query.get_location_str(player),
+                                        has_pass=getattr(player, 'has_military_pass', False),
+                                        learned_spells=getattr(player, 'learned_spells', set()),
+                                    )
+                                    break
+
                             combat_data = combat.data if combat else {}
                             viable = combat_data.get("viable_targets", [])
                             police_protected = self._query.get_police_protected_ids(state)
@@ -803,25 +817,47 @@ class DecisionOrchestrator:
                                 1 for t, _ in viable
                                 if getattr(t, 'player_id', None) in police_protected
                             )
-                            if len(viable) > 0 and protected_viable < len(viable):
-                                self._dbg(2, "RESIST: "
-                                    f"{len(viable)-protected_viable}个不受保护目标存在，跳过AOE获取")
+                            unprotected_count = max(0, len(viable) - protected_viable)
+
+                            if unprotected_count > 0:
+                                # 有不受保护目标 → 不中断当前战斗，但把AOE获取压入GoalStack
+                                self._dbg(2, f"RESIST: {unprotected_count}个不受保护目标存在，AOE获取压入GoalStack")
+                                if aoe_cmds and self._goal_stack:
+                                    first_cmd = aoe_cmds[0]
+                                    if first_cmd.startswith("move "):
+                                        dest = first_cmd[5:]
+                                        weapon = self._ctrl._infer_aoe_weapon(dest)
+                                        if weapon:
+                                            from controllers.ai.goals.develop_goal import DevelopGoal
+                                            goal = DevelopGoal(
+                                                target_item=weapon,
+                                                target_location=dest,
+                                                priority=6,
+                                                debug_name=player.name,
+                                            )
+                                            goal.set_round(round_num)
+                                            self._goal_stack.push(goal)
+                                            self._dbg(2, f"RESIST: 推送AOE获取目标: {weapon}（去{dest}）")
+                                # 不 return —— 让控制流继续到 COMBAT 阶段
                             else:
+                                # 全受保护 → 立即获取AOE
                                 self._dbg(2, "RESIST: 无AOE，获取AOE武器")
-                                target_armor_attrs = self._query.get_all_protected_armor_attrs(
-                                    state, player.player_id)
-                                for pm in self._minds:
-                                    if pm.__class__.__name__ == "PoliceMind":
-                                        aoe_cmds = pm.get_aoe_acquisition_commands(
-                                            player, state, available,
-                                            target_armor_attrs=target_armor_attrs,
-                                            my_location=self._query.get_location_str(player),
-                                            has_pass=getattr(player, 'has_military_pass', False),
-                                            learned_spells=getattr(player, 'learned_spells', set()),
-                                        )
-                                        if aoe_cmds:
-                                            return aoe_cmds
-                                        break
+                                if aoe_cmds:
+                                    first_cmd = aoe_cmds[0]
+                                    if first_cmd.startswith("move ") and self._goal_stack:
+                                        dest = first_cmd[5:]
+                                        weapon = self._ctrl._infer_aoe_weapon(dest)
+                                        if weapon:
+                                            from controllers.ai.goals.develop_goal import DevelopGoal
+                                            goal = DevelopGoal(
+                                                target_item=weapon,
+                                                target_location=dest,
+                                                priority=8,
+                                                debug_name=player.name,
+                                            )
+                                            goal.set_round(round_num)
+                                            self._goal_stack.push(goal)
+                                    return aoe_cmds
                 except Exception:
                     pass
 
