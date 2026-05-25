@@ -879,6 +879,12 @@ class DecisionOrchestrator:
         # 发育完成后尝试攻击
         develop = snapshots.get("develop")
         dev_complete = develop.data.get("development_complete") if develop else False
+        # 发育空转：策略说未完成，但既无缺项也无目标地点 → DEVELOP 必定空返
+        develop_empty = (
+            not dev_complete and develop
+            and not develop.data.get("unmet_needs")
+            and develop.data.get("best_location") is None
+        )
         if dev_complete and combat.data.get("combat_ready"):
             best_target = combat.data.get("best_target")
             if best_target:
@@ -890,7 +896,7 @@ class DecisionOrchestrator:
                     return combat_cmds
 
         # 武器全被克制 + 发育已完成 → 推送 RearmGoal 换武器
-        if (not combat_cmds and dev_complete
+        if (not combat_cmds and (dev_complete or develop_empty)
                 and combat.data.get("all_countered")
                 and combat.data.get("best_target")):
             target = combat.data.get("best_target")
@@ -929,7 +935,7 @@ class DecisionOrchestrator:
         #  - IGNORE/BUILD: 降级到 viable_targets 中第一个不受保护的目标
         #  - RESIST:       推 DevelopGoal 拿 AOE，后续自动打队长
         # ════════════════════════════════════════════════════════════
-        if not combat_cmds and dev_complete:
+        if not combat_cmds and (dev_complete or develop_empty):
             best_target = combat.data.get("best_target")
             if best_target and self._is_blocked_by_police_protection(
                     player, state, best_target):
