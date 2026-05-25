@@ -10,9 +10,9 @@ from controllers.ai.constants import (
     debug_ai_basic, debug_ai_detailed,
     make_weapon,
 )
+from controllers.ai.game_query import GameQuery
 
 if TYPE_CHECKING:
-    from controllers.ai.game_query import GameQuery
     from controllers.ai.context import OrchestratorContext
 
 
