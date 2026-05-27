@@ -707,8 +707,8 @@ class ActionTurnManager:
 
     # ================================================================
     #  插入式笑话：interact
-    #  策略：G6 玩家 + 临时替换 location 为来源玩家的位置
-    #  来源玩家提供地点和前置资格（凭证/通行证），交互收益归 G6
+    #  策略：遍历来源玩家，借用各来源的 location + 前置资格（凭证/通行证）
+    #        交互收益归 G6，消耗由来源玩家支付
     #  前置法术：临时注入，学完后移除注入的部分
     #  多回合学习：直接完成（跳过进度系统）
     # ================================================================
@@ -722,8 +722,7 @@ class ActionTurnManager:
         original_has_pass = getattr(player, 'has_military_pass', False)
 
         source_player = None
-        last_reason = ""
-        injected_prereqs = set()
+        injected_prereqs = set()  # reassigned each iteration; last value used post-loop for success cleanup
         borrowed_vouchers_before = original_vouchers
         borrowed_has_pass_before = original_has_pass
 
@@ -737,65 +736,50 @@ class ActionTurnManager:
                 prereqs.add(prereq)
             return prereqs
 
-        # 优先尝试 G6 自己的状态（无需替换，避免状态污染）
-        my_id = player.player_id
-        own_state_ok = False
-        if my_id in source_pids:
-            # 确保 player 状态未被之前的操作污染
+        # 统一遍历所有来源玩家（包括 G6 自己），借用各来源的资格校验
+        failures = []
+        for sp_id in source_pids:
+            sp = self.state.get_player(sp_id)
+            if not sp:
+                continue
+
+            # 临时替换位置和前置资格。validate()/interact.execute()
+            # 都读取 player，因此这里显式借用来源玩家的相关资格状态。
+            player.location = sp.location
+            player.vouchers = getattr(sp, 'vouchers', 0)
+            player.has_military_pass = getattr(sp, 'has_military_pass', False)
+
+            injected_prereqs = inject_prereq_spell()
+
+            valid, reason = validate(parsed, player, self.state)
+
+            if valid:
+                source_player = sp
+                borrowed_vouchers_before = getattr(sp, 'vouchers', 0)
+                borrowed_has_pass_before = getattr(sp, 'has_military_pass', False)
+                break
+
+            # 校验失败，清理注入的前置和借用的状态
             player.location = original_location
+            player.learned_spells -= injected_prereqs
             player.vouchers = original_vouchers
             player.has_military_pass = original_has_pass
-            injected_prereqs = inject_prereq_spell()
-            own_valid, own_reason = validate(parsed, player, self.state)
-            if own_valid:
-                sp = self.state.get_player(my_id)
-                if sp:
-                    source_player = sp
-                    borrowed_vouchers_before = getattr(sp, 'vouchers', 0)
-                    borrowed_has_pass_before = getattr(sp, 'has_military_pass', False)
-                    own_state_ok = True
-            else:
-                player.learned_spells -= injected_prereqs
-                injected_prereqs = set()
-                last_reason = own_reason
-
-        if not own_state_ok:
-            for sp_id in source_pids:
-                if sp_id == my_id:
-                    continue  # 已在上面用自己的 state 校验过
-                sp = self.state.get_player(sp_id)
-                if not sp:
-                    continue
-
-                # 临时替换位置和前置资格。validate()/interact.execute()
-                # 都读取 player，因此这里显式借用来源玩家的相关资格状态。
-                player.location = sp.location
-                player.vouchers = getattr(sp, 'vouchers', 0)
-                player.has_military_pass = getattr(sp, 'has_military_pass', False)
-
-                # 注入前置法术（如果需要）
-                injected_prereqs = inject_prereq_spell()
-
-                valid, reason = validate(parsed, player, self.state)
-
-                if valid:
-                    source_player = sp
-                    borrowed_vouchers_before = getattr(sp, 'vouchers', 0)
-                    borrowed_has_pass_before = getattr(sp, 'has_military_pass', False)
-                    break
-
-                # 校验失败，清理注入的前置
-                player.learned_spells -= injected_prereqs
-                player.vouchers = original_vouchers
-                player.has_military_pass = original_has_pass
-                last_reason = reason
+            failures.append((sp.name, reason))
 
         if not source_player:
             player.location = original_location
             player.learned_spells = original_spells
             player.vouchers = original_vouchers
             player.has_military_pass = original_has_pass
-            display.show_info(f"⚠️ 指令不合法（所有来源校验失败）: {last_reason}")
+            if failures:
+                fail_lines = "\n".join(
+                    f"  · {name}: {reason}" for name, reason in failures
+                )
+                display.show_info(
+                    f"⚠️ 指令不合法（所有来源校验失败）:\n{fail_lines}"
+                )
+            else:
+                display.show_info("⚠️ 指令不合法（无可用来源）")
             return None
 
         # ---- 执行 interact ----
