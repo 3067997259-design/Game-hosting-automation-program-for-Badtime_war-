@@ -1,7 +1,7 @@
 """
 神代天赋3：神话之外（遗世独立的幻想乡）+ Controller 接入
 
-主动1次，T0启动，消耗行动回合。
+主动2次，T0启动，消耗行动回合。
 拉自己 + 同地点至多1名玩家进入结界。
 
 结界规则：
@@ -32,7 +32,7 @@ from controllers.human import HumanController
 
 class Mythland(BaseTalent):
     name = "神话之外"
-    description = "主动1次：拉自己+至多1人进入结界，全局暂停，结界内独立轮次。"
+    description = "主动2次：拉自己+至多1人进入结界，全局暂停，结界内独立轮次。"
     tier = "神代"
 
     BLOCKED_ACTIONS = frozenset([
@@ -598,7 +598,7 @@ class Mythland(BaseTalent):
     def describe(self):
         return (
             f"【{self.name}】"
-            f"\n  主动1次：拉自己+至多1人进入结界"
+            f"\n  主动2次：拉自己+至多1人进入结界"
             f"\n  立刻获得1额外行动回合"
             f"\n  每轮猜拳决定行动者 | 不可地点交互 | 隐身无效"
             f"\n  六爻解锁/发现不生效 | 发动者免疫控制"

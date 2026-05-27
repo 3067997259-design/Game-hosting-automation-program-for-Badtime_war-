@@ -287,6 +287,8 @@ class Hologram(BaseTalent):
             roll = roll_d6()
             old_loc = p.location or "未知"
 
+            # 设计说明：当前阈值为 roll >= 1，即非架盾/非免疫玩家 100% 被拉取（D6 仅作仪式性表演）。
+            # 下方 else 抵抗分支看起来是死代码，但**故意保留**，便于将来调整阈值（如改回 >= 3）时直接复用。
             if roll >= 1:
                 # Pulled! Force move to hologram location
                 p.location = self.location
@@ -533,7 +535,11 @@ class Hologram(BaseTalent):
     # ============================================
 
     def modify_incoming_damage(self, target, attacker, weapon, raw_damage):
-        """V1.92: 发动者在影像存在期间受到的伤害降低0.5"""
+        """V1.92: 发动者在影像存在期间受到的伤害降低0.5
+
+        设计说明：该减伤接口早期就预留好了，但因数值评估暂未启用（曾写作 `raw_damage - 0`，
+        实际是 no-op）。本次正式还给 G2 作为加强 —— 改为 `raw - 0.5` 后接口按预期生效。
+        """
         if not self.active:
             return raw_damage
         if target.player_id != self.player_id:
@@ -565,7 +571,8 @@ class Hologram(BaseTalent):
             else:
                 self.stay_count[pid] = 0
 
-        # 震荡检查：连续停留2轮再次震荡
+        # 震荡检查：以代码实际实现为准 —— 连续停留满3轮（count >= 3）才再次触发震荡。
+        # 注：早期手册曾写"2轮"，文档以本处代码为准。
         for pid, count in self.stay_count.items():
             if pid == self.player_id:
                 continue  # 发动者免疫

@@ -68,7 +68,10 @@ class G1MythFire(BaseTalent):
 
         self.debuff_tick_count = 0  # 炽愿抵扣结算计数
 
-        self._d4_d6_last_round = -2  # D4/D6 加成上次使用轮次（间隔≥2轮才再次生效）
+        # D4/D6 加成冷却：以代码实际实现为准 —— 间隔 ≥ 3 全局轮次才再次生效
+        # （即用过的那一轮算 0，之后需再过满 3 轮）。初始值 -2 配合 round 从 1 起算，
+        # 使第 1 轮即可触发首次加成（1 - (-2) = 3 >= 3）。
+        self._d4_d6_last_round = -2
         self._d4_d6_used_flag = False  # 本轮是否已使用 D4/D6 加成
 
     # ============================================
@@ -527,7 +530,7 @@ class G1MythFire(BaseTalent):
     # ============================================
 
     def on_d4_bonus(self, player):
-        """D4+1，冷却1全局轮次（间隔≥2轮）"""
+        """D4+1，全局轮次间隔 ≥ 3（以代码为准）。"""
         if player.player_id == self.player_id:
             current = getattr(self.state, 'current_round', 0)
             if current - self._d4_d6_last_round >= 3:
@@ -536,7 +539,7 @@ class G1MythFire(BaseTalent):
         return 0
 
     def on_d6_bonus(self, player):
-        """D6+1，与 D4 共享冷却"""
+        """D6+1，与 D4 共享冷却（间隔 ≥ 3 全局轮次）。"""
         if player.player_id == self.player_id:
             current = getattr(self.state, 'current_round', 0)
             if current - self._d4_d6_last_round >= 3:

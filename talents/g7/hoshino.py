@@ -298,7 +298,12 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         return remaining
 
     def on_death_check(self, player, damage_source):
-        """战斗续行免死 / Terror无条件死亡"""
+        """战斗续行免死 / Terror无条件死亡
+
+        设计说明：战斗续行（一次性免死）在最初版本中因数值过于超模而暂时停用
+        （此前 `if` 判定被注释、保留接口）。本次正式还给 Hoshino —— 取消注释
+        后该免死按预期生效，配合三层光环首次全亮触发，请勿再当成废代码移除。
+        """
         if player.player_id != self.player_id:
             return None
         if self.is_terror:

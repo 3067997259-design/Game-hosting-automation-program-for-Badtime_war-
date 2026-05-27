@@ -36,12 +36,12 @@ class ScissorRush(BaseTalent):
         # ---- 犯罪再动（继承自不良少年）----
         self.triggered_crime_types = set()
 
-        # ---- 响应窗口（继承自你给路打油）----
+        # ---- 响应窗口（继承自你给路打油）---- 总共1次（平衡性削弱）
         self.response_uses_remaining = 1
         self.response_triggered_locations = set()
 
         # ---- 警觉 ----
-        self.vigilance_uses = 1          # 总共2次
+        self.vigilance_uses = 1          # 总共1次（平衡性削弱）
         self.found_triggered = False     # 首次被他人找到
         self.find_triggered = False      # 首次主动找到他人
 
@@ -266,7 +266,7 @@ class ScissorRush(BaseTalent):
         parts.append(f"已触发犯罪类型：{triggered}")
         # 响应窗口
         locs = ", ".join(self.response_triggered_locations) if self.response_triggered_locations else "无"
-        parts.append(f"紧急战斗策略：{self.response_uses_remaining}/2，已触发地点：{locs}")
+        parts.append(f"紧急战斗策略：{self.response_uses_remaining}/1，已触发地点：{locs}")
         # 警觉
         v_parts = []
         if self.found_triggered:

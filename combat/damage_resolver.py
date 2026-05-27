@@ -187,7 +187,10 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
         absorbed = min(raw, talent.iron_horus_hp)
-        would_break = (absorbed >= talent.iron_horus_hp)  # 本次攻击将导致破损
+        # 设计意图：使用 `>=` 而非 `>` —— 当 raw 恰好等于 iron_horus_hp（无溢出）时，
+        # 也视为"本次攻击导致破损"，从而触发光环吸收并把 Horus 保留在 0.5 HP。
+        # 这是有意为之的"光环救援"机制，确保踩线伤害也能让光环介入。
+        # 也视为"本次攻击导致破损"，从而触发光环吸收并把 Horus 保留在 0.5 护甲值。
         talent.iron_horus_hp -= absorbed
         raw -= absorbed
         result["details"].append(
