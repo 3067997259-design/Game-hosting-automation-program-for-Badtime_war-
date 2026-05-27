@@ -460,7 +460,7 @@ class CombatMind(BaseMind):
             return True
 
         # B5: 神话之外（G3）— 未使用时可将同地点目标拉入结界
-        if "神话之外" in name and not getattr(talent, 'used', False):
+        if "神话之外" in name and getattr(talent, 'uses_remaining', 0) > 0:
             if self._query.same_location(player, target):
                 return True
 

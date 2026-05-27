@@ -48,10 +48,12 @@ class PoliticalStrategy(BasePersonalityStrategy):
         return None
 
     def get_police_stance(self, player, state) -> str:
-        """political: 警察系统可用时BUILD, 犯罪时RESIST, 否则IGNORE"""
-        # 有犯罪记录 → resist
+        """political: 警察系统可用时BUILD, 犯罪且有外部队长时RESIST, 否则IGNORE"""
         if self._is_criminal(player, state):
-            return "resist"
+            police = getattr(state, 'police', None)
+            if police and police.has_captain() and police.captain_id != player.player_id:
+                return "resist"
+            return "ignore"
         # 警察系统不可用 → ignore
         police = getattr(state, 'police', None)
         if not police or getattr(police, 'permanently_disabled', False):

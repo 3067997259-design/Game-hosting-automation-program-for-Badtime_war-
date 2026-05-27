@@ -55,6 +55,7 @@ class G1MythFire(BaseTalent):
 
         # 炽愿（涟漪献诗给的抵扣道具）— 增强版
         self.ardent_wish_charges = 0  # 炽愿层数
+        self.max_ardent_wish_charges = 3  # 炽愿层数上限
 
         self.has_supernova = False  # 超新星过载是否就绪
         self.supernova_charges = 0  # 超新星过载次数（不可叠加，最多1）
@@ -67,6 +68,9 @@ class G1MythFire(BaseTalent):
 
         self.debuff_tick_count = 0  # 炽愿抵扣结算计数
 
+        self._d4_d6_last_round = -2  # D4/D6 加成上次使用轮次（间隔≥2轮才再次生效）
+        self._d4_d6_used_flag = False  # 本轮是否已使用 D4/D6 加成
+
     # ============================================
     #  注册
     # ============================================
@@ -75,7 +79,7 @@ class G1MythFire(BaseTalent):
         """记录开局玩家数"""
         self.initial_player_count = len(self.state.player_order)
         # 开局赠送2层炽愿（等效享受50%减伤的0.5额外生命值）
-        self.ardent_wish_charges = 2
+        self.ardent_wish_charges = min(2, self.max_ardent_wish_charges)
 
     # ============================================
     #  R0：debuff判定 + 0.5血自愈
@@ -367,7 +371,7 @@ class G1MythFire(BaseTalent):
 
     def grant_ardent_wish(self):
         """获得1层炽愿（每层抵扣1次debuff + 0.5额外生命值）"""
-        self.ardent_wish_charges += 1
+        self.ardent_wish_charges = min(self.ardent_wish_charges + 1, self.max_ardent_wish_charges)
         me = self.state.get_player(self.player_id)
         name = me.name if me else self.player_id
         prompt_manager.show("talent", "g1mythfire.ardent_wish_gain",
@@ -447,7 +451,7 @@ class G1MythFire(BaseTalent):
 
     def _grant_ardent_wish_from_supernova(self, count: int):
         """从超新星获得炽愿"""
-        self.ardent_wish_charges += count
+        self.ardent_wish_charges = min(self.ardent_wish_charges + count, self.max_ardent_wish_charges)
 
     def apply_burn(self, target_id: str):
         """对目标施加灼烧（最多叠加2层）"""
@@ -512,9 +516,33 @@ class G1MythFire(BaseTalent):
                 del self.burn_targets[tid]
 
     def on_round_end(self, round_num):
-        """R4：轮次结束结算（灼烧已在 R4-1.5 由 round_manager 直接调用）"""
-        pass
+        """R4：轮次结束结算 + D4/D6 冷却记录"""
+        if self._d4_d6_used_flag:
+            self._d4_d6_last_round = round_num
+            self._d4_d6_used_flag = False
 
+
+    # ============================================
+    #  D4/D6 加成：火萤永远抢先进攻
+    # ============================================
+
+    def on_d4_bonus(self, player):
+        """D4+1，冷却1全局轮次（间隔≥2轮）"""
+        if player.player_id == self.player_id:
+            current = getattr(self.state, 'current_round', 0)
+            if current - self._d4_d6_last_round >= 3:
+                self._d4_d6_used_flag = True
+                return 1
+        return 0
+
+    def on_d6_bonus(self, player):
+        """D6+1，与 D4 共享冷却"""
+        if player.player_id == self.player_id:
+            current = getattr(self.state, 'current_round', 0)
+            if current - self._d4_d6_last_round >= 3:
+                self._d4_d6_used_flag = True
+                return 1
+        return 0
 
     # ============================================
     #  描述

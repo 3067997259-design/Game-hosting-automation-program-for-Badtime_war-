@@ -33,6 +33,10 @@ class ThreatMind(BaseMind):
             # 进入危险模式
     """
 
+    # ── 观战折扣参数（可在常量定义处或此处调整以做 A/B 测试）
+    SPECTATOR_DISCOUNT_PER_FIGHTER: float = 30.0  # 每个外部交战方下调的威胁分
+    SPECTATOR_DISCOUNT_MAX: float = 60.0           # 单目标最大下调幅度
+
     # ════════════════════════════════════════════════════════
     #  主入口：assess
     # ════════════════════════════════════════════════════════
@@ -118,6 +122,49 @@ class ThreatMind(BaseMind):
             existing = threat_scores.get(target.name, 0)
             updated = existing * 0.8 + power * 0.2
             threat_scores[target.name] = updated
+
+        # ── 观战折扣：已被第三方交战的目标降权，避免抱团 ──
+        best_dmg = self._query.best_weapon_damage(player)
+        markers = getattr(state, 'markers', None)
+        for name in alive_names:
+            target = None
+            for pid in state.player_order:
+                t = state.get_player(pid)
+                if t and t.is_alive() and t.name == name:
+                    target = t
+                    break
+            if target is None:
+                continue
+
+            # 击杀机会豁免：无护甲 + HP ≤ 武器伤害 → 不降权
+            outer = self._query.count_outer_armor(target)
+            inner = self._query.count_inner_armor(target)
+            eff_hp = self._query.get_effective_hp(target)
+            if outer == 0 and inner == 0 and eff_hp <= best_dmg:
+                continue
+
+            # 统计与目标交战的第三方数量
+            external_fighters = 0
+            if markers and hasattr(markers, 'has_relation'):
+                for other_pid in state.player_order:
+                    if other_pid == player.player_id or other_pid == target.player_id:
+                        continue
+                    has_engaged = markers.has_relation(
+                        target.player_id, "ENGAGED_WITH", other_pid)
+                    has_locked = markers.has_relation(
+                        target.player_id, "LOCKED_BY", other_pid)
+                    if has_engaged or has_locked:
+                        external_fighters += 1
+
+            if external_fighters > 0:
+                discount = min(
+                    external_fighters * ThreatMind.SPECTATOR_DISCOUNT_PER_FIGHTER,
+                    ThreatMind.SPECTATOR_DISCOUNT_MAX,
+                )
+                old = threat_scores.get(name, 0)
+                threat_scores[name] = old - discount
+                debug_ai_basic(self._debug_name,
+                    f"观战折扣: {name} 被{external_fighters}方交战，威胁分 {old:.1f} → {threat_scores[name]:.1f}")
 
         # ── 安静发育者检测 ──
         if len(alive_names) >= 2:

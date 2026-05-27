@@ -277,7 +277,7 @@ class Hologram(BaseTalent):
                 if shield_roll >= 2:  # 2-5 = 抵抗（80%）
                     lines.append(prompt_manager.get_prompt(
                         "talent", "g7hoshino.shield_resist_pull",
-                        default="  🛡️ {name}: D6(放弃式) = {roll} → 架盾抵抗了歌声！").format(
+                        default="  🛡️ {name}: D6 = {roll} → 架盾抵抗了歌声！").format(
                         name=p.name, roll=shield_roll))
                     continue
                 else:  # shield_roll == 1 = 被吸引（20%）
@@ -287,7 +287,7 @@ class Hologram(BaseTalent):
             roll = roll_d6()
             old_loc = p.location or "未知"
 
-            if roll >= 4:
+            if roll >= 1:
                 # Pulled! Force move to hologram location
                 p.location = self.location
                 # Trigger marker cleanup for the forced move (clear locks/engaged from old location)
@@ -449,7 +449,7 @@ class Hologram(BaseTalent):
         if not self.active:
             return 0
         if player.player_id == self.player_id:
-            return 1
+            return 2
         return 0
 
     # ============================================
@@ -533,12 +533,12 @@ class Hologram(BaseTalent):
     # ============================================
 
     def modify_incoming_damage(self, target, attacker, weapon, raw_damage):
-        """V1.92: 发动者在影像存在期间受到的伤害降低1"""
+        """V1.92: 发动者在影像存在期间受到的伤害降低0.5"""
         if not self.active:
             return raw_damage
         if target.player_id != self.player_id:
             return raw_damage
-        reduced = max(0, raw_damage - 0)
+        reduced = max(0, raw_damage - 0.5)
         display.show_info(f"  👁️ 全息影像发动者减伤：{raw_damage} → {reduced}")
         return reduced
 
@@ -565,7 +565,7 @@ class Hologram(BaseTalent):
             else:
                 self.stay_count[pid] = 0
 
-        # 震荡检查：连续停留3轮再次震荡
+        # 震荡检查：连续停留2轮再次震荡
         for pid, count in self.stay_count.items():
             if pid == self.player_id:
                 continue  # 发动者免疫

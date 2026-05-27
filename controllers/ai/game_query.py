@@ -153,7 +153,7 @@ class GameQuery:
     def has_unused_mythland(target) -> bool:
         talent = getattr(target, 'talent', None)
         if talent and getattr(talent, 'name', '') == "神话之外":
-            if not getattr(talent, 'used', True):
+            if getattr(talent, 'uses_remaining', 0) > 0:
                 return True
         return False
 

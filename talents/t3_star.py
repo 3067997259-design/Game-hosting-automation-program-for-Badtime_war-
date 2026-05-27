@@ -59,7 +59,7 @@ class Star(BaseTalent):
 
         # V1.92: 动态伤害公式 = min(1 + 0.5 * 命中单位数, 3)
         target_count = len(targets) + len(police_at_loc)
-        damage_per_target = min(1.0 + 0.5 * target_count, 3.0)
+        damage_per_target = min(1.0 + 0.5 * target_count, 2.0)
 
         # 记录伤害前的 HP（resolve_location_damage 内部会直接扣血）
         player_old_hp = {}

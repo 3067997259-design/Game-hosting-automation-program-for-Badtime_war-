@@ -88,9 +88,15 @@ class CombatCommandBuilder:
             debug_ai_attack_generation(player.name, weapon.name,
                 f"目标 {target.name} 受警察保护 → {protection_eval_source}: {reason}")
 
-            if can_dmg:
-                pass  # 能穿透
-            elif Q.get_weapon_range(weapon) != "area":
+            # 判断 can_dmg=True 是否依赖 AOE 武器（当前武器伤害不够穿透阈值）
+            threshold = pe.get_protection_threshold(target.player_id)
+            need_aoe_swap = (
+                (not can_dmg or best_dmg <= threshold)
+                and Q.get_weapon_range(weapon) != "area"
+            )
+            if can_dmg and not need_aoe_swap:
+                pass  # 当前武器伤害足够穿透，无需换武器
+            elif need_aoe_swap:
                 if aoe_names:
                     target_armor_attrs = target_outer if target_outer else target_inner
                     ready_candidates = []

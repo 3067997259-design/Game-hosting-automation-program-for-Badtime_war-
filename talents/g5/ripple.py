@@ -106,7 +106,7 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         return True
 
     def get_destiny_cost(self):
-        """爱与记忆之诗的递增消耗：min(24, 12 + 3 × 已用次数)"""
+        """爱与记忆之诗的递增消耗：min(24, 12 + 4 × 已用次数)"""
         return min(24, 12 + 4 * self.destiny_use_count)
 
     # ================================================================
@@ -167,12 +167,15 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         if round_num <= 1:
             return
 
-        # V1.92: 追忆积攒速度：未行动 +0.5；行动了 +0.5(≤4人) / +1.0(≥5人)
-        if not self.acted_last_round or self.only_extra_turn:
-            gain = 0.5        # 未行动/仅额外行动 +0.5
+        # V1.93: 追忆积攒速度基于场上当前存活人数
+        current_alive = sum(
+            1 for pid in self.state.player_order
+            if self.state.get_player(pid) and self.state.get_player(pid).is_alive()
+        )
+        if current_alive > 3:
+            gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 1.0
         else:
-            # 行动了：≤4人局 +0.5，≥5人局 +1.0（与手册一致）
-            gain = 1.0 if self.initial_player_count >= 5 else 0.5
+            gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 0.5
 
         old = self.reminiscence
         self.reminiscence = min(self.max_reminiscence, self.reminiscence + gain)
@@ -328,9 +331,9 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
             return 0
         # 检查是否是发动者或被锚定者
         if player.player_id == self.player_id:
-            return 2
+            return 3
         if player.player_id == self._anchor_d4_target_id:
-            return 2
+            return 3
         return 0
 
     def _apply_anchor_d4_bonus(self):

@@ -35,6 +35,7 @@ from controllers.ai.command_builder import (
 from controllers.ai.constants import (
     debug_ai_basic, debug_ai_development_plan,
     debug_ai_combat_state, debug_ai_candidate_commands,
+    POLICE_AOE_WEAPONS,
 )
 
 
@@ -221,6 +222,7 @@ class DecisionOrchestrator:
             police_dev_assignments=s.police_dev_assignments,
             police_dev_initialized=s.police_dev_initialized,
             last_criminal_target_id=s.last_criminal_target_id,
+            aoe_acquisition_window=s.aoe_acquisition_window,
             ai_state=s,
         )
 
@@ -330,6 +332,9 @@ class DecisionOrchestrator:
         snapshots = self._run_all_minds(player, state)
         self._dbg_mind_snapshots(snapshots)
 
+        # ★ 战斗结束窗口管理：使用 combat_just_ended_at 信号
+        self._manage_aoe_window(player, state, snapshots)
+
         # Step 3: 清理过期目标
         if self._goal_stack:
             removed = self._goal_stack.pop_expired(player, state)
@@ -346,6 +351,14 @@ class DecisionOrchestrator:
         handled_phases: List[str] = []
 
         for phase in phase_order:
+            # ★ 战斗结束窗口：在 COMBAT 之前优先消费 GoalStack 中的 AOE 目标
+            if phase == DecisionPhase.COMBAT and s.aoe_acquisition_window:
+                aoe_cmd = self._consume_aoe_goal(player, state, available_actions, my_loc)
+                if aoe_cmd:
+                    self._dbg(1, f"战斗结束窗口: GoalStack优先 → {aoe_cmd}")
+                    result = [aoe_cmd, "forfeit"]
+                    return self._finish_generate(self._dedup(result))
+
             phase_cmds = self._execute_phase(
                 phase, player, state, available_actions,
                 snapshots, round_num
@@ -359,6 +372,13 @@ class DecisionOrchestrator:
                     handled_phases.append(f"{phase.name}({len(valid_cmds)}:{valid_cmds[0]})")
                     if self._strategy.is_terminal_phase(phase):
                         self._dbg(2, f"阶段 {phase.name} 终止后续 | 指令: {valid_cmds}")
+                        # 终端阶段提前返回前，先补充 GoalStack 中已压入的待执行指令
+                        goal_cmds = self._collect_goal_commands(
+                            player, state, available_actions, candidates
+                        )
+                        if goal_cmds:
+                            self._dbg(2, f"GoalStack补充(terminal): {goal_cmds}")
+                            candidates.extend(goal_cmds)
                         candidates.append("forfeit")
                         result = self._dedup(candidates)
                         return self._finish_generate(result)
@@ -795,42 +815,60 @@ class DecisionOrchestrator:
                         alive_police = sum(1 for u in polices_cache.get("units", [])
                                           if u.get("is_alive"))
                         if alive_police > 0 and not PM.has_any_aoe(player):
-                            # ★ 无AOE：始终尝试获取AOE指令
-                            target_armor_attrs = self._query.get_all_protected_armor_attrs(
-                                state, player.player_id)
-                            aoe_cmds = None
-                            for pm in self._minds:
-                                if pm.__class__.__name__ == "PoliceMind":
-                                    aoe_cmds = pm.get_aoe_acquisition_commands(
-                                        player, state, available,
-                                        target_armor_attrs=target_armor_attrs,
-                                        my_location=self._query.get_location_str(player),
-                                        has_pass=getattr(player, 'has_military_pass', False),
-                                        learned_spells=getattr(player, 'learned_spells', set()),
-                                    )
-                                    break
-
-                            combat_data = combat.data if combat else {}
-                            viable = combat_data.get("viable_targets", [])
-                            police_protected = self._query.get_police_protected_ids(state)
-                            protected_viable = sum(
-                                1 for t, _ in viable
-                                if getattr(t, 'player_id', None) in police_protected
+                            # T1 一刀缭断：有剩余次数+就绪武器 → 天赋伤害翻倍可绕过警察保护
+                            t1_talent = getattr(player, 'talent', None)
+                            t1_can_bypass = (
+                                t1_talent
+                                and "一刀缭断" in getattr(t1_talent, 'name', '')
+                                and getattr(t1_talent, 'uses_remaining', 0) > 0
+                                and (
+                                    any(w.name == "小刀"
+                                        and getattr(w, 'base_damage', 0) >= 2
+                                        for w in getattr(player, 'weapons', []) if w)
+                                    or any(w.name == "高斯步枪"
+                                           and getattr(w, 'is_charged', False)
+                                           for w in getattr(player, 'weapons', []) if w)
+                                )
                             )
-                            unprotected_count = max(0, len(viable) - protected_viable)
-
-                            if unprotected_count > 0:
-                                # 有不受保护目标 → 不中断当前战斗，但把AOE获取压入GoalStack
-                                self._dbg(2, f"RESIST: {unprotected_count}个不受保护目标存在，AOE获取压入GoalStack")
-                                if aoe_cmds and self._goal_stack:
-                                    self._try_push_aoe_goal(aoe_cmds, player, round_num, 6)
-                                # 不 return —— 让控制流继续到 COMBAT 阶段
+                            if t1_can_bypass:
+                                self._dbg(2, "RESIST: T1天赋可绕过警察保护，跳过AOE获取")
                             else:
-                                # 全受保护 → 立即获取AOE
-                                self._dbg(2, "RESIST: 无AOE，获取AOE武器")
-                                if aoe_cmds:
-                                    self._try_push_aoe_goal(aoe_cmds, player, round_num, 8)
-                                    return aoe_cmds
+                                # ★ 无AOE：始终尝试获取AOE指令
+                                target_armor_attrs = self._query.get_all_protected_armor_attrs(
+                                    state, player.player_id)
+                                aoe_cmds = None
+                                for pm in self._minds:
+                                    if pm.__class__.__name__ == "PoliceMind":
+                                        aoe_cmds = pm.get_aoe_acquisition_commands(
+                                            player, state, available,
+                                            target_armor_attrs=target_armor_attrs,
+                                            my_location=self._query.get_location_str(player),
+                                            has_pass=getattr(player, 'has_military_pass', False),
+                                            learned_spells=getattr(player, 'learned_spells', set()),
+                                        )
+                                        break
+
+                                combat_data = combat.data if combat else {}
+                                viable = combat_data.get("viable_targets", [])
+                                police_protected = self._query.get_police_protected_ids(state)
+                                protected_viable = sum(
+                                    1 for t, _ in viable
+                                    if getattr(t, 'player_id', None) in police_protected
+                                )
+                                unprotected_count = max(0, len(viable) - protected_viable)
+
+                                if unprotected_count > 0:
+                                    # 有不受保护目标 → 不中断当前战斗，但把AOE获取压入GoalStack
+                                    self._dbg(2, f"RESIST: {unprotected_count}个不受保护目标存在，AOE获取压入GoalStack")
+                                    if aoe_cmds and self._goal_stack:
+                                        self._try_push_aoe_goal(aoe_cmds, player, round_num, 7)
+                                    # 不 return —— 让控制流继续到 COMBAT 阶段
+                                else:
+                                    # 全受保护 → 立即获取AOE
+                                    self._dbg(2, "RESIST: 无AOE，获取AOE武器")
+                                    if aoe_cmds:
+                                        self._try_push_aoe_goal(aoe_cmds, player, round_num, 7)
+                                        return aoe_cmds
                 except Exception:
                     pass
 
@@ -1103,6 +1141,103 @@ class DecisionOrchestrator:
         return cmds
 
     # ════════════════════════════════════════════════════════
+    #  战斗结束窗口：AOE 获取
+    # ════════════════════════════════════════════════════════
+
+    def _manage_aoe_window(self, player, state, snapshots):
+        """管理 AOE 获取窗口的置位与复位。
+
+        置位条件：combat_just_ended_at 信号 + RESIST + 无AOE + 存活警察
+        复位条件：AOE 已到手 / 警察消失 / 队长死亡
+        """
+        s = self._shared_state
+        police_snap = snapshots.get("police")
+
+        # ── 置位 ──
+        if s.combat_just_ended_at is not None:
+            resist = False
+            alive_police = 0
+            if police_snap:
+                sit = police_snap.data.get("police_situation")
+                if sit:
+                    stance = getattr(sit, 'recommended_stance', None)
+                    if stance is not None:
+                        raw = stance.value if hasattr(stance, 'value') else str(stance)
+                        resist = (raw == "resist")
+                    pc = self._shared_state.police_cache or {}
+                    alive_police = sum(1 for u in pc.get("units", [])
+                                      if u.get("is_alive"))
+
+            from controllers.ai.minds.police_mind import PoliceMind as PM
+            has_aoe = PM.has_any_aoe(player)
+            t1_can_bypass = False
+            if alive_police > 0 and not has_aoe:
+                t1_talent = getattr(player, 'talent', None)
+                t1_can_bypass = (
+                    t1_talent
+                    and "一刀缭断" in getattr(t1_talent, 'name', '')
+                    and getattr(t1_talent, 'uses_remaining', 0) > 0
+                    and (
+                        any(w.name == "小刀"
+                            and getattr(w, 'base_damage', 0) >= 2
+                            for w in getattr(player, 'weapons', []) if w)
+                        or any(w.name == "高斯步枪"
+                               and getattr(w, 'is_charged', False)
+                               for w in getattr(player, 'weapons', []) if w)
+                    )
+                )
+
+            if resist and alive_police > 0 and not has_aoe and not t1_can_bypass:
+                pc = self._shared_state.police_cache or {}
+                captain_id = pc.get("captain_id")
+                captain_alive = (
+                    captain_id is not None
+                    and captain_id != player.player_id
+                    and state.get_player(captain_id)
+                    and state.get_player(captain_id).is_alive()
+                )
+                if captain_alive:
+                    s.aoe_acquisition_window = True
+                    self._dbg(1,
+                        f"战斗结束窗口: 开启（战斗结束于{s.combat_just_ended_at}，无AOE，RESIST）")
+
+        # ── 复位 ──
+        if s.aoe_acquisition_window:
+            from controllers.ai.minds.police_mind import PoliceMind as PM
+            if PM.has_any_aoe(player):
+                s.aoe_acquisition_window = False
+                self._dbg(1, "战斗结束窗口: 关闭（AOE已获取）")
+            else:
+                pc = self._shared_state.police_cache or {}
+                alive_police = sum(1 for u in pc.get("units", [])
+                                  if u.get("is_alive"))
+                captain_id = pc.get("captain_id")
+                captain_alive = (
+                    captain_id is not None
+                    and captain_id != player.player_id
+                    and state.get_player(captain_id)
+                    and state.get_player(captain_id).is_alive()
+                )
+                if alive_police == 0 or not captain_alive:
+                    s.aoe_acquisition_window = False
+                    self._dbg(1, "战斗结束窗口: 关闭（警察/队长不再构成威胁）")
+
+    def _consume_aoe_goal(
+        self, player, state, available, my_loc: str
+    ) -> Optional[str]:
+        """从 GoalStack 中消费 AOE 获取目标的下一步指令。"""
+        if not self._goal_stack or self._goal_stack.is_empty:
+            return None
+        from controllers.ai.goals.develop_goal import DevelopGoal
+        for goal in self._goal_stack.all_goals:
+            if isinstance(goal, DevelopGoal) and goal.target_item in POLICE_AOE_WEAPONS:
+                cmd = goal.get_next_command(player, state, available)
+                if cmd and not (cmd.startswith("move ")
+                                and self._is_same_location(cmd[5:].strip(), my_loc)):
+                    return cmd
+        return None
+
+    # ════════════════════════════════════════════════════════
     #  GameQuery 辅助（保留少量编排层需要的战术判断）
     # ════════════════════════════════════════════════════════
 
@@ -1195,10 +1330,17 @@ class DecisionOrchestrator:
         if first_cmd.startswith("move "):
             dest = first_cmd[5:]
             weapon = self._ctrl._infer_aoe_weapon(dest)
+            # ★ 地动山摇需先学会地震
+            if weapon == "地动山摇":
+                learned = getattr(player, 'learned_spells', set())
+                if "地震" not in learned:
+                    weapon = "地震"
         else:
             dest = self._extract_dest_from_cmd(first_cmd)
             weapon = self._extract_item_from_cmd(first_cmd)
-        if not weapon:
+            if weapon and not dest:
+                dest = self._infer_aoe_destination(weapon)
+        if not weapon or not dest:
             return
         has_aoe_goal = any(
             isinstance(g, DevelopGoal)
@@ -1236,7 +1378,7 @@ class DecisionOrchestrator:
             has_pass=getattr(player, 'has_military_pass', False),
             learned_spells=getattr(player, 'learned_spells', set()),
         )
-        self._try_push_aoe_goal(aoe_cmds, player, round_num, 5)
+        self._try_push_aoe_goal(aoe_cmds, player, round_num, 7)
         return aoe_cmds
 
     @staticmethod
@@ -1251,6 +1393,15 @@ class DecisionOrchestrator:
         """从 'move <dest>' 中提取目的地，否则返回空字符串。"""
         if cmd.startswith("move "):
             return cmd[len("move "):]
+        return ""
+
+    @staticmethod
+    def _infer_aoe_destination(weapon: str) -> str:
+        """根据武器/物品名推断所在目的地（_infer_aoe_weapon 的逆向映射）。"""
+        if weapon in ("电磁步枪", "通行证"):
+            return "军事基地"
+        if weapon in ("地震", "地动山摇"):
+            return "魔法所"
         return ""
 
     def _should_release_virus(self, player, state) -> bool:

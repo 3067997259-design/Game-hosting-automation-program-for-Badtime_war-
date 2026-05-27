@@ -65,12 +65,23 @@ class MythlandAIHook(BaseTalentAIHook):
         if situation == "mythland_rps":
             return random.choice(options)
 
-        # ── 结界选拉入目标：旧架构按威胁分选择最高目标 ──
+        # ── 结界选拉入目标：优先从能打穿的目标中选威胁最高 ──
         if situation == "mythland_pick_target":
             threat_scores = context.get("threat_scores", {})
             player_opts = [o for o in options if o != "不拉人"]
             if player_opts:
-                return max(player_opts, key=lambda name: threat_scores.get(name, 0))
+                state_obj = context.get("state") or getattr(self._ctrl, '_game_state', None)
+                if state_obj:
+                    # 过滤出能打穿的目标
+                    damageable = []
+                    for name in player_opts:
+                        target = self._resolve_player_by_name(name, state_obj)
+                        if target and self._has_effective_weapon_against(player, target):
+                            damageable.append(name)
+                    candidates = damageable if damageable else player_opts
+                else:
+                    candidates = player_opts
+                return max(candidates, key=lambda name: threat_scores.get(name, 0))
             return "不拉人"
 
         # ── 天赋T0：是否发动 ──
@@ -99,18 +110,26 @@ class MythlandAIHook(BaseTalentAIHook):
             return options[-1] if options else None
 
         # 同地点有受警察保护的队长 → 拉入结界（警察保护无效）
+        # 但必须至少有一个同地点目标能被打穿，否则发动也是浪费
         for t in same_loc:
             if getattr(t, 'is_captain', False):
                 pe = getattr(state, 'police_engine', None)
                 if pe and pe.is_protected_by_police(t.player_id):
+                    if self._has_effective_weapon_against(player, t):
+                        for opt in options:
+                            if "发动" in opt:
+                                return opt
+                    # 有受保护队长但打不动 → 不发动
                     for opt in options:
-                        if "发动" in opt:
+                        if "不发动" in opt or "正常" in opt:
                             return opt
+                    return options[-1] if options else None
 
         if self._ctrl._is_development_complete(player, state):
-            for opt in options:
-                if "发动" in opt:
-                    return opt
+            if any(self._has_effective_weapon_against(player, t) for t in same_loc):
+                for opt in options:
+                    if "发动" in opt:
+                        return opt
 
         for opt in options:
             if "不发动" in opt or "正常" in opt:
@@ -127,6 +146,14 @@ class MythlandAIHook(BaseTalentAIHook):
             return barrier.is_in_barrier(player_id)
         players = getattr(barrier, 'barrier_players', [])
         return player_id in players
+
+    @staticmethod
+    def _resolve_player_by_name(name: str, state) -> Optional[Any]:
+        """根据玩家名查找 Player 对象。"""
+        for p in getattr(state, 'players', {}).values():
+            if getattr(p, 'name', '') == name:
+                return p
+        return None
 
     @staticmethod
     def _get_other_barrier_player(barrier, player, state):
@@ -171,11 +198,41 @@ class MythlandAIHook(BaseTalentAIHook):
                 if any(a in effective_set for a in opponent_attrs):
                     score += 50  # 克制对手护甲
                 else:
-                    score -= 500  # 被对手护甲克制 → 几乎无效
+                    continue  # 被对手护甲完全克制 → 跳过此武器
             if score > best_score:
                 best_score = score
                 best = w
         return best
+
+    @staticmethod
+    def _has_effective_weapon_against(player, opponent) -> bool:
+        """检查是否有任何武器能打穿对手护甲（属性不被完全克制）。"""
+        from controllers.ai.constants import EFFECTIVE_AGAINST
+        weapons = [w for w in getattr(player, 'weapons', [])
+                   if w and not getattr(w, '_hexagram_disabled', False)
+                   and getattr(w, 'range', 'melee') in ('melee', 'area')]
+        if not weapons:
+            return False
+
+        # 收集对手所有激活护甲的属性
+        opponent_attrs = set()
+        armor = getattr(opponent, 'armor', None)
+        if armor and hasattr(armor, 'get_all_active'):
+            for piece in armor.get_all_active():
+                attr = getattr(piece, 'attribute', None)
+                if attr:
+                    opponent_attrs.add(attr)
+
+        # 对手无护甲 → 永远可打
+        if not opponent_attrs:
+            return True
+
+        for w in weapons:
+            w_attr = getattr(w, 'attribute', None)
+            effective_set = EFFECTIVE_AGAINST.get(w_attr, set())
+            if any(a in effective_set for a in opponent_attrs):
+                return True
+        return False
 
     @staticmethod
     def _estimate_combat_power(p) -> float:

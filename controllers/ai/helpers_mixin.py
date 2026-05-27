@@ -308,7 +308,7 @@ class HelpersMixin(_Base): # type: ignore
         """检查目标是否持有未使用的神话之外天赋"""
         talent = getattr(target, 'talent', None)
         if talent and getattr(talent, 'name', '') == "神话之外":
-            if not getattr(talent, 'used', True):
+            if getattr(talent, 'uses_remaining', 0) > 0:
                 return True
         return False
     # ════════════════════════════════════════════════════════

@@ -37,11 +37,11 @@ class ScissorRush(BaseTalent):
         self.triggered_crime_types = set()
 
         # ---- 响应窗口（继承自你给路打油）----
-        self.response_uses_remaining = 2
+        self.response_uses_remaining = 1
         self.response_triggered_locations = set()
 
         # ---- 警觉 ----
-        self.vigilance_uses = 2          # 总共2次
+        self.vigilance_uses = 1          # 总共2次
         self.found_triggered = False     # 首次被他人找到
         self.find_triggered = False      # 首次主动找到他人
 

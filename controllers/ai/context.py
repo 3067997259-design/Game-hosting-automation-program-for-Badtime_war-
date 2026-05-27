@@ -42,4 +42,5 @@ class OrchestratorContext:
     police_dev_assignments: Dict[str, Dict] = field(default_factory=dict)
     police_dev_initialized: bool = False
     last_criminal_target_id: Optional[str] = None
+    aoe_acquisition_window: bool = False
     ai_state: Any = None

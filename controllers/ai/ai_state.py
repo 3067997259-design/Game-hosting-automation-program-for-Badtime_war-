@@ -38,3 +38,4 @@ class AIState:
     action_used: bool = False
     last_combat_location: Any = None
     combat_just_ended_at: Any = None
+    aoe_acquisition_window: bool = False

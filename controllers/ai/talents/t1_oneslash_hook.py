@@ -63,6 +63,18 @@ class OneSlashAIHook(BaseTalentAIHook):
             if talent_name != "一刀缭断":
                 return None
             if player and state:
+                alive_count = sum(
+                    1 for pid in state.player_order
+                    if state.get_player(pid) and state.get_player(pid).is_alive()
+                )
+                danger = getattr(self._ctrl, '_danger_mode', False)
+
+                # ★ 残局/危险模式：无条件发动，绕开所有限制
+                if alive_count == 2 or danger:
+                    for opt in options:
+                        if "发动" in opt:
+                            return opt
+
                 has_sharpened_knife = any(
                     w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
                     for w in getattr(player, 'weapons', [])
@@ -118,6 +130,29 @@ class OneSlashAIHook(BaseTalentAIHook):
                             should_activate = True
                     if not should_activate and terror_found:
                         should_activate = True
+                    # 同地点有受警察保护的目标，且天赋伤害能绕过阈值 → 发动
+                    if not should_activate:
+                        pe = getattr(state, 'police_engine', None)
+                        if pe:
+                            best_dmg = max(
+                                (GameQuery.get_weapon_damage(w)
+                                 for w in getattr(player, 'weapons', []) if w),
+                                default=0.5
+                            )
+                            for pid in state.player_order:
+                                if pid == player.player_id:
+                                    continue
+                                t = state.get_player(pid)
+                                if not t or not t.is_alive():
+                                    continue
+                                if t.location != player.location:
+                                    continue
+                                if not pe.is_protected_by_police(pid):
+                                    continue
+                                threshold = pe.get_protection_threshold(pid)
+                                if best_dmg * 2.0 > threshold:
+                                    should_activate = True
+                                    break
                     if should_activate and engaged_target:
                         outer = GameQuery.count_outer_armor(engaged_target)
                         inner = GameQuery.count_inner_armor(engaged_target)

@@ -45,7 +45,7 @@ class Mythland(BaseTalent):
 
     def __init__(self, player_id, game_state):
         super().__init__(player_id, game_state)
-        self.used = False
+        self.uses_remaining = 2
         self.active = False
         self.barrier_players = []
         self.original_locations = {}
@@ -62,7 +62,7 @@ class Mythland(BaseTalent):
     def get_t0_option(self, player):
         if player.player_id != self.player_id:
             return None
-        if self.used:
+        if self.uses_remaining <= 0:
             return None
         if self.active:
             return None
@@ -95,7 +95,7 @@ class Mythland(BaseTalent):
     # ============================================
 
     def execute_t0(self, player):
-        self.used = True
+        self.uses_remaining -= 1
         self.active = True
         self.barrier_round = 0
         self.barrier_location = player.location
@@ -589,7 +589,7 @@ class Mythland(BaseTalent):
             parts.append(f"🌀结界展开中")
             parts.append(f"轮次{self.barrier_round}/{self.max_barrier_rounds}")
             parts.append(f"内部：{self._player_names()}")
-        elif self.used:
+        elif self.uses_remaining <= 0:
             parts.append("已使用")
         else:
             parts.append("可用")

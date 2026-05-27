@@ -192,7 +192,7 @@ class BasePersonalityStrategy:
                 continue
 
             # G3: 未使用的幻想乡 → 随时被拉进结界单挑
-            if getattr(t_talent, 'name', '') == "神话之外" and not getattr(t_talent, 'used', False):
+            if getattr(t_talent, 'name', '') == "神话之外" and getattr(t_talent, 'uses_remaining', 0) > 0:
                 return True
 
             # G4: 救世主形态 → 无视保护的高伤害近战

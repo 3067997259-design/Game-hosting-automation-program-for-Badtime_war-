@@ -186,19 +186,37 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         and getattr(target.talent, 'fusion_shield_done', False)  # 已完成融合
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
-        # 无属性：所有伤害类型都有效，不做属性克制检查
-        # 被动模式下吸收伤害，破碎时吸收所有溢出（与持盾一致）
         absorbed = min(raw, talent.iron_horus_hp)
+        would_break = (absorbed >= talent.iron_horus_hp)  # 本次攻击将导致破损
         talent.iron_horus_hp -= absorbed
         raw -= absorbed
         result["details"].append(
             prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
                 absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
-        if talent.iron_horus_hp <= 0:
-            # 破碎时吸收所有溢出伤害（与持盾一致）
-            raw = 0
-            result["details"].append(
-                prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
+        if talent.iron_horus_hp <= 0 and would_break:
+            active_halos = sum(1 for h in getattr(talent, 'halos', []) if h.get('active'))
+            if active_halos > 0:
+                # ★ 保留0.5护甲值，溢出伤害由光环吸收
+                talent.iron_horus_hp = 0.5
+                remaining = talent.receive_damage_to_temp_hp(raw)
+                if remaining > 0:
+                    # 光环不足以吸收全部溢出 → 熄灭所有剩余光环，Horus真正破损
+                    for h in getattr(talent, 'halos', []):
+                        if h.get('active'):
+                            h['active'] = False
+                            h['recovering'] = False
+                            h['cooldown_remaining'] = 0
+                    talent.iron_horus_hp = 0
+                    raw = remaining
+                    result["details"].append(
+                        prompt_manager.get_prompt("talent", "g7hoshino.passive_broken_halos_exhausted"))
+                else:
+                    raw = 0
+            else:
+                # 无活跃光环：原行为，破碎时吸收所有溢出
+                raw = 0
+                result["details"].append(
+                    prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
         # 被动模式下破碎时也吸收所有溢出伤害（与持盾行为一致）
         if raw <= 0:
             result["final_damage"] = 0
