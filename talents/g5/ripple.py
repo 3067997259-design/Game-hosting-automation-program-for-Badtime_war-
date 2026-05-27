@@ -175,6 +175,9 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         if current_alive > 3:
             gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 1.0
         else:
+            # 设计说明：≤3 人局当前两侧均为 0.5（看似冗余的三元），
+            # **故意保留**结构以便将来对"未行动"和"行动了"独立调参，
+            # 不要简化为 `gain = 0.5`。
             gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 0.5
 
         old = self.reminiscence
