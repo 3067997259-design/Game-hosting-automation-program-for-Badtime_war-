@@ -537,7 +537,7 @@ class Hologram(BaseTalent):
     def modify_incoming_damage(self, target, attacker, weapon, raw_damage):
         """V1.92: 发动者在影像存在期间受到的伤害降低0.5
 
-        设计说明：该减伤接口早期就预留好了，但因数值评估暂未启用（曾写作 `raw - 0`，
+        设计说明：该减伤接口早期就预留好了，但因数值评估暂未启用（曾写作 `raw_damage - 0`，
         实际是 no-op）。本次正式还给 G2 作为加强 —— 改为 `raw - 0.5` 后接口按预期生效。
         """
         if not self.active:
