@@ -76,7 +76,8 @@ def _record_hoshino_armor_break(target, armor_name):
 def _resolve_weaponless_damage(attacker, target, game_state, result,
                                 raw_damage, damage_attribute_str,
                                 is_talent_attack=False,
-                                is_love_poem=False):
+                                is_love_poem=False,
+                                is_embrace_damage=False):
     """
     无武器伤害结算（爱与记忆之诗等外部伤害源）。
     走护甲结算但不涉及武器天赋修正。
@@ -108,7 +109,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         damage=raw, attribute=damage_attribute_str
     ))
     # ---- 星野架盾：正面伤害过滤（无武器路径） ----
-    if (target.talent and hasattr(target.talent, 'shield_mode')
+    # 相拥伤害绕过架盾
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'shield_mode')
         and target.talent.shield_mode == "架盾"
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
@@ -144,7 +147,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                     return result
 
     # ---- 星野持盾：铁之荷鲁斯伤害减免（增强版） ----
-    if (target.talent and hasattr(target.talent, 'shield_mode')
+    # 相拥伤害绕过持盾
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'shield_mode')
         and target.talent.shield_mode == "持盾"
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
@@ -180,7 +185,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 return result
 
     # ---- 星野被动保护：非持盾/架盾时，铁之荷鲁斯作为无属性外层护甲 ----
-    if (target.talent and hasattr(target.talent, 'iron_horus_hp')
+    # 相拥伤害绕过被动保护
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'iron_horus_hp')
         and getattr(target.talent, 'shield_mode', None) is None  # 非持盾/架盾
         and target.talent.iron_horus_hp > 0
         and getattr(target.talent, 'fusion_shield_done', False)  # 已完成融合
@@ -292,8 +299,10 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         )
 
     if remaining > 0:
-        if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-        and not getattr(target, '_mythland_talent_suppressed', False)):
+        # 相拥伤害绕过天赋临时HP吸收（火萤/星野光环等）
+        if (not is_embrace_damage
+            and target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
+            and not getattr(target, '_mythland_talent_suppressed', False)):
             remaining = target.talent.receive_damage_to_temp_hp(remaining)
         if remaining > 0:
             result["hp_damage"] = remaining
@@ -426,7 +435,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                    raw_damage_override=None,
                    damage_attribute_override=None,
                    is_talent_attack=False,
-                   is_love_poem=False):
+                   is_love_poem=False,
+                   is_embrace_damage=False):
     """
     完整伤害结算。
     新增参数（Phase 4）：
@@ -436,7 +446,36 @@ def resolve_damage(attacker, target, weapon, game_state,
       raw_damage_override: 无武器时的原始伤害值
       damage_attribute_override: 无武器时的伤害属性（字符串）
       is_love_poem: 是否为爱与记忆之诗伤害（穿透架盾）
+    新增参数（G2 Reset）：
+      is_embrace_damage: 相拥伤害（穿透天赋特殊防护，不穿透护甲）
     """
+    # G2 相拥伤害自动检测
+    if not is_embrace_damage and game_state and getattr(game_state, 'ish_bosheth', None):
+        ish = game_state.ish_bosheth
+        if (ish.phase == "active"
+                and attacker
+                and hasattr(attacker, 'stage_statuses')
+                and 'liberamente_vivace' in getattr(attacker, 'stage_statuses', set())
+                and getattr(attacker, 'player_id', None) != ish.g2_owner_id):
+            is_embrace_damage = True
+
+    # G2 Before light 伤害修正
+    if game_state and getattr(game_state, 'ish_bosheth', None):
+        ish = game_state.ish_bosheth
+        if ish.phase == "active" and ish.before_light:
+            target_emotion = getattr(target, 'emotion', None)
+            if target_emotion:
+                from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
+                if ish.before_light == "riposato":
+                    if target_emotion == ACCAREZZEVOLE:
+                        bonus_damage += 0.5
+                    elif target_emotion == STRAPPANDO:
+                        bonus_damage -= 0.5
+                elif ish.before_light == "dolente":
+                    if target_emotion == ACCAREZZEVOLE:
+                        bonus_damage += 1.0
+                    elif target_emotion == INDIFFERENZA:
+                        bonus_damage += 0.5
     result = {
         "success": False,
         "reason": "",
@@ -462,8 +501,10 @@ def resolve_damage(attacker, target, weapon, game_state,
     # ======== 无武器模式（爱与记忆之诗等外部伤害源） ========
     if weapon is None:
         # 六爻·元亨利贞：免疫伤害（无武器路径）
+        # 相拥伤害绕过金身免疫
         dmg_attr_str = damage_attribute_override or "普通"
-        if (target.talent and hasattr(target.talent, 'is_immune_to_damage')
+        if (not is_embrace_damage
+                and target.talent and hasattr(target.talent, 'is_immune_to_damage')
                 and not getattr(target, '_mythland_talent_suppressed', False)):
             if target.talent.is_immune_to_damage(dmg_attr_str):
                 result["final_damage"] = 0
@@ -489,10 +530,13 @@ def resolve_damage(attacker, target, weapon, game_state,
             dmg_attr_str,
             is_talent_attack=is_talent_attack,
             is_love_poem=is_love_poem,
+            is_embrace_damage=is_embrace_damage,
         )
 
     # ======== 六爻·元亨利贞：免疫伤害（有武器路径） ========
-    if (target.talent and hasattr(target.talent, 'is_immune_to_damage')
+    # 相拥伤害绕过金身免疫
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'is_immune_to_damage')
         and not getattr(target, '_mythland_talent_suppressed', False)):
         dmg_attr = damage_attribute_override or (getattr(weapon, 'attribute', '普通') if weapon else '普通')
         if target.talent.is_immune_to_damage(dmg_attr):
@@ -540,7 +584,9 @@ def resolve_damage(attacker, target, weapon, game_state,
     result["details"].append(raw_damage_text.format(damage=raw))
 
     # ---- 星野架盾：正面伤害过滤 ----
-    if (target.talent and hasattr(target.talent, 'shield_mode')
+    # 相拥伤害绕过架盾
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'shield_mode')
         and target.talent.shield_mode == "架盾"
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
@@ -580,7 +626,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                     return result
 
     # ---- 警察保护阈值减免（非AOE） ----
-    if weapon and weapon.weapon_range != WeaponRange.AREA and game_state:
+    # 相拥伤害绕过警察保护
+    if not is_embrace_damage and weapon and weapon.weapon_range != WeaponRange.AREA and game_state:
         pe = getattr(game_state, 'police_engine', None)
         if pe:
             threshold = pe.get_protection_threshold(target.player_id)
@@ -596,7 +643,9 @@ def resolve_damage(attacker, target, weapon, game_state,
                 result["details"].append(f"🚔 警察保护：吸收 {absorbed}，剩余 {raw}")
 
     # ---- 星野持盾：铁之荷鲁斯伤害减免（增强版） ----
-    if (target.talent and hasattr(target.talent, 'shield_mode')
+    # 相拥伤害绕过持盾
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'shield_mode')
         and target.talent.shield_mode == "持盾"
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
@@ -630,7 +679,9 @@ def resolve_damage(attacker, target, weapon, game_state,
                 return result
 
     # ---- 星野被动保护：非持盾/架盾时，铁之荷鲁斯作为无属性外层护甲 ----
-    if (target.talent and hasattr(target.talent, 'iron_horus_hp')
+    # 相拥伤害绕过被动保护
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'iron_horus_hp')
         and getattr(target.talent, 'shield_mode', None) is None  # 非持盾/架盾
         and target.talent.iron_horus_hp > 0
         and getattr(target.talent, 'fusion_shield_done', False)  # 已完成融合
@@ -737,8 +788,10 @@ def resolve_damage(attacker, target, weapon, game_state,
         remaining += hologram_remaining  # 溢出伤害加到总剩余中
 
     if remaining > 0:
-        if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-        and not getattr(target, '_mythland_talent_suppressed', False)):
+        # 相拥伤害绕过天赋临时HP吸收（火萤/星野光环等）
+        if (not is_embrace_damage
+            and target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
+            and not getattr(target, '_mythland_talent_suppressed', False)):
             remaining = target.talent.receive_damage_to_temp_hp(remaining)
         if remaining > 0:
             result["hp_damage"] = remaining

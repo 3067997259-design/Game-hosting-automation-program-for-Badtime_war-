@@ -187,6 +187,13 @@ class Player:
         # V1.92: 锚定D4加成（由涟漪天赋直接设置在玩家对象上）
         if getattr(self, '_anchor_d4_bonus_rounds', 0) > 0:
             bonus += getattr(self, '_anchor_d4_bonus_amount', 0)
+        # G2 舞台法则 D4+1（非 G2 发动者的舞台参与者）
+        if 'liberamente_vivace' in getattr(self, 'stage_statuses', set()):
+            bonus += 1
+        # G2 废墟谢幕 D4+1 奖励
+        if getattr(self, '_g2_curtain_d4_bonus', False):
+            bonus += 1
+            self._g2_curtain_d4_bonus = False
         return bonus
 
     def get_d6_bonus(self):
