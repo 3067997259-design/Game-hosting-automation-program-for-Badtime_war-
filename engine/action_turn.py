@@ -222,6 +222,21 @@ class ActionTurnManager:
             descs = [{"usage": "wake", "description": "起床"}]
             return names, descs
 
+        # G2 发动者在 ish-bosheth 内：只能演唱(special)或放弃
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase == "active"
+                and player.player_id == self.state.ish_bosheth.g2_owner_id):
+            if self.state.ish_bosheth.regard > 0:
+                names = ["special", "forfeit"]
+                descs = [
+                    {"usage": "special", "description": "🎵 演唱曲目"},
+                    {"usage": "forfeit", "description": "放弃行动"},
+                ]
+            else:
+                names = ["forfeit"]
+                descs = [{"usage": "forfeit", "description": "放弃行动"}]
+            return names, descs
+
         # Terror 状态：只允许 attack 和 move
         if (player.talent and hasattr(player.talent, 'is_terror')
                 and player.talent.is_terror):
@@ -1420,6 +1435,14 @@ class ActionTurnManager:
             return self._execute_attack(parsed, player)        # 内部已改为三元组
 
         elif action == "special":
+            # G2 舞台内演唱：走 choose 流程
+            if (self.state.ish_bosheth
+                    and self.state.ish_bosheth.phase == "active"
+                    and player.player_id == self.state.ish_bosheth.g2_owner_id
+                    and player.talent
+                    and hasattr(player.talent, 'execute_sing')):
+                msg = player.talent.execute_sing(player, self.state)
+                return msg, "special", True, True
             op = parsed["operation"]
             msg, consumes = special_op.execute(player, op, self.state)
             is_ok = not msg.startswith("❌")
