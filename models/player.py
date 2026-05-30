@@ -157,6 +157,14 @@ class Player:
         # 军事基地
         self.has_military_pass = False
 
+        # G2 舞台状态（ish-bosheth）
+        self.emotion: Optional[str] = None
+        self.stage_statuses: set = set()
+        self.encore_layers: int = 0
+        self.stage_entangle: list = []
+        self.temp_hp_g2: float = 0.0
+        self.temp_atk_g2: float = 0.0
+
     def is_alive(self):
         return self.hp > 0
 

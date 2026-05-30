@@ -50,6 +50,7 @@ class GameState:
         }
         # Phase 4: 朝阳好市民会添加更多
         self.active_barrier = None  # 神代3结界引用
+        self.ish_bosheth = None    # G2 ish-bosheth 舞台结界实例
 
         # 响应窗口
         self._response_window = ResponseWindowManager(self)
