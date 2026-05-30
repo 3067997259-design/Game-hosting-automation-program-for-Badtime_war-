@@ -119,6 +119,41 @@ class ActionTurnManager:
                     display.show_info(f"🗿 {player.name} 选择保持石化，跳过本回合。")
                     return "petrify_skip"
 
+        # ---- G2 ish-bosheth 情绪切换 (T0) ----
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase == "active"
+                and "liberamente_vivace" in getattr(player, 'stage_statuses', set())
+                and player.player_id != self.state.ish_bosheth.g2_owner_id):
+            from engine.ish_bosheth import (
+                ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO,
+                EMOTION_LABELS,
+            )
+            current_emotion = getattr(player, 'emotion', None)
+            options = [
+                "入戏 (Accarezzevole)", "抽离 (Indifferenza)",
+                "反抗 (Strappando)", "保持当前",
+            ]
+            choice = player.controller.choose(
+                "选择你在 G2 舞台中的态度：",
+                options,
+                context={"phase": "T0", "situation": "g2_emotion_choice"},
+            )
+            new_emotion = self.state.ish_bosheth._parse_emotion_choice(choice)
+            if "保持" in choice:
+                new_emotion = current_emotion
+
+            if current_emotion is None:
+                # 首次设定不消耗回合
+                player.emotion = new_emotion
+                display.show_info(
+                    f"  🎭 {player.name} 初始情绪：{EMOTION_LABELS.get(new_emotion, new_emotion)}")
+            else:
+                player.emotion = new_emotion
+                display.show_info(
+                    f"  🎭 {player.name} 情绪：{EMOTION_LABELS.get(new_emotion, new_emotion)}")
+                # 改变或重申消耗行动回合
+                return "g2_emotion_switch"
+
         # ---- 天赋T0选项 ----
         # ══ BUG FIX：choice 变量未定义问题修复 ══
         if player.talent and player.is_awake:
