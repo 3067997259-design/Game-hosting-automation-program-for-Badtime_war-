@@ -64,6 +64,12 @@ class RoundManager:
             p = self.state.get_player(pid)
             if p:
                 p._armor_gained_this_round = False
+
+        # ish-bosheth 废墟谢幕（pending_curtain → 清理）
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase == "pending_curtain"):
+            self.state.ish_bosheth.on_r0_curtain(self.state)
+
         # 天赋轮次开始钩子
         for pid in self.state.player_order:
             p = self.state.get_player(pid)
@@ -217,12 +223,12 @@ class RoundManager:
                 display.show_info(
                     f"📌 {actor.name} 的额外行动回合已插入！（主动发动）")
 
-            # === V1.92: 全息影像发动后的额外回合 ===
-            if getattr(actor, 'extra_action_after_hologram', False):
-                actor.extra_action_after_hologram = False
+            # === G2 聚光灯额外行动回合 ===
+            if getattr(actor, '_g2_spotlight_extra_turn', False):
+                actor._g2_spotlight_extra_turn = False
                 action_queue.insert(i + 1, actor.player_id)
                 display.show_info(
-                    f"📌 {actor.name} 的额外行动回合已插入！（全息影像）")
+                    f"📌 {actor.name} 的额外行动回合已插入！（聚光灯）")
 
             # === 星野临战-Archer 起床额外回合 ===
             if getattr(actor, 'hoshino_wakeup_extra_turn', False):
@@ -392,6 +398,13 @@ class RoundManager:
                             self.state.log_event("death", player=p.player_id, cause="virus")
                             RoundManager.notify_all_talents_of_death(
                                 self.state, p.player_id, killer_id=None)
+        if self.state.check_victory():
+            return
+
+        # R4-2.5: ish-bosheth R4 衰减
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase == "active"):
+            self.state.ish_bosheth.on_r4(self.state)
         if self.state.check_victory():
             return
 
