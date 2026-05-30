@@ -97,6 +97,8 @@ TALENT_TABLE = [
 AI_DISABLED_TALENTS: set = _resolve_disabled_talents(
     _GAME_CONFIG.get("ai_disabled_talents", []), TALENT_TABLE
 )
+# G2 ish-bosheth 实验性改动：暂时禁止 RL agent 持有 G2
+AI_DISABLED_TALENTS.add(9)
 if AI_DISABLED_TALENTS:
     disabled_names = [name for num, name, cls, desc in TALENT_TABLE if num in AI_DISABLED_TALENTS]
     print(f"  ⚠️ AI禁用天赋：{', '.join(disabled_names)}")

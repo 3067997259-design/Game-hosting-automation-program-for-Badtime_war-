@@ -26,7 +26,8 @@ rl/obs_builder.py
   │   slot3=[443-476] slot4=[477-510]                         │
   │ [511]       存活对手数量      (1)  n_alive/5              │
   │ [512 – 519] 长线记忆特征      (8)                         │
-  │ [520 – 522] choose 模式指示器 (3)                         │
+  │ [520 – 535] G2 ish-bosheth 全局舞台 (16)                  │
+  │ [536 – 538] choose 模式指示器 (3)                         │
   └───────────────────────────────────────────────────────────┘
 
 自身天赋状态 40 维槽位分配（按批次逐步填充）：
@@ -92,7 +93,7 @@ from engine.action_tables import LOCATIONS, WEAPONS
 #  常量
 # ─────────────────────────────────────────────────────────────────────────────
 
-OBS_DIM = 523
+OBS_DIM = 539  # +16 G2 ish-bosheth global stage
 _CHOOSE_OBS_DIM = 3
 
 # 原有观测维度（用于内部断言，不对外暴露）
@@ -333,9 +334,18 @@ def _build_self_talent_state(player: "Player") -> np.ndarray:
     #  批次 6: 神代主动（G2, G3, G5）
     # ──────────────────────────────────────────────────────────
     if cls == "Hologram":
-        buf[0] = float(getattr(talent, 'active', False))
-        buf[1] = getattr(talent, 'remaining_rounds', 0) / 6.0
+        # G2 Reset: ish-bosheth 相关
+        gs = getattr(talent, 'state', None)
+        ish = getattr(gs, 'ish_bosheth', None) if gs else None
+        buf[0] = float(ish is not None and ish.phase == "active")
+        buf[1] = (ish.regard / 9.0) if ish and ish.phase == "active" else 0.0
         buf[2] = float(getattr(talent, 'used', False))
+        # buf[3]: melody_2_available
+        buf[3] = float(ish.melody_2_unlocked and not ish.melody_2_used) if ish else 0.0
+        # buf[4]: melody_3_available
+        buf[4] = float(ish.melody_3_unlocked and not ish.melody_3_used) if ish else 0.0
+        # buf[5]: r4_count / 8
+        buf[5] = (ish.r4_count / 8.0) if ish else 0.0
         return buf
 
     if cls == "Mythland":
@@ -515,12 +525,13 @@ def _build_opp_talent_state(opp: "Player") -> np.ndarray:
         buf[2] = len(getattr(talent, 'burn_targets', {})) / 5.0
 
     elif cls == "Hologram":
+        # G2 Reset: ish-bosheth 相关
+        gs_ref = getattr(talent, 'state', None)
+        ish_ref = getattr(gs_ref, 'ish_bosheth', None) if gs_ref else None
         buf[0] = float(getattr(talent, 'used', False))
-        buf[1] = float(getattr(talent, 'active', False))
-        buf[2] = getattr(talent, 'remaining_rounds', 0) / 6.0
-        buf[3] = float(getattr(talent, 'enhanced', False))
-        # buf[4]: 影像所在地点是否与"我"相同（需要 rl_player 信息，
-        #         在 _build_opponent_block 中由调用方填充，此处留 -1）
+        buf[1] = float(ish_ref is not None and ish_ref.phase == "active")
+        buf[2] = (ish_ref.regard / 9.0) if ish_ref and ish_ref.phase == "active" else 0.0
+        buf[3] = (ish_ref.r4_count / 8.0) if ish_ref else 0.0
 
     elif cls == "Mythland":
         buf[0] = float(getattr(talent, 'used', False))
@@ -731,8 +742,9 @@ def build_obs(player: "Player", game_state: "GameState",
                      slot0=[341-374] slot1=[375-408] ...
         [511]        存活对手数量          (1)  n_alive/5
         [512 –519 ]  长线记忆特征          (8)  env 跟踪
-        [520 –522 ]  choose 模式指示       (3)
-        ─── 总计 523 ───
+        [520 –535 ]  G2 ish-bosheth 全局舞台  (16)
+        [536 –538 ]  choose 模式指示       (3)
+        ─── 总计 539 ───
     """
     from models.equipment import ArmorLayer
     from utils.attribute import Attribute
@@ -1158,8 +1170,43 @@ def build_obs(player: "Player", game_state: "GameState",
     obs[lt_start + 6] = lt.get("rl_damage_dealt", 0.0)
     obs[lt_start + 7] = lt.get("economy_advantage", 0.0)
 
-    # ── [520 – 522] choose 模式指示 (3 维) ──
-    choose_start = lt_start + 8  # 520
+    # ── [520 – 535] G2 ish-bosheth 全局舞台观测 (16 维) ──
+    stage_start = lt_start + 8  # 520
+    ish = getattr(game_state, 'ish_bosheth', None)
+    if ish and ish.phase == "active":
+        from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
+        obs[stage_start] = 1.0                                            # active
+        obs[stage_start + 1] = ish.regard / 9.0                           # regard
+        # before_light 3-hot [2-4]
+        if ish.before_light == "riposato":  obs[stage_start + 2] = 1.0
+        elif ish.before_light == "dolente": obs[stage_start + 3] = 1.0
+        # else: none → [4]=1 (implicit default, leave 0)
+        # my emotion 3-hot [5-7]
+        my_emo = getattr(player, 'emotion', None)
+        if my_emo == ACCAREZZEVOLE:  obs[stage_start + 5] = 1.0
+        elif my_emo == INDIFFERENZA: obs[stage_start + 6] = 1.0
+        elif my_emo == STRAPPANDO:   obs[stage_start + 7] = 1.0
+        obs[stage_start + 8]  = float('spotlight' in getattr(player, 'stage_statuses', set()))
+        obs[stage_start + 9]  = getattr(player, 'encore_layers', 0) / 2.0
+        obs[stage_start + 10] = float('imbalance' in getattr(player, 'stage_statuses', set()))
+        obs[stage_start + 11] = float(player.player_id == ish.g2_owner_id)
+        # counts
+        n_acc = sum(1 for pid in ish.participants
+                    if pid != ish.g2_owner_id
+                    and getattr(game_state.get_player(pid), 'emotion', None) == ACCAREZZEVOLE)
+        n_str = sum(1 for pid in ish.participants
+                    if pid != ish.g2_owner_id
+                    and getattr(game_state.get_player(pid), 'emotion', None) == STRAPPANDO)
+        obs[stage_start + 12] = n_acc / 5.0
+        obs[stage_start + 13] = n_str / 5.0
+        n_chorus = sum(1 for c in ish.chorus_list if c.is_alive())
+        obs[stage_start + 14] = n_chorus / 6.0
+        g2p = game_state.get_player(ish.g2_owner_id)
+        obs[stage_start + 15] = (g2p.hp / g2p.max_hp) if g2p and g2p.max_hp > 0 else 0.0
+    # else: all zeros (ish-bosheth not active)
+
+    # ── [536 – 538] choose 模式指示 (3 维) ──
+    choose_start = stage_start + 16  # 536
     if choose_mode:
         obs[choose_start:choose_start + _CHOOSE_OBS_DIM] = \
             build_choose_obs(choose_situation, choose_n_options)

@@ -149,7 +149,12 @@ STRATEGIC_CHOOSE_SITUATIONS: set[str] = {
     "hexagram_my_choice",       # T4：六爻发动者出拳
     "hexagram_opp_choice",      # T4：六爻对手出拳
     "resurrection_pick_target", # T7：死者苏生选目标
-    "hologram_target",          # G2：全息影像选目标
+    "g2_emotion_choice",        # G2：情绪选择
+    "g2_sing_song",             # G2：选曲目
+    "g2_sing_rhythm",           # G2：选节奏
+    "g2_sing_target",           # G2：选听者
+    "g2_melody_target",         # G2：旋律选目标
+    "g2_melody_propagate",      # G2：旋律传播目标
     "mythland_pick_target",     # G3：神话之外选拉入目标
     "savior_activate",          # G4：愿负世主动发动（涟漪强化后）
     "ripple_anchor_type",       # G5：锚定事件类型
@@ -652,8 +657,13 @@ STRATEGIC_SITUATIONS: set[str] = {
     "hexagram_pick_target",         # 选目标
     # T7 死者苏生
     "resurrection_pick_target",     # 选挂载目标
-    # G2 全息影像
-    "hologram_target",              # 选拉入目标
+    # G2 ish-bosheth
+    "g2_emotion_choice",            # 情绪选择
+    "g2_sing_song",                 # 选曲目
+    "g2_sing_rhythm",               # 选节奏
+    "g2_sing_target",               # 选听者
+    "g2_melody_target",             # 旋律选目标
+    "g2_melody_propagate",          # 旋律传播目标
     # G3 神话之外
     "mythland_pick_target",         # 选拉入目标（猜拳是随机的，不在此列）
     # G4 愿负世
@@ -714,12 +724,15 @@ def _build_choose_mask(
         "oneslash_pick_target",
         "hexagram_pick_target",
         "resurrection_pick_target",
-        "hologram_target",
         "mythland_pick_target",
         "ripple_anchor_kill_target",
         "ripple_anchor_armor_target",
         "ripple_poem_target",
         "cutaway_borrow_target",
+        # G2 ish-bosheth target situations
+        "g2_sing_target",
+        "g2_melody_target",
+        "g2_melody_propagate",
     }
 
     if situation in _TARGET_SITUATIONS:
