@@ -485,6 +485,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         "armor_broken": False,
         "hp_damage": 0,
         "target_hp": target.hp,
+        "target_hp_before": target.hp,
         "stunned": False,
         "shocked": False,
         "killed": False,
@@ -853,6 +854,38 @@ def resolve_damage(attacker, target, weapon, game_state,
             and not getattr(target, '_mythland_talent_suppressed', False)):
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, weapon, is_limited)
+
+    # ---- G2 破幕判定 ----
+    if (target.hp <= 0
+            and game_state and getattr(game_state, 'ish_bosheth', None)
+            and game_state.ish_bosheth.phase == "active"
+            and getattr(target, 'player_id', None) == game_state.ish_bosheth.g2_owner_id):
+        from engine.ish_bosheth import STRAPPANDO
+        is_chorus_attacker = getattr(attacker, 'is_chorus', False)
+        is_strappando_real = (
+            not is_chorus_attacker
+            and getattr(attacker, 'emotion', None) == STRAPPANDO
+            and not getattr(attacker, 'is_chorus', False)
+        )
+        original_hp = result.get("target_hp_before", target.hp + result.get("hp_damage", 0))
+        if is_strappando_real and "imbalance" not in getattr(attacker, 'stage_statuses', set()):
+            # 破幕！G2 不死亡，HP 恢复攻击前数值
+            target.hp = round(original_hp, 2)
+            result["killed"] = False
+            result["hp_damage"] = 0
+            result["target_hp"] = target.hp
+            result["break_curtain"] = True
+            result["details"].append("🎭💥 破幕！G2 的结界被打破！")
+            return result
+        elif is_chorus_attacker:
+            # Chorus 不能破幕：G2 HP 降至 max(0.5, 当前)
+            target.hp = max(0.5, round(original_hp, 2))
+            result["killed"] = False
+            result["hp_damage"] = round(original_hp - target.hp, 2)
+            result["target_hp"] = target.hp
+            result["details"].append("🎭 Chorus 攻击无法破幕，G2 HP 保持最低 0.5")
+            game_state.ish_bosheth.regard -= 1
+            return result
 
     # ---- 第6步：眩晕/死亡判定 ----
     if target.hp <= 0:

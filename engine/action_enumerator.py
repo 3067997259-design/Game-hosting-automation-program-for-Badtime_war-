@@ -78,6 +78,16 @@ def build_action_options(
     opponents = _get_opponents(player, game_state)
     markers = game_state.markers
 
+    # G2 ish-bosheth 情绪限制：过滤合法对手
+    if getattr(game_state, 'ish_bosheth', None) and game_state.ish_bosheth.phase == "active":
+        from engine.ish_bosheth import STRAPPANDO, ACCAREZZEVOLE, INDIFFERENZA
+        attacker_emotion = getattr(player, 'emotion', None)
+        g2_owner_id = game_state.ish_bosheth.g2_owner_id
+        if attacker_emotion == STRAPPANDO:
+            opponents = [o for o in opponents if o.player_id == g2_owner_id]
+        elif attacker_emotion in (ACCAREZZEVOLE, INDIFFERENZA):
+            opponents = [o for o in opponents if o.player_id != g2_owner_id]
+
     # ── lock ──────────────────────────────────────────────────────
     if "lock" in name_set:
         opts = _enumerate_lock(player, opponents, markers)

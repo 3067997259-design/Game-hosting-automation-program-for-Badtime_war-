@@ -1330,6 +1330,35 @@ class ActionTurnManager:
 
         elif action == "move":
             dest = parsed["destination"]
+            # G2 ish-bosheth 舞台内 move → 离场/安可检查
+            if (self.state.ish_bosheth
+                    and self.state.ish_bosheth.phase == "active"
+                    and "liberamente_vivace" in getattr(player, 'stage_statuses', set())):
+                if getattr(player, 'encore_layers', 0) > 0:
+                    player.encore_layers -= 1
+                    encore_msg = (f"🎭 安可阻止 {player.name} 离场！"
+                                  f"（剩余 {player.encore_layers} 层）")
+                    display.show_info(encore_msg)
+                    return encore_msg, "move", True  # 消耗行动但 move 失败
+                # 成功离场
+                player.emotion = None
+                if hasattr(player, 'stage_statuses'):
+                    player.stage_statuses.clear()
+                player.encore_layers = 0
+                if hasattr(player, 'stage_entangle'):
+                    player.stage_entangle.clear()
+                player.temp_hp_g2 = 0.0
+                player.temp_atk_g2 = 0.0
+                self.state.ish_bosheth.participants.discard(player.player_id)
+                display.show_info(f"🎭 {player.name} 离开了 ish-bosheth 舞台！")
+                # 检查空场
+                remaining_real = [
+                    pid for pid in self.state.ish_bosheth.participants
+                    if pid != self.state.ish_bosheth.g2_owner_id
+                ]
+                if not remaining_real:
+                    self.state.ish_bosheth.end_ish_bosheth("empty", self.state)
+                # 正常执行 move
             # Terror 移动：额外消耗0.5额外HP
             if (player.talent and hasattr(player.talent, 'is_terror')
                     and player.talent.is_terror):
@@ -1524,6 +1553,16 @@ class ActionTurnManager:
             display.show_info(f"❌ {player.name} 没有武器「{weapon_name}」")
             return f"❌ {player.name} 没有武器「{weapon_name}」", "attack", False
 
+        # Indifferenza 自动入戏
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase == "active"
+                and getattr(player, 'emotion', None) == "indifferenza"
+                and target_id != self.state.ish_bosheth.g2_owner_id):
+            from engine.ish_bosheth import ACCAREZZEVOLE, EMOTION_LABELS
+            player.emotion = ACCAREZZEVOLE
+            display.show_info(
+                f"  🎭 {player.name} 发起攻击，自动转为{EMOTION_LABELS[ACCAREZZEVOLE]}")
+
         from models.equipment import WeaponRange
         if weapon.weapon_range == WeaponRange.AREA:
             return self._execute_area_attack(player, weapon,
@@ -1540,6 +1579,24 @@ class ActionTurnManager:
         is_failure = isinstance(msg, str) and msg.startswith("❌")
 
         if not is_failure:
+            # G2 破幕检查
+            if result.get("break_curtain") and self.state.ish_bosheth:
+                display.show_info("🎭💥 破幕成功！ish-bosheth 结界崩溃！")
+                self.state.ish_bosheth.end_ish_bosheth("break", self.state,
+                                                       breaker_id=player.player_id)
+                return msg, "attack", True
+
+            # G2 非致命攻击 Regard -1
+            if (self.state.ish_bosheth
+                    and self.state.ish_bosheth.phase == "active"
+                    and target_id == self.state.ish_bosheth.g2_owner_id
+                    and result.get("hp_damage", 0) > 0
+                    and not result.get("break_curtain")):
+                self.state.ish_bosheth.regard = max(
+                    0, self.state.ish_bosheth.regard - 1)
+                display.show_info(
+                    f"  🎭 Regard -1 → {self.state.ish_bosheth.regard}")
+
             if weapon.requires_charge and weapon.is_charged:
                 weapon.is_charged = False
             if "missile" in weapon.special_tags:

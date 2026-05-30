@@ -322,16 +322,20 @@ class IshBosheth:
     # ================================================================
     #  统一清理
     # ================================================================
-    def end_ish_bosheth(self, reason: str, game_state: GameState):
+    def end_ish_bosheth(self, reason: str, game_state: GameState,
+                        breaker_id: Optional[str] = None):
         g2p = game_state.get_player(self.g2_owner_id)
 
         display.show_info(f"\n{'='*50}")
         display.show_info(f"  🎭 ish-bosheth 结束 (原因: {reason})")
         display.show_info(f"{'='*50}")
 
-        # 破幕特殊处理
-        if reason == END_BREAK:
-            pass  # 调用方已处理破幕者奖励
+        # 破幕特殊处理：给破幕者 D4/D6 +1
+        if reason == END_BREAK and breaker_id:
+            breaker = game_state.get_player(breaker_id)
+            if breaker:
+                breaker._g2_curtain_d4_bonus = True
+                display.show_info(f"  🎭 {breaker.name} 获得下轮 D4+1 奖励！")
 
         # 空场退场
         if reason == END_EMPTY and g2p and g2p.is_alive():
