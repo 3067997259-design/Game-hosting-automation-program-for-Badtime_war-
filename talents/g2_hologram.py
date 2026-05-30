@@ -131,13 +131,13 @@ class Hologram(BaseTalent):
         ish = game_state.ish_bosheth
         if not ish or ish.phase != "active":
             display.show_info("ish-bosheth 未激活。")
-            return
+            return "❌ ish-bosheth 未激活"
 
         # 选曲目
         songs = ish.get_available_songs()
         if not songs:
             display.show_info("没有可用曲目（Regard 不足）。")
-            return
+            return "❌ 没有可用曲目"
 
         song_options = [
             f"{s['name']} ({s['desc']}) [消耗{s['cost']}]" for s in songs
@@ -150,7 +150,7 @@ class Hologram(BaseTalent):
             context={"situation": "g2_sing_song"},
         )
         if "放弃" in choice:
-            return
+            return "放弃演唱"
 
         # 解析选中曲目
         selected_song = None
@@ -159,12 +159,12 @@ class Hologram(BaseTalent):
                 selected_song = s
                 break
         if not selected_song:
-            return
+            return "放弃演唱"
 
         # 选节奏
         rhythms = selected_song['rhythms']
         if not rhythms:
-            return
+            return "放弃演唱"
         if len(rhythms) == 1:
             selected_rhythm = rhythms[0]
         else:
@@ -183,12 +183,21 @@ class Hologram(BaseTalent):
         total_cost = selected_rhythm['cost']
         if ish.regard < total_cost:
             display.show_info(f"Regard 不足（需要 {total_cost}，当前 {ish.regard}）。")
-            return
+            return "❌ Regard 不足"
 
         # Before light 不需选听者
         if selected_song['name'] == "Before light":
             self._execute_before_light(player, ish, selected_rhythm, total_cost)
-            return
+            return f"🎵 Before light"
+
+        # 旋律不需选听者（有自己的 choose 流程）
+        if "旋律" in selected_song['name']:
+            if "第二间章" in selected_song['name']:
+                ish.melody_2_used = True
+            elif "第三间章" in selected_song['name']:
+                ish.melody_3_used = True
+            ish.execute_melody(game_state, player)
+            return f"🎵 {selected_song['name']}"
 
         # 选听者
         targets = ish.get_legal_sing_targets(game_state,
@@ -196,7 +205,7 @@ class Hologram(BaseTalent):
                                               selected_rhythm['name'])
         if not targets:
             display.show_info("没有合法听者。")
-            return
+            return "❌ 没有合法听者"
 
         target_names = [t.name for t in targets]
         target_choice = player.controller.choose(
@@ -215,6 +224,7 @@ class Hologram(BaseTalent):
             self._execute_placido(player, target, ish)
 
         display.show_info(f"  🎵 Regard: {ish.regard}/{ish.regard_cap}")
+        return f"🎵 {selected_song['name']} → {target.name}"
 
     # ── Soave: 聚光灯+额外行动 ──────────────────────────────────
     def _execute_soave(self, g2_player, target, ish, game_state):

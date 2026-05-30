@@ -489,6 +489,21 @@ class IshBosheth:
                 "desc": "光色修改全场伤害",
                 "rhythms": self._get_rhythms_for_song("Before light"),
             })
+        # 旋律（不消耗 Regard）
+        if self.melody_2_unlocked and not self.melody_2_used:
+            songs.append({
+                "name": "旋律·第二间章",
+                "cost": 0,
+                "desc": "链式伤害 1/1/0.5/0.5",
+                "rhythms": [{"name": "第二间章", "cost": 0}],
+            })
+        if self.melody_3_unlocked and not self.melody_3_used:
+            songs.append({
+                "name": "旋律·第三间章",
+                "cost": 0,
+                "desc": "链式伤害 1/1/0.5/0.5",
+                "rhythms": [{"name": "第三间章", "cost": 0}],
+            })
         return songs
 
     def _get_rhythms_for_song(self, song_name: str) -> list[dict]:
