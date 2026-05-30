@@ -730,15 +730,45 @@ TALENT_SUB_DECISION_INTENT: Dict[str, Dict[str, str]] = {
         "explanation": "由触发效果决定具体含义，请结合上下文。",
         "suggestion": "按上下文与威胁度选择",
     },
-    # G2 全息影像
-    "hologram_target": {
-        "intent": "全息影像展开地点",
+    # G2 ish-bosheth
+    "g2_emotion_choice": {
+        "intent": "选择你在 G2 舞台中的态度",
         "explanation": (
-            "在指定地点展开影像区域，持续 min(3 + (存活 − 2), 6) 轮。"
-            "影像内：玩家受伤害 +0.5 无视克制、禁用 lock/find、相互强制找到、"
-            "玩家停留 2 轮震荡；非玩家单位沉沦。"
+            "入戏=可攻击其他玩家+享受聚光灯加成但受光色增伤; "
+            "抽离=安全旁观但动手即自动入戏; "
+            "反抗=可攻击G2发动者执行破幕但不能攻击其他人"
         ),
-        "suggestion": "选择敌人聚集或警察盘踞的地点",
+        "suggestion": "威胁低→抽离; 想破幕→反抗; 想借舞台打人→入戏",
+    },
+    "g2_sing_song": {
+        "intent": "选择演唱的曲目类型",
+        "explanation": (
+            "追寻那道光=给聚光灯(临时HP+攻击+额外行动); "
+            "拼接遗憾=给安可阻止目标离场; "
+            "Before light=设置光色修改全场伤害"
+        ),
+        "suggestion": "需要控场→拼接遗憾; 需要输出→追光+聚光灯; 需要群体增伤→Before light",
+    },
+    "g2_sing_rhythm": {
+        "intent": "选择曲目的强度（节奏）",
+        "explanation": (
+            "温柔=基础效果消耗1 Regard; 更强节奏=增强效果但消耗2 Regard"
+        ),
+        "suggestion": "Regard 充裕→选强节奏; Regard 紧张→选温柔",
+    },
+    "g2_sing_target": {
+        "intent": "选择演唱的目标听者",
+        "suggestion": "选威胁最大或最适合控制的目标",
+    },
+    "g2_melody_target": {
+        "intent": "选择旋律的目标",
+        "explanation": "旋律是G2的直接伤害手段，会造成1/1/0.5/0.5的连锁伤害",
+        "suggestion": "优先选血量低的目标",
+    },
+    "g2_melody_propagate": {
+        "intent": "选择旋律传播的下一个目标",
+        "explanation": "旋律击中当前目标后需选择下一个传播目标",
+        "suggestion": "优先选尚未被命中的目标",
     },
     # G3 神话之外
     "mythland_pick_target": {
@@ -1256,6 +1286,44 @@ class BotBridge:
             lines.append(f"当前位置：{location}")
         if hp is not None and max_hp is not None and max_hp != "":
             lines.append(f"生命值：{hp}/{max_hp}")
+
+        # G2 ish-bosheth 舞台状态摘要
+        gs = getattr(self, '_game_state', None)
+        ish = getattr(gs, 'ish_bosheth', None) if gs else None
+        if ish and ish.phase == "active":
+            lines.append("")
+            lines.append("【G2 舞台状态】")
+            lines.append(f"- Regard: {ish.regard}/{ish.regard_cap}")
+            if ish.before_light:
+                bl_desc = {"riposato": "Riposato (入戏+0.5伤害，反抗-0.5伤害)",
+                           "dolente": "Dolente (入戏+1.0, 抽离+0.5伤害)"}
+                lines.append(f"- 光色: {bl_desc.get(ish.before_light, ish.before_light)}")
+            # 我的情绪
+            my_pid = msg.get("player_id", "")
+            my_player = gs.get_player(my_pid) if gs and my_pid else None
+            if my_player:
+                from engine.ish_bosheth import EMOTION_LABELS
+                my_emo = getattr(my_player, 'emotion', None)
+                if my_emo and my_emo in EMOTION_LABELS:
+                    lines.append(f"- 你的情绪: {EMOTION_LABELS[my_emo]}")
+            # 场内玩家
+            members = []
+            for pid in ish.participants:
+                p = gs.get_player(pid) if gs else None
+                if p:
+                    from engine.ish_bosheth import EMOTION_LABELS as _EL
+                    emo_tag = _EL.get(getattr(p, 'emotion', None), "")
+                    members.append(f"{p.name}[{emo_tag}]")
+            for c in ish.chorus_list:
+                if c.is_alive():
+                    from engine.ish_bosheth import EMOTION_LABELS as _EL2
+                    emo_tag = _EL2.get(getattr(c, 'emotion', None), "")
+                    members.append(f"{c.name}[{emo_tag}]")
+            if members:
+                lines.append(f"- 场内: {', '.join(members)}")
+            g2p = gs.get_player(ish.g2_owner_id) if gs else None
+            if g2p:
+                lines.append(f"- G2发动者: {g2p.name} (HP {g2p.hp}/{g2p.max_hp})")
 
         # 附加最近的事件（最多 10 条，最新的排在前面）
         if self.game_events:
@@ -2236,6 +2304,13 @@ class BotBridge:
         # 若需要更真实的随机出拳，可改成 random.choice。
         if situation in ("hexagram_my_choice", "hexagram_opp_choice"):
             return options[0]
+
+        # G2 ish-bosheth 情绪选择：默认抽离（最安全）
+        if situation == "g2_emotion_choice":
+            for opt in options:
+                if isinstance(opt, str) and ("抽离" in opt or "Indifferenza" in opt):
+                    return opt
+            return options[1] if len(options) > 1 else options[0]
 
         return options[0]
 
