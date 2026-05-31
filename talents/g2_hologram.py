@@ -27,15 +27,15 @@ class Hologram(BaseTalent):
         super().__init__(player_id, game_state)
         self.used = False
         self.max_uses = 1       # 涟漪献诗可 +1
-        self._cooldown_left = 0  # 冷却回合数
         self.enhanced = False    # 涟漪献诗增强
 
     # ================================================================
-    #  冷却计算
+    #  发动限制
     # ================================================================
-    def _calc_cooldown(self) -> int:
-        initial_count = len(self.state.player_order)
-        return 10 + 2 * (initial_count - 2)
+    def _calc_min_round(self) -> int:
+        """最早发动轮次 = 10 + 2 × (初始人数 - 2)。临时降为 1 以便调试。"""
+        # return 10 + 2 * (len(self.state.player_order) - 2)
+        return 1  # DEBUG: 临时改为第 1 轮即可发动
 
     # ================================================================
     #  T0 选项
@@ -47,8 +47,8 @@ class Hologram(BaseTalent):
             return None
         if self.state.ish_bosheth is not None:
             return None  # 已有一个活跃结界
-        if self._cooldown_left > 0:
-            return None
+        if self.state.current_round < self._calc_min_round():
+            return None  # 未到最早发动轮次
         return (
             f"发动天赋：{self.name}（展开 ish-bosheth 舞台结界）"
         )
@@ -58,25 +58,39 @@ class Hologram(BaseTalent):
     # ================================================================
     def execute_t0(self, player):
         if self.state.ish_bosheth is not None:
-            display.show_info("ish-bosheth 已展开中。")
+            prompt_manager.show("g2reset", "stage.already_active")
             return None, "cancelled"
 
         if self.max_uses > 0:
             self.max_uses -= 1
         if self.max_uses <= 0:
             self.used = True
-        self._cooldown_left = self._calc_cooldown()
 
         lines = [
             f"\n{'='*50}",
-            f"  🎭 {player.name} 展开了 ish-bosheth！",
-            f"  📍 锚点：{player.location}",
+            prompt_manager.get_prompt("g2reset", "stage.activate",
+                                     player_name=player.name),
+            f"  🏠 舞台中心：{player.name} 的家",
             f"{'='*50}",
         ]
 
-        ish = IshBosheth(self.player_id, player.location)
+        ish = IshBosheth(self.player_id)
         open_lines = ish.open(self.state, player)
         lines.extend(open_lines)
+
+        # 展示座位分配结果，再触发第一音节
+        msg = "\n".join(lines)
+        display.show_result(msg)
+
+        # 第一音节（旋律）：G2 选座位
+        from controllers.human import HumanController
+        if isinstance(player.controller, HumanController):
+            display.show_info(
+                f"\n{'='*50}\n"
+                f"  🎵 第一音节 —— 请 {player.name} 选择旋律目标座位\n"
+                f"{'='*50}")
+        ish.execute_melody(self.state, player)
+        lines.append("  🎵 第一音节已奏响。")
 
         self.state.log_event("ish_bosheth_activate",
                              player=self.player_id,
@@ -102,11 +116,6 @@ class Hologram(BaseTalent):
     # ================================================================
     #  轮次钩子
     # ================================================================
-    def on_round_end(self, round_num):
-        """R4：冷却递减。"""
-        if self._cooldown_left > 0:
-            self._cooldown_left -= 1
-
     # ================================================================
     #  描述
     # ================================================================
@@ -119,8 +128,6 @@ class Hologram(BaseTalent):
             )
         if self.used and self.max_uses <= 0:
             return "已使用"
-        if self._cooldown_left > 0:
-            return f"冷却中 ({self._cooldown_left} 轮)"
         return "可用"
 
     # ================================================================
@@ -130,13 +137,13 @@ class Hologram(BaseTalent):
         """G2 发动者的演唱行动入口。"""
         ish = game_state.ish_bosheth
         if not ish or ish.phase != "active":
-            display.show_info("ish-bosheth 未激活。")
+            prompt_manager.show("g2reset", "stage.not_active")
             return "❌ ish-bosheth 未激活"
 
         # 选曲目
         songs = ish.get_available_songs()
         if not songs:
-            display.show_info("没有可用曲目（Regard 不足）。")
+            prompt_manager.show("g2reset", "stage.no_songs")
             return "❌ 没有可用曲目"
 
         song_options = [
@@ -182,7 +189,8 @@ class Hologram(BaseTalent):
 
         total_cost = selected_rhythm['cost']
         if ish.regard < total_cost:
-            display.show_info(f"Regard 不足（需要 {total_cost}，当前 {ish.regard}）。")
+            prompt_manager.show("g2reset", "stage.regard_insufficient",
+                               needed=total_cost, current=ish.regard)
             return "❌ Regard 不足"
 
         # Before light 不需选听者
@@ -204,7 +212,7 @@ class Hologram(BaseTalent):
                                               selected_song['name'],
                                               selected_rhythm['name'])
         if not targets:
-            display.show_info("没有合法听者。")
+            prompt_manager.show("g2reset", "stage.no_targets")
             return "❌ 没有合法听者"
 
         target_names = [t.name for t in targets]
@@ -219,11 +227,18 @@ class Hologram(BaseTalent):
         ish.regard -= total_cost
 
         if selected_song['name'] == "追寻那道光":
-            self._execute_soave(player, target, ish, game_state)
+            if "Sognando" in selected_rhythm['name'] or "追寻" in selected_rhythm['name']:
+                self._execute_sognando(player, target, ish, game_state)
+            else:
+                self._execute_soave(player, target, ish, game_state)
         elif selected_song['name'] == "拼接遗憾":
-            self._execute_placido(player, target, ish)
+            if "Zeffiroso" in selected_rhythm['name'] or "遗憾" in selected_rhythm['name']:
+                self._execute_zeffiroso(player, target, ish, game_state)
+            else:
+                self._execute_placido(player, target, ish)
 
-        display.show_info(f"  🎵 Regard: {ish.regard}/{ish.regard_cap}")
+        prompt_manager.show("g2reset", "song.regard_status",
+                           regard=ish.regard, cap=ish.regard_cap)
         return f"🎵 {selected_song['name']} → {target.name}"
 
     # ── Soave: 聚光灯+额外行动 ──────────────────────────────────
@@ -243,32 +258,50 @@ class Hologram(BaseTalent):
 
         # 额外行动回合
         target._g2_spotlight_extra_turn = True
+        # 记录授予轮次（在 R4 衰减时判断是否到期）
+        target._spotlight_granted_r4 = ish.r4_count
 
         # Accarezzevole 加成
         if getattr(target, 'emotion', None) == ACCAREZZEVOLE:
             target.temp_hp_g2 = getattr(target, 'temp_hp_g2', 0) + 1.0
             target.temp_atk_g2 = getattr(target, 'temp_atk_g2', 0) + 1.0
 
-        display.show_info(
-            f"  🎵 追寻那道光·温柔 → {target.name} 获得聚光灯+额外行动！")
+        prompt_manager.show("g2reset", "song.soave", target_name=target.name)
 
-    # ── Placido: 安可 ────────────────────────────────────────────
+    # ── Sognando: 强制入戏 + Soave效果 + 情绪锁 ──────────────────
+    def _execute_sognando(self, g2_player, target, ish, game_state):
+        from engine.ish_bosheth import ACCAREZZEVOLE
+        target.emotion = ACCAREZZEVOLE
+        target.stage_statuses = getattr(target, 'stage_statuses', set())
+        target.stage_statuses.add("sognando_lock")
+        self._execute_soave(g2_player, target, ish, game_state)
+        prompt_manager.show("g2reset", "song.sognando", target_name=target.name)
+
+    # ── Placido: 安可（取最高层数）────────────────────────────────
     def _execute_placido(self, g2_player, target, ish):
-        target.encore_layers = getattr(target, 'encore_layers', 0) + 1
-        display.show_info(
-            f"  🎵 拼接遗憾·平静 → {target.name} 安可+1（总{target.encore_layers}层）！")
+        current = getattr(target, 'encore_layers', 0)
+        target.encore_layers = max(current, 1)
+        prompt_manager.show("g2reset", "song.placido",
+                           target_name=target.name, layers=target.encore_layers)
+
+    # ── Zeffiroso: Placido + 情绪上调 + 已入戏则安可=2 ──────────
+    def _execute_zeffiroso(self, g2_player, target, ish, game_state):
+        from engine.ish_bosheth import ACCAREZZEVOLE, adjust_emotion_up
+        self._execute_placido(g2_player, target, ish)
+        adjust_emotion_up(target, game_state, ish)
+        if target.emotion == ACCAREZZEVOLE:
+            target.encore_layers = max(getattr(target, 'encore_layers', 0), 2)
+        prompt_manager.show("g2reset", "song.zeffiroso",
+                           target_name=target.name, layers=target.encore_layers)
 
     # ── Before light: 光色 ───────────────────────────────────────
     def _execute_before_light(self, g2_player, ish, rhythm, cost):
         ish.regard -= cost
         if "Riposato" in rhythm['name'] or "休息" in rhythm['name']:
             ish.before_light = "riposato"
-            display.show_info(
-                "  🎵 Before light·休息 (Riposato): "
-                "入戏者+0.5伤害，反抗者-0.5伤害。")
+            prompt_manager.show("g2reset", "song.riposato")
         elif "Dolente" in rhythm['name'] or "悲伤" in rhythm['name']:
             ish.before_light = "dolente"
-            display.show_info(
-                "  🎵 Before light·悲伤 (Dolente): "
-                "全体额外+0.5伤害。")
-        display.show_info(f"  🎵 Regard: {ish.regard}/{ish.regard_cap}")
+            prompt_manager.show("g2reset", "song.dolente")
+        prompt_manager.show("g2reset", "song.regard_status",
+                           regard=ish.regard, cap=ish.regard_cap)

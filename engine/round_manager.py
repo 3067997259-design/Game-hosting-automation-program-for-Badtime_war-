@@ -105,16 +105,38 @@ class RoundManager:
             if final > max_val:
                 max_val = final
 
+        # Chorus 参与 D4
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+            for c in self.state.ish_bosheth.chorus_list:
+                if c.is_alive() and c.location:
+                    base_roll = roll_d4()
+                    final = min(base_roll, 4)  # Chorus 无 D4 加成
+                    raw[c.player_id] = base_roll
+                    bonuses[c.player_id] = 0
+                    results[c.player_id] = final
+                    if final > max_val:
+                        max_val = final
+
         self.state.d4_results = raw
         self.state.d4_bonuses = bonuses
         winners = [pid for pid, val in results.items() if val == max_val]
         self.state.round_winners = winners
 
-        display.show_d4_results(
-            {self.state.get_player(pid).name: raw[pid] for pid in raw},
-            {self.state.get_player(pid).name: bonuses[pid] for pid in bonuses},
-            [self.state.get_player(pid).name for pid in winners]
-        )
+        # 构建 pid → name 映射（含 Chorus）
+        pid_to_name = {}
+        for pid in raw:
+            p = self.state.get_player(pid)
+            if p:
+                pid_to_name[pid] = p.name
+            elif self.state.ish_bosheth:
+                for c in self.state.ish_bosheth.chorus_list:
+                    if c.player_id == pid:
+                        pid_to_name[pid] = c.name
+                        break
+        display_names = {pid_to_name[pid]: raw[pid] for pid in raw}
+        bonus_names = {pid_to_name[pid]: bonuses[pid] for pid in raw}
+        winner_names = [pid_to_name[pid] for pid in winners]
+        display.show_d4_results(display_names, bonus_names, winner_names)
 
     # ============================================
     # R2: 先后手判定
@@ -171,6 +193,12 @@ class RoundManager:
         while i < len(action_queue):
             actor_id = action_queue[i]
             actor = self.state.get_player(actor_id)
+            # Chorus 单位：在 chorus_list 中查找
+            if not actor and self.state.ish_bosheth:
+                for c in self.state.ish_bosheth.chorus_list:
+                    if c.player_id == actor_id:
+                        actor = c
+                        break
             if not actor or not actor.is_alive():
                 i += 1
                 continue

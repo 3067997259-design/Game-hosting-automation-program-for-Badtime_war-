@@ -227,8 +227,10 @@ class G1MythFire(BaseTalent):
                             player_name=me.name,
                             level=PromptLevel.IMPORTANT)
 
-    def receive_damage_to_temp_hp(self, remaining_damage):
+    def receive_damage_to_temp_hp(self, remaining_damage, is_embrace=False):
         """炽愿额外生命值：每层炽愿 = 0.5 HP，吸收穿透护甲后的伤害"""
+        if is_embrace:
+            return remaining_damage  # 相拥伤害绕过炽愿
         if self.ardent_wish_charges <= 0 or remaining_damage <= 0:
             return remaining_damage
 

@@ -63,6 +63,35 @@ class MarkerManager:
 
     # ---- 联动方法 ----
 
+    def clear_all_relations(self, player_id):
+        """清除某玩家的所有即时关系标记（不清除简单标记）。
+
+        用于 G2 ish-bosheth 展开时统一清场。
+        """
+        if player_id not in self._relations:
+            return
+        # LOCKED_BY 双向
+        lockers = self.get_related(player_id, "LOCKED_BY")
+        for lid in list(lockers):
+            self.remove_relation(player_id, "LOCKED_BY", lid)
+        for other_id in list(self._relations.keys()):
+            if other_id == player_id:
+                continue
+            self.remove_relation(other_id, "LOCKED_BY", player_id)
+        # ENGAGED_WITH 双向
+        engaged = self.get_related(player_id, "ENGAGED_WITH")
+        for eid in list(engaged):
+            self.remove_relation(player_id, "ENGAGED_WITH", eid)
+            self.remove_relation(eid, "ENGAGED_WITH", player_id)
+        # DETECTED_BY 双向
+        detected_by = self.get_related(player_id, "DETECTED_BY")
+        for did in list(detected_by):
+            self.remove_relation(player_id, "DETECTED_BY", did)
+        for other_id in list(self._relations.keys()):
+            if other_id == player_id:
+                continue
+            self.remove_relation(other_id, "DETECTED_BY", player_id)
+
     def on_player_move(self, player_id):
         """
         玩家移动时自动清理：

@@ -299,11 +299,11 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         )
 
     if remaining > 0:
-        # 相拥伤害绕过天赋临时HP吸收（火萤/星野光环等）
-        if (not is_embrace_damage
-            and target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-            and not getattr(target, '_mythland_talent_suppressed', False)):
-            remaining = target.talent.receive_damage_to_temp_hp(remaining)
+        if remaining > 0:
+            if (target.talent
+                    and not getattr(target, '_mythland_talent_suppressed', False)):
+                remaining = target.talent.receive_damage_to_temp_hp(
+                    remaining, is_embrace=is_embrace_damage)
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
@@ -340,11 +340,12 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-            # 解除石化额外0.5伤害（先让临时HP吸收）
-            petrify_remaining = 0.5
-            if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-                    and not getattr(target, '_mythland_talent_suppressed', False)):
-                petrify_remaining = target.talent.receive_damage_to_temp_hp(petrify_remaining)
+        # 解除石化额外0.5伤害（先让临时HP吸收）
+        petrify_remaining = 0.5
+        if (target.talent
+                and not getattr(target, '_mythland_talent_suppressed', False)):
+            petrify_remaining = target.talent.receive_damage_to_temp_hp(
+                petrify_remaining, is_embrace=False)
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
             absorbed = round(0.5 - petrify_remaining, 2)
@@ -789,11 +790,10 @@ def resolve_damage(attacker, target, weapon, game_state,
         remaining += hologram_remaining  # 溢出伤害加到总剩余中
 
     if remaining > 0:
-        # 相拥伤害绕过天赋临时HP吸收（火萤/星野光环等）
-        if (not is_embrace_damage
-            and target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-            and not getattr(target, '_mythland_talent_suppressed', False)):
-            remaining = target.talent.receive_damage_to_temp_hp(remaining)
+        if (target.talent
+                and not getattr(target, '_mythland_talent_suppressed', False)):
+            remaining = target.talent.receive_damage_to_temp_hp(
+                remaining, is_embrace=is_embrace_damage)
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
@@ -834,11 +834,12 @@ def resolve_damage(attacker, target, weapon, game_state,
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-            # 解除石化额外0.5伤害（先让临时HP吸收）
-            petrify_remaining = 0.5
-            if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-                    and not getattr(target, '_mythland_talent_suppressed', False)):
-                petrify_remaining = target.talent.receive_damage_to_temp_hp(petrify_remaining)
+        # 解除石化额外0.5伤害（先让临时HP吸收）
+        petrify_remaining = 0.5
+        if (target.talent
+                and not getattr(target, '_mythland_talent_suppressed', False)):
+            petrify_remaining = target.talent.receive_damage_to_temp_hp(
+                petrify_remaining, is_embrace=False)
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
             absorbed = round(0.5 - petrify_remaining, 2)
@@ -1391,9 +1392,10 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
 
     # ---- 临时生命值结算 ----
     if remaining > 0:
-        if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
+        if (target.talent
                 and not getattr(target, '_mythland_talent_suppressed', False)):
-            remaining = target.talent.receive_damage_to_temp_hp(remaining)
+            remaining = target.talent.receive_damage_to_temp_hp(
+                remaining, is_embrace=False)
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
@@ -1420,11 +1422,12 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-            # 解除石化额外0.5伤害（先让临时HP吸收）
-            petrify_remaining = 0.5
-            if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-                    and not getattr(target, '_mythland_talent_suppressed', False)):
-                petrify_remaining = target.talent.receive_damage_to_temp_hp(petrify_remaining)
+        # 解除石化额外0.5伤害（先让临时HP吸收）
+        petrify_remaining = 0.5
+        if (target.talent
+                and not getattr(target, '_mythland_talent_suppressed', False)):
+            petrify_remaining = target.talent.receive_damage_to_temp_hp(
+                petrify_remaining, is_embrace=False)
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
             absorbed = round(0.5 - petrify_remaining, 2)

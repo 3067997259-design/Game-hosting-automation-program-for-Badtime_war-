@@ -96,7 +96,7 @@ class TestMaNonTroppo(unittest.TestCase):
     @patch("engine.ish_bosheth.display")
     def test_three_same_emotion_corrected(self, _disp):
         """3 个真实观众同情绪 → 至少一人被改变"""
-        ish = IshBosheth("g2", "商店")
+        ish = IshBosheth("g2")
         players = []
         for i in range(3):
             p = _unit(ACCAREZZEVOLE)

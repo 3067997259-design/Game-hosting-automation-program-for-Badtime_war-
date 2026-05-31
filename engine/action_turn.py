@@ -18,6 +18,12 @@ class ActionTurnManager:
     #  主入口
     # ================================================================
     def execute_action_turn(self, player):
+        # Chorus 单位：跳过 T0/T2，直接选行动
+        is_chorus = getattr(player, 'is_chorus', False)
+        if is_chorus:
+            display.show_action_turn_header(player.name)
+            action_type = self._phase_t1_chorus(player)
+            return action_type
         display.show_action_turn_header(player.name)
         skip = self._phase_t0(player)
         if skip:
@@ -93,9 +99,10 @@ class ActionTurnManager:
                     player.is_petrified = False
                     remaining = 0.5
                     # 让天赋的临时HP（光环、炽愿等）先吸收
-                    if (player.talent and hasattr(player.talent, 'receive_damage_to_temp_hp')
+                    if (player.talent
                             and not getattr(player, '_mythland_talent_suppressed', False)):
-                        remaining = player.talent.receive_damage_to_temp_hp(remaining)
+                        remaining = player.talent.receive_damage_to_temp_hp(
+                            remaining, is_embrace=False)
                     if remaining > 0:
                         player.hp = round(max(0, player.hp - remaining), 2)
                     absorbed = round(0.5 - remaining, 2)
@@ -119,6 +126,26 @@ class ActionTurnManager:
                     display.show_info(f"🗿 {player.name} 选择保持石化，跳过本回合。")
                     return "petrify_skip"
 
+        # ---- G2 发动者在舞台内免疫硬控 ----
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase == "active"
+                and player.player_id == self.state.ish_bosheth.g2_owner_id):
+            if player.is_stunned:
+                player.is_stunned = False
+                self.state.markers.on_stun_recover(player.player_id)
+                prompt_manager.show("g2reset", "emotion.immunity_stun",
+                               player_name=player.name)
+            if player.is_shocked:
+                player.is_shocked = False
+                self.state.markers.on_shock_recover(player.player_id)
+                prompt_manager.show("g2reset", "emotion.immunity_shock",
+                                   player_name=player.name)
+            if getattr(player, 'is_petrified', False):
+                player.is_petrified = False
+                self.state.markers.on_petrify_recover(player.player_id)
+                prompt_manager.show("g2reset", "emotion.immunity_petrify",
+                                   player_name=player.name)
+
         # ---- G2 ish-bosheth 情绪切换 (T0) ----
         if (self.state.ish_bosheth
                 and self.state.ish_bosheth.phase == "active"
@@ -128,13 +155,28 @@ class ActionTurnManager:
                 ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO,
                 EMOTION_LABELS,
             )
+            # 节制锁定 / Sognando 情绪锁：不允许主动切换
+            ss = getattr(player, 'stage_statuses', set())
+            if "moderation_lock" in ss:
+                prompt_manager.show("g2reset", "emotion.moderation_lock",
+                                   player_name=player.name)
+                return "g2_moderation_lock"
+            if "sognando_lock" in ss and getattr(player, 'temp_hp_g2', 0) > 0:
+                prompt_manager.show("g2reset", "emotion.sognando_lock",
+                                   player_name=player.name)
+                return "g2_sognando_lock"
+
             current_emotion = getattr(player, 'emotion', None)
-            options = [
-                "入戏 (Accarezzevole)", "抽离 (Indifferenza)",
-                "反抗 (Strappando)", "保持当前",
+            all_options = [
+                ("入戏 (Accarezzevole)", ACCAREZZEVOLE),
+                ("抽离 (Indifferenza)", INDIFFERENZA),
+                ("反抗 (Strappando)", STRAPPANDO),
             ]
+            # 屏蔽与当前情绪相同的选项
+            options = [label for label, emo in all_options if emo != current_emotion]
+            options.append("保持当前")
             choice = player.controller.choose(
-                "选择你在 G2 舞台中的态度：",
+                "选择你在 G2 舞台中的情绪：",
                 options,
                 context={"phase": "T0", "situation": "g2_emotion_choice"},
             )
@@ -145,12 +187,24 @@ class ActionTurnManager:
             if current_emotion is None:
                 # 首次设定不消耗回合
                 player.emotion = new_emotion
-                display.show_info(
-                    f"  🎭 {player.name} 初始情绪：{EMOTION_LABELS.get(new_emotion, new_emotion)}")
+                prompt_manager.show("g2reset", "emotion.initial",
+                                   player_name=player.name,
+                                   emotion=EMOTION_LABELS.get(new_emotion, new_emotion))
+            elif new_emotion == current_emotion:
+                # 保持当前 → 不消耗回合
+                pass
             else:
+                # 切换情绪时清除舞台牵连
+                if hasattr(player, 'stage_entangle'):
+                    if new_emotion == INDIFFERENZA:
+                        if player.stage_entangle:
+                            player.stage_entangle.pop()
+                    elif new_emotion == STRAPPANDO:
+                        player.stage_entangle.clear()
                 player.emotion = new_emotion
-                display.show_info(
-                    f"  🎭 {player.name} 情绪：{EMOTION_LABELS.get(new_emotion, new_emotion)}")
+                prompt_manager.show("g2reset", "emotion.changed",
+                                   player_name=player.name,
+                                   emotion=EMOTION_LABELS.get(new_emotion, new_emotion))
                 # 改变或重申消耗行动回合
                 return "g2_emotion_switch"
 
@@ -1330,6 +1384,47 @@ class ActionTurnManager:
         return action_type
 
     # ================================================================
+    #  T1：Chorus 简化回合（随机选行动）
+    # ================================================================
+    def _phase_t1_chorus(self, player):
+        """Chorus 的简化行动回合：随机 attack 或 forfeit。"""
+        import random as _random
+        from cli.parser import parse
+        from cli.validator import validate
+
+        # 收集合法攻击目标
+        legal_targets = []
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if not p or not p.is_alive() or not p.is_on_map():
+                continue
+            if p.player_id == player.player_id:
+                continue
+            legal_targets.append(p)
+
+        # Chorus 之间也可互殴
+        if self.state.ish_bosheth:
+            for c in self.state.ish_bosheth.chorus_list:
+                if c.is_alive() and c.player_id != player.player_id:
+                    legal_targets.append(c)
+
+        if legal_targets:
+            target = _random.choice(legal_targets)
+            weapons = getattr(player, 'weapons', [])
+            if weapons:
+                weapon = _random.choice(weapons)
+                raw_cmd = f"attack {target.name} with {weapon.name}"
+            else:
+                raw_cmd = f"attack {target.name}"
+            parsed = parse(raw_cmd, player.player_id)
+            if parsed:
+                is_valid, reason = validate(parsed, player, self.state)
+                if is_valid:
+                    msg, action, consumed, _ = self._execute_action(parsed, player)
+                    return action if consumed else "forfeit"
+        return "forfeit"
+
+    # ================================================================
     #  T2：回合结束触发
     # ================================================================
     def _phase_t2(self, player, action_type):
@@ -1345,35 +1440,39 @@ class ActionTurnManager:
 
         elif action == "move":
             dest = parsed["destination"]
-            # G2 ish-bosheth 舞台内 move → 离场/安可检查
-            if (self.state.ish_bosheth
-                    and self.state.ish_bosheth.phase == "active"
-                    and "liberamente_vivace" in getattr(player, 'stage_statuses', set())):
-                if getattr(player, 'encore_layers', 0) > 0:
-                    player.encore_layers -= 1
-                    encore_msg = (f"🎭 安可阻止 {player.name} 离场！"
-                                  f"（剩余 {player.encore_layers} 层）")
-                    display.show_info(encore_msg)
-                    return encore_msg, "move", True  # 消耗行动但 move 失败
-                # 成功离场
-                player.emotion = None
-                if hasattr(player, 'stage_statuses'):
-                    player.stage_statuses.clear()
-                player.encore_layers = 0
-                if hasattr(player, 'stage_entangle'):
-                    player.stage_entangle.clear()
-                player.temp_hp_g2 = 0.0
-                player.temp_atk_g2 = 0.0
-                self.state.ish_bosheth.participants.discard(player.player_id)
-                display.show_info(f"🎭 {player.name} 离开了 ish-bosheth 舞台！")
-                # 检查空场
-                remaining_real = [
-                    pid for pid in self.state.ish_bosheth.participants
-                    if pid != self.state.ish_bosheth.g2_owner_id
-                ]
-                if not remaining_real:
-                    self.state.ish_bosheth.end_ish_bosheth("empty", self.state)
-                # 正常执行 move
+            # G2 ish-bosheth 舞台内 move
+            ish = self.state.ish_bosheth
+            in_stage = (ish and ish.phase == "active"
+                        and "liberamente_vivace" in getattr(player, 'stage_statuses', set()))
+            if in_stage and player.player_id != ish.g2_owner_id:
+                home = f"home_{player.player_id}"
+                if dest == home:
+                    # move home = 离场
+                    if getattr(player, 'encore_layers', 0) > 0:
+                        player.encore_layers -= 1
+                        encore_msg = prompt_manager.get_prompt(
+                            "g2reset", "stage.encore_block",
+                            player_name=player.name, layers=player.encore_layers)
+                        display.show_info(encore_msg)
+                        return encore_msg, "move", True
+                    player.emotion = None
+                    if hasattr(player, 'stage_statuses'):
+                        player.stage_statuses.clear()
+                    player.encore_layers = 0
+                    if hasattr(player, 'stage_entangle'):
+                        player.stage_entangle.clear()
+                    player.temp_hp_g2 = 0.0
+                    player.temp_atk_g2 = 0.0
+                    ish.participants.discard(player.player_id)
+                    prompt_manager.show("g2reset", "stage.leave_success",
+                                       player_name=player.name)
+                    # 空场检查
+                    remaining_real = [
+                        pid for pid in ish.participants
+                        if pid != ish.g2_owner_id
+                    ]
+                    if not remaining_real:
+                        ish.end_ish_bosheth("empty", self.state)
             # Terror 移动：额外消耗0.5额外HP
             if (player.talent and hasattr(player.talent, 'is_terror')
                     and player.talent.is_terror):
@@ -1390,6 +1489,23 @@ class ActionTurnManager:
                         self.state, player.player_id, killer_id=None)
                 return msg, "move", True
             msg = move.execute(player, dest, self.state)
+            # 到达舞台座位 → auto-find 该座位的所有人
+            ish2 = self.state.ish_bosheth
+            if (ish2 and ish2.phase == "active"
+                    and "liberamente_vivace" in getattr(player, 'stage_statuses', set())):
+                stage_locations = ish2.SEATS | {ish2.g2_home}
+                if dest in stage_locations:
+                    for pid in ish2.participants:
+                        p = self.state.get_player(pid)
+                        if (p and p.is_alive() and p.location == dest
+                                and p.player_id != player.player_id):
+                            self.state.markers.set_engaged(
+                                player.player_id, p.player_id)
+                    for c in ish2.chorus_list:
+                        if (c.is_alive() and c.location == dest
+                                and c.player_id != player.player_id):
+                            self.state.markers.set_engaged(
+                                player.player_id, c.player_id)
             if (self.state.police_engine
                     and self.state.police.reported_target_id == player.player_id
                     and self.state.police.report_phase == "dispatched"):
@@ -1583,8 +1699,8 @@ class ActionTurnManager:
                 and target_id != self.state.ish_bosheth.g2_owner_id):
             from engine.ish_bosheth import ACCAREZZEVOLE, EMOTION_LABELS
             player.emotion = ACCAREZZEVOLE
-            display.show_info(
-                f"  🎭 {player.name} 发起攻击，自动转为{EMOTION_LABELS[ACCAREZZEVOLE]}")
+            prompt_manager.show("g2reset", "emotion.indifferenza_auto",
+                               player_name=player.name)
 
         from models.equipment import WeaponRange
         if weapon.weapon_range == WeaponRange.AREA:
@@ -1604,7 +1720,13 @@ class ActionTurnManager:
         if not is_failure:
             # G2 破幕检查
             if result.get("break_curtain") and self.state.ish_bosheth:
-                display.show_info("🎭💥 破幕成功！ish-bosheth 结界崩溃！")
+                prompt_manager.show("g2reset", "stage.break_success")
+                # 破幕攻击仍按正常规则记录犯罪
+                if self.state.police_engine and target_id:
+                    target = self.state.get_player(target_id)
+                    if target and target.is_alive():
+                        self.state.police_engine.check_and_record_crime(
+                            player.player_id, "伤害玩家")
                 self.state.ish_bosheth.end_ish_bosheth("break", self.state,
                                                        breaker_id=player.player_id)
                 return msg, "attack", True
@@ -1617,8 +1739,8 @@ class ActionTurnManager:
                     and not result.get("break_curtain")):
                 self.state.ish_bosheth.regard = max(
                     0, self.state.ish_bosheth.regard - 1)
-                display.show_info(
-                    f"  🎭 Regard -1 → {self.state.ish_bosheth.regard}")
+                prompt_manager.show("g2reset", "stage.regard_minus_one",
+                                   regard=self.state.ish_bosheth.regard)
 
             if weapon.requires_charge and weapon.is_charged:
                 weapon.is_charged = False
@@ -1630,6 +1752,11 @@ class ActionTurnManager:
 
             target = self.state.get_player(target_id)
             if result.get("killed") and target:
+                # G2 发动者真正死亡 → 舞台崩塌
+                if (self.state.ish_bosheth
+                        and self.state.ish_bosheth.phase == "active"
+                        and target_id == self.state.ish_bosheth.g2_owner_id):
+                    self.state.ish_bosheth.end_ish_bosheth("death", self.state)
                 killer.kill_count += 1
                 self.state.markers.on_player_death(target_id)
                 if self.state.police_engine:

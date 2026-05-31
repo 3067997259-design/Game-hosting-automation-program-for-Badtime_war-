@@ -165,14 +165,27 @@ class Savior(BaseTalent):
         return self._enter_savior_state(player, is_manual=False)
 
     def _enter_savior_state(self, player, is_manual=False):
-        """进入救世主状态（支持主动/被动触发）"""
+        """进入救世主状态（支持主动/被动触发）
+
+        V2: 临时HP改为直接提升max_hp，不再经由 receive_damage_to_temp_hp 吸收。
+        这样相拥伤害(G2 ish-bosheth)不会绕过救世主的生命值增益。
+        """
         consumed = self.divinity
         self.divinity = 0
 
+        # 生命值增益：直接提升 max_hp（上限 3.0）
+        hp_bonus = float(consumed) * 0.5
+        old_max = player.max_hp
+        player.max_hp = min(old_max + hp_bonus, 3.0)
+        actual_gain = player.max_hp - old_max
+        player.hp = min(1.0 + actual_gain, player.max_hp)  # 免死 + HP增益
+
         self.is_savior = True
         self.savior_duration = consumed
-        self.temp_hp = float(consumed) * 0.5
-        self.temp_hp_max = float(consumed) * 0.5
+        self._savior_max_hp_bonus = actual_gain      # 记录增益量，退出时扣回
+        self._savior_original_max_hp = old_max        # 记录原始上限
+        self.temp_hp = 0.0                             # 不再使用
+        self.temp_hp_max = 0.0
         self.temp_attack_bonus = consumed * 0.5
         self.aoe_bonus = 0.5 if consumed <= 6 else 1.0
 
@@ -181,7 +194,7 @@ class Savior(BaseTalent):
             f"\n{'='*50}"
             f"\n  🌅 {player.name} {trigger_type}「愿负世，照拂黎明」！"
             f"\n  消耗 {consumed} 点火种 → 进入「救世主」状态！"
-            f"\n  临时额外生命：{self.temp_hp}"
+            f"\n  生命上限提升：{old_max} → {player.max_hp}"
             f"\n  临时攻击力加成：+{self.temp_attack_bonus}"
             f"\n  范围攻击加成：+{self.aoe_bonus}"
             f"\n  持续轮次：{self.savior_duration}"
@@ -192,8 +205,7 @@ class Savior(BaseTalent):
                              divinity_consumed=consumed,
                              is_manual=is_manual)
 
-        # 恢复HP到1（免疫该次致命伤害）
-        return {"prevent_death": True, "new_hp": 1.0}
+        return {"prevent_death": True, "new_hp": player.hp}
 
     # ============================================
     #  救世主状态维护
@@ -216,7 +228,11 @@ class Savior(BaseTalent):
             self._exit_savior_state()
 
     def _exit_savior_state(self):
-        """退出救世主状态 → 永久转化"""
+        """退出救世主状态
+
+        V2: 扣回 HP 上限增益，HP 截断到新上限。
+        不再有 '剩余temp_hp→永久max_hp' 转化——HP已是真实的，无需转化。
+        """
         me = self.state.get_player(self.player_id)
         if not me:
             self.is_savior = False
@@ -225,23 +241,20 @@ class Savior(BaseTalent):
 
         name = me.name
 
-        # 永久转化：剩余临时HP → 永久额外HP
-        remaining_temp = max(0, self.temp_hp)
-        old_max = me.max_hp
-        new_max = min(old_max + remaining_temp, 3.0)
-        actual_gain = new_max - old_max
+        # 扣回救世主 max_hp 增益
+        if getattr(self, '_savior_max_hp_bonus', 0) > 0:
+            original_max = getattr(self, '_savior_original_max_hp', 3.0)
+            me.max_hp = original_max
+            me.hp = min(me.hp, me.max_hp)
 
-        me.max_hp = new_max
-        # 当前HP也加上转化量（不超过新上限）
-        me.hp = min(me.hp + actual_gain, new_max)
-
-        # 攻击力恢复原始值（移除加成）
+        # 攻击力恢复原始值
         self.temp_attack_bonus = 0.0
         self.aoe_bonus = 0.0
         self.temp_hp = 0.0
+        self.temp_hp_max = 0.0
 
         self.state.log_event("savior_end", player=self.player_id,
-                             permanent_hp_gain=actual_gain)
+                             permanent_hp_gain=0)
 
         # 标记状态结束
         self.is_savior = False
@@ -250,39 +263,10 @@ class Savior(BaseTalent):
         display.show_info(
             f"\n{'='*50}"
             f"\n  🌅 {name} 的「救世主」状态结束。"
-            f"\n  永久转化：+{actual_gain} 生命上限"
             f"\n  → HP: {me.hp}/{me.max_hp}"
             f"\n  攻击力恢复为原始值。"
             f"\n  天赋永久失效。"
             f"\n{'='*50}")
-
-    # ============================================
-    #  伤害修正（临时HP作为缓冲层）
-    # ============================================
-
-    def receive_damage_to_temp_hp(self, damage):
-        """
-        救世主状态下，伤害先扣临时HP，溢出到真实HP。
-        由 damage_resolver 调用。
-        返回溢出到真实HP的伤害。
-        """
-        if not self.is_savior or self.temp_hp <= 0:
-            return damage
-
-        if damage <= self.temp_hp:
-            self.temp_hp -= damage
-            self.temp_hp = round(self.temp_hp, 2)
-            display.show_info(
-                f"🛡️ 临时生命吸收 {damage} 伤害"
-                f"（剩余临时HP: {self.temp_hp}）")
-            return 0
-        else:
-            overflow = damage - self.temp_hp
-            display.show_info(
-                f"🛡️ 临时生命吸收 {self.temp_hp} 伤害，"
-                f"溢出 {overflow} 到真实生命")
-            self.temp_hp = 0
-            return overflow
 
     # ============================================
     #  攻击力加成

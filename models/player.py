@@ -227,6 +227,29 @@ class Player:
     def clear_all_vouchers(self):
         self.vouchers = 0
 
+    def _format_stage_status(self) -> str:
+        """格式化 G2 ish-bosheth 舞台状态（单行）。"""
+        parts = ["🎭 舞台中"]
+        if self.emotion:
+            emo_labels = {
+                "accarezzevole": "入戏", "indifferenza": "抽离", "strappando": "反抗"
+            }
+            parts.append(f"情绪={emo_labels.get(self.emotion, self.emotion)}")
+        ss = getattr(self, 'stage_statuses', set())
+        if "spotlight" in ss:
+            tmphp = getattr(self, 'temp_hp_g2', 0)
+            tmpatk = getattr(self, 'temp_atk_g2', 0)
+            parts.append(f"聚光灯(HP+{tmphp}/ATK+{tmpatk})")
+        if "imbalance" in ss:
+            parts.append("失衡")
+        if "moderation_lock" in ss:
+            parts.append("节制锁定")
+        if "sognando_lock" in ss:
+            parts.append("入戏锁定")
+        if self.encore_layers > 0:
+            parts.append(f"安可×{self.encore_layers}")
+        return " | ".join(parts)
+
     def describe_status(self):
         lines = []
         lines.append(f"  玩家：{self.name} ({self.player_id})")
@@ -236,6 +259,9 @@ class Player:
                 talent_status = self.talent.describe_status()
             lines.append(f"  天赋：{self.talent_name}" +
                          (f" ({talent_status})" if talent_status else ""))
+        # G2 舞台状态
+        if 'liberamente_vivace' in getattr(self, 'stage_statuses', set()):
+            lines.append(self._format_stage_status())
         if not self.is_awake:
             lines.append("  状态：💤 睡眠中")
             return "\n".join(lines)

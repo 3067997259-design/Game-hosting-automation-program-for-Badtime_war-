@@ -54,7 +54,7 @@ class TestBreakCurtainLogic(unittest.TestCase):
         """Strappando 真实玩家致命攻击 G2 → 破幕"""
         g2 = _make_player("g2", "G2", hp=1.0)
         attacker = _make_player("p1", "Attacker", emotion=STRAPPANDO)
-        ish = IshBosheth("g2", "商店")
+        ish = IshBosheth("g2")
         ish.participants.add("p1")
 
         # Simulate: target hp would go to 0, but we check break
@@ -150,7 +150,7 @@ class TestLeaveLogic(unittest.TestCase):
         p1.stage_statuses.add("liberamente_vivace")
         g2.stage_statuses.add("liberamente_vivace")
 
-        ish = IshBosheth("g2", "商店")
+        ish = IshBosheth("g2")
         ish.participants = {"p1"}
         gs = _make_game_state([g2, p1], ish)
 

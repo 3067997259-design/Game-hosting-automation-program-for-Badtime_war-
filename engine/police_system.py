@@ -91,6 +91,13 @@ class PoliceEngine:
         if not reporter or not target:
             return False, "玩家不存在"
 
+        # ish-bosheth 舞台内禁止举报
+        if (getattr(self.state, 'ish_bosheth', None)
+                and self.state.ish_bosheth.phase == "active"
+                and ("liberamente_vivace" in getattr(reporter, 'stage_statuses', set())
+                     or "liberamente_vivace" in getattr(target, 'stage_statuses', set()))):
+            return False, "舞台结界中警方无法介入"
+
         if self.police.has_captain():
             return False, "警队已有队长，不再受理举报（邮箱直通垃圾桶）"
 

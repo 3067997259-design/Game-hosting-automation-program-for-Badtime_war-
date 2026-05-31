@@ -13,6 +13,7 @@ import random
 from typing import TYPE_CHECKING, List, Optional, Set
 
 from cli import display
+from engine.prompt_manager import prompt_manager
 from models.chorus import ChorusUnit
 
 if TYPE_CHECKING:
@@ -44,9 +45,9 @@ END_DEATH       = "death"
 class IshBosheth:
     """舞台结界实例。同一时间最多一个。"""
 
-    def __init__(self, g2_owner_id: str, anchor_location: str):
+    def __init__(self, g2_owner_id: str):
         self.g2_owner_id: str = g2_owner_id
-        self.anchor_location: str = anchor_location
+        self.g2_home: str = f"home_{g2_owner_id}"
 
         self.regard: float = 0.0
         self.regard_cap: float = 8.0
@@ -54,7 +55,8 @@ class IshBosheth:
         self.phase: str = "active"   # "active" / "pending_curtain" / "ended"
 
         self.chorus_list: List[ChorusUnit] = []
-        self.submerged_list: list = []
+        self.submerged_list: list = []    # 被冻结的警察单位
+        self.seat_assignments: dict = {}  # pid/chorus_id → seat location name
 
         self.before_light: Optional[str] = None   # "riposato" / "dolente" / None
 
@@ -69,13 +71,14 @@ class IshBosheth:
     #  展开
     # ================================================================
     def open(self, game_state: GameState, g2_player: Player):
-        """展开 ish-bosheth。调用方（g2_hologram.execute_t0）会把返回的
-        IshBosheth 存入 game_state.ish_bosheth。
-        """
-        self.anchor_location = g2_player.location
+        """展开分布式 ish-bosheth：G2 回家，其他玩家分配座位，空位填 Chorus。"""
         lines: list[str] = []
 
-        # 1. 收集参与者（排除 G3 结界内的）
+        # 1. G2 传送回家（舞台中心）
+        g2_player.location = self.g2_home
+        lines.append(f"  🏠 {g2_player.name} 的家成为舞台中心。")
+
+        # 2. 收集参与者（排除 G3 结界内、排除已死亡）
         g3_inside: set[str] = set()
         if game_state.active_barrier:
             barrier = game_state.active_barrier
@@ -89,17 +92,9 @@ class IshBosheth:
             if not p or not p.is_alive():
                 continue
             if pid in g3_inside:
-                lines.append(f"  {p.name} 身处幻想乡结界，未被拉入。")
+                lines.append(f"  {p.name} 身处幻想乡结界，未参与舞台。")
                 continue
             self.participants.add(pid)
-
-        # 2. 强制起床
-        for pid in self.participants:
-            p = game_state.get_player(pid)
-            if p and not p.is_awake:
-                p.is_awake = True
-                p.location = p.location or self.anchor_location
-                lines.append(f"  {p.name} 被强制唤醒！")
 
         # 3. 解除隐身
         for pid in self.participants:
@@ -107,10 +102,9 @@ class IshBosheth:
             if p and p.is_invisible:
                 p.is_invisible = False
                 lines.append(f"  {p.name} 的隐身被解除。")
-        g2p = game_state.get_player(self.g2_owner_id)
-        if g2p and g2p.is_invisible:
-            g2p.is_invisible = False
-            lines.append(f"  {g2p.name} 的隐身被解除。")
+        if g2_player.is_invisible:
+            g2_player.is_invisible = False
+            lines.append(f"  {g2_player.name} 的隐身被解除。")
 
         # 4. 清除即时关系
         all_pids_in_stage = list(self.participants) + [self.g2_owner_id]
@@ -125,67 +119,125 @@ class IshBosheth:
                     p.talent._end_shield_mode(p)
                     lines.append(f"  {p.name} 的架盾/持盾状态被终止。")
 
-        # 6. Submerge 非玩家单位
+        # 6. 座位分配
+        seat_lines = self._assign_seats(game_state, g2_player)
+        lines.extend(seat_lines)
+
+        # 6.5. Submerge 非玩家单位（原地冻结，不拉人）
         if hasattr(game_state, 'police') and game_state.police:
             for unit in game_state.police.units:
                 if unit.is_alive() and unit.is_on_map():
-                    unit._pre_submerge_location = unit.location
-                    unit.location = None
+                    unit.is_submerged = True
                     self.submerged_list.append(unit)
             if self.submerged_list:
-                lines.append(f"  {len(self.submerged_list)} 个非玩家单位被压制 (Submerged)。")
+                lines.append(prompt_manager.get_prompt(
+                    "g2reset", "stage.submerge_count",
+                    count=len(self.submerged_list)))
 
-        # 7. 生成 Chorus
-        real_in_stage = len(self.participants) + 1  # +1 for G2 owner
-        chorus_count = max(0, 6 - real_in_stage)
-        for i in range(chorus_count):
-            c = ChorusUnit()
-            c.location = self.anchor_location
-            self.chorus_list.append(c)
-        if self.chorus_list:
-            lines.append(f"  生成 {len(self.chorus_list)} 个 Chorus 单位。")
-
-        # 8. liberamente_vivace
+        # 7. liberamente_vivace
         for pid in self.participants:
             p = game_state.get_player(pid)
             if p:
                 p.stage_statuses = getattr(p, 'stage_statuses', set())
                 p.stage_statuses.add("liberamente_vivace")
-        if g2p:
-            g2p.stage_statuses = getattr(g2p, 'stage_statuses', set())
-            g2p.stage_statuses.add("liberamente_vivace")
+        g2_player.stage_statuses = getattr(g2_player, 'stage_statuses', set())
+        g2_player.stage_statuses.add("liberamente_vivace")
 
-        # 9. 真实观众选择情绪
+        # 8. 真实观众选择情绪
+        from controllers.human import HumanController
         for pid in self.participants:
             p = game_state.get_player(pid)
             if not p:
                 continue
+            if isinstance(p.controller, HumanController):
+                display.show_info(
+                    f"\n{'='*50}\n"
+                    f"  🎭 ish-bosheth 展开！请将屏幕交给 {p.name}\n"
+                    f"{'='*50}")
+                input(f"  [仅 {p.name} 可看] 按回车选择初始情绪...")
             emotion = p.controller.choose(
-                "选择你在 ish-bosheth 舞台中的初始态度：",
+                "选择你在 ish-bosheth 舞台中的初始情绪：",
                 ["入戏 (Accarezzevole)", "抽离 (Indifferenza)", "反抗 (Strappando)"],
                 context={"phase": "T0", "situation": "g2_emotion_choice"},
             )
             p.emotion = self._parse_emotion_choice(emotion)
             lines.append(f"  {p.name} 选择了 {EMOTION_LABELS.get(p.emotion, p.emotion)}。")
 
-        # 10. Chorus 随机情绪
+        # 9. Chorus 随机情绪
         for c in self.chorus_list:
             c.emotion = random.choice(EMOTION_ORDER)
 
-        # 11. ma non troppo 开场校正
+        # 10. ma non troppo 开场校正
         self.ma_non_troppo(game_state)
 
-        # 12. 第一音节留给 Phase 4 实现（旋律）
-        # self.execute_melody(game_state, g2_player)  # Phase 4 补
-
-        # 13. 初始 Regard
-        P = len(self.participants)  # 真实观众（不含 G2）
-        C = len(self.chorus_list)
-        N = len(self.submerged_list)
+        # 11. 初始 Regard（旋律延后到 execute_t0 中座位展示之后触发）
+        P = len(self.participants)       # 真实观众
+        C = len(self.chorus_list)         # Chorus
+        N = len(self.submerged_list)      # Submerged 非玩家单位
         self.regard = max(4.0, min(8.0, 3.0 + P + 0.5 * C + 0.5 * N))
         lines.append(f"  初始 Regard: {self.regard}/{self.regard_cap}")
 
         game_state.ish_bosheth = self
+        return lines
+
+    # ================================================================
+    #  座位分配
+    # ================================================================
+    SEATS = {"商店", "魔法所", "警察局", "医院", "军事基地"}
+
+    def _assign_seats(self, game_state, g2_player) -> list[str]:
+        """将参与者分配到 5 个座位，空位填 Chorus。返回 display lines。"""
+        lines: list[str] = []
+        from controllers.chorus_controller import ChorusController
+
+        seats = sorted(self.SEATS - {g2_player.location})  # G2 的家不算座位
+
+        assigned: dict[str, list] = {}  # seat → [units]
+        unassigned = []
+
+        for pid in self.participants:
+            p = game_state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            loc = p.location
+            if loc and loc in seats and loc not in assigned:
+                assigned[loc] = [p]
+            else:
+                unassigned.append(p)
+
+        empty_seats = [s for s in seats if s not in assigned]
+        for p in unassigned:
+            old_loc = p.location
+            if empty_seats:
+                seat = random.choice(empty_seats)
+                assigned[seat] = [p]
+                empty_seats.remove(seat)
+            else:
+                seat = random.choice(seats)
+                assigned.setdefault(seat, []).append(p)
+            # 移动到分配座位（触发 on_player_move 清理旧关系）
+            if p.location != seat:
+                p.location = seat
+                game_state.markers.on_player_move(p.player_id)
+
+        # 空座位填充 Chorus
+        for seat in empty_seats:
+            c = ChorusUnit()
+            c.location = seat
+            c.controller = ChorusController()
+            self.chorus_list.append(c)
+            assigned.setdefault(seat, []).append(c)
+
+        # 记录座位分配
+        for seat, units in assigned.items():
+            names = []
+            for u in units:
+                pid = getattr(u, 'player_id', None)
+                if pid:
+                    self.seat_assignments[pid] = seat
+                names.append(getattr(u, 'name', '?'))
+            lines.append(f"  🪑 {seat}: {', '.join(names)}")
+
         return lines
 
     # ================================================================
@@ -243,24 +295,27 @@ class IshBosheth:
         # 谢幕检查
         if self.regard <= 0:
             self.phase = "pending_curtain"
-            display.show_info("🎭 Regard 归零，ish-bosheth 进入待谢幕状态。")
+            prompt_manager.show("g2reset", "stage.regard_zero")
         elif self.r4_count >= 8:
             self.phase = "pending_curtain"
-            display.show_info("🎭 已持续 8 轮，ish-bosheth 进入待谢幕状态。")
+            prompt_manager.show("g2reset", "stage.max_duration")
 
-        # 清除到期聚光灯 / 临时 HP/ATK / before_light
+        # 清除上一轮授予的聚光灯（本轮授予的保留到下个 R4）
         for pid in self.participants:
             p = game_state.get_player(pid)
-            if p:
-                if "spotlight" in getattr(p, 'stage_statuses', set()):
+            if p and "spotlight" in getattr(p, 'stage_statuses', set()):
+                granted_r4 = getattr(p, '_spotlight_granted_r4', -1)
+                if granted_r4 < self.r4_count:  # 本轮之前授予的
                     p.stage_statuses.discard("spotlight")
                     p.temp_hp_g2 = 0.0
                     p.temp_atk_g2 = 0.0
         for c in self.chorus_list:
-            if "spotlight" in c.stage_statuses:
-                c.stage_statuses.discard("spotlight")
-                c.temp_hp_g2 = 0.0
-                c.temp_atk_g2 = 0.0
+            if "spotlight" in getattr(c, 'stage_statuses', set()):
+                granted_r4 = getattr(c, '_spotlight_granted_r4', -1)
+                if granted_r4 < self.r4_count:
+                    c.stage_statuses.discard("spotlight")
+                    c.temp_hp_g2 = 0.0
+                    c.temp_atk_g2 = 0.0
         self.before_light = None
 
     # ================================================================
@@ -281,8 +336,8 @@ class IshBosheth:
             ss = getattr(p, 'stage_statuses', set())
             if "spotlight" in ss or getattr(p, 'encore_layers', 0) > 0:
                 p.hp = round(max(0, p.hp - 0.5), 2)
-                display.show_info(
-                    f"  🎭 {p.name} 受到废墟谢幕伤害 0.5 → HP: {p.hp}")
+                prompt_manager.show("g2reset", "stage.curtain_damage",
+                                   player_name=p.name, hp=p.hp)
 
         # 2. 所有 Accarezzevole 下调一级
         for pid in list(self.participants):
@@ -315,7 +370,7 @@ class IshBosheth:
         if not has_strappando_engage and g2p and g2p.is_alive():
             game_state.markers.clear_all_relations(self.g2_owner_id)
             g2p.is_invisible = True
-            display.show_info(f"  {g2p.name} 无人阻挡，清除标记并隐身。")
+            prompt_manager.show("g2reset", "stage.g2_invisible", player_name=g2p.name)
 
         self.end_ish_bosheth(END_CURTAIN, game_state)
 
@@ -327,7 +382,7 @@ class IshBosheth:
         g2p = game_state.get_player(self.g2_owner_id)
 
         display.show_info(f"\n{'='*50}")
-        display.show_info(f"  🎭 ish-bosheth 结束 (原因: {reason})")
+        prompt_manager.show("g2reset", "stage.end_header", reason=reason)
         display.show_info(f"{'='*50}")
 
         # 破幕特殊处理：给破幕者 D4/D6 +1
@@ -335,13 +390,15 @@ class IshBosheth:
             breaker = game_state.get_player(breaker_id)
             if breaker:
                 breaker._g2_curtain_d4_bonus = True
-                display.show_info(f"  🎭 {breaker.name} 获得下轮 D4+1 奖励！")
+                prompt_manager.show("g2reset", "stage.break_reward",
+                                   player_name=breaker.name)
 
         # 空场退场
         if reason == END_EMPTY and g2p and g2p.is_alive():
             game_state.markers.clear_all_relations(self.g2_owner_id)
             g2p.is_invisible = True
-            display.show_info(f"  {g2p.name} 空场退场，清除标记并隐身。")
+            prompt_manager.show("g2reset", "stage.g2_empty_leave",
+                               player_name=g2p.name)
 
         # 通用清理：参与者
         for pid in list(self.participants):
@@ -370,18 +427,10 @@ class IshBosheth:
         # Chorus 消散
         self.chorus_list.clear()
 
-        # Submerged 解除
+        # Submerged 解除（原地解冻，无需位置恢复）
         for unit in self.submerged_list:
-            if hasattr(unit, '_pre_submerge_location'):
-                unit.location = unit._pre_submerge_location
-                del unit._pre_submerge_location
+            unit.is_submerged = False
         self.submerged_list.clear()
-
-        # 位置恢复：仍在场的真实玩家落回锚点
-        for pid in list(self.participants):
-            p = game_state.get_player(pid)
-            if p and p.is_alive():
-                p.location = self.anchor_location
 
         self.phase = "ended"
         game_state.ish_bosheth = None
@@ -429,10 +478,10 @@ class IshBosheth:
                         chosen.emotion = target_emotion
                         chosen.stage_statuses = getattr(chosen, 'stage_statuses', set())
                         chosen.stage_statuses.add("moderation_lock")
-                        display.show_info(
-                            f"  🎭 ma non troppo: {chosen.name} "
-                            f"{EMOTION_LABELS.get(old_emotion, '?')} → "
-                            f"{EMOTION_LABELS.get(target_emotion, '?')}")
+                        prompt_manager.show("g2reset", "ma_non_troppo.corrected",
+                                           player_name=chosen.name,
+                                           old_emotion=EMOTION_LABELS.get(old_emotion, '?'),
+                                           new_emotion=EMOTION_LABELS.get(target_emotion, '?'))
         elif R == 2:
             if real_observers[0].emotion and real_observers[0].emotion == real_observers[1].emotion:
                 target = random.choice(real_observers)
@@ -442,10 +491,10 @@ class IshBosheth:
                 target.emotion = EMOTION_ORDER[new_idx]
                 target.stage_statuses = getattr(target, 'stage_statuses', set())
                 target.stage_statuses.add("moderation_lock")
-                display.show_info(
-                    f"  🎭 ma non troppo: {target.name} "
-                    f"{EMOTION_LABELS.get(old, '?')} → "
-                    f"{EMOTION_LABELS.get(target.emotion, '?')}")
+                prompt_manager.show("g2reset", "ma_non_troppo.corrected",
+                                   player_name=target.name,
+                                   old_emotion=EMOTION_LABELS.get(old, '?'),
+                                   new_emotion=EMOTION_LABELS.get(target.emotion, '?'))
 
         # Chorus 补位（确保 Chorus 中也覆盖缺失情绪）
         alive_chorus = [c for c in self.chorus_list if c.is_alive()]
@@ -507,32 +556,39 @@ class IshBosheth:
         return songs
 
     def _get_rhythms_for_song(self, song_name: str) -> list[dict]:
-        """返回曲目可用节奏列表（MVP 只实现 Soave + Riposato）。"""
+        """返回曲目可用节奏列表（含全部 6 种节奏）。"""
         if song_name == "追寻那道光":
             rhythms = [{"name": "温柔 (Soave)", "cost": 1}]
-            # Sognando 等更强节奏留 Phase 后续
+            if self.regard >= 2:
+                rhythms.append({"name": "追寻 (Sognando)", "cost": 2})
             return rhythms
         elif song_name == "Before light":
             rhythms = [{"name": "休息 (Riposato)", "cost": 1}]
-            # Dolente 留后续
+            if self.regard >= 2:
+                rhythms.append({"name": "悲伤 (Dolente)", "cost": 2})
             return rhythms
         elif song_name == "拼接遗憾":
             rhythms = [{"name": "平静 (Placido)", "cost": 1}]
+            if self.regard >= 2:
+                rhythms.append({"name": "遗憾 (Zeffiroso)", "cost": 2})
             return rhythms
         return []
 
     def get_legal_sing_targets(self, game_state: GameState,
                                 song_name: str, rhythm_name: str) -> list:
-        """返回合法听者列表。"""
+        """返回合法听者列表。Sognando 可以选择 Strappando。"""
         targets = []
+        is_sognando = "Sognando" in rhythm_name or "追寻" in rhythm_name
         for pid in self.participants:
             if pid == self.g2_owner_id:
                 continue
             p = game_state.get_player(pid)
             if not p or not p.is_alive():
                 continue
-            # Soave: 不能给 Strappando
-            if song_name == "追寻那道光" and "Soave" in rhythm_name:
+            # Soave: 不能给 Strappando（Sognando 除外）
+            if (song_name == "追寻那道光"
+                    and "Soave" in rhythm_name
+                    and not is_sognando):
                 if getattr(p, 'emotion', None) == STRAPPANDO:
                     continue
             targets.append(p)
@@ -540,7 +596,9 @@ class IshBosheth:
         for c in self.chorus_list:
             if not c.is_alive():
                 continue
-            if song_name == "追寻那道光" and "Soave" in rhythm_name:
+            if (song_name == "追寻那道光"
+                    and "Soave" in rhythm_name
+                    and not is_sognando):
                 if c.emotion == STRAPPANDO:
                     continue
             targets.append(c)
@@ -550,76 +608,61 @@ class IshBosheth:
     #  旋律（Melody）
     # ================================================================
     def execute_melody(self, game_state: GameState, g2_player: Player):
-        """执行旋律链式伤害。"""
+        """旋律：G2 选一个座位 → 该座位所有人按序受 1/1/0.5/0.5 伤害。"""
         damage_sequence = [1.0, 1.0, 0.5, 0.5]
-        hit_units: set = set()
-
-        legal = self._get_melody_targets(game_state, hit_units)
-        if not legal:
-            display.show_info("  旋律：无合法目标。")
+        occupied = self._get_occupied_seats(game_state)
+        if not occupied:
+            prompt_manager.show("g2reset", "melody.no_targets")
             return
 
-        target_names = [t.name for t in legal]
-        chosen_name = g2_player.controller.choose(
-            "选择旋律初始目标：",
-            target_names,
-            context={"situation": "g2_melody_target"},
+        seat_names = sorted(occupied.keys())
+        chosen = g2_player.controller.choose(
+            "选择旋律目标座位：",
+            seat_names,
+            context={"situation": "g2_melody_seat"},
         )
-        current_target = next((t for t in legal if t.name == chosen_name), legal[0])
+        if chosen not in occupied:
+            chosen = seat_names[0]
 
-        for i, dmg in enumerate(damage_sequence):
-            if not current_target.is_alive():
-                break
-            # 伤害
+        targets = occupied[chosen]
+        for i, (dmg, target) in enumerate(zip(damage_sequence, targets)):
+            if not target.is_alive():
+                continue
             from combat.damage_resolver import resolve_damage
             result = resolve_damage(
-                g2_player, current_target, None, game_state,
+                g2_player, target, None, game_state,
                 raw_damage_override=dmg,
                 damage_attribute_override="无视属性克制",
                 is_talent_attack=True,
             )
-            display.show_info(
-                f"  🎵 旋律 #{i+1}: {current_target.name} 受到 {dmg} 伤害 → HP: {current_target.hp}")
+            prompt_manager.show("g2reset", "melody.hit",
+                               index=i+1, target_name=target.name,
+                               damage=dmg, hp=target.hp)
 
-            # 情绪下调
-            if current_target.is_alive() and hasattr(current_target, 'emotion') and current_target.emotion:
-                adjust_emotion_down(current_target, game_state, self)
+            if result.get("killed") and hasattr(game_state, 'police_engine') and game_state.police_engine:
+                game_state.police_engine.check_and_record_crime(
+                    g2_player.player_id, "伤害玩家")
 
-            hit_units.add(current_target.player_id)
+            if target.is_alive() and hasattr(target, 'emotion') and target.emotion:
+                adjust_emotion_down(target, game_state, self)
 
-            # 下一个传播目标
-            if i < len(damage_sequence) - 1:
-                legal_next = self._get_melody_targets(game_state, hit_units)
-                if not legal_next:
-                    break
-                next_names = [t.name for t in legal_next]
-                chosen_next = g2_player.controller.choose(
-                    "选择旋律传播目标：",
-                    next_names,
-                    context={"situation": "g2_melody_propagate"},
-                )
-                current_target = next(
-                    (t for t in legal_next if t.name == chosen_next),
-                    legal_next[0])
-
-    def _get_melody_targets(self, game_state: GameState,
-                            already_hit: set) -> list:
-        """获取旋律合法目标（排除已命中、G2自身）。"""
-        targets = []
-        for pid in self.participants:
-            if pid == self.g2_owner_id:
-                continue
-            if pid in already_hit:
-                continue
-            p = game_state.get_player(pid)
-            if p and p.is_alive():
-                targets.append(p)
-        for c in self.chorus_list:
-            if c.player_id in already_hit:
-                continue
-            if c.is_alive():
-                targets.append(c)
-        return targets
+    def _get_occupied_seats(self, game_state) -> dict:
+        """返回 {座位名: [存活单位列表]}，仅含有人（玩家或 Chorus）的座位。"""
+        occupied: dict[str, list] = {}
+        for seat in self.SEATS:
+            units = []
+            for pid in self.participants:
+                if pid == self.g2_owner_id:
+                    continue
+                p = game_state.get_player(pid)
+                if p and p.is_alive() and p.location == seat:
+                    units.append(p)
+            for c in self.chorus_list:
+                if c.is_alive() and c.location == seat:
+                    units.append(c)
+            if units:
+                occupied[seat] = units
+        return occupied
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -651,5 +694,5 @@ def trigger_snap(unit, game_state=None, ish=None):
     unit.hp = round(max(0, unit.hp - 0.5), 2)
     if hasattr(unit, 'stage_statuses'):
         unit.stage_statuses.add("imbalance")
-    display.show_info(
-        f"  🎻 断弦！{unit.name} 受到 0.5 伤害 → HP: {unit.hp}，进入失衡。")
+    prompt_manager.show("g2reset", "snap.triggered",
+                       player_name=unit.name, hp=unit.hp)

@@ -53,9 +53,9 @@ class TestIshBoshethInit(unittest.TestCase):
     """IshBosheth 初始化与基本属性"""
 
     def test_initial_state(self):
-        ish = IshBosheth("g2_owner", "商店")
+        ish = IshBosheth("g2_owner")
         self.assertEqual(ish.g2_owner_id, "g2_owner")
-        self.assertEqual(ish.anchor_location, "商店")
+        self.assertEqual(ish.g2_home, "home_g2_owner")
         self.assertEqual(ish.phase, "active")
         self.assertEqual(ish.regard, 0.0)
         self.assertEqual(ish.regard_cap, 8.0)
@@ -75,7 +75,7 @@ class TestR4Hook(unittest.TestCase):
         for i, emo in enumerate(emotions):
             players.append(_make_player(f"p{i}", f"Player{i}", emotion=emo))
 
-        ish = IshBosheth("g2", "商店")
+        ish = IshBosheth("g2")
         ish.regard = 6.0
         for p in players[1:]:
             ish.participants.add(p.player_id)
@@ -132,7 +132,7 @@ class TestEndIshBosheth(unittest.TestCase):
         g2 = _make_player("g2", "G2")
         g2.stage_statuses.add("liberamente_vivace")
 
-        ish = IshBosheth("g2", "商店")
+        ish = IshBosheth("g2")
         ish.participants = {"p1"}
         gs = _make_game_state([g2, p1], ish)
         gs.ish_bosheth = ish
@@ -149,7 +149,7 @@ class TestEndIshBosheth(unittest.TestCase):
     def test_end_break_gives_d4_bonus(self, _disp):
         breaker = _make_player("p1", "Breaker", emotion=STRAPPANDO)
         g2 = _make_player("g2", "G2")
-        ish = IshBosheth("g2", "商店")
+        ish = IshBosheth("g2")
         ish.participants = {"p1"}
         gs = _make_game_state([g2, breaker], ish)
         gs.ish_bosheth = ish

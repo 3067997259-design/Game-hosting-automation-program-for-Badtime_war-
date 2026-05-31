@@ -181,6 +181,20 @@ class BaseTalent:
         子类可覆盖以提供规则文本"""
         return ""
 
+    # ---- 伤害吸收 ----
+
+    def receive_damage_to_temp_hp(self, damage, is_embrace=False):
+        """天赋临时HP吸收层。子类重写以提供额外生命值缓冲。
+
+        由 damage_resolver 在护甲结算后、真实HP扣减前调用。
+        返回穿透临时HP后的剩余伤害。
+
+        参数:
+          damage: 穿透护甲后的剩余伤害
+          is_embrace: 是否为相拥伤害（G2舞台内全属性贯通）
+        """
+        return damage
+
     # ---- 天赋激活提示 ----
 
     def show_activation(self, player_name=None, show_lore=True, **kwargs):
