@@ -283,7 +283,7 @@ class IshBosheth:
             if c.is_alive() and c.emotion == STRAPPANDO:
                 self.regard -= 0.25
 
-        self.regard = min(self.regard, self.regard_cap)
+        self.regard = max(0, min(self.regard, self.regard_cap))
         self.r4_count += 1
 
         # 旋律解锁

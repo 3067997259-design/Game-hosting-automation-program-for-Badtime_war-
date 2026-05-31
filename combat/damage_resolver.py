@@ -203,7 +203,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         result["details"].append(
             prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
                 absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
-        if talent.iron_horus_hp <= 0 and would_break:
+        if talent.iron_horus_hp <= 0:
             active_halos = sum(1 for h in getattr(talent, 'halos', []) if h.get('active'))
             if active_halos > 0:
                 # ★ 保留0.5护甲值，溢出伤害由光环吸收
@@ -882,7 +882,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             # Chorus 不能破幕：G2 HP 降至 max(0.5, 当前)
             target.hp = max(0.5, round(original_hp, 2))
             result["killed"] = False
-            result["hp_damage"] = round(original_hp - target.hp, 2)
+            result["hp_damage"] = max(0, round(original_hp - target.hp, 2))
             result["target_hp"] = target.hp
             result["details"].append("🎭 Chorus 攻击无法破幕，G2 HP 保持最低 0.5")
             game_state.ish_bosheth.regard -= 1

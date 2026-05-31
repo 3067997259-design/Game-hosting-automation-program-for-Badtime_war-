@@ -1558,7 +1558,10 @@ class ActionTurnManager:
                     and player.talent
                     and hasattr(player.talent, 'execute_sing')):
                 msg = player.talent.execute_sing(player, self.state)
-                return msg, "special", True, True
+                # 放弃或失败不消耗回合
+                cancelled = isinstance(msg, str) and (
+                    msg.startswith("放弃") or msg.startswith("❌"))
+                return msg, "special", not cancelled, not cancelled
             op = parsed["operation"]
             msg, consumes = special_op.execute(player, op, self.state)
             is_ok = not msg.startswith("❌")
