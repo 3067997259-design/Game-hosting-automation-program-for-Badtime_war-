@@ -1287,43 +1287,27 @@ class BotBridge:
         if hp is not None and max_hp is not None and max_hp != "":
             lines.append(f"生命值：{hp}/{max_hp}")
 
-        # G2 ish-bosheth 舞台状态摘要
-        gs = getattr(self, '_game_state', None)
-        ish = getattr(gs, 'ish_bosheth', None) if gs else None
-        if ish and ish.phase == "active":
+        # G2 ish-bosheth 舞台状态摘要（从 context 读取，由 action_turn 注入）
+        ish_ctx = context.get("ish_bosheth")
+        if ish_ctx:
             lines.append("")
             lines.append("【G2 舞台状态】")
-            lines.append(f"- Regard: {ish.regard}/{ish.regard_cap}")
-            if ish.before_light:
+            lines.append(f"- Regard: {ish_ctx['regard']}/{ish_ctx['regard_cap']}")
+            bl = ish_ctx.get("before_light")
+            if bl:
                 bl_desc = {"riposato": "Riposato (入戏+0.5伤害，反抗-0.5伤害)",
                            "dolente": "Dolente (入戏+1.0, 抽离+0.5伤害)"}
-                lines.append(f"- 光色: {bl_desc.get(ish.before_light, ish.before_light)}")
-            # 我的情绪
-            my_pid = msg.get("player_id", "")
-            my_player = gs.get_player(my_pid) if gs and my_pid else None
-            if my_player:
-                from engine.ish_bosheth import EMOTION_LABELS
-                my_emo = getattr(my_player, 'emotion', None)
-                if my_emo and my_emo in EMOTION_LABELS:
-                    lines.append(f"- 你的情绪: {EMOTION_LABELS[my_emo]}")
-            # 场内玩家
-            members = []
-            for pid in ish.participants:
-                p = gs.get_player(pid) if gs else None
-                if p:
-                    from engine.ish_bosheth import EMOTION_LABELS as _EL
-                    emo_tag = _EL.get(getattr(p, 'emotion', None), "")
-                    members.append(f"{p.name}[{emo_tag}]")
-            for c in ish.chorus_list:
-                if c.is_alive():
-                    from engine.ish_bosheth import EMOTION_LABELS as _EL2
-                    emo_tag = _EL2.get(getattr(c, 'emotion', None), "")
-                    members.append(f"{c.name}[{emo_tag}]")
-            if members:
-                lines.append(f"- 场内: {', '.join(members)}")
-            g2p = gs.get_player(ish.g2_owner_id) if gs else None
-            if g2p:
-                lines.append(f"- G2发动者: {g2p.name} (HP {g2p.hp}/{g2p.max_hp})")
+                lines.append(f"- 光色: {bl_desc.get(bl, bl)}")
+            my_emo = ish_ctx.get("my_emotion")
+            if my_emo:
+                lines.append(f"- 你的情绪: {my_emo}")
+            members_list = ish_ctx.get("members", [])
+            if members_list:
+                member_strs = [f"{m['name']}[{m['emotion']}]" for m in members_list]
+                lines.append(f"- 场内: {', '.join(member_strs)}")
+            g2_name = ish_ctx.get("g2_owner", "")
+            if g2_name:
+                lines.append(f"- G2发动者: {g2_name} (HP {ish_ctx.get('g2_hp', '?')}/{ish_ctx.get('g2_max_hp', '?')})")
 
         # 附加最近的事件（最多 10 条，最新的排在前面）
         if self.game_events:

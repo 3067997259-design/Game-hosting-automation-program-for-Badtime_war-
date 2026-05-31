@@ -10,6 +10,38 @@ from actions import (action_registry, wake_up, move, interact,
                      forfeit, lock_target, find_target, attack, special_op)
 
 
+def _build_ish_bosheth_context(game_state, player) -> dict:
+    """提取 ish-bosheth 舞台状态用于 context（供远程客户端 / bot_bridge 读取）。"""
+    ish = getattr(game_state, 'ish_bosheth', None)
+    if not ish or ish.phase != "active":
+        return {}
+    from engine.ish_bosheth import EMOTION_LABELS
+    members = []
+    for pid in ish.participants:
+        p = game_state.get_player(pid)
+        if p:
+            emo_tag = EMOTION_LABELS.get(getattr(p, 'emotion', None), "")
+            members.append({"name": p.name, "emotion": emo_tag})
+    for c in ish.chorus_list:
+        if c.is_alive():
+            emo_tag = EMOTION_LABELS.get(getattr(c, 'emotion', None), "")
+            members.append({"name": c.name, "emotion": emo_tag})
+    g2p = game_state.get_player(ish.g2_owner_id)
+    my_emo = EMOTION_LABELS.get(getattr(player, 'emotion', None), "")
+    return {
+        "ish_bosheth": {
+            "regard": ish.regard,
+            "regard_cap": ish.regard_cap,
+            "before_light": ish.before_light,
+            "my_emotion": my_emo,
+            "members": members,
+            "g2_owner": g2p.name if g2p else "",
+            "g2_hp": g2p.hp if g2p else 0,
+            "g2_max_hp": g2p.max_hp if g2p else 0,
+        }
+    }
+
+
 class ActionTurnManager:
     def __init__(self, game_state):
         self.state = game_state
@@ -463,16 +495,18 @@ class ActionTurnManager:
         while attempts < max_retries:
             attempts += 1
 
-            raw = player.controller.get_command(
-                player=player,
-                game_state=observable,
-                available_actions=action_names,
-                context={
+            _ctx = {
                     "phase": "T1",
                     "round": self.state.current_round,
                     "attempt": attempts,
                     "action_options": action_options,
+                    **_build_ish_bosheth_context(self.state, player),
                 }
+            raw = player.controller.get_command(
+                player=player,
+                game_state=observable,
+                available_actions=action_names,
+                context=_ctx,
             )
             # ══ CONTROLLER 结束 ══
 
@@ -693,11 +727,7 @@ class ActionTurnManager:
         while attempts < max_retries:
             attempts += 1
 
-            raw = player.controller.get_command(
-                player=player,
-                game_state=observable,
-                available_actions=action_names,
-                context={
+            _ctx2 = {
                     "phase": "T1",
                     "round": self.state.current_round,
                     "attempt": attempts,
@@ -705,7 +735,13 @@ class ActionTurnManager:
                     "collected_actions": collected_actions,
                     "source_lookup": source_lookup,
                     "action_options": action_options,
+                    **_build_ish_bosheth_context(self.state, player),
                 }
+            raw = player.controller.get_command(
+                player=player,
+                game_state=observable,
+                available_actions=action_names,
+                context=_ctx2,
             )
 
             # 查看类指令

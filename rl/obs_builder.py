@@ -658,7 +658,12 @@ _CHOOSE_SITUATION_MAP: dict[str, int] = {
     "oneslash_pick_target":     9,
     "oneslash_pick_weapon":    10,
     "resurrection_pick_target": 11,
-    "hologram_target":         12,
+    "g2_emotion_choice":       12,
+    "g2_sing_song":            31,
+    "g2_sing_rhythm":          32,
+    "g2_sing_target":          33,
+    "g2_melody_target":        34,
+    "g2_melody_propagate":     35,
     "mythland_pick_target":    13,
     "ripple_choose_method":    14,
     "ripple_anchor_type":      15,
@@ -681,7 +686,7 @@ _CHOOSE_SITUATION_MAP: dict[str, int] = {
     # G7 战术宏（BC 收集/RL 微调时 get_command 也会走 choose obs 指示）
     "hoshino_tactical_input":     30,
 }
-_MAX_CHOOSE_SITUATIONS = 30
+_MAX_CHOOSE_SITUATIONS = 35
 
 
 def build_choose_obs(situation: str, n_options: int) -> np.ndarray:

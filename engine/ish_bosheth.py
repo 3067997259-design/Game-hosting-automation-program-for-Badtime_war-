@@ -440,6 +440,8 @@ class IshBosheth:
     # ================================================================
     @staticmethod
     def _parse_emotion_choice(choice_str: str) -> str:
+        if not choice_str:
+            return INDIFFERENZA
         low = choice_str.lower()
         if "入戏" in low or "accarezzevole" in low:
             return ACCAREZZEVOLE
