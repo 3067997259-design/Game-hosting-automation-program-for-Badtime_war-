@@ -120,6 +120,11 @@ class ChorusUnit:
         self.controller = None
         self.vouchers: int = 0
         self._armor_gained_this_round: bool = False
+        # 行动统计（round_manager R3 需要）
+        self.last_action_type = None
+        self.acted_this_round: bool = False
+        self.no_action_streak: int = 0
+        self.total_action_turns: int = 0
 
     # ── 装备随机生成 ───────────────────────────────────────────────
     def _roll_equipment(self):
@@ -139,6 +144,12 @@ class ChorusUnit:
             self.armor.inner.append(ia)
 
     # ── 查询 ──────────────────────────────────────────────────────
+    def get_weapon(self, weapon_name):
+        for w in self.weapons:
+            if w and getattr(w, 'name', None) == weapon_name:
+                return w
+        return None
+
     def is_alive(self) -> bool:
         return self.hp > 0
 

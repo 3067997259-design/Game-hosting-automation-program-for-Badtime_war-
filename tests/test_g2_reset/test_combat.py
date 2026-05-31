@@ -15,7 +15,7 @@ from engine.ish_bosheth import (
 
 
 def _make_ish(before_light=None):
-    ish = IshBosheth("g2", "商店")
+    ish = IshBosheth("g2")
     ish.regard = 6.0
     ish.before_light = before_light
     return ish

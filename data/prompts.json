@@ -646,6 +646,57 @@
     "error": "❌ {message}",
     "info": "💡 {message}"
   },
+  "g2reset": {
+    "stage": {
+      "activate": "  🎭 {player_name} 展开了 ish-bosheth！",
+      "end_header": "  🎭 ish-bosheth 结束 (原因: {reason})",
+      "regard_zero": "🎭 Regard 归零，ish-bosheth 进入待谢幕状态。",
+      "max_duration": "🎭 已持续 8 轮，ish-bosheth 进入待谢幕状态。",
+      "curtain_damage": "  🎭 {player_name} 受到废墟谢幕伤害 0.5 → HP: {hp}",
+      "g2_invisible": "  {player_name} 无人阻挡，清除标记并隐身。",
+      "g2_empty_leave": "  {player_name} 空场退场，清除标记并隐身。",
+      "break_reward": "  🎭 {player_name} 获得下轮 D4+1 奖励！",
+      "break_success": "🎭💥 破幕成功！ish-bosheth 结界崩溃！",
+      "regard_minus_one": "  🎭 Regard -1 → {regard}",
+      "already_active": "ish-bosheth 已展开中。",
+      "not_active": "ish-bosheth 未激活。",
+      "no_songs": "没有可用曲目（Regard 不足）。",
+      "regard_insufficient": "Regard 不足（需要 {needed}，当前 {current}）。",
+      "no_targets": "没有合法听者。",
+      "leave_success": "🎭 {player_name} 离开了 ish-bosheth 舞台！",
+      "encore_block": "🎭 安可阻止 {player_name} 离场！（剩余 {layers} 层）",
+      "submerge_count": "  {count} 个非玩家单位被压制 (Submerged)。"
+    },
+    "emotion": {
+      "initial": "  🎭 {player_name} 初始情绪：{emotion}",
+      "changed": "  🎭 {player_name} 情绪：{emotion}",
+      "immunity_stun": "🎭 {player_name} 在舞台中免疫眩晕。",
+      "immunity_shock": "🎭 {player_name} 在舞台中免疫震荡。",
+      "immunity_petrify": "🎭 {player_name} 在舞台中免疫石化。",
+      "moderation_lock": "  🎭 {player_name} 受 ma non troppo 限制，本轮不可切换情绪。",
+      "sognando_lock": "  🎭 {player_name} 受 Sognando 情绪锁定，不可切换情绪。",
+      "indifferenza_auto": "  🎭 {player_name} 发起攻击，自动转为入戏"
+    },
+    "ma_non_troppo": {
+      "corrected": "  🎭 ma non troppo: {player_name} {old_emotion} → {new_emotion}"
+    },
+    "song": {
+      "soave": "  🎵 追寻那道光·温柔 → {target_name} 获得聚光灯+额外行动！",
+      "sognando": "  🎵 追寻那道光·追寻 → {target_name} 强制入戏+聚光灯+情绪锁定！",
+      "placido": "  🎵 拼接遗憾·平静 → {target_name} 安可（当前{layers}层）！",
+      "zeffiroso": "  🎵 拼接遗憾·遗憾 → {target_name} 情绪上调，安可={layers}！",
+      "riposato": "  🎵 Before light·休息 (Riposato): 入戏者+0.5伤害，反抗者-0.5伤害。",
+      "dolente": "  🎵 Before light·悲伤 (Dolente): 全体额外+0.5伤害。",
+      "regard_status": "  🎵 Regard: {regard}/{cap}"
+    },
+    "melody": {
+      "no_targets": "  旋律：无合法目标。",
+      "hit": "  🎵 旋律 #{index}: {target_name} 受到 {damage} 伤害 → HP: {hp}"
+    },
+    "snap": {
+      "triggered": "  🎻 断弦！{player_name} 受到 0.5 伤害 → HP: {hp}，进入失衡。"
+    }
+  },
   "error": {
     "file_not_found": "文件不存在: {path}",
     "load_failed": "加载失败: {error}",

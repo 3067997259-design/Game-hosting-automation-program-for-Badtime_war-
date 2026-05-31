@@ -468,6 +468,11 @@ def validate_special(player, op_name, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
     if not op_name:
+        # G2 在 ish-bosheth 中的演唱走交互式 choose 流程
+        if (getattr(game_state, 'ish_bosheth', None)
+                and game_state.ish_bosheth.phase == "active"
+                and player.player_id == game_state.ish_bosheth.g2_owner_id):
+            return True, ""
         return False, "请指定操作名。"
     ok, reason = _check_not_disabled(player, game_state)
     if not ok:

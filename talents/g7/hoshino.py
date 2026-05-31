@@ -206,7 +206,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         if not self.is_terror:
             self._halo_tick()
 
-        # 铁之荷鲁斯被动自修复（受损但未破碎时）
+        # 铁之荷鲁斯被动自修复（受损但未破碎时）之前修复了一个AOE无视光环打掉盾的bug导致G7胜率暴涨，自修复值调整为0，但机制暂不删除
         if (self.fusion_shield_done
                 and self.iron_horus_hp > 0
                 and self.iron_horus_hp < self.iron_horus_max_hp):
@@ -218,7 +218,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                 self._horus_repair_cooldown = repair_cd
             self._horus_repair_cooldown -= 1
             if self._horus_repair_cooldown <= 0:
-                self.iron_horus_hp = min(self.iron_horus_hp + 0.5, self.iron_horus_max_hp)
+                self.iron_horus_hp = min(self.iron_horus_hp + 0.0, self.iron_horus_max_hp)
                 self._horus_repair_cooldown = repair_cd
                 display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.horus_self_repair",
                     default="🔧 铁之荷鲁斯自修复 +0.5（护甲值: {hp}/{max_hp}）").format(
@@ -274,9 +274,16 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         """T0选项：战术指令宏入口（已移至 special Hoshino）"""
         return None
 
-    def receive_damage_to_temp_hp(self, damage):
+    def receive_damage_to_temp_hp(self, damage, is_embrace=False):
         remaining = damage
-        # Terror 模式下用 terror_extra_hp
+        # 相拥伤害：跳过 terror_extra_hp 和 permanent_extra_hp，但保留光环吸收
+        if is_embrace:
+            while remaining > 0 and any(h['active'] for h in self.halos):
+                absorb = min(remaining, 0.5)
+                remaining -= absorb
+                self._halo_consume_one()
+            return remaining
+        # 正常模式：先用 Terror 额外HP
         if self.is_terror:
             absorbed = min(remaining, self.terror_extra_hp)
             self.terror_extra_hp -= absorbed

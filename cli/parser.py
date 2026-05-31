@@ -69,9 +69,9 @@ def parse(raw_input, player_id):
                 "layer": layer_str, "attr": attr_str}
 
     # ---- 特殊操作 ----
-    if cmd in ("special", "特殊", "sp", "操作"):
+    if cmd in ("special", "特殊", "sp", "操作", "sing", "演唱", "唱"):
         if len(parts) < 2:
-            return None
+            return {"action": "special", "operation": ""}  # G2 演唱等交互式选择
         op = " ".join(parts[1:])
         shorthand = {"磨": "磨刀", "吟唱": "吟唱魔法护盾", "展开": "展开AT力场",
                       "病毒": "释放病毒", "放毒": "释放病毒",
