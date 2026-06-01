@@ -92,6 +92,15 @@ class MarkerManager:
                 continue
             self.remove_relation(other_id, "DETECTED_BY", player_id)
 
+    def register_unit(self, unit_id):
+        """为非玩家单位注册关系槽位（不添加 SLEEPING 或其他默认标记）。"""
+        if unit_id not in self._relations:
+            self._relations[unit_id] = {
+                "LOCKED_BY": set(),
+                "ENGAGED_WITH": set(),
+                "DETECTED_BY": set(),
+            }
+
     def on_player_move(self, player_id):
         """
         玩家移动时自动清理：

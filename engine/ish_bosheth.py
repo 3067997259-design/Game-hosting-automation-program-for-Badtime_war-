@@ -163,11 +163,7 @@ class IshBosheth:
             p.emotion = self._parse_emotion_choice(emotion)
             lines.append(f"  {p.name} 选择了 {EMOTION_LABELS.get(p.emotion, p.emotion)}。")
 
-        # 9. Chorus 随机情绪
-        for c in self.chorus_list:
-            c.emotion = random.choice(EMOTION_ORDER)
-
-        # 10. ma non troppo 开场校正
+        # 9. ma non troppo 开场校正
         self.ma_non_troppo(game_state)
 
         # 11. 初始 Regard（旋律延后到 execute_t0 中座位展示之后触发）
@@ -220,22 +216,29 @@ class IshBosheth:
                 p.location = seat
                 game_state.markers.on_player_move(p.player_id)
 
-        # 空座位填充 Chorus
+        # 空座位填充 Chorus（立即分配随机情绪）
         for seat in empty_seats:
             c = ChorusUnit()
             c.location = seat
             c.controller = ChorusController()
+            c.emotion = random.choice(EMOTION_ORDER)
             self.chorus_list.append(c)
+            game_state.markers.register_unit(c.player_id)
+            game_state.register_chorus(c)
             assigned.setdefault(seat, []).append(c)
 
-        # 记录座位分配
+        # 记录座位分配（含情绪标签）
         for seat, units in assigned.items():
             names = []
             for u in units:
                 pid = getattr(u, 'player_id', None)
                 if pid:
                     self.seat_assignments[pid] = seat
-                names.append(getattr(u, 'name', '?'))
+                # Chorus 此时已有随机情绪，玩家情绪待选
+                label = getattr(u, 'name', '?')
+                if getattr(u, 'is_chorus', False) and u.emotion:
+                    label += f"[{EMOTION_LABELS.get(u.emotion, '?')}]"
+                names.append(label)
             lines.append(f"  🪑 {seat}: {', '.join(names)}")
 
         return lines
@@ -300,13 +303,14 @@ class IshBosheth:
             self.phase = "pending_curtain"
             prompt_manager.show("g2reset", "stage.max_duration")
 
-        # 清除上一轮授予的聚光灯（本轮授予的保留到下个 R4）
+        # 清除上一轮授予的聚光灯 + Sognando 锁 + 临时增益
         for pid in self.participants:
             p = game_state.get_player(pid)
             if p and "spotlight" in getattr(p, 'stage_statuses', set()):
                 granted_r4 = getattr(p, '_spotlight_granted_r4', -1)
                 if granted_r4 < self.r4_count:  # 本轮之前授予的
                     p.stage_statuses.discard("spotlight")
+                    p.stage_statuses.discard("sognando_lock")
                     p.temp_hp_g2 = 0.0
                     p.temp_atk_g2 = 0.0
         for c in self.chorus_list:
@@ -314,6 +318,7 @@ class IshBosheth:
                 granted_r4 = getattr(c, '_spotlight_granted_r4', -1)
                 if granted_r4 < self.r4_count:
                     c.stage_statuses.discard("spotlight")
+                    c.stage_statuses.discard("sognando_lock")
                     c.temp_hp_g2 = 0.0
                     c.temp_atk_g2 = 0.0
         self.before_light = None
@@ -425,6 +430,8 @@ class IshBosheth:
             g2p.temp_atk_g2 = 0.0
 
         # Chorus 消散
+        for c in self.chorus_list:
+            game_state.unregister_chorus(c.player_id)
         self.chorus_list.clear()
 
         # Submerged 解除（原地解冻，无需位置恢复）
@@ -636,10 +643,13 @@ class IshBosheth:
                 raw_damage_override=dmg,
                 damage_attribute_override="无视属性克制",
                 is_talent_attack=True,
+                is_embrace_damage=True,
             )
+            # 走 damage_resolver 的标准输出（和 T1 一刀缭断、T3 天星一致）
             prompt_manager.show("g2reset", "melody.hit",
-                               index=i+1, target_name=target.name,
-                               damage=dmg, hp=target.hp)
+                               index=i+1, target_name=target.name)
+            for detail in result.get("details", []):
+                display.show_info(f"   {detail}")
 
             if result.get("killed") and hasattr(game_state, 'police_engine') and game_state.police_engine:
                 game_state.police_engine.check_and_record_crime(

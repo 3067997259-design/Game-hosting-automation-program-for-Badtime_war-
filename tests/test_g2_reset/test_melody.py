@@ -60,6 +60,8 @@ class TestMelodyAutoTrigger(unittest.TestCase):
             markers=MagicMock(),
             virus=SimpleNamespace(is_active=False),
             police=None,
+            register_chorus=lambda u: None,
+            unregister_chorus=lambda uid: None,
         )
         gs.get_player = lambda pid: players.get(pid)
         gs.players_at_location = lambda loc: []

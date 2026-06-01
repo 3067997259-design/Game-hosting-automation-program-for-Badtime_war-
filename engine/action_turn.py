@@ -187,58 +187,63 @@ class ActionTurnManager:
                 ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO,
                 EMOTION_LABELS,
             )
-            # 节制锁定 / Sognando 情绪锁：不允许主动切换
+            # 节制锁定 / Sognando 情绪锁：不允许主动切换，但不阻止行动
             ss = getattr(player, 'stage_statuses', set())
-            if "moderation_lock" in ss:
-                prompt_manager.show("g2reset", "emotion.moderation_lock",
-                                   player_name=player.name)
-                return "g2_moderation_lock"
-            if "sognando_lock" in ss and getattr(player, 'temp_hp_g2', 0) > 0:
-                prompt_manager.show("g2reset", "emotion.sognando_lock",
-                                   player_name=player.name)
-                return "g2_sognando_lock"
-
-            current_emotion = getattr(player, 'emotion', None)
-            all_options = [
-                ("入戏 (Accarezzevole)", ACCAREZZEVOLE),
-                ("抽离 (Indifferenza)", INDIFFERENZA),
-                ("反抗 (Strappando)", STRAPPANDO),
-            ]
-            # 屏蔽与当前情绪相同的选项
-            options = [label for label, emo in all_options if emo != current_emotion]
-            options.append("保持当前")
-            choice = player.controller.choose(
-                "选择你在 G2 舞台中的情绪：",
-                options,
-                context={"phase": "T0", "situation": "g2_emotion_choice"},
-            )
-            new_emotion = self.state.ish_bosheth._parse_emotion_choice(choice)
-            if "保持" in choice:
-                new_emotion = current_emotion
-
-            if current_emotion is None:
-                # 首次设定不消耗回合
-                player.emotion = new_emotion
-                prompt_manager.show("g2reset", "emotion.initial",
-                                   player_name=player.name,
-                                   emotion=EMOTION_LABELS.get(new_emotion, new_emotion))
-            elif new_emotion == current_emotion:
-                # 保持当前 → 不消耗回合
+            locked = ("moderation_lock" in ss
+                      or ("sognando_lock" in ss and getattr(player, 'temp_hp_g2', 0) > 0))
+            if locked:
+                if "moderation_lock" in ss:
+                    prompt_manager.show("g2reset", "emotion.moderation_lock",
+                                       player_name=player.name)
+                else:
+                    prompt_manager.show("g2reset", "emotion.sognando_lock",
+                                       player_name=player.name)
+                # 不弹出情绪选择，直接 fall through 到 T1
+            if locked:
+                # 被锁：跳过情绪选择菜单，但允许正常行动
                 pass
             else:
-                # 切换情绪时清除舞台牵连
-                if hasattr(player, 'stage_entangle'):
-                    if new_emotion == INDIFFERENZA:
-                        if player.stage_entangle:
-                            player.stage_entangle.pop()
-                    elif new_emotion == STRAPPANDO:
-                        player.stage_entangle.clear()
-                player.emotion = new_emotion
-                prompt_manager.show("g2reset", "emotion.changed",
-                                   player_name=player.name,
-                                   emotion=EMOTION_LABELS.get(new_emotion, new_emotion))
-                # 改变或重申消耗行动回合
-                return "g2_emotion_switch"
+                current_emotion = getattr(player, 'emotion', None)
+                all_options = [
+                    ("入戏 (Accarezzevole)", ACCAREZZEVOLE),
+                    ("抽离 (Indifferenza)", INDIFFERENZA),
+                    ("反抗 (Strappando)", STRAPPANDO),
+                ]
+                # 屏蔽与当前情绪相同的选项
+                options = [label for label, emo in all_options if emo != current_emotion]
+                options.append("保持当前")
+                choice = player.controller.choose(
+                    "选择你在 G2 舞台中的情绪：",
+                    options,
+                    context={"phase": "T0", "situation": "g2_emotion_choice"},
+                )
+                new_emotion = self.state.ish_bosheth._parse_emotion_choice(choice)
+                if "保持" in choice:
+                    new_emotion = current_emotion
+
+                if current_emotion is None:
+                    # 首次设定不消耗回合
+                    player.emotion = new_emotion
+                    prompt_manager.show("g2reset", "emotion.initial",
+                                       player_name=player.name,
+                                       emotion=EMOTION_LABELS.get(new_emotion, new_emotion))
+                elif new_emotion == current_emotion:
+                    # 保持当前 → 不消耗回合
+                    pass
+                else:
+                    # 切换情绪时清除舞台牵连
+                    if hasattr(player, 'stage_entangle'):
+                        if new_emotion == INDIFFERENZA:
+                            if player.stage_entangle:
+                                player.stage_entangle.pop()
+                        elif new_emotion == STRAPPANDO:
+                            player.stage_entangle.clear()
+                    player.emotion = new_emotion
+                    prompt_manager.show("g2reset", "emotion.changed",
+                                       player_name=player.name,
+                                       emotion=EMOTION_LABELS.get(new_emotion, new_emotion))
+                    # 改变或重申消耗行动回合
+                    return "g2_emotion_switch"
 
         # ---- 天赋T0选项 ----
         # ══ BUG FIX：choice 变量未定义问题修复 ══
@@ -1456,8 +1461,10 @@ class ActionTurnManager:
             if parsed:
                 is_valid, reason = validate(parsed, player, self.state)
                 if is_valid:
+                    display.show_info(f"  👥 {player.name} 攻击 {target.name}")
                     msg, action, consumed, _ = self._execute_action(parsed, player)
                     return action if consumed else "forfeit"
+        display.show_info(f"  👥 {player.name} 放弃行动")
         return "forfeit"
 
     # ================================================================

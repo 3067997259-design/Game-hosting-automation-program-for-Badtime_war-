@@ -216,8 +216,23 @@ class FireflyAIHook(BaseTalentAIHook):
             for cmd in dev:
                 if cmd not in candidates:
                     candidates.append(cmd)
-            candidates.append("forfeit")
-            return candidates
+            if candidates:
+                candidates.append("forfeit")
+                return candidates
+            # 无攻击/发育目标 → 超新星跳脸或追击敌人
+            if self._ctrl._has_supernova(player) and "move" in available:
+                best_loc = self._pick_supernova_target(player, state)
+                if best_loc:
+                    debug_ai_basic(player.name,
+                        f"火萤Phase2/3：超新星跳脸，目标={best_loc}")
+                    return [f"move {best_loc}", "forfeit"]
+            my_loc = GameQuery.get_location_str(player)
+            enemy_loc = GameQuery.find_nearest_enemy_location(player, state)
+            if (enemy_loc and "move" in available
+                    and GameQuery.normalize_location(enemy_loc) != GameQuery.normalize_location(my_loc)):
+                debug_ai_basic(player.name, f"火萤Phase2/3：追击敌人 → {enemy_loc}")
+                return [f"move {enemy_loc}", "forfeit"]
+            return None  # 无事可做，不接管
 
         # 击杀机会
         kill_target = self._ctrl._find_firefly_kill_target(player, state)
