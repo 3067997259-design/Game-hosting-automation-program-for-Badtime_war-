@@ -256,8 +256,8 @@ class Hologram(BaseTalent):
                 ent.append(p.player_id)
                 target.stage_entangle = ent
 
-        # 额外行动回合
-        target._g2_spotlight_extra_turn = True
+        # 额外行动回合：标志在歌手身上，round_manager 检查时立即插入
+        g2_player._g2_spotlight_target_id = target.player_id
         # 记录授予轮次（在 R4 衰减时判断是否到期）
         target._spotlight_granted_r4 = ish.r4_count
 

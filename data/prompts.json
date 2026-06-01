@@ -691,7 +691,7 @@
     },
     "melody": {
       "no_targets": "  旋律：无合法目标。",
-      "hit": "  🎵 旋律 #{index}: {target_name} 受到 {damage} 伤害 → HP: {hp}"
+      "hit": "  🎵 旋律 #{index} → {target_name}:"
     },
     "snap": {
       "triggered": "  🎻 断弦！{player_name} 受到 0.5 伤害 → HP: {hp}，进入失衡。"

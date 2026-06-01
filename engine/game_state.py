@@ -71,6 +71,14 @@ class GameState:
     def get_player(self, player_id):
         return self.players.get(player_id)
 
+    def register_chorus(self, unit):
+        """注册 Chorus 单位到 players dict（不加入 player_order）。"""
+        self.players[unit.player_id] = unit
+
+    def unregister_chorus(self, unit_id):
+        """从 players dict 移除 Chorus 单位。"""
+        self.players.pop(unit_id, None)
+
     def alive_players(self):
         return [p for p in self.players.values() if p.is_alive()]
 

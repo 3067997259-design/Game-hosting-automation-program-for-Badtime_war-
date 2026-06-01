@@ -193,12 +193,6 @@ class RoundManager:
         while i < len(action_queue):
             actor_id = action_queue[i]
             actor = self.state.get_player(actor_id)
-            # Chorus 单位：在 chorus_list 中查找
-            if not actor and self.state.ish_bosheth:
-                for c in self.state.ish_bosheth.chorus_list:
-                    if c.player_id == actor_id:
-                        actor = c
-                        break
             if not actor or not actor.is_alive():
                 i += 1
                 continue
@@ -252,11 +246,14 @@ class RoundManager:
                     f"📌 {actor.name} 的额外行动回合已插入！（主动发动）")
 
             # === G2 聚光灯额外行动回合 ===
-            if getattr(actor, '_g2_spotlight_extra_turn', False):
-                actor._g2_spotlight_extra_turn = False
-                action_queue.insert(i + 1, actor.player_id)
+            spotlight_target = getattr(actor, '_g2_spotlight_target_id', None)
+            if spotlight_target:
+                actor._g2_spotlight_target_id = None
+                action_queue.insert(i + 1, spotlight_target)
+                target = self.state.get_player(spotlight_target)
+                tname = target.name if target else spotlight_target
                 display.show_info(
-                    f"📌 {actor.name} 的额外行动回合已插入！（聚光灯）")
+                    f"📌 {tname} 的聚光灯额外行动回合已插入！")
 
             # === 星野临战-Archer 起床额外回合 ===
             if getattr(actor, 'hoshino_wakeup_extra_turn', False):
