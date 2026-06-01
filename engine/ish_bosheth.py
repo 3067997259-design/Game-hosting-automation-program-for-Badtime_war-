@@ -306,14 +306,17 @@ class IshBosheth:
         # 清除上一轮授予的聚光灯 + Sognando 锁 + 临时增益
         for pid in self.participants:
             p = game_state.get_player(pid)
-            if p and "spotlight" in getattr(p, 'stage_statuses', set()):
-                granted_r4 = getattr(p, '_spotlight_granted_r4', -1)
-                if granted_r4 < self.r4_count:  # 本轮之前授予的
-                    p.stage_statuses.discard("spotlight")
-                    p.stage_statuses.discard("sognando_lock")
-                    p.temp_hp_g2 = 0.0
-                    p.temp_atk_g2 = 0.0
+            if p:
+                p._g2_spotlight_target_id = None
+                if "spotlight" in getattr(p, 'stage_statuses', set()):
+                    granted_r4 = getattr(p, '_spotlight_granted_r4', -1)
+                    if granted_r4 < self.r4_count:  # 本轮之前授予的
+                        p.stage_statuses.discard("spotlight")
+                        p.stage_statuses.discard("sognando_lock")
+                        p.temp_hp_g2 = 0.0
+                        p.temp_atk_g2 = 0.0
         for c in self.chorus_list:
+            c._g2_spotlight_target_id = None
             if "spotlight" in getattr(c, 'stage_statuses', set()):
                 granted_r4 = getattr(c, '_spotlight_granted_r4', -1)
                 if granted_r4 < self.r4_count:

@@ -198,10 +198,6 @@ class ActionTurnManager:
                 else:
                     prompt_manager.show("g2reset", "emotion.sognando_lock",
                                        player_name=player.name)
-                # 不弹出情绪选择，直接 fall through 到 T1
-            if locked:
-                # 被锁：跳过情绪选择菜单，但允许正常行动
-                pass
             else:
                 current_emotion = getattr(player, 'emotion', None)
                 all_options = [
