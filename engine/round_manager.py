@@ -278,6 +278,16 @@ class RoundManager:
                 display.show_info(
                     f"📌 {tname} 的聚光灯额外行动回合已插入！")
 
+            # === G2 聚光合影额外回合 ===
+            photo_invitee = getattr(actor, '_photo_invitee_id', None)
+            if photo_invitee:
+                actor._photo_invitee_id = None
+                action_queue.insert(i + 1, photo_invitee)
+                invitee = self.state.get_player(photo_invitee)
+                tname2 = invitee.name if invitee else photo_invitee
+                display.show_info(
+                    f"📸 {tname2} 的合影额外行动回合已插入！")
+
             # === 星野临战-Archer 起床额外回合 ===
             if getattr(actor, 'hoshino_wakeup_extra_turn', False):
                 actor.hoshino_wakeup_extra_turn = False

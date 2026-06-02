@@ -582,6 +582,10 @@ def resolve_damage(attacker, target, weapon, game_state,
             if "bonus_damage" in mod:
                 bonus_damage += mod["bonus_damage"]
 
+    # ---- 24K钛合金狗牌：无视属性克制 ----
+    if getattr(attacker, '_dog_tag_active', False):
+        ignore_counter = True
+
     # ---- 第1步：计算原始伤害 ----
     raw = weapon.get_effective_damage()
     raw = raw * damage_multiplier + bonus_damage

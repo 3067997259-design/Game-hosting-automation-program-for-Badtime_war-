@@ -38,11 +38,13 @@ _CARD_DEFS: List[Dict[str, Any]] = [
      "desc": "选择：摸 1 张牌 / 清除 1 条舞台牵连 / 清除 1 层安可。"},
     {"name": "耳塞", "count": 2, "voice": None,
      "desc": "至下个 R4：下一次旋律命中或 Before light 效果无视。清除 1 条舞台牵连。"},
+    {"name": "聚光合影", "count": 2, "voice": None,
+     "desc": "邀请一名观众单位移动到你的座位（需对方同意）。你的回合结束后插入其额外行动回合。"},
     # ── Accarezzevole 倾向 ──
     {"name": "荧光棒", "count": 2, "voice": None,
      "desc": "本回合下一次 attack 伤害 +0.5。若目标是 Strappando，改为 +1.0。"},
-    {"name": "聚光合影", "count": 2, "voice": None,
-     "desc": "选择一名 Strappando 单位建立 engage。本回合攻击该目标伤害 +0.5。"},
+    {"name": "24K钛合金狗牌", "count": 2, "voice": VOICE_ACC,
+     "desc": "Acc 限定。本行动轮次内你的所有攻击无视属性克制。"},
     {"name": "应援连呼", "count": 1, "voice": VOICE_ACC,
      "desc": "Acc 限定。选择一名 Acc 单位获 0.5 临时 HP。若为 Acc Chorus，它立刻执行一次攻击。"},
     # ── Strappando 倾向 ──
@@ -58,7 +60,7 @@ _CARD_DEFS: List[Dict[str, Any]] = [
     {"name": "调停", "count": 2, "voice": VOICE_IND,
      "desc": "Ind 限定。选 1 Acc + 1 Str，至下个 R4 不能互相 attack。若任一方是 Chorus，摸 1 张牌。"},
     {"name": "场刊整理", "count": 2, "voice": None,
-     "desc": "Ind 倾向。选一名真实观众，双方各摸 1 张。若声部不同，可令其中一人弃 1 张。"},
+     "desc": "Ind 倾向。选一名观众（含 Chorus），双方各摸 1 张。若声部不同，可令其中一人弃 1 张。"},
 ]
 
 TRANSFER_TICKET_NAME = "改签票"

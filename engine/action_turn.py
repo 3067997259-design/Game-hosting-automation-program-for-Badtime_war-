@@ -1504,6 +1504,9 @@ class ActionTurnManager:
     #  T2：回合结束触发
     # ================================================================
     def _phase_t2(self, player, action_type):
+        # v0.6: 狗牌效果仅持续本回合
+        if getattr(player, '_dog_tag_active', False):
+            player._dog_tag_active = False
         if player.talent:
             player.talent.on_turn_end(player, action_type)
 
@@ -1768,6 +1771,7 @@ class ActionTurnManager:
             "空白票根": self._handle_blank_stub,
             "耳塞": self._handle_earplug,
             "荧光棒": self._handle_glow_stick,
+            "24K钛合金狗牌": self._handle_dog_tag,
             "聚光合影": self._handle_spotlight_photo,
             "应援连呼": self._handle_support_cheer,
             "后台通行证": self._handle_backstage_pass,
@@ -1873,38 +1877,63 @@ class ActionTurnManager:
         player._card_damage_bonus_voice_filter = STRAPPANDO
 
     def _handle_spotlight_photo(self, player, ish):
-        """聚光合影：选一名 Str 单位建立 engage，攻击该目标伤害 +0.5。"""
+        """聚光合影(v0.6重做)：邀请目标到自己的座位，回合后插入额外行动回合。"""
         pid = player.player_id
-        str_targets = []
-        for p2_id in ish.participants:
-            p2 = self.state.get_player(p2_id)
-            if p2 and p2.is_alive() and getattr(p2, 'emotion', None) == STRAPPANDO:
-                str_targets.append(p2)
-        for c in ish.chorus_list:
-            if c.is_alive() and c.emotion == STRAPPANDO:
-                str_targets.append(c)
-        if str_targets:
-            chosen = player.controller.choose(
-                "聚光合影：选择 Strappando 目标",
-                [t.name for t in str_targets],
-                context={"phase": "T0", "situation": "g2_card_spotlight_photo"},
-            )
-            target = next((t for t in str_targets if t.name == chosen), str_targets[0])
-            # 移动到目标座位 + 建立 engage
-            if player.location != target.location:
-                player.location = target.location
-                # move→auto-find：与该座位所有单位建立 engage
-                for p2_id in ish.participants:
-                    p2 = self.state.get_player(p2_id)
-                    if p2 and p2.is_alive() and p2.location == target.location and p2.player_id != pid:
-                        self.state.markers.set_engaged(pid, p2.player_id)
-                for c in ish.chorus_list:
-                    if c.is_alive() and c.location == target.location and c.player_id != pid:
-                        self.state.markers.set_engaged(pid, c.player_id)
-            else:
-                self.state.markers.set_engaged(pid, target.player_id)
-            player._card_damage_bonus = 0.5
-            player._card_damage_bonus_target_id = target.player_id
+        seat = player.location
+        # 所有其他观众
+        targets = [self.state.get_player(p) for p in ish.participants
+                    if p != pid and self.state.get_player(p) and self.state.get_player(p).is_alive()]
+        targets += [c for c in ish.chorus_list if c.is_alive() and c.player_id != pid]
+        if not targets:
+            return
+        chosen = player.controller.choose(
+            "聚光合影：邀请谁到你的座位？",
+            [t.name for t in targets],
+            context={"phase": "T0", "situation": "g2_card_spotlight_photo"},
+        )
+        target = next((t for t in targets if t.name == chosen), targets[0])
+
+        # 对方是否同意？
+        agrees = self._photo_invite_consent(player, target, ish)
+        if not agrees:
+            display.show_info(f"📸 {target.name} 拒绝了合影邀请。")
+            return
+
+        # 目标移动到 player 的座位
+        if target.location != seat:
+            target.location = seat
+            # move → auto-find 该座位所有单位
+            for p2_id in ish.participants:
+                p2 = self.state.get_player(p2_id)
+                if p2 and p2.is_alive() and p2.location == seat and p2.player_id != target.player_id:
+                    self.state.markers.set_engaged(target.player_id, p2.player_id)
+            for c in ish.chorus_list:
+                if c.is_alive() and c.location == seat and c.player_id != target.player_id:
+                    self.state.markers.set_engaged(target.player_id, c.player_id)
+
+        player._photo_invitee_id = target.player_id
+        display.show_info(f"📸 {target.name} 接受合影邀请，移动到 {seat}！")
+
+    def _photo_invite_consent(self, player, target, ish) -> bool:
+        """对方是否同意聚光合影邀请。"""
+        is_chorus = getattr(target, 'is_chorus', False)
+        # Chorus 总是同意
+        if is_chorus:
+            return True
+        # 同声部 AI → 同意；异声部 AI → 拒绝
+        from controllers.human import HumanController
+        if not isinstance(target.controller, HumanController):
+            return getattr(player, 'emotion', None) == getattr(target, 'emotion', None)
+        # Human → choose 弹窗
+        return target.controller.confirm(
+            f"{player.name} 邀请你到 {player.location} 合影。接受？",
+            context={"phase": "T0", "situation": "g2_photo_invite"},
+        )
+
+    def _handle_dog_tag(self, player, ish):
+        """24K钛合金狗牌：本回合攻击无视属性克制。"""
+        player._dog_tag_active = True
+        display.show_info(f"🐕 {player.name} 戴上24K钛合金狗牌：本回合攻击无视属性克制！")
 
     def _handle_support_cheer(self, player, ish):
         """应援连呼：选一名 Acc 单位获 0.5 临时 HP，Chorus 额外攻击。"""
