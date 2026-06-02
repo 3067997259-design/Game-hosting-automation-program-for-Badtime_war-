@@ -399,6 +399,10 @@ class HologramAIHook(BaseTalentAIHook):
         if situation == "g2_card_program_tidy_pick":
             return self._pick_random_option(options)
 
+        # ── v0.6 G2 Chorus 指挥 ──
+        if situation == "g2_command_chorus":
+            return self._pick_random_option(options)
+
         return None
 
     # ── T0 激活 ──────────────────────────────────────────────────

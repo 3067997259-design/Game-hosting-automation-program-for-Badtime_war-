@@ -168,7 +168,8 @@ class Player:
         self._card_extra_play: bool = False     # 本回合可额外打 1 张牌
         self._card_d6_bonus_rounds: int = 0     # 跨声部小卡交换 D6+1 剩余轮次
         self._card_damage_bonus: float = 0.0    # 本回合 attack +X（荧光棒等）
-        self._card_damage_bonus_target: Optional[str] = None  # 伤害加成限定目标 id
+        self._card_damage_bonus_target_id: Optional[str] = None  # 伤害加成限定目标玩家 ID
+        self._card_damage_bonus_voice_filter: Optional[str] = None  # 伤害加成限定声部
         self._card_earplug: bool = False         # 耳塞：下次旋律/光色无视
         self._card_debuff_damage_taken: float = 0.0  # 倒彩等：受到伤害 +X 至下个 R4
         self._card_no_attack_until_r4: Optional[str] = None  # 调停：不能攻击的对方 id

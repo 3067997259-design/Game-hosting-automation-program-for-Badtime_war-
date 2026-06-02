@@ -6,6 +6,7 @@ from cli.parser import parse, resolve_player_target
 from cli.validator import validate
 from engine.prompt_manager import prompt_manager
 from engine.action_enumerator import build_action_options
+from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
 from actions import (action_registry, wake_up, move, interact,
                      forfeit, lock_target, find_target, attack, special_op)
 
@@ -1459,15 +1460,15 @@ class ActionTurnManager:
 
         # 物料牌加成定向
         dmg_bonus = getattr(player, '_card_damage_bonus', 0.0)
-        dmg_target = getattr(player, '_card_damage_bonus_target', None)
-        if dmg_bonus and dmg_target and legal_targets:
-            from engine.ish_bosheth import STRAPPANDO
-            if dmg_target == "strappando_voice":
+        dmg_target_id = getattr(player, '_card_damage_bonus_target_id', None)
+        dmg_voice_filter = getattr(player, '_card_damage_bonus_voice_filter', None)
+        if dmg_bonus and (dmg_target_id or dmg_voice_filter) and legal_targets:
+            if dmg_voice_filter:
                 bonus_targets = [t for t in legal_targets
-                                 if getattr(t, 'emotion', None) == STRAPPANDO]
+                                 if getattr(t, 'emotion', None) == dmg_voice_filter]
             else:
                 bonus_targets = [t for t in legal_targets
-                                 if t.player_id == dmg_target]
+                                 if t.player_id == dmg_target_id]
             if bonus_targets:
                 legal_targets = bonus_targets
 
@@ -1830,7 +1831,7 @@ class ActionTurnManager:
 
         elif card_name == "荧光棒":
             player._card_damage_bonus = 0.5
-            player._card_damage_bonus_target = "strappando_voice"
+            player._card_damage_bonus_voice_filter = STRAPPANDO
 
         elif card_name == "聚光合影":
             # 选一名 Strappando 单位建立 engage
@@ -1838,10 +1839,10 @@ class ActionTurnManager:
             for p2_id in ish.participants:
                 p2 = self.state.get_player(p2_id)
                 if (p2 and p2.is_alive()
-                        and getattr(p2, 'emotion', None) == "strappando"):
+                        and getattr(p2, 'emotion', None) == STRAPPANDO):
                     str_targets.append(p2)
             for c in ish.chorus_list:
-                if c.is_alive() and c.emotion == "strappando":
+                if c.is_alive() and c.emotion == STRAPPANDO:
                     str_targets.append(c)
             if str_targets:
                 chosen = player.controller.choose(
@@ -1852,14 +1853,14 @@ class ActionTurnManager:
                 target = next((t for t in str_targets if t.name == chosen), str_targets[0])
                 self.state.markers.set_engaged(pid, target.player_id)
                 player._card_damage_bonus = 0.5
-                player._card_damage_bonus_target = target.player_id
+                player._card_damage_bonus_target_id = target.player_id
 
         elif card_name == "应援连呼":
             acc_units = [self.state.get_player(p) for p in ish.participants
                          if self.state.get_player(p) and self.state.get_player(p).is_alive()
-                         and getattr(self.state.get_player(p), 'emotion', None) == "accarezzevole"]
+                         and getattr(self.state.get_player(p), 'emotion', None) == ACCAREZZEVOLE]
             acc_chorus = [c for c in ish.chorus_list
-                          if c.is_alive() and c.emotion == "accarezzevole"]
+                          if c.is_alive() and c.emotion == ACCAREZZEVOLE]
             all_acc = acc_units + acc_chorus
             if all_acc:
                 chosen = player.controller.choose(
@@ -1884,9 +1885,9 @@ class ActionTurnManager:
         elif card_name == "倒彩":
             acc_units = [self.state.get_player(p) for p in ish.participants
                          if self.state.get_player(p) and self.state.get_player(p).is_alive()
-                         and getattr(self.state.get_player(p), 'emotion', None) == "accarezzevole"]
+                         and getattr(self.state.get_player(p), 'emotion', None) == ACCAREZZEVOLE]
             acc_chorus = [c for c in ish.chorus_list
-                          if c.is_alive() and c.emotion == "accarezzevole"]
+                          if c.is_alive() and c.emotion == ACCAREZZEVOLE]
             all_acc = acc_units + acc_chorus
             if all_acc:
                 chosen = player.controller.choose(
@@ -1915,10 +1916,10 @@ class ActionTurnManager:
         elif card_name == "调停":
             acc_units = [self.state.get_player(p) for p in ish.participants
                          if self.state.get_player(p) and self.state.get_player(p).is_alive()
-                         and getattr(self.state.get_player(p), 'emotion', None) == "accarezzevole"]
+                         and getattr(self.state.get_player(p), 'emotion', None) == ACCAREZZEVOLE]
             str_units = [self.state.get_player(p) for p in ish.participants
                          if self.state.get_player(p) and self.state.get_player(p).is_alive()
-                         and getattr(self.state.get_player(p), 'emotion', None) == "strappando"]
+                         and getattr(self.state.get_player(p), 'emotion', None) == STRAPPANDO]
             if acc_units and str_units:
                 acc_chosen = player.controller.choose(
                     "调停：选择 Acc 单位", [t.name for t in acc_units],

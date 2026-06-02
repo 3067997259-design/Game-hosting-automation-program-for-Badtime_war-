@@ -280,17 +280,15 @@ class Hologram(BaseTalent):
             legal = [t for t in targets
                      if getattr(t, 'player_id', None) != target.player_id]
             if legal:
-                from controllers.human import HumanController
-                if isinstance(g2_player.controller, HumanController):
-                    tnames = [t.name for t in legal]
-                    chosen_name = g2_player.controller.choose(
-                        "指定 Chorus 攻击目标：",
-                        tnames,
-                        context={"situation": "g2_command_chorus"},
-                    )
-                    chosen = next((t for t in legal if t.name == chosen_name), None)
-                    if chosen:
-                        target._g2_commanded_target_id = chosen.player_id
+                tnames = [t.name for t in legal]
+                chosen_name = g2_player.controller.choose(
+                    "指定 Chorus 攻击目标：",
+                    tnames,
+                    context={"situation": "g2_command_chorus"},
+                )
+                chosen = next((t for t in legal if t.name == chosen_name), None)
+                if chosen:
+                    target._g2_commanded_target_id = chosen.player_id
 
         g2_player._g2_spotlight_target_id = target.player_id
         prompt_manager.show("g2reset", "song.sognando", target_name=target.name)

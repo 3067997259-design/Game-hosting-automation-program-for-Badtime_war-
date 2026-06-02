@@ -354,21 +354,35 @@ class IshBosheth:
                 continue
             p = game_state.get_player(pid)
             if p:
-                for attr in ('_card_damage_bonus', '_card_damage_bonus_target',
+                for attr in ('_card_damage_bonus', '_card_damage_bonus_target_id',
+                             '_card_damage_bonus_voice_filter',
                              '_card_debuff_damage_taken', '_card_no_attack_until_r4',
                              '_card_temp_hp_until_r4'):
                     if hasattr(p, attr):
-                        setattr(p, attr, 0.0 if attr != '_card_no_attack_until_r4' else None)
+                        if attr in ('_card_no_attack_until_r4',
+                                   '_card_damage_bonus_target_id',
+                                   '_card_damage_bonus_voice_filter'):
+                            setattr(p, attr, None)
+                        else:
+                            setattr(p, attr, 0.0)
                 if hasattr(p, '_card_earplug'):
                     p._card_earplug = False
                 if hasattr(p, '_card_d6_bonus_rounds') and getattr(p, '_card_d6_bonus_rounds', 0) > 0:
                     p._card_d6_bonus_rounds -= 1
         for c in self.chorus_list:
-            for attr in ('_card_damage_bonus', '_card_damage_bonus_target',
+            for attr in ('_card_damage_bonus', '_card_damage_bonus_target_id',
+                         '_card_damage_bonus_voice_filter',
                          '_card_debuff_damage_taken', '_card_no_attack_until_r4',
                          '_card_temp_hp_until_r4'):
                 if hasattr(c, attr):
-                    setattr(c, attr, 0.0 if attr != '_card_no_attack_until_r4' else None)
+                    if attr in ('_card_no_attack_until_r4',
+                               '_card_damage_bonus_target_id',
+                               '_card_damage_bonus_voice_filter'):
+                        setattr(c, attr, None)
+                    else:
+                        setattr(c, attr, 0.0)
+                if hasattr(c, '_card_earplug'):
+                    c._card_earplug = False
 
         # 清理声部特效标记
         for pid in self.participants:
@@ -547,7 +561,8 @@ class IshBosheth:
                 p.temp_atk_g2 = 0.0
                 # 清理物料牌临时效果
                 p._card_damage_bonus = 0.0
-                p._card_damage_bonus_target = None
+                p._card_damage_bonus_target_id = None
+                p._card_damage_bonus_voice_filter = None
                 p._card_debuff_damage_taken = 0.0
                 p._card_no_attack_until_r4 = None
                 p._card_temp_hp_until_r4 = 0.0
@@ -841,7 +856,7 @@ class IshBosheth:
             # 狂热：下次攻击 Str 伤害 +0.5
             ss.add(MARK_FERVOR)
             target._card_damage_bonus = max(target._card_damage_bonus, 0.5)
-            target._card_damage_bonus_target = "strappando_voice"
+            target._card_damage_bonus_voice_filter = STRAPPANDO
             prompt_manager.show("g2reset", "melody.fervor",
                                player_name=target.name)
 
@@ -864,7 +879,7 @@ class IshBosheth:
             self.regard = max(0, self.regard - 0.25)
             ss.add(MARK_CRACK)
             target._card_damage_bonus = max(target._card_damage_bonus, 0.5)
-            target._card_damage_bonus_target = "g2_owner"
+            target._card_damage_bonus_target_id = self.g2_owner_id
             prompt_manager.show("g2reset", "melody.crack",
                                player_name=target.name, regard=self.regard)
 

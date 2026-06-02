@@ -86,6 +86,9 @@ class MaterialDeck:
         self.traded_this_round: Set[str] = set()        # pid 已参与换牌
         self.played_this_turn: Dict[str, bool] = {}     # pid → 已出牌
 
+        # 座位映射（由 IshBosheth 提供，用于 Chorus 持牌掉落定位）
+        self._seat_assignments: Dict[str, str] = {}
+
     # ════════════════════════════════════════════════════════════════
     #  开场建牌
     # ════════════════════════════════════════════════════════════════
@@ -111,6 +114,7 @@ class MaterialDeck:
         self.traded_this_round.clear()
         self.played_this_turn.clear()
         self.transfer_ticket_holder = None
+        self._seat_assignments = seat_assignments
 
         # 1. 改签票：优先给真实 Ind 玩家，否则给 Ind Chorus
         ind_real = [p for p in real_players
@@ -178,11 +182,10 @@ class MaterialDeck:
 
         # 4. 可打出最多 1 张牌（由调用方处理 choose）
 
-        # 5. 弃至手牌上限
+        # 5. 弃至手牌上限（由调用方负责实际弃牌逻辑）
         hand = self.hands.get(pid, [])
-        while len(hand) > MAX_HAND_SIZE:
-            # 调用方选择弃哪张
-            lines.append(f"手牌超限({len(hand)}/{MAX_HAND_SIZE})，需弃牌")
+        if len(hand) > MAX_HAND_SIZE:
+            lines.append(f"手牌超限({len(hand)}/{MAX_HAND_SIZE})，需弃牌（由调用方处理）")
 
         return lines
 
@@ -261,10 +264,8 @@ class MaterialDeck:
         return card
 
     def _chorus_seat(self, chorus_id: str) -> str:
-        """从外部查找 Chorus 的座位（通过 seat_assignments 反向查，预留接口）。"""
-        # 此方法由 IshBosheth 在调用 drop_chorus_card / take_chorus_card 时
-        # 通过外部的 seat_assignments 查座。默认返回 '商店'。
-        return "商店"
+        """从 seat_assignments 查找 Chorus 的座位，找不到则回退到"商店"。"""
+        return self._seat_assignments.get(chorus_id, "商店")
 
     # ════════════════════════════════════════════════════════════════
     #  换牌
