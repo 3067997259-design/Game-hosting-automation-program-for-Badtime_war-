@@ -685,11 +685,12 @@ class IshBosheth:
                              (str_real, STRAPPANDO)]:
             while len(group) > target:
                 overflow = group.pop()
-                # 找到数量最少的声部
+                # 找到数量最少的声部（排除当前声部以避免无限循环）
                 counts = {ACCAREZZEVOLE: len(acc_real),
                           INDIFFERENZA: len(ind_real),
                           STRAPPANDO: len(str_real)}
-                min_voice = min(counts, key=counts.get)
+                other_counts = {v: c for v, c in counts.items() if v != voice}
+                min_voice = min(other_counts, key=other_counts.get)
                 overflow.emotion = min_voice
                 if min_voice == ACCAREZZEVOLE:
                     acc_real.append(overflow)
