@@ -56,6 +56,9 @@ class ChorusController:
                     chorus._card_damage_bonus = 0.5
                 elif card == "耳塞":
                     chorus._card_earplug = True
+                elif card == "后台通行证":
+                    # Chorus 只能造成 Regard -1，不触发破幕
+                    ish.regard = max(0, ish.regard - 1.0)
 
         # 优先 attack
         if "attack" in available_actions:
@@ -158,8 +161,8 @@ class ChorusController:
         """Chorus 能否使用该物料牌。"""
         if card_name == "改签票":
             return False
-        chorus_only = {"应援连呼", "后台通行证", "调停"}
+        # 改签票只能真实玩家使用；应援连呼/调停需要选择目标的复杂交互
+        chorus_only = {"应援连呼", "调停"}
         if card_name in chorus_only:
-            # 需要真实玩家身份
             return False
         return True

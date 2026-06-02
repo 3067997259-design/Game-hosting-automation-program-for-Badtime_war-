@@ -160,8 +160,10 @@ class MaterialDeck:
     # ════════════════════════════════════════════════════════════════
 
     def t0_material_phase(self, player: Player, seat: str) -> List[str]:
-        """返回玩家在本 T0 可以执行的物料操作描述（供 display/调试）。
-        实际操作由各个方法分别调用。
+        """[已废弃] 返回玩家在本 T0 可以执行的物料操作描述。
+
+        实际 T0 物料阶段逻辑在 engine/action_turn.py:_phase_t0 中。
+        此方法仅保留用于调试/参考，不应被生产代码调用。
         """
         lines = []
         pid = player.player_id
@@ -175,14 +177,11 @@ class MaterialDeck:
         # 2. 可拾取当前座位 1 张掉落物料
         dropped = self.dropped_goods.get(seat, [])
         if dropped:
-            # AI 或人类选择拾取哪张——这里只标记可行性
             lines.append(f"可拾取({seat})：{dropped}")
 
-        # 3. 可进行 1 次换牌（由调用方处理 choose）
+        # 3-4. 换牌/出牌由 action_turn._phase_t0 处理
 
-        # 4. 可打出最多 1 张牌（由调用方处理 choose）
-
-        # 5. 弃至手牌上限（由调用方负责实际弃牌逻辑）
+        # 5. 弃至手牌上限（由 action_turn._phase_t0 负责实际弃牌逻辑）
         hand = self.hands.get(pid, [])
         if len(hand) > MAX_HAND_SIZE:
             lines.append(f"手牌超限({len(hand)}/{MAX_HAND_SIZE})，需弃牌（由调用方处理）")
@@ -355,6 +354,8 @@ class MaterialDeck:
 
     def is_playable(self, player: Player, card_name: str) -> bool:
         """检查牌是否可被该玩家打出（声部限制）。"""
+        if card_name == TRANSFER_TICKET_NAME:
+            return False  # 改签票通过独立机制使用，不走通用出牌流程
         info = self.get_card_info(card_name)
         if not info:
             return False

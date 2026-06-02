@@ -160,8 +160,7 @@ class IshBosheth:
             if p:
                 p.stage_statuses = getattr(p, 'stage_statuses', set())
                 p.stage_statuses.add("liberamente_vivace")
-        g2_player.stage_statuses = getattr(g2_player, 'stage_statuses', set())
-        g2_player.stage_statuses.add("liberamente_vivace")
+        # v0.6: G2 固定 D4=0 且强制首位行动，不需要 liberamente_vivace 的 D4+1
 
         # 8. 真实观众选择期望声部
         from controllers.human import HumanController
@@ -542,8 +541,8 @@ class IshBosheth:
             if breaker:
                 breaker._g2_curtain_d4_bonus = True
 
-        # 空场 / 谢幕 G2 隐身
-        if reason in (END_EMPTY, END_CURTAIN, END_SILENT) and g2p and g2p.is_alive():
+        # 空场 / 谢幕 / 完整演出 G2 隐身
+        if reason in (END_EMPTY, END_CURTAIN, END_SILENT, END_IND_WIN) and g2p and g2p.is_alive():
             game_state.markers.clear_all_relations(self.g2_owner_id)
             g2p.is_invisible = True
 
@@ -649,7 +648,14 @@ class IshBosheth:
                     survival = alive_chorus / initial
                     if survival >= 1.0:
                         g2p.hp = min(g2p.max_hp, round(g2p.hp + 1.0, 2))
-                        display.show_info(f"  🌟 Chorus 全存活！{g2p.name} 恢复 1 HP，额外 D4/D6+1")
+                        display.show_info(f"  🌟 Chorus 全存活(100%)！{g2p.name} 恢复 1 HP，D4/D6+1")
+                    elif survival >= 0.5:
+                        g2p.hp = min(g2p.max_hp, round(g2p.hp + 0.5, 2))
+                        display.show_info(f"  🌟 Chorus 存活率 {survival:.0%}！{g2p.name} 恢复 0.5 HP，D6+1")
+                        g2p._card_d6_bonus_rounds = max(g2p._card_d6_bonus_rounds, 1)
+                    elif survival > 0:
+                        g2p.hp = min(g2p.max_hp, round(g2p.hp + 0.5, 2))
+                        display.show_info(f"  🌟 Chorus 存活率 {survival:.0%}！{g2p.name} 恢复 0.5 HP")
 
     # ================================================================
     #  声部分配（v0.6 ma non troppo，仅开场）

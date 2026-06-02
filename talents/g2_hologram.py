@@ -265,9 +265,16 @@ class Hologram(BaseTalent):
                 # 弃至 3 上限
                 hand = ish.deck.hands.get(target.player_id, [])
                 while len(hand) > 3:
-                    # AI/人类选弃哪张——占位：随机弃最后一张
-                    discarded = hand.pop()
-                    ish.deck.discard_pile.append(discarded)
+                    discard_choice = target.controller.choose(
+                        "Sognando：手牌超限，选择弃置 1 张：",
+                        hand,
+                        context={"phase": "T0", "situation": "g2_sognando_discard"},
+                    )
+                    if discard_choice in hand:
+                        ish.deck.discard_from_hand(target.player_id, discard_choice)
+                    else:
+                        discarded = hand.pop()
+                        ish.deck.discard_from_hand(target.player_id, discarded)
             else:
                 ish.deck.chorus_draw(target.player_id)
 

@@ -120,10 +120,9 @@ class RoundManager:
         # v0.6 ish-bosheth 模式：G2 固定 D4=0，所有人按 D4 排序，全部行动
         if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
             g2_pid = self.state.ish_bosheth.g2_owner_id
-            if g2_pid not in raw:
-                raw[g2_pid] = 0
-                bonuses[g2_pid] = 0
-                results[g2_pid] = 0
+            raw[g2_pid] = 0
+            bonuses[g2_pid] = 0
+            results[g2_pid] = 0
 
         self.state.d4_results = raw
         self.state.d4_bonuses = bonuses
