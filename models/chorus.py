@@ -103,10 +103,13 @@ class ChorusUnit:
         self.temp_atk_g2: float = 0.0
         # G2 v0.6 物料牌临时效果
         self._card_damage_bonus: float = 0.0
-        self._card_damage_bonus_target: Optional[str] = None
+        self._card_damage_bonus_target_id: Optional[str] = None
+        self._card_damage_bonus_voice_filter: Optional[str] = None
         self._card_debuff_damage_taken: float = 0.0
         self._card_no_attack_until_r4: Optional[str] = None
         self._card_temp_hp_until_r4: float = 0.0
+        self._card_backstage_projection: bool = False  # 后台通行证：投影标记
+        self._card_earplug: bool = False         # 耳塞
 
         # 兼容字段
         self.is_awake: bool = True
