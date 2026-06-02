@@ -21,7 +21,7 @@ class ChorusController:
     """Chorus v0.6 决策控制器。"""
 
     def __init__(self):
-        self._last_command_target: Optional[str] = None
+        pass
 
     def get_command(self, available_actions: List[str] = None,
                     context: Dict[str, Any] = None) -> str:
@@ -41,17 +41,13 @@ class ChorusController:
 
         # v0.6 T0 物料阶段
         if ish.deck and available_actions:
-            # Chorus T0: 若没持牌，摸1张
             cid = chorus.player_id
             if not ish.deck.chorus_slots.get(cid):
                 ish.deck.chorus_draw(cid)
 
-            # Chorus 尝试使用持有的牌
             card = ish.deck.chorus_slots.get(cid)
             if card and self._can_chorus_use_card(chorus, card):
-                # Chorus 使用牌（简单策略：有牌就用）
                 ish.deck.chorus_play_card(chorus, card)
-                # 牌效果在此处理（简化：只处理战斗相关牌）
                 if card in ("荧光棒", "聚光合影"):
                     chorus._card_damage_bonus = 0.5
                 elif card == "耳塞":
@@ -63,6 +59,22 @@ class ChorusController:
         # 优先 attack
         if "attack" in available_actions:
             legal_targets = self._get_legal_targets(game_state, chorus, ish)
+
+            # G2 指挥目标优先（Sognando / 应援连呼）
+            commanded_id = getattr(chorus, '_g2_commanded_target_id', None)
+            if commanded_id:
+                # 清除标记（一次性指令）
+                delattr(chorus, '_g2_commanded_target_id')
+                # 在合法目标中查找被指挥的目标
+                commanded_target = next(
+                    (t for t in legal_targets if t.player_id == commanded_id), None)
+                if commanded_target:
+                    weapons = getattr(chorus, 'weapons', [])
+                    if weapons:
+                        weapon = random.choice(weapons)
+                        return f"attack {commanded_target.name} with {weapon.name}"
+                    return f"attack {commanded_target.name}"
+
             if legal_targets:
                 target = random.choice(legal_targets)
                 weapons = getattr(chorus, 'weapons', [])
