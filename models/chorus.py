@@ -108,8 +108,8 @@ class ChorusUnit:
         self._card_debuff_damage_taken: float = 0.0
         self._card_no_attack_until_r4: Optional[str] = None
         self._card_temp_hp_until_r4: float = 0.0
-        self._card_backstage_projection: bool = False  # 后台通行证：投影标记
         self._card_earplug: bool = False         # 耳塞
+        self._card_tear_ticket_active: bool = False  # 撕票：本回合击杀 Acc 额外 Regard -0.5
 
         # 兼容字段
         self.is_awake: bool = True

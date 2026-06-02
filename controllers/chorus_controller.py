@@ -73,7 +73,7 @@ class ChorusController:
                     commanded_target = next(
                         (t for t in legal_targets if t.player_id == commanded_id), None)
                     if commanded_target:
-                        delattr(chorus, '_g2_commanded_target_id')
+                        # G2 指挥指令仅在成功执行后清除，避免目标在指令与执行间死亡导致指令丢失
                         weapons = getattr(chorus, 'weapons', [])
                         if weapons:
                             weapon = random.choice(weapons)

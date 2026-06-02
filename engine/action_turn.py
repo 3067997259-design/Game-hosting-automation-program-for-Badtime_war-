@@ -1,6 +1,7 @@
 """行动回合调度器（Phase 4 完整版 + Controller 接入）：T0天赋+石化+完整行动分发"""
 
 import copy
+import random
 from cli import display
 from cli.parser import parse, resolve_player_target
 from cli.validator import validate
@@ -1909,8 +1910,7 @@ class ActionTurnManager:
                     if p2 and p2.is_alive() and getattr(p2, 'emotion', None) == STRAPPANDO:
                         str_targets.append(p2)
                 if str_targets:
-                    import random as _random
-                    picked = _random.choice(str_targets)
+                    picked = random.choice(str_targets)
                     target._g2_commanded_target_id = picked.player_id
 
     def _handle_backstage_pass(self, player, ish):
@@ -1919,7 +1919,6 @@ class ActionTurnManager:
         seat = player.location
         ish.create_projection(seat)
         self.state.markers.set_engaged(pid, ish.g2_owner_id)
-        player._card_backstage_projection = True
 
     def _handle_tear_ticket(self, player, ish):
         """撕票：Regard -0.5。若本回合击杀 Acc 单位，额外 Regard -0.5。"""
