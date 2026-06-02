@@ -117,10 +117,24 @@ class RoundManager:
                     if final > max_val:
                         max_val = final
 
+        # v0.6 ish-bosheth 模式：G2 固定 D4=0，所有人按 D4 排序，全部行动
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+            g2_pid = self.state.ish_bosheth.g2_owner_id
+            raw[g2_pid] = 0
+            bonuses[g2_pid] = 0
+            results[g2_pid] = 0
+
         self.state.d4_results = raw
         self.state.d4_bonuses = bonuses
-        winners = [pid for pid, val in results.items() if val == max_val]
-        self.state.round_winners = winners
+
+        # ish-bosheth 活跃 → 所有参与者按 D4 排序，全部获得行动权
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+            sorted_pids = sorted(results.keys(),
+                                 key=lambda pid: results[pid], reverse=True)
+            self.state.round_winners = sorted_pids
+        else:
+            winners = [pid for pid, val in results.items() if val == max_val]
+            self.state.round_winners = winners
 
         # 构建 pid → name 映射（含 Chorus）
         pid_to_name = {}
@@ -135,7 +149,7 @@ class RoundManager:
                         break
         display_names = {pid_to_name[pid]: raw[pid] for pid in raw}
         bonus_names = {pid_to_name[pid]: bonuses[pid] for pid in raw}
-        winner_names = [pid_to_name[pid] for pid in winners]
+        winner_names = [pid_to_name[pid] for pid in self.state.round_winners]
         display.show_d4_results(display_names, bonus_names, winner_names)
 
     # ============================================
@@ -188,6 +202,15 @@ class RoundManager:
 
         # 构建行动队列（可在运行中插入额外行动回合）
         action_queue = list(self.state.round_winners)
+
+        # v0.6 ish-bosheth: G2 保底最优先行动
+        ish = self.state.ish_bosheth
+        if ish and ish.phase == "active":
+            g2_pid = ish.g2_owner_id
+            if g2_pid in action_queue:
+                action_queue.remove(g2_pid)
+            action_queue.insert(0, g2_pid)
+            display.show_info(f"🎵 G2 优先演唱回合")
 
         i = 0
         while i < len(action_queue):
@@ -254,6 +277,16 @@ class RoundManager:
                 tname = target.name if target else spotlight_target
                 display.show_info(
                     f"📌 {tname} 的聚光灯额外行动回合已插入！")
+
+            # === G2 聚光合影额外回合 ===
+            photo_invitee = getattr(actor, '_photo_invitee_id', None)
+            if photo_invitee:
+                actor._photo_invitee_id = None
+                action_queue.insert(i + 1, photo_invitee)
+                invitee = self.state.get_player(photo_invitee)
+                tname2 = invitee.name if invitee else photo_invitee
+                display.show_info(
+                    f"📸 {tname2} 的合影额外行动回合已插入！")
 
             # === 星野临战-Archer 起床额外回合 ===
             if getattr(actor, 'hoshino_wakeup_extra_turn', False):

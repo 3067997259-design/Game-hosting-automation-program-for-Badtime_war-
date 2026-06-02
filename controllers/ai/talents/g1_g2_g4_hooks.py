@@ -275,272 +275,439 @@ class FireflyAIHook(BaseTalentAIHook):
 
 
 class HologramAIHook(BaseTalentAIHook):
-    """全息影像(G2)天赋AI钩子"""
+    """G2 v0.6 AI钩子：舞台演唱策略 + 声部选择 + 卡牌决策"""
     talent_name = "请一直，注视着我"
 
     def __init__(self, controller: Any):
         self._ctrl = controller
 
+    # ════════════════════════════════════════════════════════════════
+    #  发育
+    # ════════════════════════════════════════════════════════════════
+
     def is_development_complete(self, player: Any, state: Any) -> Optional[bool]:
         if not self._is_my_talent(player):
             return None
-        talent = player.talent
-        exhausted = (getattr(talent, 'used', False) and getattr(talent, 'max_uses', 0) <= 0
-                     and not getattr(talent, 'active', False))
-        if exhausted:
-            real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
-            has_ranged = any(w.name in ("魔法弹幕", "远程魔法弹幕", "高斯步枪") for w in real_weapons)
-            return has_ranged and GameQuery.count_outer_armor(player) >= 2
-        has_two_aoe = GameQuery.count_distinct_aoe_attrs(player) >= 2
-        return has_two_aoe and GameQuery.count_outer_armor(player) >= 1
+        # v0.6 G2 在舞台内不攻击 → 发育只需武器+护甲保生存
+        real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
+        has_weapon = len(real_weapons) >= 1
+        return has_weapon and GameQuery.count_outer_armor(player) >= 2
 
     def get_develop_commands(
         self, player: Any, state: Any, available: List[str]
     ) -> Optional[List[str]]:
         if not self._is_my_talent(player):
             return None
-        talent = player.talent
-        exhausted = (getattr(talent, 'used', False)
-                     and getattr(talent, 'max_uses', 0) <= 0
-                     and not getattr(talent, 'active', False))
-        if exhausted:
-            post_cmds = self._get_post_hologram_commands(player, state, available)
-            return post_cmds if post_cmds else None
-        cmds = self._get_hologram_commands(player, state, available)
-        return cmds if cmds else None
+        if state and getattr(state, 'ish_bosheth', None) is not None:
+            return None  # 已激活，走演唱逻辑
+        return self._get_basic_develop_commands(player, state, available)
 
-    def _get_hologram_commands(
+    def _get_basic_develop_commands(
         self, player: Any, state: Any, available: List[str]
     ) -> List[str]:
+        """v0.6 简化发育：武器+护甲+凭证"""
         commands: List[str] = []
         loc = GameQuery.get_location_str(player)
         outer = GameQuery.count_outer_armor(player)
         vouchers = getattr(player, 'vouchers', 0)
-        has_pass = getattr(player, 'has_military_pass', False)
-        learned = GameQuery.get_learned_spells(player)
-        has_magic_aoe = "地震" in learned or "地动山摇" in learned
-        has_tech_aoe = any(w.name == "电磁步枪" for w in player.weapons if w)
+        has_real_weapon = any(w.name != "拳击" for w in player.weapons if w)
 
         if "interact" in available:
             if GameQuery.is_at_home(player):
                 if vouchers < 1:
                     commands.append("interact 凭证")
-                if outer < 1 and not GameQuery.has_armor_by_name(player, "盾牌"):
+                if outer < 1:
                     commands.append("interact 盾牌")
-                if not any(w.name == "小刀" for w in player.weapons if w):
+                if not has_real_weapon:
                     commands.append("interact 小刀")
-            elif loc == "魔法所":
-                if "地震" not in learned:
-                    commands.append("interact 地震")
-                elif "地动山摇" not in learned:
-                    commands.append("interact 地动山摇")
-                if "魔法护盾" not in learned and outer < 2:
-                    commands.append("interact 魔法护盾")
+            elif loc == "商店" and vouchers >= 1:
+                if not has_real_weapon:
+                    commands.append("interact 小刀")
+                if outer < 2:
+                    commands.append("interact 陶瓷护甲")
             elif loc == "军事基地":
+                has_pass = getattr(player, 'has_military_pass', False)
                 if not has_pass:
                     commands.append("interact 通行证")
-                elif not has_tech_aoe:
-                    commands.append("interact 电磁步枪")
-                elif not any(
-                    w.name in ("小刀", "高斯步枪")
-                    for w in player.weapons if w and w.name != "拳击"
-                ):
+                elif not has_real_weapon:
                     commands.append("interact 高斯步枪")
                 if outer < 2 and not GameQuery.has_armor_by_name(player, "AT力场"):
                     commands.append("interact AT力场")
-            elif loc == "商店":
-                if vouchers >= 1 and not any(w.name == "小刀" for w in player.weapons if w):
-                    commands.append("interact 小刀")
-                if vouchers >= 1 and outer < 2 and not GameQuery.has_armor_by_name(player, "陶瓷护甲"):
-                    commands.append("interact 陶瓷护甲")
-                if vouchers < 1:
-                    commands.append("interact 打工")
-
-        if "interact" in available and not commands:
-            has_real_melee = any(
-                w.name != "拳击" and GameQuery.get_weapon_range(w) == "melee"
-                for w in player.weapons if w
-            )
-            if not has_real_melee:
-                if GameQuery.is_at_home(player):
-                    if not any(w.name == "小刀" for w in player.weapons if w):
-                        commands.append("interact 小刀")
-                elif loc == "商店" and vouchers >= 1:
-                    if not any(w.name == "小刀" for w in player.weapons if w):
-                        commands.append("interact 小刀")
-
-        if "special" in available:
-            emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
-            if emr and not getattr(emr, 'is_charged', False):
-                return ["special 蓄力电磁步枪", *commands]
 
         if "move" in available and not commands:
-            if not has_magic_aoe and loc != "魔法所":
-                commands.append("move 魔法所")
-            elif not has_tech_aoe and loc != "军事基地":
+            if outer < 2 and loc != "军事基地":
                 commands.append("move 军事基地")
-            elif outer < 2:
-                next_loc = GameQuery.find_safe_location(player, state)
-                if next_loc and GameQuery.normalize_location(next_loc) != GameQuery.normalize_location(loc):
-                    commands.append(f"move {next_loc}")
+            elif not has_real_weapon and loc != "军事基地":
+                commands.append("move 军事基地")
             else:
                 enemy_loc = GameQuery.find_nearest_enemy_location(player, state, {})
                 if enemy_loc and enemy_loc != loc:
                     commands.append(f"move {enemy_loc}")
         return commands
 
-    def _get_post_hologram_commands(
-        self, player: Any, state: Any, available: List[str]
-    ) -> List[str]:
-        commands: List[str] = []
-        loc = GameQuery.get_location_str(player)
-        learned = GameQuery.get_learned_spells(player)
-        real_weapons = [w for w in player.weapons if w and getattr(w, 'name', '') != "拳击"]
-        has_ranged = any(w.name in ("魔法弹幕", "远程魔法弹幕", "高斯步枪") for w in real_weapons)
-        if has_ranged:
-            return []
-        if "interact" in available:
-            if loc == "魔法所":
-                if "魔法弹幕" not in learned:
-                    commands.append("interact 魔法弹幕")
-                elif "远程魔法弹幕" not in learned:
-                    commands.append("interact 远程魔法弹幕")
-            elif loc == "军事基地":
-                has_pass = getattr(player, 'has_military_pass', False)
-                if not has_pass:
-                    commands.append("interact 通行证")
-                elif not any(w.name == "高斯步枪" for w in real_weapons):
-                    commands.append("interact 高斯步枪")
-        if "move" in available and not commands:
-            if loc != "魔法所" and "魔法弹幕" not in learned:
-                commands.append("move 魔法所")
-            elif loc != "军事基地":
-                commands.append("move 军事基地")
-        return commands
+    # ════════════════════════════════════════════════════════════════
+    #  T0 激活判断
+    # ════════════════════════════════════════════════════════════════
 
     def handle_choose(
         self, player: Any, state: Any, situation: str,
         options: List[str], context: Dict,
     ) -> Optional[str]:
+        if not options:
+            return None
+
+        # ── T0 天赋激活 ──
         if situation == "talent_t0":
-            talent_name = context.get("talent_name", "")
-            if "注视" not in talent_name:
-                return None
-            should_activate = False
-            if player and state:
-                my_loc = GameQuery.get_location_str(player)
-                pc = context.get("police_cache") or {}
-                outer = GameQuery.count_outer_armor(player)
-                inner = GameQuery.count_inner_armor(player)
-                total_armor = outer + inner
-                nearby_players = GameQuery.get_same_location_targets(player, state)
-                nearby_police_count = 0
-                for unit in pc.get("units", []):
-                    if (unit.get("is_alive")
-                            and unit.get("location")
-                            and unit["location"] == my_loc):
-                        nearby_police_count += 1
-                nearby_total = len(nearby_players) + nearby_police_count
-                has_two_aoe = GameQuery.count_distinct_aoe_attrs(player) >= 2
-                been_attacked_by = context.get("been_attacked_by", set())
+            return self._choose_t0_activation(player, state, options, context)
 
-                if (not should_activate
-                        and self.is_development_complete(player, state)
-                        and total_armor >= 1
-                        and nearby_total >= 1):
-                    emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
-                    if emr and not getattr(emr, 'is_charged', False):
-                        other_aoe = [w for w in player.weapons
-                                     if w and w.name != "电磁步枪" and w.name != "拳击"
-                                     and GameQuery.get_weapon_range(w) == "area"]
-                        if other_aoe:
-                            should_activate = True
-                        else:
-                            self._ctrl._emr_needs_charge_before_hologram = True
-                    else:
-                        should_activate = True
+        # ── v0.6 G2 演唱决策 ──
+        if situation == "g2_sing_song":
+            return self._choose_song(player, state, options)
+        if situation == "g2_sing_rhythm":
+            return self._choose_rhythm(player, state, options)
+        if situation == "g2_sing_target":
+            return self._choose_sing_target(player, state, options, context)
+        if situation == "g2_melody_seat":
+            return self._choose_melody_seat(player, state, options)
 
-                if not should_activate and player.hp <= 1.0 and been_attacked_by:
-                    for attacker_name in been_attacked_by:
-                        for pid in state.player_order:
-                            atk = state.get_player(pid)
-                            if (atk and atk.is_alive()
-                                    and atk.name == attacker_name
-                                    and GameQuery.same_location(player, atk)):
-                                should_activate = True
-                                break
-                        if should_activate:
-                            break
+        # ── v0.6 初始声部选择 ──
+        if situation == "g2_voice_choice":
+            return self._choose_initial_voice(player, state, options)
 
-                if not should_activate and has_two_aoe:
-                    has_captain = pc.get("captain_id") is not None
-                    if has_captain:
-                        should_activate = True
+        # ── v0.6 物料牌决策 ──
+        if situation == "g2_play_card":
+            return self._choose_card_to_play(player, state, options)
+        if situation == "g2_discard":
+            return self._choose_card_to_discard(player, state, options)
+        if situation == "g2_pickup_floor":
+            return self._choose_floor_pickup(player, state, options)
 
-                if not should_activate and has_two_aoe:
-                    for pid in state.player_order:
-                        if pid == player.player_id:
-                            continue
-                        t = state.get_player(pid)
-                        if (t and t.is_alive() and t.talent
-                                and getattr(t.talent, 'has_supernova', False)):
-                            should_activate = True
-                            break
+        # ── 卡牌子决策 ──
+        if situation in ("g2_card_front_row", "g2_card_spotlight_photo",
+                         "g2_card_support_cheer", "g2_card_boo",
+                         "g2_card_bouquet", "g2_card_mediation_acc",
+                         "g2_card_mediation_str", "g2_card_program_tidy"):
+            return self._pick_random_option(options)
+        if situation == "g2_card_blank_stub":
+            return self._choose_blank_stub(player, options)
+        if situation == "g2_card_exchange_give":
+            return self._pick_random_option(options)
+        if situation == "g2_card_exchange_target":
+            return self._pick_random_option(options)
+        if situation == "g2_card_program_tidy_discard":
+            return self._pick_random_option(options)
+        if situation == "g2_card_program_tidy_pick":
+            return self._pick_random_option(options)
 
-                if not should_activate:
-                    markers = getattr(state, 'markers', None)
-                    if markers and hasattr(markers, 'has_relation'):
-                        for pid in state.player_order:
-                            if pid == player.player_id:
-                                continue
-                            t = state.get_player(pid)
-                            if t and t.is_alive() and markers.has_relation(
-                                    player.player_id, "ENGAGED_WITH", pid):
-                                if GameQuery.same_location(player, t):
-                                    if GameQuery.count_distinct_aoe_attrs(player) >= 1:
-                                        should_activate = True
-                                break
+        # ── v0.6 G2 Chorus 指挥 ──
+        if situation == "g2_command_chorus":
+            return self._pick_random_option(options)
 
-            if should_activate:
-                for opt in options:
-                    if "发动" in opt:
-                        return opt
-            for opt in options:
-                if "不发动" in opt or "正常" in opt:
-                    return opt
-            return options[-1]
         return None
+
+    # ── T0 激活 ──────────────────────────────────────────────────
+
+    def _choose_t0_activation(self, player, state, options, context) -> Optional[str]:
+        """判断是否激活 G2。"""
+        talent_name = context.get("talent_name", "")
+        if "注视" not in talent_name:
+            return None
+
+        if not player or not state:
+            return self._pick_reject_option(options)
+
+        outer = GameQuery.count_outer_armor(player)
+        dev_ok = self.is_development_complete(player, state)
+        alive_count = len(state.alive_players())
+        been_attacked = bool(context.get("been_attacked_by", set()))
+
+        # v0.6 激活条件：发育完成 + 存活≥3人 + （有护甲 或 被攻击）
+        should_activate = dev_ok and alive_count >= 3 and (outer >= 1 or been_attacked)
+
+        # HP 低 + 被攻击 → 防御性激活
+        if not should_activate and player.hp <= 1.0 and been_attacked and alive_count >= 3:
+            should_activate = True
+
+        if should_activate:
+            for opt in options:
+                if "发动" in opt:
+                    return opt
+        return self._pick_reject_option(options)
+
+    # ── 演唱决策核心 ──────────────────────────────────────────────
+
+    def _choose_song(self, player, state, options) -> Optional[str]:
+        """v0.6 G2 选曲策略。"""
+        ish = getattr(state, 'ish_bosheth', None)
+        if not ish:
+            return self._pick_last_or_forfeit(options)
+
+        # 1. 旋律优先（免费，一次性）
+        for opt in options:
+            if "第三间章" in opt:
+                return opt
+        for opt in options:
+            if "第二间章" in opt:
+                return opt
+
+        # 2. 统计声部分布
+        str_real = self._count_voice_real(state, ish, "strappando")
+        acc_real = self._count_voice_real(state, ish, "accarezzevole")
+        regard = ish.regard
+
+        # 3. 高危 Strappando → Sognando（if regard ≥ 2）
+        if str_real >= 1 and regard >= 2:
+            for opt in options:
+                if "Sognando" in opt or "追寻那道光" in opt:
+                    return opt
+
+        # 4. 多个 Acc + 有敌意 → Before light Dolente
+        if acc_real >= 2 and regard >= 2:
+            for opt in options:
+                if "Dolente" in opt or "Before light" in opt:
+                    return opt
+
+        # 5. 有盟友 → Soave
+        if regard >= 1:
+            for opt in options:
+                if "Soave" in opt or "追寻那道光" in opt:
+                    return opt
+
+        # 6. 困住敌人 → Placido/Zeffiroso
+        if regard >= 1:
+            for opt in options:
+                if "拼接遗憾" in opt:
+                    return opt
+
+        # 7. 保 regard → forfeit
+        for opt in options:
+            if "放弃" in opt:
+                return opt
+        return self._pick_last_or_forfeit(options)
+
+    def _choose_rhythm(self, player, state, options) -> Optional[str]:
+        """选节奏：优先低成本（保 Regard）。"""
+        for opt in options:
+            if "Soave" in opt or "温柔" in opt:
+                return opt
+        for opt in options:
+            if "Placido" in opt or "平静" in opt:
+                return opt
+        for opt in options:
+            if "Riposato" in opt or "休息" in opt:
+                return opt
+        # 预算够 → 高费
+        ish = getattr(state, 'ish_bosheth', None)
+        if ish and ish.regard >= 4:
+            for opt in options:
+                if "Sognando" in opt or "Dolente" in opt or "Zeffiroso" in opt:
+                    return opt
+        return options[0] if options else None
+
+    def _choose_sing_target(self, player, state, options, context) -> Optional[str]:
+        """选听者：优先高威胁目标。"""
+        threat_scores = getattr(self._ctrl, '_threat_scores', {})
+        ish = getattr(state, 'ish_bosheth', None)
+
+        best_opt = None
+        best_score = -999
+        for opt in options:
+            # 从 options 中找匹配的玩家名
+            target = self._find_target_by_name_in_options(state, ish, opt)
+            score = threat_scores.get(target.name if target else opt, 0)
+            if score > best_score:
+                best_score = score
+                best_opt = opt
+        return best_opt or self._pick_random_option(options)
+
+    def _choose_melody_seat(self, player, state, options) -> Optional[str]:
+        """选旋律座位：优先 Strappando 最多的座位。"""
+        ish = getattr(state, 'ish_bosheth', None)
+        if not ish:
+            return self._pick_random_option(options)
+
+        best_seat = None
+        best_str = -1
+        for seat_name in options:
+            str_count = self._count_str_at_seat(state, ish, seat_name)
+            if str_count > best_str:
+                best_str = str_count
+                best_seat = seat_name
+        return best_seat or self._pick_random_option(options)
+
+    # ── 声部选择 ──────────────────────────────────────────────────
+
+    def _choose_initial_voice(self, player, state, options) -> Optional[str]:
+        """AI 初始声部选择策略。"""
+        threat_scores = getattr(self._ctrl, '_threat_scores', {})
+        hp = player.hp
+        outer = GameQuery.count_outer_armor(player)
+
+        # 高HP + 有护甲 + 有敌人想杀 → Accarezzevole（积极攻击）
+        if hp >= 1.5 and outer >= 1 and self._has_threatening_enemy(state, threat_scores):
+            for opt in options:
+                if "Accarezzevole" in opt or "入戏" in opt:
+                    return opt
+
+        # 低HP 或 无护甲 → Strappando（需要减伤/离场）
+        if hp <= 0.5 or outer == 0:
+            for opt in options:
+                if "Strappando" in opt or "反抗" in opt:
+                    return opt
+
+        # 默认 → Indifferenza（观望）
+        for opt in options:
+            if "Indifferenza" in opt or "抽离" in opt:
+                return opt
+        return self._pick_random_option(options)
+
+    # ── 物料牌决策 ────────────────────────────────────────────────
+
+    def _choose_card_to_play(self, player, state, options) -> Optional[str]:
+        """选择打出哪张物料牌。优先战斗牌 > 防御牌 > 通用牌。"""
+        if "不打" in options and len(options) <= 2:
+            return "不打"
+
+        # 战斗中优先
+        combat_cards = ["荧光棒", "聚光合影", "后台通行证", "撕票", "倒彩"]
+        defense_cards = ["耳塞", "花束"]
+        utility_cards = ["前排票", "小卡交换", "空白票根", "场刊整理"]
+
+        for card in combat_cards:
+            if card in options:
+                return card
+        for card in defense_cards:
+            if card in options:
+                return card
+        for card in utility_cards:
+            if card in options:
+                return card
+        for opt in options:
+            if opt != "不打":
+                return opt
+        return "不打"
+
+    def _choose_card_to_discard(self, player, state, options) -> Optional[str]:
+        """选择弃置哪张牌：优先无用的。"""
+        low_priority = ["场刊整理", "空白票根", "前排票", "小卡交换"]
+        for card in low_priority:
+            if card in options:
+                return card
+        return self._pick_random_option(options)
+
+    def _choose_floor_pickup(self, player, state, options) -> Optional[str]:
+        """选择拾取哪张掉落牌。"""
+        if "不拾取" in options and len(options) <= 2:
+            return "不拾取"
+        return self._pick_random_option(options)
+
+    def _choose_blank_stub(self, player, options) -> Optional[str]:
+        """空白票根效果选择。"""
+        if getattr(player, 'encore_layers', 0) > 0:
+            for opt in options:
+                if "安可" in opt:
+                    return opt
+        for opt in options:
+            if "牵连" in opt and getattr(player, 'stage_entangle', []):
+                return opt
+        for opt in options:
+            if "摸" in opt:
+                return opt
+        return self._pick_random_option(options)
+
+    # ════════════════════════════════════════════════════════════════
+    #  候选覆盖（v0.6：舞台激活中 = 必须 special）
+    # ════════════════════════════════════════════════════════════════
 
     def should_override_candidates(
         self, player: Any, state: Any, available: List[str]
     ) -> Optional[List[str]]:
-        """全息影像激活中的AOE扫场模式"""
-        if not self._is_my_talent(player) or not getattr(player.talent, 'active', False):
+        """v0.6: 舞台激活中，G2 只能 sing。"""
+        ish = getattr(state, 'ish_bosheth', None)
+        if not ish or ish.phase != "active":
             return None
-        my_loc = str(getattr(player, 'location', ''))
-        hologram_loc = str(getattr(player.talent, 'location', ''))
-        if my_loc != hologram_loc:
-            if "move" in available:
-                return [f"move {hologram_loc}", "forfeit"]
-            return ["forfeit"]
-        # 在影像区域内：AOE扫场（只选同地点目标）
-        same_loc = self._ctrl._get_same_location_targets(player, state)
-        if same_loc:
-            emr = next((w for w in player.weapons if w and w.name == "电磁步枪"), None)
-            if emr and not getattr(emr, 'is_charged', False) and "special" in available:
-                return ["special 蓄力电磁步枪", "forfeit"]
-            best_target = max(
-                same_loc,
-                key=lambda t: getattr(self._ctrl, '_threat_scores', {}).get(t.name, 0))
-            attack_cmds = self._ctrl._cmd_attack(
-                player, state, available, forced_target=best_target)
-            if attack_cmds:
-                return [*attack_cmds, "forfeit"]
-        return None  # 走常规流程
+        if not self._is_my_talent(player):
+            return None
+        if player.player_id != ish.g2_owner_id:
+            return None
+
+        if "special" in available and ish.regard > 0:
+            return ["special", "forfeit"]
+        return ["forfeit"]
+
+    # ════════════════════════════════════════════════════════════════
+    #  辅助方法
+    # ════════════════════════════════════════════════════════════════
 
     def _is_my_talent(self, player: Any) -> bool:
         t = getattr(player, 'talent', None)
         return bool(t and getattr(t, 'name', '') == self.talent_name)
+
+    @property
+    def state(self):
+        return getattr(self._ctrl, '_game_state', None)
+
+    @staticmethod
+    def _count_voice_real(state, ish, voice: str) -> int:
+        count = 0
+        for pid in ish.participants:
+            p = state.get_player(pid)
+            if (p and p.is_alive()
+                    and getattr(p, 'emotion', None) == voice):
+                count += 1
+        return count
+
+    @staticmethod
+    def _count_str_at_seat(state, ish, seat_name: str) -> int:
+        count = 0
+        for pid in ish.participants:
+            p = state.get_player(pid)
+            if (p and p.is_alive() and p.location == seat_name
+                    and getattr(p, 'emotion', None) == "strappando"):
+                count += 1
+        for c in ish.chorus_list:
+            if (c.is_alive() and c.location == seat_name
+                    and getattr(c, 'emotion', None) == "strappando"):
+                count += 1
+        return count
+
+    @staticmethod
+    def _find_target_by_name_in_options(state, ish, option: str):
+        for pid in ish.participants:
+            p = state.get_player(pid)
+            if p and p.name in option:
+                return p
+        for c in ish.chorus_list:
+            if c.is_alive() and c.name in option:
+                return c
+        return None
+
+    @staticmethod
+    def _has_threatening_enemy(state, threat_scores) -> bool:
+        for pid in state.player_order:
+            p = state.get_player(pid)
+            if p and p.is_alive() and threat_scores.get(p.name, 0) > 30:
+                return True
+        return False
+
+    @staticmethod
+    def _pick_random_option(options: List[str]) -> Optional[str]:
+        import random
+        return random.choice(options) if options else None
+
+    @staticmethod
+    def _pick_last_or_forfeit(options: List[str]) -> Optional[str]:
+        for opt in options:
+            if "放弃" in opt:
+                return opt
+        return options[-1] if options else None
+
+    @staticmethod
+    def _pick_reject_option(options: List[str]) -> Optional[str]:
+        for opt in options:
+            if "不发动" in opt or "正常" in opt:
+                return opt
+        return options[-1] if options else None
 
 
 class SaviorAIHook(BaseTalentAIHook):

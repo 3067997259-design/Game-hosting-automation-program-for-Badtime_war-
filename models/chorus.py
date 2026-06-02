@@ -13,9 +13,9 @@ from utils.attribute import Attribute
 
 
 # 提案 §4.5 d3 生成表 ──────────────────────────────────────────────
-_CHORUS_WEAPON_POOL = ["拳击", "小刀", "警棍"]
-_CHORUS_OUTER_ARMOR_POOL = ["盾牌", "陶瓷护甲", "魔法护盾"]
-_CHORUS_INNER_ARMOR_POOL = ["晶化皮肤", "额外心脏", "不老泉"]
+_CHORUS_WEAPON_POOL = ["小刀", "魔法弹幕", "高斯步枪"]
+_CHORUS_OUTER_ARMOR_POOL = ["盾牌", "魔法护盾", "AT力场"]
+_CHORUS_INNER_ARMOR_POOL = ["额外心脏", "不老泉", "晶化皮肤"]
 
 _chorus_counter = 0
 
@@ -101,6 +101,15 @@ class ChorusUnit:
         self.stage_entangle: list = []
         self.temp_hp_g2: float = 0.0
         self.temp_atk_g2: float = 0.0
+        # G2 v0.6 物料牌临时效果
+        self._card_damage_bonus: float = 0.0
+        self._card_damage_bonus_target_id: Optional[str] = None
+        self._card_damage_bonus_voice_filter: Optional[str] = None
+        self._card_debuff_damage_taken: float = 0.0
+        self._card_no_attack_until_r4: Optional[str] = None
+        self._card_temp_hp_until_r4: float = 0.0
+        self._card_earplug: bool = False         # 耳塞
+        self._card_tear_ticket_active: bool = False  # 撕票：本回合击杀 Acc 额外 Regard -0.5
 
         # 兼容字段
         self.is_awake: bool = True
@@ -144,6 +153,12 @@ class ChorusUnit:
             self.armor.inner.append(ia)
 
     # ── 查询 ──────────────────────────────────────────────────────
+    def get_d4_bonus(self) -> int:
+        return 0
+
+    def get_d6_bonus(self) -> int:
+        return 0
+
     def get_weapon(self, weapon_name):
         for w in self.weapons:
             if w and getattr(w, 'name', None) == weapon_name:

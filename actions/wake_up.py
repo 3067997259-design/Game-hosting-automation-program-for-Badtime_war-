@@ -9,9 +9,12 @@ def execute(player, game_state):
     """
     home_id = f"home_{player.player_id}"
     player.is_awake = True
-    player.location = home_id
+    # G2 舞台内强制起床：不覆盖已分配的座位
+    if "liberamente_vivace" not in getattr(player, 'stage_statuses', set()):
+        player.location = home_id
     game_state.markers.on_player_wake_up(player.player_id)
-    game_state.log_event("wake_up", player=player.player_id, location=home_id)
+    game_state.log_event("wake_up", player=player.player_id,
+                         location=player.location)
     # 天赋起床加成 hook
     if player.talent and hasattr(player.talent, 'on_wakeup'):
         wakeup_msg = player.talent.on_wakeup(player, game_state)

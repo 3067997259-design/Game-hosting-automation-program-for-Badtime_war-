@@ -41,38 +41,48 @@ class TestChorusTargetFiltering(unittest.TestCase):
     """Chorus 攻击目标情绪过滤"""
 
     def _make_targets(self):
+        # v0.6: 声部必须正确设置
         g2 = SimpleNamespace(player_id="g2", name="G2", hp=3.0, max_hp=5.0,
-                             is_alive=lambda: True, is_on_map=lambda: True)
+                             is_alive=lambda: True, is_on_map=lambda: True, emotion=None)
         p1 = SimpleNamespace(player_id="p1", name="P1", hp=3.0, max_hp=5.0,
-                             is_alive=lambda: True, is_on_map=lambda: True)
+                             is_alive=lambda: True, is_on_map=lambda: True,
+                             emotion=ACCAREZZEVOLE)  # Acc → Str 的目标
         p2 = SimpleNamespace(player_id="p2", name="P2", hp=3.0, max_hp=5.0,
-                             is_alive=lambda: True, is_on_map=lambda: True)
+                             is_alive=lambda: True, is_on_map=lambda: True,
+                             emotion=STRAPPANDO)     # Str → Acc 的目标
+        ish = SimpleNamespace(
+            g2_owner_id="g2", chorus_list=[],
+            participants={"p1", "p2"},
+        )
         gs = SimpleNamespace(
             player_order=["g2", "p1", "p2"],
-            ish_bosheth=SimpleNamespace(g2_owner_id="g2", chorus_list=[]),
+            ish_bosheth=ish,
         )
         gs.get_player = lambda pid: {"g2": g2, "p1": p1, "p2": p2}.get(pid)
-        return gs
+        return gs, ish
 
-    def test_strappando_chorus_only_targets_g2(self):
-        gs = self._make_targets()
+    def test_strappando_chorus_only_targets_g2_and_acc(self):
+        """v0.6 Str: 攻击 Acc 和 G2"""
+        gs, ish = self._make_targets()
         from controllers.chorus_controller import ChorusController
         cc = ChorusController()
         chorus = SimpleNamespace(player_id="c1", emotion=STRAPPANDO)
-        targets = cc._get_legal_targets(gs, chorus, "g2")
+        targets = cc._get_legal_targets(gs, chorus, ish)
         target_ids = [t.player_id for t in targets]
         self.assertIn("g2", target_ids)
-        self.assertNotIn("p1", target_ids)
+        self.assertIn("p1", target_ids)   # p1 is Acc → valid target
+        self.assertNotIn("p2", target_ids)  # p2 is Str → same voice
 
     def test_accarezzevole_chorus_excludes_g2(self):
-        gs = self._make_targets()
+        """v0.6 Acc: 攻击 Str，不攻击 G2"""
+        gs, ish = self._make_targets()
         from controllers.chorus_controller import ChorusController
         cc = ChorusController()
         chorus = SimpleNamespace(player_id="c1", emotion=ACCAREZZEVOLE)
-        targets = cc._get_legal_targets(gs, chorus, "g2")
+        targets = cc._get_legal_targets(gs, chorus, ish)
         target_ids = [t.player_id for t in targets]
         self.assertNotIn("g2", target_ids)
-        self.assertIn("p1", target_ids)
+        self.assertIn("p2", target_ids)   # p2 is Str → valid target
 
 
 class TestChorusControllerRandom(unittest.TestCase):
