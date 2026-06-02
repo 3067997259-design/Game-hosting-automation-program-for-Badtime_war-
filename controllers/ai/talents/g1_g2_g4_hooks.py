@@ -298,7 +298,7 @@ class HologramAIHook(BaseTalentAIHook):
     ) -> Optional[List[str]]:
         if not self._is_my_talent(player):
             return None
-        if self.state.ish_bosheth is not None:
+        if state and getattr(state, 'ish_bosheth', None) is not None:
             return None  # 已激活，走演唱逻辑
         return self._get_basic_develop_commands(player, state, available)
 
