@@ -1874,10 +1874,8 @@ class ActionTurnManager:
 
         elif card_name == "后台通行证":
             ish.create_projection(seat)
-            # auto-engage with projection
-            for pid2 in ish.participants:
-                if pid2 == ish.g2_owner_id:
-                    continue
+            # auto-engage player with G2 projection
+            self.state.markers.set_engaged(pid, ish.g2_owner_id)
             player._card_backstage_projection = True
 
         elif card_name == "撕票":
