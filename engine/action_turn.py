@@ -1972,8 +1972,7 @@ class ActionTurnManager:
         # 使用后进入弃牌区（再插入弃牌）
         # 已由调用方从手牌移除，这里只需确认进入弃牌区
         if card_name != "改签票":
-            if card_name not in ish.deck.discard_pile:
-                ish.deck.discard_pile.append(card_name)
+            ish.deck.discard_pile.append(card_name)
 
     def _execute_attack(self, parsed, player, override_killer=None):
         """override_killer: 插入式笑话中传入 G6 玩家，
