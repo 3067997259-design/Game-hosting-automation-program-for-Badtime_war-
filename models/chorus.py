@@ -13,9 +13,9 @@ from utils.attribute import Attribute
 
 
 # 提案 §4.5 d3 生成表 ──────────────────────────────────────────────
-_CHORUS_WEAPON_POOL = ["拳击", "小刀", "警棍"]
-_CHORUS_OUTER_ARMOR_POOL = ["盾牌", "陶瓷护甲", "魔法护盾"]
-_CHORUS_INNER_ARMOR_POOL = ["晶化皮肤", "额外心脏", "不老泉"]
+_CHORUS_WEAPON_POOL = ["小刀", "魔法弹幕", "高斯步枪"]
+_CHORUS_OUTER_ARMOR_POOL = ["盾牌", "魔法护盾", "AT力场"]
+_CHORUS_INNER_ARMOR_POOL = ["额外心脏", "不老泉", "晶化皮肤"]
 
 _chorus_counter = 0
 
@@ -101,6 +101,13 @@ class ChorusUnit:
         self.stage_entangle: list = []
         self.temp_hp_g2: float = 0.0
         self.temp_atk_g2: float = 0.0
+        # G2 v0.6 物料牌临时效果
+        self._card_damage_bonus: float = 0.0
+        self._card_damage_bonus_target: Optional[str] = None
+        self._card_debuff_damage_taken: float = 0.0
+        self._card_no_attack_until_r4: Optional[str] = None
+        self._card_temp_hp_until_r4: float = 0.0
+        self._card_backstage_projection: bool = False  # 后台通行证：投影标记
 
         # 兼容字段
         self.is_awake: bool = True

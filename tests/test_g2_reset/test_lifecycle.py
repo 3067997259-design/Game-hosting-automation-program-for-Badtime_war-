@@ -86,11 +86,11 @@ class TestR4Hook(unittest.TestCase):
 
     @patch("engine.ish_bosheth.display")
     def test_r4_regard_decay(self, _disp):
-        ish, gs, _ = self._setup_ish(n_acc=1, n_str=0, n_ind=1)
+        # v0.6: Acc 中性, Ind +0.5, Str -0.5. 1/1/1 = -1 -0.5 +0.5 = -1.0 net
+        ish, gs, _ = self._setup_ish(n_acc=1, n_str=1, n_ind=1)
         initial = ish.regard
         ish.on_r4(gs)
-        # -1 base + 0.5*1 acc = -0.5 net → regard should drop by 0.5
-        self.assertAlmostEqual(ish.regard, initial - 0.5)
+        self.assertAlmostEqual(ish.regard, initial - 1.0)
         self.assertEqual(ish.r4_count, 1)
 
     @patch("engine.ish_bosheth.display")
@@ -107,8 +107,9 @@ class TestR4Hook(unittest.TestCase):
 
     @patch("engine.ish_bosheth.display")
     def test_r4_regard_zero_pending_curtain(self, _disp):
-        ish, gs, _ = self._setup_ish(n_acc=0, n_str=2, n_ind=0)
-        ish.regard = 1.0  # will drop below 0 after decay
+        # v0.6: 需要三声部都存在才不触发阵营胜利
+        ish, gs, _ = self._setup_ish(n_acc=1, n_str=1, n_ind=1)
+        ish.regard = 1.0
         ish.on_r4(gs)
         self.assertEqual(ish.phase, "pending_curtain")
 

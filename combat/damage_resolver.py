@@ -460,22 +460,30 @@ def resolve_damage(attacker, target, weapon, game_state,
                 and getattr(attacker, 'player_id', None) != ish.g2_owner_id):
             is_embrace_damage = True
 
-    # G2 Before light 伤害修正
+    # G2 Before light v0.6 伤害修正
     if game_state and getattr(game_state, 'ish_bosheth', None):
         ish = game_state.ish_bosheth
         if ish.phase == "active" and ish.before_light:
-            target_emotion = getattr(target, 'emotion', None)
-            if target_emotion:
+            target_voice = getattr(target, 'emotion', None)
+            attacker_voice = getattr(attacker, 'emotion', None) if attacker else None
+            if target_voice:
                 from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
                 if ish.before_light == "riposato":
-                    if target_emotion == ACCAREZZEVOLE:
-                        bonus_damage += 0.5
-                    elif target_emotion == STRAPPANDO:
+                    # v0.6 Riposato: Acc对Str伤害-0.5, Str攻击G2伤害-0.5
+                    if attacker_voice == ACCAREZZEVOLE and target_voice == STRAPPANDO:
+                        bonus_damage -= 0.5
+                    elif (attacker_voice == STRAPPANDO
+                          and getattr(target, 'player_id', None) == ish.g2_owner_id):
                         bonus_damage -= 0.5
                 elif ish.before_light == "dolente":
-                    if target_emotion == ACCAREZZEVOLE:
-                        bonus_damage += 1.0
-                    elif target_emotion == INDIFFERENZA:
+                    # v0.6 Dolente: Acc对Str伤害+0.5, Str对Acc/G2投影伤害+0.5, Ind受伤+0.5
+                    if attacker_voice == ACCAREZZEVOLE and target_voice == STRAPPANDO:
+                        bonus_damage += 0.5
+                    elif (attacker_voice == STRAPPANDO
+                          and (target_voice == ACCAREZZEVOLE
+                               or getattr(target, 'player_id', None) == ish.g2_owner_id)):
+                        bonus_damage += 0.5
+                    if target_voice == INDIFFERENZA:
                         bonus_damage += 0.5
     result = {
         "success": False,

@@ -178,72 +178,78 @@ class ActionTurnManager:
                 prompt_manager.show("g2reset", "emotion.immunity_petrify",
                                    player_name=player.name)
 
-        # ---- G2 ish-bosheth 情绪切换 (T0) ----
+        # ---- G2 ish-bosheth v0.6: 声部锁定 + T0 物料阶段 ----
         if (self.state.ish_bosheth
                 and self.state.ish_bosheth.phase == "active"
                 and "liberamente_vivace" in getattr(player, 'stage_statuses', set())
                 and player.player_id != self.state.ish_bosheth.g2_owner_id):
             from engine.ish_bosheth import (
                 ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO,
-                EMOTION_LABELS,
+                VOICE_LABELS,
             )
-            # 节制锁定 / Sognando 情绪锁：不允许主动切换，但不阻止行动
-            ss = getattr(player, 'stage_statuses', set())
-            locked = ("moderation_lock" in ss
-                      or ("sognando_lock" in ss and getattr(player, 'temp_hp_g2', 0) > 0))
-            if locked:
-                if "moderation_lock" in ss:
-                    prompt_manager.show("g2reset", "emotion.moderation_lock",
-                                       player_name=player.name)
-                else:
-                    prompt_manager.show("g2reset", "emotion.sognando_lock",
-                                       player_name=player.name)
-                # 不弹出情绪选择，直接 fall through 到 T1
-            if locked:
-                # 被锁：跳过情绪选择菜单，但允许正常行动
-                pass
-            else:
-                current_emotion = getattr(player, 'emotion', None)
-                all_options = [
-                    ("入戏 (Accarezzevole)", ACCAREZZEVOLE),
-                    ("抽离 (Indifferenza)", INDIFFERENZA),
-                    ("反抗 (Strappando)", STRAPPANDO),
-                ]
-                # 屏蔽与当前情绪相同的选项
-                options = [label for label, emo in all_options if emo != current_emotion]
-                options.append("保持当前")
-                choice = player.controller.choose(
-                    "选择你在 G2 舞台中的情绪：",
-                    options,
-                    context={"phase": "T0", "situation": "g2_emotion_choice"},
-                )
-                new_emotion = self.state.ish_bosheth._parse_emotion_choice(choice)
-                if "保持" in choice:
-                    new_emotion = current_emotion
+            # v0.6: 声部已固定，不再弹切换菜单
+            # T0 物料阶段：摸牌 + 拾取 + 出牌 + 弃牌
+            ish = self.state.ish_bosheth
+            if ish.deck:
+                pid = player.player_id
+                seat = player.location
 
-                if current_emotion is None:
-                    # 首次设定不消耗回合
-                    player.emotion = new_emotion
-                    prompt_manager.show("g2reset", "emotion.initial",
-                                       player_name=player.name,
-                                       emotion=EMOTION_LABELS.get(new_emotion, new_emotion))
-                elif new_emotion == current_emotion:
-                    # 保持当前 → 不消耗回合
-                    pass
-                else:
-                    # 切换情绪时清除舞台牵连
-                    if hasattr(player, 'stage_entangle'):
-                        if new_emotion == INDIFFERENZA:
-                            if player.stage_entangle:
-                                player.stage_entangle.pop()
-                        elif new_emotion == STRAPPANDO:
-                            player.stage_entangle.clear()
-                    player.emotion = new_emotion
-                    prompt_manager.show("g2reset", "emotion.changed",
-                                       player_name=player.name,
-                                       emotion=EMOTION_LABELS.get(new_emotion, new_emotion))
-                    # 改变或重申消耗行动回合
-                    return "g2_emotion_switch"
+                # 1. 摸 1 张
+                card = ish.deck._draw_one()
+                if card:
+                    hand = ish.deck.hands.setdefault(pid, [])
+                    hand.append(card)
+
+                # 2. 拾取座位掉落 1 张
+                dropped = ish.deck.dropped_goods.get(seat, [])
+                if dropped:
+                    pickup = player.controller.choose(
+                        f"拾取掉落物料（{seat}）：",
+                        dropped + ["不拾取"],
+                        context={"phase": "T0", "situation": "g2_pickup_floor"},
+                    )
+                    if pickup in dropped:
+                        ish.deck.pickup_floor(pid, seat, pickup)
+
+                # 3. 可进行 1 次自愿换牌
+                # （AI 通过 choose 处理，Human 通过提示处理）
+
+                # 4. 可打出最多 1 张牌
+                hand = ish.deck.hands.get(pid, [])
+                playable = [c for c in hand if ish.deck.is_playable(player, c)]
+                extra = getattr(player, '_card_extra_play', False)
+                max_plays = 2 if extra else 1
+                for _ in range(max_plays):
+                    if not playable:
+                        break
+                    play_choice = player.controller.choose(
+                        "打出物料牌（或不打）：",
+                        playable + ["不打"],
+                        context={"phase": "T0", "situation": "g2_play_card"},
+                    )
+                    if play_choice in playable:
+                        self._resolve_card_play(player, ish, play_choice)
+                        hand.remove(play_choice)
+                        ish.deck.played_this_turn[pid] = True
+                        playable = [c for c in hand if ish.deck.is_playable(player, c)]
+                    else:
+                        break
+                player._card_extra_play = False
+
+                # 5. 弃至手牌上限 3
+                hand = ish.deck.hands.get(pid, [])
+                while len(hand) > 3:
+                    discard_choice = player.controller.choose(
+                        "手牌超限，选择弃置 1 张：",
+                        hand,
+                        context={"phase": "T0", "situation": "g2_discard"},
+                    )
+                    if discard_choice in hand:
+                        ish.deck.discard_from_hand(pid, discard_choice)
+                    else:
+                        discarded = hand.pop()
+                        ish.deck.discard_from_hand(pid, discarded)
+                # 物料阶段结束
 
         # ---- 天赋T0选项 ----
         # ══ BUG FIX：choice 变量未定义问题修复 ══
@@ -1425,29 +1431,45 @@ class ActionTurnManager:
         return action_type
 
     # ================================================================
-    #  T1：Chorus 简化回合（随机选行动）
+    #  T1：Chorus 简化回合（v0.6 声部限制 + 物料牌加成）
     # ================================================================
     def _phase_t1_chorus(self, player):
-        """Chorus 的简化行动回合：随机 attack 或 forfeit。"""
+        """Chorus 的简化行动回合：按声部限制选目标 attack 或 forfeit。"""
         import random as _random
         from cli.parser import parse
         from cli.validator import validate
 
-        # 收集合法攻击目标
-        legal_targets = []
-        for pid in self.state.player_order:
-            p = self.state.get_player(pid)
-            if not p or not p.is_alive() or not p.is_on_map():
-                continue
-            if p.player_id == player.player_id:
-                continue
-            legal_targets.append(p)
+        # v0.6: 声部限制目标选择
+        ish = self.state.ish_bosheth
+        if ish and hasattr(player, 'controller') and hasattr(player.controller, '_get_legal_targets'):
+            legal_targets = player.controller._get_legal_targets(self.state, player, ish)
+        else:
+            legal_targets = []
+            for pid in self.state.player_order:
+                p = self.state.get_player(pid)
+                if not p or not p.is_alive() or not p.is_on_map():
+                    continue
+                if p.player_id == player.player_id:
+                    continue
+                legal_targets.append(p)
+            if ish:
+                for c in ish.chorus_list:
+                    if c.is_alive() and c.player_id != player.player_id:
+                        legal_targets.append(c)
 
-        # Chorus 之间也可互殴
-        if self.state.ish_bosheth:
-            for c in self.state.ish_bosheth.chorus_list:
-                if c.is_alive() and c.player_id != player.player_id:
-                    legal_targets.append(c)
+        # 物料牌加成定向
+        dmg_bonus = getattr(player, '_card_damage_bonus', 0.0)
+        dmg_target = getattr(player, '_card_damage_bonus_target', None)
+        if dmg_bonus and dmg_target and legal_targets:
+            from engine.ish_bosheth import STRAPPANDO
+            if dmg_target == "strappando_voice":
+                bonus_targets = [t for t in legal_targets
+                                 if getattr(t, 'emotion', None) == STRAPPANDO]
+            else:
+                bonus_targets = [t for t in legal_targets
+                                 if t.player_id == dmg_target]
+            if bonus_targets:
+                legal_targets = bonus_targets
 
         if legal_targets:
             target = _random.choice(legal_targets)
@@ -1724,6 +1746,237 @@ class ActionTurnManager:
     # ================================================================
     #  攻击执行
     # ================================================================
+    def _resolve_card_play(self, player, ish, card_name: str):
+        """v0.6: 解析并执行物料牌效果。"""
+        pid = player.player_id
+        seat = player.location
+
+        if card_name == "前排票":
+            # 移动到任意观众座位 + 与 1 个单位 engage
+            available_seats = sorted(ish.SEATS - {seat})
+            if "move" in self._get_available_action_names(player):
+                dest = player.controller.choose(
+                    "前排票：选择目标座位",
+                    available_seats,
+                    context={"phase": "T0", "situation": "g2_card_front_row"},
+                )
+                if dest in available_seats:
+                    player.location = dest
+                    # auto-find
+                    for pid2 in ish.participants:
+                        p2 = self.state.get_player(pid2)
+                        if p2 and p2.is_alive() and p2.location == dest and p2.player_id != pid:
+                            self.state.markers.set_engaged(pid, p2.player_id)
+                            break
+
+        elif card_name == "小卡交换":
+            # 摸 2，必须给 1 张给另一真实玩家或丢弃
+            for _ in range(2):
+                c = ish.deck._draw_one()
+                if c:
+                    ish.deck.hands.setdefault(pid, []).append(c)
+            hand = ish.deck.hands.get(pid, [])
+            if len(hand) >= 2:
+                give = player.controller.choose(
+                    "小卡交换：选择给出 1 张",
+                    hand,
+                    context={"phase": "T0", "situation": "g2_card_exchange_give"},
+                )
+                # 选接收者
+                other_real = [self.state.get_player(p) for p in ish.participants
+                              if p != pid and self.state.get_player(p) and self.state.get_player(p).is_alive()]
+                if other_real:
+                    receiver = player.controller.choose(
+                        "选择接收者",
+                        [p.name for p in other_real] + ["弃置"],
+                        context={"phase": "T0", "situation": "g2_card_exchange_target"},
+                    )
+                    if receiver != "弃置":
+                        target = next((p for p in other_real if p.name == receiver), None)
+                        if target and give in hand:
+                            hand.remove(give)
+                            ish.deck.hands.setdefault(target.player_id, []).append(give)
+                            # 跨声部：双方 D6+1
+                            if getattr(player, 'emotion', None) != getattr(target, 'emotion', None):
+                                player._card_d6_bonus_rounds = 1
+                                target._card_d6_bonus_rounds = 1
+                    else:
+                        ish.deck.discard_from_hand(pid, give)
+
+        elif card_name == "空白票根":
+            options = ["摸 1 张牌", "清除 1 条舞台牵连", "清除 1 层安可"]
+            choice = player.controller.choose(
+                "空白票根：选择效果",
+                options,
+                context={"phase": "T0", "situation": "g2_card_blank_stub"},
+            )
+            if "摸" in choice:
+                c = ish.deck._draw_one()
+                if c:
+                    ish.deck.hands.setdefault(pid, []).append(c)
+            elif "牵连" in choice:
+                ent = getattr(player, 'stage_entangle', [])
+                if ent:
+                    ent.pop()
+            elif "安可" in choice:
+                if getattr(player, 'encore_layers', 0) > 0:
+                    player.encore_layers -= 1
+
+        elif card_name == "耳塞":
+            player._card_earplug = True
+            ent = getattr(player, 'stage_entangle', [])
+            if ent:
+                ent.pop()
+
+        elif card_name == "荧光棒":
+            player._card_damage_bonus = 0.5
+            player._card_damage_bonus_target = "strappando_voice"
+
+        elif card_name == "聚光合影":
+            # 选一名 Strappando 单位建立 engage
+            str_targets = []
+            for p2_id in ish.participants:
+                p2 = self.state.get_player(p2_id)
+                if (p2 and p2.is_alive()
+                        and getattr(p2, 'emotion', None) == "strappando"):
+                    str_targets.append(p2)
+            for c in ish.chorus_list:
+                if c.is_alive() and c.emotion == "strappando":
+                    str_targets.append(c)
+            if str_targets:
+                chosen = player.controller.choose(
+                    "聚光合影：选择 Strappando 目标",
+                    [t.name for t in str_targets],
+                    context={"phase": "T0", "situation": "g2_card_spotlight_photo"},
+                )
+                target = next((t for t in str_targets if t.name == chosen), str_targets[0])
+                self.state.markers.set_engaged(pid, target.player_id)
+                player._card_damage_bonus = 0.5
+                player._card_damage_bonus_target = target.player_id
+
+        elif card_name == "应援连呼":
+            acc_units = [self.state.get_player(p) for p in ish.participants
+                         if self.state.get_player(p) and self.state.get_player(p).is_alive()
+                         and getattr(self.state.get_player(p), 'emotion', None) == "accarezzevole"]
+            acc_chorus = [c for c in ish.chorus_list
+                          if c.is_alive() and c.emotion == "accarezzevole"]
+            all_acc = acc_units + acc_chorus
+            if all_acc:
+                chosen = player.controller.choose(
+                    "应援连呼：选择 Acc 目标",
+                    [t.name for t in all_acc],
+                    context={"phase": "T0", "situation": "g2_card_support_cheer"},
+                )
+                target = next((t for t in all_acc if t.name == chosen), all_acc[0])
+                target.temp_hp_g2 = getattr(target, 'temp_hp_g2', 0) + 0.5
+                if getattr(target, 'is_chorus', False):
+                    target._card_backstage_projection = True
+
+        elif card_name == "后台通行证":
+            ish.create_projection(seat)
+            # auto-engage with projection
+            for pid2 in ish.participants:
+                if pid2 == ish.g2_owner_id:
+                    continue
+            player._card_backstage_projection = True
+
+        elif card_name == "撕票":
+            ish.regard = max(0, ish.regard - 0.5)
+
+        elif card_name == "倒彩":
+            acc_units = [self.state.get_player(p) for p in ish.participants
+                         if self.state.get_player(p) and self.state.get_player(p).is_alive()
+                         and getattr(self.state.get_player(p), 'emotion', None) == "accarezzevole"]
+            acc_chorus = [c for c in ish.chorus_list
+                          if c.is_alive() and c.emotion == "accarezzevole"]
+            all_acc = acc_units + acc_chorus
+            if all_acc:
+                chosen = player.controller.choose(
+                    "倒彩：选择 Acc 目标",
+                    [t.name for t in all_acc],
+                    context={"phase": "T0", "situation": "g2_card_boo"},
+                )
+                target = next((t for t in all_acc if t.name == chosen), all_acc[0])
+                target._card_debuff_damage_taken = 0.5
+
+        elif card_name == "花束":
+            all_units = [self.state.get_player(p) for p in ish.participants
+                         if self.state.get_player(p) and self.state.get_player(p).is_alive()]
+            all_units += [c for c in ish.chorus_list if c.is_alive()]
+            if all_units:
+                chosen = player.controller.choose(
+                    "花束：选择目标",
+                    [t.name for t in all_units],
+                    context={"phase": "T0", "situation": "g2_card_bouquet"},
+                )
+                target = next((t for t in all_units if t.name == chosen), all_units[0])
+                target._card_temp_hp_until_r4 = 0.5
+                if getattr(target, 'is_chorus', False):
+                    target.hp = min(1.0, round(target.hp + 0.5, 2))
+
+        elif card_name == "调停":
+            acc_units = [self.state.get_player(p) for p in ish.participants
+                         if self.state.get_player(p) and self.state.get_player(p).is_alive()
+                         and getattr(self.state.get_player(p), 'emotion', None) == "accarezzevole"]
+            str_units = [self.state.get_player(p) for p in ish.participants
+                         if self.state.get_player(p) and self.state.get_player(p).is_alive()
+                         and getattr(self.state.get_player(p), 'emotion', None) == "strappando"]
+            if acc_units and str_units:
+                acc_chosen = player.controller.choose(
+                    "调停：选择 Acc 单位", [t.name for t in acc_units],
+                    context={"phase": "T0", "situation": "g2_card_mediation_acc"},
+                )
+                str_chosen = player.controller.choose(
+                    "调停：选择 Str 单位", [t.name for t in str_units],
+                    context={"phase": "T0", "situation": "g2_card_mediation_str"},
+                )
+                acc_target = next((t for t in acc_units if t.name == acc_chosen), acc_units[0])
+                str_target = next((t for t in str_units if t.name == str_chosen), str_units[0])
+                acc_target._card_no_attack_until_r4 = str_target.player_id
+                str_target._card_no_attack_until_r4 = acc_target.player_id
+                if getattr(acc_target, 'is_chorus', False) or getattr(str_target, 'is_chorus', False):
+                    c = ish.deck._draw_one()
+                    if c:
+                        ish.deck.hands.setdefault(pid, []).append(c)
+
+        elif card_name == "场刊整理":
+            other_real = [self.state.get_player(p) for p in ish.participants
+                          if p != pid and self.state.get_player(p) and self.state.get_player(p).is_alive()]
+            if other_real:
+                chosen = player.controller.choose(
+                    "场刊整理：选择一名真实观众",
+                    [p.name for p in other_real],
+                    context={"phase": "T0", "situation": "g2_card_program_tidy"},
+                )
+                target = next((p for p in other_real if p.name == chosen), other_real[0])
+                # 双方摸 1
+                for person in [player, target]:
+                    c = ish.deck._draw_one()
+                    if c:
+                        ish.deck.hands.setdefault(person.player_id, []).append(c)
+                # 若不同声部，可令一人弃 1 张
+                if getattr(player, 'emotion', None) != getattr(target, 'emotion', None):
+                    victim = player.controller.choose(
+                        "场刊整理：令谁弃 1 张？",
+                        [player.name, target.name],
+                        context={"phase": "T0", "situation": "g2_card_program_tidy_discard"},
+                    )
+                    vic = player if victim == player.name else target
+                    vhand = ish.deck.hands.get(vic.player_id, [])
+                    if vhand:
+                        dc = player.controller.choose(
+                            f"选择 {vic.name} 弃置的牌",
+                            vhand,
+                            context={"phase": "T0", "situation": "g2_card_program_tidy_pick"},
+                        )
+                        ish.deck.discard_from_hand(vic.player_id, dc)
+
+        # 使用后进入弃牌区（再插入弃牌）
+        # 已由调用方从手牌移除，这里只需确认进入弃牌区
+        if card_name != "改签票":
+            if card_name not in ish.deck.discard_pile:
+                ish.deck.discard_pile.append(card_name)
+
     def _execute_attack(self, parsed, player, override_killer=None):
         """override_killer: 插入式笑话中传入 G6 玩家，
         使击杀归属、死亡显示、天赋通知都用 G6 的身份。"""
@@ -1738,15 +1991,8 @@ class ActionTurnManager:
             display.show_info(f"❌ {player.name} 没有武器「{weapon_name}」")
             return f"❌ {player.name} 没有武器「{weapon_name}」", "attack", False
 
-        # Indifferenza 自动入戏
-        if (self.state.ish_bosheth
-                and self.state.ish_bosheth.phase == "active"
-                and getattr(player, 'emotion', None) == "indifferenza"
-                and target_id != self.state.ish_bosheth.g2_owner_id):
-            from engine.ish_bosheth import ACCAREZZEVOLE, EMOTION_LABELS
-            player.emotion = ACCAREZZEVOLE
-            prompt_manager.show("g2reset", "emotion.indifferenza_auto",
-                               player_name=player.name)
+        # v0.6: 声部锁定，Indifferenza 不再自动转 Accarezzevole
+        # Ind 攻击非 G2 真实玩家 → 被引擎拦截（在 _get_available_actions 中限制）
 
         from models.equipment import WeaponRange
         if weapon.weapon_range == WeaponRange.AREA:
