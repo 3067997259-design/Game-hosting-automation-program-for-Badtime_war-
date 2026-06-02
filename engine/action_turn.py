@@ -1901,7 +1901,17 @@ class ActionTurnManager:
             target = next((t for t in all_acc if t.name == chosen), all_acc[0])
             target.temp_hp_g2 = getattr(target, 'temp_hp_g2', 0) + 0.5
             if getattr(target, 'is_chorus', False):
-                target._card_backstage_projection = True
+                # Acc Chorus 立刻执行一次攻击：选择一名 Str 单位作为指令目标
+                str_targets = [c for c in ish.chorus_list
+                               if c.is_alive() and c.emotion == STRAPPANDO]
+                for p2_id in ish.participants:
+                    p2 = self.state.get_player(p2_id)
+                    if p2 and p2.is_alive() and getattr(p2, 'emotion', None) == STRAPPANDO:
+                        str_targets.append(p2)
+                if str_targets:
+                    import random as _random
+                    picked = _random.choice(str_targets)
+                    target._g2_commanded_target_id = picked.player_id
 
     def _handle_backstage_pass(self, player, ish):
         """后台通行证：在当前座位生成 G2 投影，立刻 engage。"""
@@ -1912,8 +1922,9 @@ class ActionTurnManager:
         player._card_backstage_projection = True
 
     def _handle_tear_ticket(self, player, ish):
-        """撕票：Regard -0.5。"""
+        """撕票：Regard -0.5。若本回合击杀 Acc 单位，额外 Regard -0.5。"""
         ish.regard = max(0, ish.regard - 0.5)
+        player._card_tear_ticket_active = True
 
     def _handle_boo(self, player, ish):
         """倒彩：选一名 Acc 单位，其至下个 R4 受到伤害 +0.5。"""
@@ -2173,6 +2184,13 @@ class ActionTurnManager:
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
                     self.state, t.player_id, killer_id=killer.player_id)
+                # 撕票：击杀 Acc 单位额外 Regard -0.5
+                if getattr(killer, '_card_tear_ticket_active', False):
+                    ish2 = getattr(self.state, 'ish_bosheth', None)
+                    if ish2 and getattr(t, 'emotion', None) == ACCAREZZEVOLE:
+                        ish2.regard = max(0, ish2.regard - 0.5)
+                        display.show_info(f"🎫 撕票生效：击杀 Acc 单位 {t.name}，额外 Regard -0.5")
+                        killer._card_tear_ticket_active = False
 
         # ---- 范围攻击同时波及同地点警察 ----
         pe = self.state.police_engine

@@ -21,7 +21,7 @@ class ChorusController:
     """Chorus v0.6 决策控制器。"""
 
     def __init__(self):
-        self._last_command_target: Optional[str] = None
+        pass
 
     def get_command(self, available_actions: List[str] = None,
                     context: Dict[str, Any] = None) -> str:
@@ -56,6 +56,9 @@ class ChorusController:
                     chorus._card_damage_bonus = 0.5
                 elif card == "耳塞":
                     chorus._card_earplug = True
+                    ent = getattr(chorus, 'stage_entangle', [])
+                    if ent:
+                        ent.pop()
                 elif card == "后台通行证":
                     # Chorus 只能造成 Regard -1，不触发破幕
                     ish.regard = max(0, ish.regard - 1.0)
@@ -64,6 +67,18 @@ class ChorusController:
         if "attack" in available_actions:
             legal_targets = self._get_legal_targets(game_state, chorus, ish)
             if legal_targets:
+                # G2 Sognando 可指定 Chorus 攻击目标
+                commanded_id = getattr(chorus, '_g2_commanded_target_id', None)
+                if commanded_id:
+                    commanded_target = next(
+                        (t for t in legal_targets if t.player_id == commanded_id), None)
+                    if commanded_target:
+                        delattr(chorus, '_g2_commanded_target_id')
+                        weapons = getattr(chorus, 'weapons', [])
+                        if weapons:
+                            weapon = random.choice(weapons)
+                            return f"attack {commanded_target.name} with {weapon.name}"
+                        return f"attack {commanded_target.name}"
                 target = random.choice(legal_targets)
                 weapons = getattr(chorus, 'weapons', [])
                 if weapons:

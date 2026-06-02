@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 VOICE_ACC = "accarezzevole"
 VOICE_IND = "indifferenza"
 VOICE_STR = "strappando"
+# 以上常量值与 engine.ish_bosheth 中的 ACCAREZZEVOLE / INDIFFERENZA / STRAPPANDO 等价。
+# material_deck 无法从 ish_bosheth 导入（循环依赖），故在此独立定义。
 
 
 # ── 牌定义 ──────────────────────────────────────────────────────────

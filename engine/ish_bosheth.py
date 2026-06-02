@@ -366,6 +366,10 @@ class IshBosheth:
                             setattr(p, attr, 0.0)
                 if hasattr(p, '_card_earplug'):
                     p._card_earplug = False
+                if hasattr(p, '_card_tear_ticket_active'):
+                    p._card_tear_ticket_active = False
+                if hasattr(p, '_card_backstage_projection'):
+                    p._card_backstage_projection = False
                 if hasattr(p, '_card_d6_bonus_rounds') and getattr(p, '_card_d6_bonus_rounds', 0) > 0:
                     p._card_d6_bonus_rounds -= 1
         for c in self.chorus_list:
@@ -382,6 +386,10 @@ class IshBosheth:
                         setattr(c, attr, 0.0)
                 if hasattr(c, '_card_earplug'):
                     c._card_earplug = False
+                if hasattr(c, '_card_tear_ticket_active'):
+                    c._card_tear_ticket_active = False
+                if hasattr(c, '_card_backstage_projection'):
+                    c._card_backstage_projection = False
 
         # 清理声部特效标记
         for pid in self.participants:
@@ -566,6 +574,8 @@ class IshBosheth:
                 p._card_no_attack_until_r4 = None
                 p._card_temp_hp_until_r4 = 0.0
                 p._card_earplug = False
+                p._card_tear_ticket_active = False
+                p._card_backstage_projection = False
                 p._card_d6_bonus_rounds = 0
                 p._card_extra_play = False
 

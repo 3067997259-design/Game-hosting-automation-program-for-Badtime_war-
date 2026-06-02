@@ -319,9 +319,17 @@ class Hologram(BaseTalent):
             else:
                 hand = ish.deck.hands.get(target.player_id, [])
                 if hand:
-                    # 占位：AI 选牌，这里简单取第一张
-                    card = hand.pop(0)
-                    ish.deck.draw_pile.insert(0, card)
+                    chosen = target.controller.choose(
+                        "Placido：选择 1 张手牌放回牌堆底",
+                        hand,
+                        context={"phase": "T0", "situation": "g2_placido_replace"},
+                    )
+                    if chosen in hand:
+                        hand.remove(chosen)
+                        ish.deck.draw_pile.insert(0, chosen)
+                    else:
+                        card = hand.pop(0)
+                        ish.deck.draw_pile.insert(0, card)
                     new_card = ish.deck._draw_one()
                     if new_card:
                         hand.append(new_card)
