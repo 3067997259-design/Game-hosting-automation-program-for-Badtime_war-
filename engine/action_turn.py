@@ -2007,22 +2007,30 @@ class ActionTurnManager:
                     ish.deck.hands.setdefault(pid, []).append(c)
 
     def _handle_program_tidy(self, player, ish):
-        """场刊整理：选一名真实观众，双方各摸 1 张，不同声部可令一人弃 1 张。"""
+        """场刊整理：选一名观众（含 Chorus），双方各摸 1 张，不同声部可令一人弃 1 张。"""
         pid = player.player_id
-        other_real = [self.state.get_player(p) for p in ish.participants
-                      if p != pid and self.state.get_player(p) and self.state.get_player(p).is_alive()]
-        if other_real:
+        targets = [self.state.get_player(p) for p in ish.participants
+                    if p != pid and self.state.get_player(p) and self.state.get_player(p).is_alive()]
+        targets += [c for c in ish.chorus_list if c.is_alive()]
+        if targets:
             chosen = player.controller.choose(
-                "场刊整理：选择一名真实观众",
-                [p.name for p in other_real],
+                "场刊整理：选择一名观众",
+                [t.name for t in targets],
                 context={"phase": "T0", "situation": "g2_card_program_tidy"},
             )
-            target = next((p for p in other_real if p.name == chosen), other_real[0])
+            target = next((t for t in targets if t.name == chosen), targets[0])
+            # 双方摸 1 张
             for person in [player, target]:
                 c = ish.deck._draw_one()
                 if c:
-                    ish.deck.hands.setdefault(person.player_id, []).append(c)
-            if getattr(player, 'emotion', None) != getattr(target, 'emotion', None):
+                    is_chorus = getattr(person, 'is_chorus', False)
+                    if is_chorus:
+                        ish.deck.chorus_slots.setdefault(person.player_id, c)
+                    else:
+                        ish.deck.hands.setdefault(person.player_id, []).append(c)
+            # 若不同声部 + 目标非 Chorus → 可令一人弃 1 张
+            is_chorus = getattr(target, 'is_chorus', False)
+            if not is_chorus and getattr(player, 'emotion', None) != getattr(target, 'emotion', None):
                 victim = player.controller.choose(
                     "场刊整理：令谁弃 1 张？",
                     [player.name, target.name],

@@ -153,6 +153,12 @@ class ChorusUnit:
             self.armor.inner.append(ia)
 
     # ── 查询 ──────────────────────────────────────────────────────
+    def get_d4_bonus(self) -> int:
+        return 0
+
+    def get_d6_bonus(self) -> int:
+        return 0
+
     def get_weapon(self, weapon_name):
         for w in self.weapons:
             if w and getattr(w, 'name', None) == weapon_name:
