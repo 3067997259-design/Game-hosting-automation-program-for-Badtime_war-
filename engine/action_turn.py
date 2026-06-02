@@ -1754,7 +1754,7 @@ class ActionTurnManager:
         if card_name == "前排票":
             # 移动到任意观众座位 + 与 1 个单位 engage
             available_seats = sorted(ish.SEATS - {seat})
-            if "move" in self._get_available_action_names(player):
+            if "move" in self._get_available_actions(player)[0]:
                 dest = player.controller.choose(
                     "前排票：选择目标座位",
                     available_seats,
