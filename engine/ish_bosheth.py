@@ -338,6 +338,7 @@ class IshBosheth:
                     p.temp_hp_g2 = 0.0
                     p.temp_atk_g2 = 0.0
         for c in self.chorus_list:
+            c._g2_spotlight_target_id = None
             if "spotlight" in getattr(c, 'stage_statuses', set()):
                 granted_r4 = getattr(c, '_spotlight_granted_r4', -1)
                 if granted_r4 < self.r4_count:
