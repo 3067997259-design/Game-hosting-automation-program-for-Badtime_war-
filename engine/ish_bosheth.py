@@ -116,6 +116,15 @@ class IshBosheth:
                 continue
             self.participants.add(pid)
 
+        # 2.5. 强制起床（草案 §3.2：未起床者强制起床且不算主动起床）
+        for pid in self.participants:
+            p = game_state.get_player(pid)
+            if p and not p.is_awake:
+                p.is_awake = True
+                game_state.markers.on_player_wake_up(pid)
+                lines.append(f"  💤 {p.name} 被舞台强制唤醒！")
+                # 天赋起床被动（G7 等）在 execute_t0 完整展开后、R3 额外回合中触发
+
         # 3. 解除隐身
         for pid in self.participants:
             p = game_state.get_player(pid)
@@ -244,8 +253,22 @@ class IshBosheth:
                 p.location = seat
                 game_state.markers.on_player_move(p.player_id)
 
+        # 空座位各填 1 个 Chorus
         for seat in empty_seats:
             c = ChorusUnit()
+            c.location = seat
+            c.controller = ChorusController()
+            self.chorus_list.append(c)
+            game_state.markers.register_unit(c.player_id)
+            game_state.register_chorus(c)
+            assigned.setdefault(seat, []).append(c)
+
+        # v0.6: 总观众数不足 6 时，在随机座位上追加 Chorus（补齐 2/2/2 三声部）
+        total_audience = len(self.participants) + len(self.chorus_list)
+        needed = max(0, 6 - total_audience)
+        for _ in range(needed):
+            c = ChorusUnit()
+            seat = random.choice(seats)
             c.location = seat
             c.controller = ChorusController()
             self.chorus_list.append(c)

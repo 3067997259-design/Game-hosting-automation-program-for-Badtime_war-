@@ -59,15 +59,16 @@ class ActionTurnManager:
             action_type = self._phase_t1_chorus(player)
             return action_type
         display.show_action_turn_header(player.name)
+        # 未起床：先起床（T0 物料阶段/天赋选项在起床后才运行）
+        if not player.is_awake:
+            result_msg = wake_up.execute(player, self.state)
+            display.show_result(result_msg)
+            return "wake"
         skip = self._phase_t0(player)
         if skip:
             from utils.pacing import action_pause
             action_pause(self.state, f"{player.name} → {skip}")
             return skip
-        if not player.is_awake:
-            result_msg = wake_up.execute(player, self.state)
-            display.show_result(result_msg)
-            return "wake"
         action_type = self._phase_t1(player)
         self._phase_t2(player, action_type)
         return action_type
@@ -1889,7 +1890,19 @@ class ActionTurnManager:
                 context={"phase": "T0", "situation": "g2_card_spotlight_photo"},
             )
             target = next((t for t in str_targets if t.name == chosen), str_targets[0])
-            self.state.markers.set_engaged(pid, target.player_id)
+            # 移动到目标座位 + 建立 engage
+            if player.location != target.location:
+                player.location = target.location
+                # move→auto-find：与该座位所有单位建立 engage
+                for p2_id in ish.participants:
+                    p2 = self.state.get_player(p2_id)
+                    if p2 and p2.is_alive() and p2.location == target.location and p2.player_id != pid:
+                        self.state.markers.set_engaged(pid, p2.player_id)
+                for c in ish.chorus_list:
+                    if c.is_alive() and c.location == target.location and c.player_id != pid:
+                        self.state.markers.set_engaged(pid, c.player_id)
+            else:
+                self.state.markers.set_engaged(pid, target.player_id)
             player._card_damage_bonus = 0.5
             player._card_damage_bonus_target_id = target.player_id
 
