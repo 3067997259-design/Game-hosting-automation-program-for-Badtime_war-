@@ -149,9 +149,11 @@ class MaterialDeck:
                 if card:
                     self.hands[pid].append(card)
 
-        # 3. Chorus 各摸 1 张
+        # 3. Chorus 各摸 1 张（跳过已持改签票的 Chorus）
         for c in chorus_units:
             if not c.is_alive():
+                continue
+            if self.chorus_slots.get(c.player_id) == TRANSFER_TICKET_NAME:
                 continue
             card = self._draw_one()
             if card:

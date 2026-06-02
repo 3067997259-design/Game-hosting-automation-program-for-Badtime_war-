@@ -201,6 +201,7 @@ class ActionTurnManager:
                 if card:
                     hand = ish.deck.hands.setdefault(pid, [])
                     hand.append(card)
+                    display.show_info(f"🃏 {player.name} 摸到「{card}」| 手牌: {hand}")
 
                 # 2. 拾取座位掉落 1 张
                 dropped = ish.deck.dropped_goods.get(seat, [])
@@ -368,6 +369,13 @@ class ActionTurnManager:
 
         # Terror 存活时：全场禁用 interact
         if self.state.is_terror_alive():
+            names = [n for n in names if n != "interact"]
+            descs = [d for d in descs if not d["usage"].startswith("interact")]
+
+        # v0.6 ish-bosheth 舞台内：禁用地点交互
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase == "active"
+                and "liberamente_vivace" in getattr(player, 'stage_statuses', set())):
             names = [n for n in names if n != "interact"]
             descs = [d for d in descs if not d["usage"].startswith("interact")]
 
