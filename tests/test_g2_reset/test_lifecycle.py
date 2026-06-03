@@ -61,6 +61,7 @@ class TestIshBoshethInit(unittest.TestCase):
         self.assertEqual(ish.regard_cap, 8.0)
         self.assertEqual(ish.r4_count, 0)
         self.assertEqual(ish.cumulative_delta_regard, 0.0)
+        self.assertFalse(ish.melody_1_used)
         self.assertFalse(ish.melody_2_used)
         self.assertFalse(ish.melody_3_used)
 
@@ -97,15 +98,15 @@ class TestR4Hook(unittest.TestCase):
     @patch("engine.ish_bosheth.display")
     def test_r4_cumulative_delta_unlock(self, _disp):
         # v0.7: 累计 ΔRegard 解锁。每轮 net=-0.5 → |Δ|=0.5
-        ish, gs, _ = self._setup_ish()
-        ish.regard = 20.0  # 远超 cap，但 _adjust_regard 会 clamp
+        ish, gs, _ = self._setup_ish(n_acc=1, n_str=1, n_ind=1)
+        ish.regard = ish.regard_cap  # 8.0，正常起始
         for _ in range(6):
             ish.on_r4(gs)
         self.assertGreaterEqual(ish.cumulative_delta_regard, 3.0)
-        # r4_count=6 → <8，不会进入 pending_curtain
-        for _ in range(1):  # r4_count 已经 6，再加 1 = 7，仍 <8
-            ish.on_r4(gs)
-        self.assertGreaterEqual(ish.cumulative_delta_regard, 3.5)
+        songs = ish.get_available_songs()
+        song_names = [s['name'] for s in songs]
+        self.assertIn("旋律·第一音节", song_names)
+        self.assertNotIn("旋律·第二间章", song_names)
 
     @patch("engine.ish_bosheth.display")
     def test_r4_regard_zero_pending_curtain(self, _disp):

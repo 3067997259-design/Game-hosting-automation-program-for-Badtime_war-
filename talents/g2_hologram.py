@@ -67,12 +67,12 @@ class Hologram(BaseTalent):
 
         display.show_result("\n".join(open_lines))
 
-        # 触发第一音节
+        # 触发序曲（开幕免费，不计入 melody_1_used）
         from controllers.human import HumanController
         if isinstance(player.controller, HumanController):
             display.show_info(
                 f"\n{'='*50}\n"
-                f"  🎵 第一音节 —— 请 {player.name} 选择旋律目标座位\n"
+                f"  🎵 序曲 —— 请 {player.name} 选择旋律目标座位\n"
                 f"{'='*50}")
         ish.execute_melody(self.state, player)
 
@@ -161,11 +161,17 @@ class Hologram(BaseTalent):
 
         # 旋律不需选目标
         if "旋律" in selected_song['name']:
-            if "第二间章" in selected_song['name']:
+            if "第一音节" in selected_song['name']:
+                ish.melody_1_used = True
+                ish.execute_melody(game_state, player,
+                                   base_dmg_seq=[1.0, 0.5, 0.5, 0.5])
+            elif "第二间章" in selected_song['name']:
                 ish.melody_2_used = True
+                ish.execute_melody(game_state, player)
             elif "第三间章" in selected_song['name']:
                 ish.melody_3_used = True
-            ish.execute_melody(game_state, player)
+            else:
+                ish.execute_melody(game_state, player)
             return f"🎵 {selected_song['name']}"
 
         # Before light 不需选听者

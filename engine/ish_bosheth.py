@@ -76,6 +76,7 @@ class IshBosheth:
         # v0.6 安定値: 累计 |ΔRegard| 解锁三间章
         self.cumulative_delta_regard: float = 0.0
         # v0.6: 三间章使用追踪（不再由 r4_count 控制解锁）
+        self.melody_1_used: bool = False
         self.melody_2_used: bool = False
         self.melody_3_used: bool = False
 
@@ -802,6 +803,13 @@ class IshBosheth:
                 "rhythms": self._get_rhythms_for_song("Before light"),
             })
         # v0.7 旋律：累计 ΔRegard 解锁（而非固定轮次）
+        if self.cumulative_delta_regard >= self.MELODY_1_THRESHOLD and not self.melody_1_used:
+            songs.append({
+                "name": "旋律·第一音节",
+                "cost": 0,
+                "desc": "双座位 1.0/0.5/0.5/0.5 安定値修正",
+                "rhythms": [{"name": "第一音节", "cost": 0}],
+            })
         if self.cumulative_delta_regard >= self.MELODY_2_THRESHOLD and not self.melody_2_used:
             songs.append({
                 "name": "旋律·第二间章",
@@ -904,7 +912,7 @@ class IshBosheth:
             dmg = base_dmg_seq[i] if i < len(base_dmg_seq) else 0.5
             decay = decays[i] if i < len(decays) else 0.1
             stability = _calc_stability(target, self.cumulative_delta_regard, decay)
-            raw = _calc_melody_damage(dmg, stability, decay, target.max_hp, target.hp)
+            raw = _calc_melody_damage(dmg, stability, target.max_hp, target.hp)
 
             prompt_manager.show("g2reset", "melody.hit",
                                index=i+1, target_name=target.name)
@@ -1020,17 +1028,19 @@ def get_total_defense_hp(unit) -> float:
 
 
 def _calc_stability(unit, cumulative_delta: float, decay_factor: float = 1.0) -> float:
-    """每目标独立安定値。正=增伤，负=治疗。"""
+    """每目标独立安定値。正=增伤，负=治疗。
+    decay_factor 随命中顺位衰减（第1目标=1.0, 第4目标=0.2）。"""
     base = max(-0.5, min(1.5, cumulative_delta / 6.0 - 0.5))
     total_def = get_total_defense_hp(unit)
     armor_mod = (total_def - 3.5) * 0.4
-    return base + armor_mod
+    return (base + armor_mod) * decay_factor
 
 
-def _calc_melody_damage(base_dmg: float, stability: float, decay: float,
+def _calc_melody_damage(base_dmg: float, stability: float,
                         unit_max_hp: float, unit_current_hp: float) -> float:
-    """安定値修正后的旋律伤害。≤0 → 负值表示治疗量。"""
-    raw = base_dmg * (1.0 + stability * decay)
+    """安定値修正后的旋律伤害。≤0 → 负值表示治疗量。
+    注意：衰减已在 _calc_stability 中生效，此处不再重复。"""
+    raw = base_dmg * (1.0 + stability)
     if raw <= 0:
         return max(raw, unit_current_hp - unit_max_hp)
     return max(0.5, raw)
