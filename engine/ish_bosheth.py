@@ -73,9 +73,10 @@ class IshBosheth:
 
         self.before_light: Optional[str] = None   # "riposato" / "dolente" / None
 
-        self.melody_2_unlocked: bool = False
+        # v0.6 安定値: 累计 |ΔRegard| 解锁三间章
+        self.cumulative_delta_regard: float = 0.0
+        # v0.6: 三间章使用追踪（不再由 r4_count 控制解锁）
         self.melody_2_used: bool = False
-        self.melody_3_unlocked: bool = False
         self.melody_3_used: bool = False
 
         self.participants: Set[str] = set()
@@ -86,6 +87,18 @@ class IshBosheth:
         # v0.6: G2 投影（后台通行证生成）
         self.projection_seat: Optional[str] = None
         self.projection_round: int = -1
+
+    # ── 累计解锁阈值 ────────────────────────────────────────────
+    MELODY_1_THRESHOLD = 3.0
+    MELODY_2_THRESHOLD = 7.0
+    MELODY_3_THRESHOLD = 11.0
+
+    def _adjust_regard(self, delta: float):
+        """修改 Regard 并自动追踪累计变化绝对值。"""
+        old = self.regard
+        self.regard = max(0.0, min(self.regard_cap, self.regard + delta))
+        actual = abs(self.regard - old)
+        self.cumulative_delta_regard += actual
 
     # ================================================================
     #  展开
@@ -309,19 +322,19 @@ class IshBosheth:
             self.end_ish_bosheth(END_EMPTY, game_state)
             return
 
-        # Regard 变化（v0.6 公式）
-        self.regard -= 1.0
+        # Regard 变化（v0.6 公式 + 安定値追踪）
+        total_delta = -1.0
 
-        # Indifferenza 维持演出
+        # Indifferenza 维持演出（v0.7 翻倍）
         for pid in self.participants:
             if pid == self.g2_owner_id:
                 continue
             p = game_state.get_player(pid)
             if p and p.is_alive() and getattr(p, 'emotion', None) == INDIFFERENZA:
-                self.regard += 0.5
+                total_delta += 1.0   # was 0.5
         for c in self.chorus_list:
             if c.is_alive() and c.emotion == INDIFFERENZA:
-                self.regard += 0.25
+                total_delta += 0.5   # was 0.25
 
         # Strappando 撕裂演出
         for pid in self.participants:
@@ -329,19 +342,13 @@ class IshBosheth:
                 continue
             p = game_state.get_player(pid)
             if p and p.is_alive() and getattr(p, 'emotion', None) == STRAPPANDO:
-                self.regard -= 0.5
+                total_delta -= 0.5
         for c in self.chorus_list:
             if c.is_alive() and c.emotion == STRAPPANDO:
-                self.regard -= 0.25
+                total_delta -= 0.25
 
-        self.regard = max(0, min(self.regard, self.regard_cap))
+        self._adjust_regard(total_delta)
         self.r4_count += 1
-
-        # 旋律解锁
-        if self.r4_count >= 3:
-            self.melody_2_unlocked = True
-        if self.r4_count >= 6:
-            self.melody_3_unlocked = True
 
         # 谢幕检查
         if self.regard <= 0:
@@ -794,18 +801,19 @@ class IshBosheth:
                 "desc": "改变本轮规则",
                 "rhythms": self._get_rhythms_for_song("Before light"),
             })
-        if self.melody_2_unlocked and not self.melody_2_used:
+        # v0.7 旋律：累计 ΔRegard 解锁（而非固定轮次）
+        if self.cumulative_delta_regard >= self.MELODY_2_THRESHOLD and not self.melody_2_used:
             songs.append({
                 "name": "旋律·第二间章",
                 "cost": 0,
-                "desc": "声部特效 1/1/0.5/0.5",
+                "desc": "双座位 1/1/0.5/0.5 安定値修正",
                 "rhythms": [{"name": "第二间章", "cost": 0}],
             })
-        if self.melody_3_unlocked and not self.melody_3_used:
+        if self.cumulative_delta_regard >= self.MELODY_3_THRESHOLD and not self.melody_3_used:
             songs.append({
                 "name": "旋律·第三间章",
                 "cost": 0,
-                "desc": "声部特效 1/1/0.5/0.5",
+                "desc": "双座位 2/2/1/1 安定値修正",
                 "rhythms": [{"name": "第三间章", "cost": 0}],
             })
         return songs
@@ -844,47 +852,83 @@ class IshBosheth:
         return targets
 
     # ================================================================
-    #  旋律（v0.6：声部特效）
+    #  旋律（v0.7：双座位 + 安定値修正）
     # ================================================================
-    def execute_melody(self, game_state: GameState, g2_player: Player):
-        """旋律：G2 选座位 → 伤害序列 → 声部特效。"""
-        damage_sequence = [1.0, 1.0, 0.5, 0.5]
+    def execute_melody(self, game_state: GameState, g2_player: Player,
+                       base_dmg_seq: list = None):
+        """旋律 v0.7：G2 选 1-2 座位 → 最多 4 目标 → 安定値修正伤害/治疗。"""
+        if base_dmg_seq is None:
+            base_dmg_seq = [1.0, 1.0, 0.5, 0.5]
+
         occupied = self._get_occupied_seats(game_state)
         if not occupied:
             prompt_manager.show("g2reset", "melody.no_targets")
             return
 
         seat_names = sorted(occupied.keys())
-        chosen = g2_player.controller.choose(
-            "选择旋律目标座位：",
+
+        # 选座位 1（必选）
+        chosen1 = g2_player.controller.choose(
+            "选择旋律目标座位 1：",
             seat_names,
             context={"situation": "g2_melody_seat"},
         )
-        if chosen not in occupied:
-            chosen = seat_names[0]
+        if chosen1 not in occupied:
+            chosen1 = seat_names[0]
 
-        targets = occupied[chosen]
-        for i, (dmg, target) in enumerate(zip(damage_sequence, targets)):
-            if not target.is_alive():
-                continue
-            from combat.damage_resolver import resolve_damage
-            result = resolve_damage(
-                g2_player, target, None, game_state,
-                raw_damage_override=dmg,
-                damage_attribute_override="无视属性克制",
-                is_talent_attack=True,
-                is_embrace_damage=True,
-            )
+        # 选座位 2（可选"不选"）
+        remaining = [s for s in seat_names if s != chosen1]
+        remaining.append("不选")
+        chosen2 = g2_player.controller.choose(
+            "选择旋律目标座位 2（或不选）：",
+            remaining,
+            context={"situation": "g2_melody_seat2"},
+        )
+        if chosen2 not in occupied:
+            chosen2 = None
+
+        # 收集目标
+        all_targets = list(occupied.get(chosen1, []))
+        if chosen2:
+            all_targets += occupied.get(chosen2, [])
+        targets = [t for t in all_targets if t.is_alive()][:4]
+        if not targets:
+            prompt_manager.show("g2reset", "melody.no_targets")
+            return
+
+        # 衰减序列
+        decays = [1.0, 0.6, 0.4, 0.2]
+        from combat.damage_resolver import resolve_damage
+
+        for i, target in enumerate(targets):
+            dmg = base_dmg_seq[i] if i < len(base_dmg_seq) else 0.5
+            decay = decays[i] if i < len(decays) else 0.1
+            stability = _calc_stability(target, self.cumulative_delta_regard, decay)
+            raw = _calc_melody_damage(dmg, stability, decay, target.max_hp, target.hp)
+
             prompt_manager.show("g2reset", "melody.hit",
                                index=i+1, target_name=target.name)
-            for detail in result.get("details", []):
-                display.show_info(f"   {detail}")
+            if raw > 0:
+                result = resolve_damage(
+                    g2_player, target, None, game_state,
+                    raw_damage_override=raw,
+                    damage_attribute_override="无视属性克制",
+                    is_talent_attack=True,
+                )
+                for detail in result.get("details", []):
+                    display.show_info(f"   {detail}")
+                if (result.get("killed") and hasattr(game_state, 'police_engine')
+                        and game_state.police_engine):
+                    game_state.police_engine.check_and_record_crime(
+                        g2_player.player_id, "伤害玩家")
+            else:
+                heal = min(-raw, target.max_hp - target.hp)
+                if heal > 0:
+                    target.hp = round(target.hp + heal, 2)
+                    display.show_info(
+                        f"   🎵 旋律共鸣：{target.name} 恢复 {heal:.1f} HP → {target.hp}")
 
-            if result.get("killed") and hasattr(game_state, 'police_engine') and game_state.police_engine:
-                game_state.police_engine.check_and_record_crime(
-                    g2_player.player_id, "伤害玩家")
-
-            # v0.6: 命中后声部特效（取代情绪下调）
+            # 声部特效（命中且存活后触发）
             if target.is_alive():
                 self._apply_melody_voice_effect(target, game_state)
 
@@ -917,7 +961,7 @@ class IshBosheth:
 
         elif voice == STRAPPANDO:
             # 裂音：Regard -0.25，下次攻击 G2 伤害 +0.5
-            self.regard = max(0, self.regard - 0.25)
+            self._adjust_regard(-0.25)
             ss.add(MARK_CRACK)
             target._card_damage_bonus = max(target._card_damage_bonus, 0.5)
             target._card_damage_bonus_target_id = self.g2_owner_id
@@ -953,6 +997,43 @@ class IshBosheth:
     def get_projection_seat(self) -> Optional[str]:
         """获取当前投影所在座位。"""
         return self.projection_seat
+
+
+# ══════════════════════════════════════════════════════════════════
+#  v0.7 安定値计算（模块级函数）
+# ══════════════════════════════════════════════════════════════════
+
+def get_total_defense_hp(unit) -> float:
+    """总防御HP = base_HP + 护甲当前HP + 天赋特殊防御。
+    不计入 G2 临时增益（temp_hp_g2 / _card_temp_hp_until_r4）。"""
+    hp = unit.hp
+    t = getattr(unit, 'talent', None)
+    if t:
+        hp += getattr(t, 'temp_hp', 0.0)
+        hp += getattr(t, 'ardent_wish_charges', 0) * 0.5
+        hp += getattr(t, 'iron_horus_hp', 0.0)
+    armor = getattr(unit, 'armor', None)
+    if armor and hasattr(armor, 'get_all_active'):
+        for p in armor.get_all_active():
+            hp += p.current_hp
+    return hp
+
+
+def _calc_stability(unit, cumulative_delta: float, decay_factor: float = 1.0) -> float:
+    """每目标独立安定値。正=增伤，负=治疗。"""
+    base = max(-0.5, min(1.5, cumulative_delta / 6.0 - 0.5))
+    total_def = get_total_defense_hp(unit)
+    armor_mod = (total_def - 3.5) * 0.4
+    return base + armor_mod
+
+
+def _calc_melody_damage(base_dmg: float, stability: float, decay: float,
+                        unit_max_hp: float, unit_current_hp: float) -> float:
+    """安定値修正后的旋律伤害。≤0 → 负值表示治疗量。"""
+    raw = base_dmg * (1.0 + stability * decay)
+    if raw <= 0:
+        return max(raw, unit_current_hp - unit_max_hp)
+    return max(0.5, raw)
 
 
 # ══════════════════════════════════════════════════════════════════

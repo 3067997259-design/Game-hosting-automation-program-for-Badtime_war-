@@ -1972,7 +1972,7 @@ class ActionTurnManager:
 
     def _handle_tear_ticket(self, player, ish):
         """撕票：Regard -0.5。若本回合击杀 Acc 单位，额外 Regard -0.5。"""
-        ish.regard = max(0, ish.regard - 0.5)
+        ish._adjust_regard(-0.5)
         player._card_tear_ticket_active = True
 
     def _handle_boo(self, player, ish):
@@ -2245,7 +2245,7 @@ class ActionTurnManager:
                 if getattr(killer, '_card_tear_ticket_active', False):
                     ish2 = getattr(self.state, 'ish_bosheth', None)
                     if ish2 and getattr(t, 'emotion', None) == ACCAREZZEVOLE:
-                        ish2.regard = max(0, ish2.regard - 0.5)
+                        ish2._adjust_regard(-0.5)
                         display.show_info(f"🎫 撕票生效：击杀 Acc 单位 {t.name}，额外 Regard -0.5")
                         killer._card_tear_ticket_active = False
 
