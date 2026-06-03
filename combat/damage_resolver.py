@@ -897,7 +897,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             result["hp_damage"] = max(0, round(original_hp - target.hp, 2))
             result["target_hp"] = target.hp
             result["details"].append("🎭 Chorus 攻击无法破幕，G2 HP 保持最低 0.5")
-            game_state.ish_bosheth.regard -= 1
+            game_state.ish_bosheth.adjust_regard(-1.0)
             return result
 
     # ---- 第6步：眩晕/死亡判定 ----

@@ -60,8 +60,10 @@ class TestIshBoshethInit(unittest.TestCase):
         self.assertEqual(ish.regard, 0.0)
         self.assertEqual(ish.regard_cap, 8.0)
         self.assertEqual(ish.r4_count, 0)
-        self.assertFalse(ish.melody_2_unlocked)
-        self.assertFalse(ish.melody_3_unlocked)
+        self.assertEqual(ish.cumulative_delta_regard, 0.0)
+        self.assertFalse(ish.melody_1_used)
+        self.assertFalse(ish.melody_2_used)
+        self.assertFalse(ish.melody_3_used)
 
 
 class TestR4Hook(unittest.TestCase):
@@ -86,30 +88,31 @@ class TestR4Hook(unittest.TestCase):
 
     @patch("engine.ish_bosheth.display")
     def test_r4_regard_decay(self, _disp):
-        # v0.6: Acc 中性, Ind +0.5, Str -0.5. 1/1/1 = -1 -0.5 +0.5 = -1.0 net
+        # v0.7: Acc 中性, Ind +1.0, Str -0.5. 1/1/1 = -1 +1 -0.5 = -0.5 net
         ish, gs, _ = self._setup_ish(n_acc=1, n_str=1, n_ind=1)
         initial = ish.regard
         ish.on_r4(gs)
-        self.assertAlmostEqual(ish.regard, initial - 1.0)
+        self.assertAlmostEqual(ish.regard, initial - 0.5)
         self.assertEqual(ish.r4_count, 1)
 
     @patch("engine.ish_bosheth.display")
-    def test_r4_melody_unlock(self, _disp):
-        ish, gs, _ = self._setup_ish()
-        ish.regard = 8.0
-        for _ in range(3):
+    def test_r4_cumulative_delta_unlock(self, _disp):
+        # v0.7: 累计 ΔRegard 解锁。每轮 net=-0.5 → |Δ|=0.5
+        ish, gs, _ = self._setup_ish(n_acc=1, n_str=1, n_ind=1)
+        ish.regard = ish.regard_cap  # 8.0，正常起始
+        for _ in range(6):
             ish.on_r4(gs)
-        self.assertTrue(ish.melody_2_unlocked)
-        self.assertFalse(ish.melody_3_unlocked)
-        for _ in range(3):
-            ish.on_r4(gs)
-        self.assertTrue(ish.melody_3_unlocked)
+        self.assertGreaterEqual(ish.cumulative_delta_regard, 3.0)
+        songs = ish.get_available_songs()
+        song_names = [s['name'] for s in songs]
+        self.assertIn("旋律·第一音节", song_names)
+        self.assertNotIn("旋律·第二间章", song_names)
 
     @patch("engine.ish_bosheth.display")
     def test_r4_regard_zero_pending_curtain(self, _disp):
-        # v0.6: 需要三声部都存在才不触发阵营胜利
+        # v0.7: Ind 翻倍 → net=-0.5. regard=0.5 → 0.0 after one round
         ish, gs, _ = self._setup_ish(n_acc=1, n_str=1, n_ind=1)
-        ish.regard = 1.0
+        ish.regard = 0.5
         ish.on_r4(gs)
         self.assertEqual(ish.phase, "pending_curtain")
 
