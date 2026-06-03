@@ -94,7 +94,7 @@ class IshBosheth:
     MELODY_2_THRESHOLD = 7.0
     MELODY_3_THRESHOLD = 11.0
 
-    def _adjust_regard(self, delta: float):
+    def adjust_regard(self, delta: float):
         """修改 Regard 并自动追踪累计变化绝对值。"""
         old = self.regard
         self.regard = max(0.0, min(self.regard_cap, self.regard + delta))
@@ -348,7 +348,7 @@ class IshBosheth:
             if c.is_alive() and c.emotion == STRAPPANDO:
                 total_delta -= 0.25
 
-        self._adjust_regard(total_delta)
+        self.adjust_regard(total_delta)
         self.r4_count += 1
 
         # 谢幕检查
@@ -969,7 +969,7 @@ class IshBosheth:
 
         elif voice == STRAPPANDO:
             # 裂音：Regard -0.25，下次攻击 G2 伤害 +0.5
-            self._adjust_regard(-0.25)
+            self.adjust_regard(-0.25)
             ss.add(MARK_CRACK)
             target._card_damage_bonus = max(target._card_damage_bonus, 0.5)
             target._card_damage_bonus_target_id = self.g2_owner_id
@@ -1014,7 +1014,7 @@ class IshBosheth:
 def get_total_defense_hp(unit) -> float:
     """总防御HP = base_HP + 护甲当前HP + 天赋特殊防御。
     不计入 G2 临时增益（temp_hp_g2 / _card_temp_hp_until_r4）。"""
-    hp = unit.hp
+    hp = unit.max_hp
     t = getattr(unit, 'talent', None)
     if t:
         hp += getattr(t, 'temp_hp', 0.0)

@@ -167,9 +167,12 @@ class Hologram(BaseTalent):
                                    base_dmg_seq=[1.0, 0.5, 0.5, 0.5])
             elif "第二间章" in selected_song['name']:
                 ish.melody_2_used = True
-                ish.execute_melody(game_state, player)
+                ish.execute_melody(game_state, player,
+                                   base_dmg_seq=[1.0, 1.0, 0.5, 0.5])
             elif "第三间章" in selected_song['name']:
                 ish.melody_3_used = True
+                ish.execute_melody(game_state, player,
+                                   base_dmg_seq=[2.0, 2.0, 1.0, 1.0])
             else:
                 ish.execute_melody(game_state, player)
             return f"🎵 {selected_song['name']}"
@@ -199,7 +202,7 @@ class Hologram(BaseTalent):
         )
         target = next((t for t in targets if t.name in target_choice), targets[0])
 
-        ish._adjust_regard(-total_cost)
+        ish.adjust_regard(-total_cost)
 
         if "Soave" in selected_rhythm['name'] or "温柔" in selected_rhythm['name']:
             self._execute_soave_v06(player, target, ish, game_state)
@@ -369,7 +372,7 @@ class Hologram(BaseTalent):
         )
         t2 = next((t for t in remaining if t.name in c2), remaining[0] if remaining else t1)
 
-        ish._adjust_regard(-total_cost)
+        ish.adjust_regard(-total_cost)
 
         # 交换牌
         if ish.deck:
@@ -377,7 +380,7 @@ class Hologram(BaseTalent):
 
         # 若至少一名是 Chorus：Regard +0.5
         if getattr(t1, 'is_chorus', False) or getattr(t2, 'is_chorus', False):
-            ish._adjust_regard(+0.5)
+            ish.adjust_regard(+0.5)
 
         # 若一名 Chorus 已死亡：复活
         dead_chorus = [c for c in ish.chorus_list if not c.is_alive()]
@@ -434,7 +437,7 @@ class Hologram(BaseTalent):
 
     # ── v0.6 Before light ───────────────────────────────────────
     def _execute_before_light(self, g2_player, ish, rhythm, cost):
-        ish._adjust_regard(-cost)
+        ish.adjust_regard(-cost)
         if "Riposato" in rhythm['name'] or "休息" in rhythm['name']:
             ish.before_light = "riposato"
             prompt_manager.show("g2reset", "song.riposato_v06")
