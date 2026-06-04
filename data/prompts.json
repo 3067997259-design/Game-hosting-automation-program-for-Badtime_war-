@@ -311,7 +311,20 @@
       "button.spawn": "\n🔴🔴 两个大红按钮出现在 {seat1} 和 {seat2}！",
       "button.hit": "🔴 {name} 按下了按钮！+{heat} 热力 → {voice}",
       "heat.round_end": "\n🎤 第 {round}/8 轮 — 热力: Acc={acc} Ind={ind} Str={str_} → Regard +{regen} = {regard}",
-      "harmonize.used": "🎤 {name} 伴唱！本轮歌曲花费减半。追忆预算：{budget}/12"
+      "harmonize.used": "🎤 {name} 伴唱！本轮歌曲花费减半。追忆预算：{budget}/12",
+      "displacement.random": "💨 {name} 被弹飞到 {seat}！",
+      "displacement.chosen": "🎯 {attacker} 将 {name} 推到了 {seat}！",
+      "encore.trigger": "\n🎉🎉 安可！安可！G5 的 12 追忆分毫未动！\n   G2 与 G5 合唱双人曲 —— 所有观众自选一件物品！",
+      "encore.pick_location": "选择获取地点：",
+      "encore.pick_item": "选择要获取的物品：",
+      "encore.grant": "✅ {name} 获得了 {item}！",
+      "curtain.header": "\n{'='*50}\n  🎤 双人演出谢幕！\n{'='*50}",
+      "curtain.ranking": "🏆 热力排名：第1声部 — {first} ({hf}) / 第2声部 — {second} ({hs}) / 第3声部 — {third} ({ht})",
+      "curtain.reward_1st": "🥇 第1声部({voice}): D4/D6+2，下次伤害+0.5",
+      "curtain.reward_2nd": "🥈 第2声部({voice}): D4/D6+1，tempHP+0.5",
+      "curtain.reward_3rd": "🥉 第3声部({voice}): D4+1",
+      "embrace.g2": "🤗 {name} 拥抱了 G2！获得「歌者的祝福」：下次攻击伤害+0.5（持续2轮）",
+      "embrace.g5": "🤗 {name} 拥抱了 G5！获得「涟漪的余韵」：下次被攻击免伤0.5（持续2轮）"
     },
     "t1oneslash": {
       "lore": [

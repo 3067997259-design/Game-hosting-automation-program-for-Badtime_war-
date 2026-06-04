@@ -491,7 +491,6 @@ def resolve_damage(attacker, target, weapon, game_state,
                         bonus_damage += 0.5
 
     # v2.0 G2×G5 TE: duet 模式位移 PvP 早期退出
-    # 打按钮（is_button）走这里记录热力；PvP 位移也走这里（不扣血）
     if displacement_only and game_state and getattr(game_state, 'ish_bosheth', None):
         ish = game_state.ish_bosheth
         if ish.phase == "duet":
@@ -508,8 +507,9 @@ def resolve_damage(attacker, target, weapon, game_state,
                 ish.record_heat(attacker, heat)
                 result["target_type"] = "button"
                 return result
-            # 阶段 4 实现完整位移逻辑，此处仅占位
+            # 玩家 PvP：执行位移
             result["target_type"] = "player"
+            _duet_displace(target, attacker, raw, ish, game_state, result)
             return result
 
     result = {
@@ -1542,3 +1542,73 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
         target.talent.on_being_attacked(attacker, None, False)
 
     return result
+
+
+def _duet_displace(target, attacker, damage: float, ish, game_state, result: dict):
+    """v2.0 G2×G5 TE: duet 模式 PvP 位移逻辑。
+
+    规则：
+    - damage ≤ 1.0: 50% 概率随机弹飞 / 50% 无事发生
+    - damage > 1.0: 50% 概率随机弹飞 / 50% 攻击者指定目的地
+    - 不造成 HP 伤害，仅改变 location。
+    """
+    import random as _random
+    from cli import display
+    from engine.prompt_manager import prompt_manager
+
+    # 收集可用座位（排除目标当前位置）
+    available = sorted(s for s in ish.SEATS if s != target.location)
+    if not available:
+        result["displacement"] = {"from": target.location, "to": target.location, "reason": "no_seats"}
+        return
+
+    old_loc = target.location
+    new_loc = target.location
+
+    if damage <= 1.0:
+        # 低伤线：50% 随机弹飞
+        if _random.random() < 0.5 and available:
+            new_loc = _random.choice(available)
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.random",
+                    default="💨 {name} 被弹飞到 {seat}！"
+                ).format(name=target.name, seat=new_loc)
+            )
+        else:
+            display.show_info(
+                f"  🛡️ {target.name} 站稳了脚步，未被弹飞。"
+            )
+    else:
+        # 高伤线：50% 随机 / 50% 攻击者指定
+        if _random.random() < 0.5:
+            new_loc = _random.choice(available)
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.random",
+                    default="💨 {name} 被弹飞到 {seat}！"
+                ).format(name=target.name, seat=new_loc)
+            )
+        elif attacker and hasattr(attacker, 'controller') and available:
+            chosen = attacker.controller.choose(
+                f"选择 {target.name} 的位移目的地：",
+                available,
+                context={"phase": "duet_pvp", "situation": "displacement_choose"}
+            )
+            if chosen in available:
+                new_loc = chosen
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.chosen",
+                    default="🎯 {attacker} 将 {name} 推到了 {seat}！"
+                ).format(attacker=attacker.name, name=target.name, seat=new_loc)
+            )
+        else:
+            new_loc = _random.choice(available) if available else target.location
+
+    # 执行位移
+    if new_loc != old_loc:
+        target.location = new_loc
+        game_state.markers.on_player_move(target.player_id)
+
+    result["displacement"] = {"from": old_loc, "to": new_loc}

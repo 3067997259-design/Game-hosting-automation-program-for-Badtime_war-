@@ -748,22 +748,199 @@ class IshBosheth:
         self.end_ish_bosheth(END_CURTAIN, game_state)
 
     # ================================================================
-    #  v2.0: duet 谢幕（占位 — Phase 6 实现完整排名/Embrace/奖励）
+    #  v2.0: duet 谢幕结算（排名 + Embrace + 安可）
     # ================================================================
     def _duet_curtain(self, game_state: GameState):
-        """duet 谢幕：排名结算 + Embrace + 清理。"""
+        """duet 谢幕：排名结算 + Embrace + 安可 + 清理。"""
         if self.duet_curtain_triggered:
             return
         self.duet_curtain_triggered = True
 
+        reached_max = self.duet_round >= 8
         display.show_info(
             prompt_manager.get_prompt(
                 "duet", "curtain.header",
                 default="\n{'='*50}\n  🎤 双人演出谢幕！\n{'='*50}"
             )
         )
-        # TODO Phase 6: 排名计算、Embrace 选择、安可判定
+
+        # ── 安可判定 ──
+        self._check_duet_encore(game_state)
+
+        # ── 热力排名 ──
+        ranked = sorted(self.duet_heat.items(), key=lambda x: x[1], reverse=True)
+        if len(ranked) >= 3:
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "curtain.ranking",
+                    default="🏆 热力排名：第1 — {first}({hf}) / 第2 — {second}({hs}) / 第3 — {third}({ht})"
+                ).format(
+                    first=ranked[0][0], hf=ranked[0][1],
+                    second=ranked[1][0], hs=ranked[1][1],
+                    third=ranked[2][0], ht=ranked[2][1],
+                )
+            )
+
+        # ── 各声部奖励 ──
+        self._award_duet_rank_rewards(game_state, ranked, reached_max)
+
+        # ── Embrace 谢幕拥抱 ──
+        self._duet_embrace_phase(game_state, ranked)
+
+        # ── 清理 ──
         self.end_ish_bosheth("duet", game_state)
+
+    def _check_duet_encore(self, game_state: GameState):
+        """检查安可条件：第 8 轮 + G5 追忆完全未使用。"""
+        if self.duet_round < 8 or self.duet_encores > 0:
+            return
+        g5 = game_state.get_player(self.duet_g5_pid)
+        if not g5 or not g5.talent:
+            return
+        talent = g5.talent
+        budget = getattr(talent, 'reminiscence_budget', 0)
+        if budget < 12.0:
+            return
+
+        self.duet_encores += 1
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "encore.trigger",
+                default="\n🎉🎉 安可！安可！G5 的 12 追忆分毫未动！\n"
+                        "   G2 与 G5 合唱双人曲 —— 所有观众自选一件物品！"
+            )
+        )
+
+        # 全员自选物品（两轮选择：地点 → 物品）
+        from models.equipment import make_weapon, make_armor, make_item
+        LOCATION_ITEMS = {
+            "商店": ["小刀", "盾牌", "陶瓷护甲", "隐身衣", "防毒面具", "通行证"],
+            "警察局": ["警棍", "防毒面具"],
+            "军事基地": ["高斯步枪", "电磁步枪", "导弹", "AT力场", "热成像仪"],
+            "魔法所": ["魔法弹幕", "远程魔法弹幕", "魔法护盾"],
+            "医院": ["防毒面具"],
+            "家": ["小刀", "磨刀石", "通行证"],
+        }
+        locations = list(LOCATION_ITEMS.keys())
+
+        for pid in list(self.participants):
+            p = game_state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            # 第一轮：选地点
+            loc_choice = p.controller.choose(
+                prompt_manager.get_prompt("duet", "encore.pick_location", default="选择获取地点："),
+                locations,
+                context={"phase": "duet_encore", "situation": "pick_location"}
+            )
+            if loc_choice not in LOCATION_ITEMS:
+                loc_choice = locations[0]
+            # 第二轮：选物品
+            items = LOCATION_ITEMS.get(loc_choice, ["小刀"])
+            item_choice = p.controller.choose(
+                prompt_manager.get_prompt("duet", "encore.pick_item", default="选择要获取的物品："),
+                items,
+                context={"phase": "duet_encore", "situation": "pick_item", "location": loc_choice}
+            )
+            if item_choice not in items:
+                item_choice = items[0]
+            # 发放
+            for factory in (make_weapon, make_armor, make_item):
+                obj = factory(item_choice)
+                if obj:
+                    if factory is make_weapon:
+                        p.add_weapon(obj)
+                    elif factory is make_armor:
+                        p.add_armor(obj)
+                    else:
+                        p.add_item(obj)
+                    break
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "encore.grant",
+                    default="✅ {name} 获得了 {item}！"
+                ).format(name=p.name, item=item_choice)
+            )
+
+    def _award_duet_rank_rewards(self, game_state: GameState, ranked: list, reached_max: bool):
+        """按热力排名发放三等奖励。"""
+        multiplier = 1.0
+        if not reached_max:
+            total_rounds = self.duet_round
+            if total_rounds >= 6:
+                multiplier = 0.75
+            elif total_rounds >= 4:
+                multiplier = 0.5
+            else:
+                multiplier = 0.25
+
+        for rank_idx, (voice, heat) in enumerate(ranked):
+            # 收集该声部的真实玩家
+            members = []
+            for pid in self.participants:
+                p = game_state.get_player(pid)
+                if p and p.is_alive() and getattr(p, 'emotion', None) == voice:
+                    members.append(p)
+            for c in self.chorus_list:
+                if c.is_alive() and c.emotion == voice:
+                    members.append(c)
+
+            if rank_idx == 0:
+                for m in members:
+                    m._duet_d4_bonus = True
+                    m._duet_d6_bonus = True
+                    m._duet_damage_bonus = getattr(m, '_duet_damage_bonus', 0) + 0.5 * multiplier
+                display.show_info(
+                    prompt_manager.get_prompt("duet", "curtain.reward_1st",
+                        default="🥇 第1声部({voice}): D4/D6+2，下次伤害+0.5").format(voice=voice))
+            elif rank_idx == 1:
+                for m in members:
+                    m._duet_d4_bonus = True
+                    m._duet_d6_bonus = True
+                    m.temp_hp_g2 += 0.5 * multiplier
+                display.show_info(
+                    prompt_manager.get_prompt("duet", "curtain.reward_2nd",
+                        default="🥈 第2声部({voice}): D4/D6+1，tempHP+0.5").format(voice=voice))
+            else:
+                for m in members:
+                    m._duet_d4_bonus = True
+                display.show_info(
+                    prompt_manager.get_prompt("duet", "curtain.reward_3rd",
+                        default="🥉 第3声部({voice}): D4+1").format(voice=voice))
+
+    def _duet_embrace_phase(self, game_state: GameState, ranked: list):
+        """谢幕拥抱阶段：可选 embrace G2 或 G5。"""
+        g2 = game_state.get_player(self.g2_owner_id)
+        g5 = game_state.get_player(self.duet_g5_pid)
+        if not g2 or not g5:
+            return
+
+        for pid in list(self.participants):
+            p = game_state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            voice = getattr(p, 'emotion', None)
+            # 确定排名
+            rank_idx = next((i for i, (v, _) in enumerate(ranked) if v == voice), 2)
+            embrace_mult = 2.0 if rank_idx == 0 else (1.0 if rank_idx == 1 else 0.5)
+
+            choice = p.controller.choose(
+                f"谢幕拥抱 —— {p.name}，选择拥抱：",
+                [f"拥抱 {g2.name}", f"拥抱 {g5.name}", "不拥抱"],
+                context={"phase": "duet_curtain", "situation": "embrace"}
+            )
+            if "不抱" in choice:
+                continue
+            if g2.name in choice:
+                p._embrace_g2_buff = embrace_mult
+                display.show_info(
+                    prompt_manager.get_prompt("duet", "embrace.g2",
+                        default="🤗 {name} 拥抱了 G2！").format(name=p.name))
+            elif g5.name in choice:
+                p._embrace_g5_buff = embrace_mult
+                display.show_info(
+                    prompt_manager.get_prompt("duet", "embrace.g5",
+                        default="🤗 {name} 拥抱了 G5！").format(name=p.name))
 
     # ================================================================
     #  统一清理（v0.6）
