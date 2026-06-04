@@ -110,7 +110,7 @@ class ChorusController:
         targets = []
 
         # v2.0 duet 模式：按钮始终是合法目标（优先于 PvP）
-        if ish.phase == "duet" and ish.duet_buttons:
+        if getattr(ish, 'phase', None) == "duet" and getattr(ish, 'duet_buttons', None):
             for btn in ish.duet_buttons:
                 if getattr(btn, 'is_alive', lambda: True)():
                     targets.append(btn)
