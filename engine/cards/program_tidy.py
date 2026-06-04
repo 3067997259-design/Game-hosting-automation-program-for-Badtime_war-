@@ -23,6 +23,8 @@ class ProgramTidy(BaseCard):
                     if getattr(person, 'is_chorus', False):
                         if not ish.deck.chorus_slots.get(person.player_id):
                             ish.deck.chorus_slots[person.player_id] = c
+                        else:
+                            ish.deck.discard_pile.append(c)
                     else:
                         ish.deck.hands.setdefault(person.player_id, []).append(c)
             if not getattr(target, 'is_chorus', False) and getattr(player, 'emotion', None) != getattr(target, 'emotion', None):
