@@ -1,6 +1,7 @@
 """调停 ×2 — Ind限定"""
 from engine.cards.base import BaseCard
 from engine.ish_bosheth import INDIFFERENZA, ACCAREZZEVOLE, STRAPPANDO
+from cli import display
 
 class Mediation(BaseCard):
     name = "调停"
@@ -9,6 +10,7 @@ class Mediation(BaseCard):
     desc = "Ind 限定。选 1 Acc + 1 Str，至下个 R4 不能互相 attack。若任一方是 Chorus，摸 1 张牌。"
 
     def play(self, player, ish, turn_mgr):
+        display.show_info(f"🎴 {player.name} 使用 {self.name}")
         pid = player.player_id
         acc_units = [turn_mgr.state.get_player(p) for p in ish.participants
                      if turn_mgr.state.get_player(p) and turn_mgr.state.get_player(p).is_alive()

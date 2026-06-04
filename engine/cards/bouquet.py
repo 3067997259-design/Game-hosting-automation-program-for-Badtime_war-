@@ -1,5 +1,6 @@
 """花束 ×2 — 通用"""
 from engine.cards.base import BaseCard
+from cli import display
 
 class Bouquet(BaseCard):
     name = "花束"
@@ -7,6 +8,7 @@ class Bouquet(BaseCard):
     desc = "选择一名单位获 0.5 临时 HP 至下个 R4。若目标为 Chorus，额外恢复 0.5 HP。"
 
     def play(self, player, ish, turn_mgr):
+        display.show_info(f"🎴 {player.name} 使用 {self.name}")
         all_units = [turn_mgr.state.get_player(p) for p in ish.participants
                      if turn_mgr.state.get_player(p) and turn_mgr.state.get_player(p).is_alive()]
         all_units += [c for c in ish.chorus_list if c.is_alive()]

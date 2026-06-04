@@ -1,6 +1,7 @@
 """荧光棒 ×2 — 通用（Acc倾向）"""
 from engine.cards.base import BaseCard
 from engine.ish_bosheth import STRAPPANDO
+from cli import display
 
 class GlowStick(BaseCard):
     name = "荧光棒"
@@ -8,5 +9,6 @@ class GlowStick(BaseCard):
     desc = "本回合下一次 attack 伤害 +0.5。若目标是 Strappando，改为 +1.0。"
 
     def play(self, player, ish, turn_mgr):
+        display.show_info(f"🎴 {player.name} 使用 {self.name}")
         player._card_damage_bonus = 0.5
         player._card_damage_bonus_voice_filter = STRAPPANDO

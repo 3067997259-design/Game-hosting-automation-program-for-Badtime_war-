@@ -1,5 +1,6 @@
 """空白票根 ×2 — 通用"""
 from engine.cards.base import BaseCard
+from cli import display
 
 class BlankStub(BaseCard):
     name = "空白票根"
@@ -7,6 +8,7 @@ class BlankStub(BaseCard):
     desc = "选择：摸 1 张牌 / 清除 1 条舞台牵连 / 清除 1 层安可。"
 
     def play(self, player, ish, turn_mgr):
+        display.show_info(f"🎴 {player.name} 使用 {self.name}")
         pid = player.player_id
         opts = ["摸 1 张牌", "清除 1 条舞台牵连", "清除 1 层安可"]
         choice = player.controller.choose("空白票根：选择效果", opts,

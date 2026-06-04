@@ -1,5 +1,6 @@
 """小卡交换 ×2 — 通用"""
 from engine.cards.base import BaseCard
+from cli import display
 
 class CardExchange(BaseCard):
     name = "小卡交换"
@@ -7,6 +8,7 @@ class CardExchange(BaseCard):
     desc = "摸 2 张牌，必须将 1 张手牌交给另一名真实观众或弃置。跨声部双方 D6+1。"
 
     def play(self, player, ish, turn_mgr):
+        display.show_info(f"🎴 {player.name} 使用 {self.name}")
         pid = player.player_id
         for _ in range(2):
             c = ish.deck._draw_one()

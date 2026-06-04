@@ -2,6 +2,7 @@
 import random
 from engine.cards.base import BaseCard
 from engine.ish_bosheth import ACCAREZZEVOLE, STRAPPANDO
+from cli import display
 
 class SupportCheer(BaseCard):
     name = "应援连呼"
@@ -10,6 +11,7 @@ class SupportCheer(BaseCard):
     desc = "Acc 限定。选一名 Acc 单位获 0.5 临时 HP。若为 Acc Chorus，它立刻执行一次攻击。"
 
     def play(self, player, ish, turn_mgr):
+        display.show_info(f"🎴 {player.name} 使用 {self.name}")
         acc_units = [turn_mgr.state.get_player(p) for p in ish.participants
                      if turn_mgr.state.get_player(p) and turn_mgr.state.get_player(p).is_alive()
                      and getattr(turn_mgr.state.get_player(p), 'emotion', None) == ACCAREZZEVOLE]

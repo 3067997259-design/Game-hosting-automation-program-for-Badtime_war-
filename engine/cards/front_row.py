@@ -1,5 +1,6 @@
 """前排票 ×2 — 通用"""
 from engine.cards.base import BaseCard
+from cli import display
 
 
 class FrontRowTicket(BaseCard):
@@ -8,6 +9,7 @@ class FrontRowTicket(BaseCard):
     desc = "移动到任意观众座位，与该座位 1 名单位建立 engage。不能用于离场。"
 
     def play(self, player, ish, turn_mgr):
+        display.show_info(f"🎴 {player.name} 使用 {self.name}")
         seat = player.location
         available = sorted(ish.SEATS - {seat})
         dest = player.controller.choose(

@@ -1,6 +1,7 @@
 """撕票 ×1 — Str限定"""
 from engine.cards.base import BaseCard
 from engine.ish_bosheth import STRAPPANDO
+from cli import display
 
 class TearTicket(BaseCard):
     name = "撕票"
@@ -8,5 +9,6 @@ class TearTicket(BaseCard):
     voice = STRAPPANDO
     desc = "Str 限定。Regard -0.5。若本回合击杀 Acc 单位，额外 Regard -0.5。"
     def play(self, player, ish, turn_mgr):
+        display.show_info(f"🎴 {player.name} 使用 {self.name}")
         ish.adjust_regard(-0.5)
         player._card_tear_ticket_active = True
