@@ -89,6 +89,11 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         # === 爱愿系统 ===
         self.love_wish = {}  # {target_player_id: remaining_rounds}
 
+        # === v2.0: G2×G5 双人演出 TE ===
+        self.duet_joined: bool = False          # G5 是否已进入 duet 模式
+        self.reminiscence_budget: float = 12.0  # duet 中伴唱预算（12 追忆）
+        self.harmonize_count: int = 0           # duet 中已伴唱次数
+
     # ================================================================
     #  V1.92+: 消耗使用次数
     # ================================================================
@@ -253,6 +258,8 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
             return None
         if self.anchor_active:
             return None
+        if self.duet_joined:
+            return None   # duet 中禁止锚定/献诗
         if self.reminiscence < self.activation_threshold:
             return None
 
@@ -301,7 +308,12 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
 
     def describe_status(self):
         parts = []
-        if self.anchor_active:
+        if self.duet_joined:
+            parts.append(f"🎤 双人演出中")
+            parts.append(f"追忆预算：{self.reminiscence_budget}/12")
+            if self.harmonize_count:
+                parts.append(f"伴唱×{self.harmonize_count}")
+        elif self.anchor_active:
             parts.append(f"🌊锚定中：{self.anchor_detail}")
             parts.append(f"剩余{self.anchor_rounds_left}轮")
             parts.append(

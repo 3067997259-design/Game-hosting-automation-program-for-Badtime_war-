@@ -571,12 +571,19 @@ class PoemMixin:
         ).format(target_name=target.name, charges=charges)
 
     def _poem_light(self, target):
-        """献予「追光」之诗：全息影像增强（可叠加）
+        """献予「追光」之诗：全息影像增强 / G2×G5 双人演出 TE
 
-        enhance_by_ripple() 已处理：max_uses+1, ripple_extra_vulnerability+0.5, enhanced=True
-        此处只负责调用并返回提示信息，不再重复修改属性。
+        ish-bosheth 激活期间：触发全场投票 → 通过则进入 duet 模式。
+        平时：标准追光 buff（max_uses+1, vulnerability+0.5）。
         """
         talent = target.talent
+
+        # ── G2×G5 TE: 检测 ish-bosheth 是否激活 ──
+        ish = getattr(self.state, 'ish_bosheth', None)
+        if ish is not None and ish.phase == "active":
+            return self._poem_light_duet_attempt(target)
+
+        # ── 标准追光 buff ──
         if hasattr(talent, 'enhance_by_ripple'):
             talent.enhance_by_ripple()
         else:
@@ -592,6 +599,110 @@ class PoemMixin:
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_light_fallback",
                 default="✨{target_name} 的全息影像已增强！\n"
+            ).format(target_name=target.name)
+
+    def _poem_light_duet_attempt(self, target):
+        """ish-bosheth 激活期间献诗上台：全场投票 → duet 模式。
+
+        投票权：真实观众 1 票，Chorus 1 票，G2 +1 票（合计 2），G5 +1 票（合计 2）。
+        通过条件：赞成票 ≥ 总票数 50%。平票 = 不通过。
+        """
+        ish = self.state.ish_bosheth
+        game_state = self.state
+        self_pid = self.player_id
+
+        # ── 收集投票者 ──
+        voter_choices: list[tuple[str, str, int]] = []  # (pid/chorus_id, name, weight)
+
+        for pid in ish.participants:
+            p = game_state.get_player(pid)
+            if p and p.is_alive():
+                weight = 1
+                if pid == target.player_id:   # G2 额外 +1
+                    weight += 1
+                if pid == self_pid:            # G5 额外 +1
+                    weight += 1
+                voter_choices.append((pid, p.name, weight))
+
+        for c in ish.chorus_list:
+            if c.is_alive():
+                weight = 1
+                voter_choices.append((c.player_id, c.name, weight))
+
+        total_votes = sum(w for _, _, w in voter_choices)
+
+        # ── 叙事引言 ──
+        me = game_state.get_player(self_pid)
+        my_name = me.name if me else self_pid
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "vote.trigger",
+                default="\n🎤🌊 {g5_name} 向舞台上的 {g2_name} 献上「追光」之诗……\n"
+                        "「请一直，注视着我——」\n"
+                        "「——我在注视着你。」\n"
+            ).format(g5_name=my_name, g2_name=target.name)
+        )
+
+        # ── 逐个投票 ──
+        yes_votes = 0
+        for pid, name, weight in voter_choices:
+            choice = None
+            p = game_state.get_player(pid)
+            if p is None:
+                # Chorus
+                for c in ish.chorus_list:
+                    if c.player_id == pid:
+                        choice = c.controller.choose(
+                            f"是否赞成 {my_name} 与 {target.name} 的双人演出？",
+                            ["赞成", "反对"],
+                            context={"phase": "T0", "situation": "duet_vote"}
+                        )
+                        break
+            else:
+                choice = p.controller.choose(
+                    f"是否赞成 {my_name} 与 {target.name} 的双人演出？",
+                    ["赞成", "反对"],
+                    context={"phase": "T0", "situation": "duet_vote"}
+                )
+            if choice and "赞成" in choice:
+                yes_votes += weight
+                display.show_info(f"  ✓ {name}（{weight}票）→ 赞成")
+            else:
+                display.show_info(f"  ✗ {name}（{weight}票）→ 反对")
+
+        # ── 判定 ──
+        if yes_votes >= total_votes / 2:
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "vote.result_pass",
+                    default="\n✨ 赞成 {yes}/{total} —— 演出进入双人模式！"
+                ).format(yes=yes_votes, total=total_votes)
+            )
+            ish.enter_duet(self_pid, game_state)
+            return prompt_manager.get_prompt(
+                "duet", "enter",
+                default="\n🎤🌊 {g5_name} 走上舞台，与 {g2_name} 并肩而立。\n"
+                        "双人演出，即将开始——\n"
+            ).format(g5_name=my_name, g2_name=target.name)
+        else:
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "vote.result_fail",
+                    default="\n💧 赞成 {yes}/{total} —— 不足半数，双人演出未通过。\n"
+                            "追光之诗按标准效果生效。"
+                ).format(yes=yes_votes, total=total_votes)
+            )
+            # 追忆不返还（已消耗），走标准 buff
+            talent = target.talent
+            if hasattr(talent, 'enhance_by_ripple'):
+                talent.enhance_by_ripple()
+            else:
+                talent.ripple_enhanced = True
+            # G5 在同一次演出中不可再次献诗上台
+            self.duet_joined = True   # 标记为"已尝试"，阻止再次触发
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_light_enhanced",
+                default="✨{target_name} 的全息影像增强！"
             ).format(target_name=target.name)
 
     def _poem_bear(self, target):

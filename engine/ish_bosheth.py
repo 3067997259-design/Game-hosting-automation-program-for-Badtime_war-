@@ -92,6 +92,17 @@ class IshBosheth:
         # v0.7 安定値交互标记
         self._pivot_override: Optional[float] = None  # Riposato/Dolente 覆盖 pivot
 
+        # ==================================================================
+        #  v2.0: G2×G5 双人演出 TE 状态
+        # ==================================================================
+        self.duet_g5_pid: Optional[str] = None       # 上台的 G5 玩家 ID
+        self.duet_heat: dict[str, float] = {}         # {voice: total_heat}
+        self.duet_round: int = 0                      # duet 当前轮次（最大 8）
+        self.duet_buttons: list = []                  # 当前轮按钮实体
+        self.duet_encores: int = 0                    # 安可触发次数
+        self.harmonize_active: bool = False           # G5 本轮是否伴唱
+        self.duet_curtain_triggered: bool = False     # 谢幕是否已触发
+
     # ── 累计解锁阈值 ────────────────────────────────────────────
     MELODY_1_THRESHOLD = 3.0
     MELODY_2_THRESHOLD = 7.0
@@ -103,6 +114,68 @@ class IshBosheth:
         self.regard = max(0.0, min(self.regard_cap, self.regard + delta))
         actual = abs(self.regard - old)
         self.cumulative_delta_regard += actual
+
+    # ================================================================
+    #  v2.0: G2×G5 双人演出 TE 入口
+    # ================================================================
+    def enter_duet(self, g5_player_id: str, game_state: GameState):
+        """G5 献诗上台通过投票 → 进入双人演出模式。"""
+        g2_player = game_state.get_player(self.g2_owner_id)
+        g5_player = game_state.get_player(g5_player_id)
+
+        # ── 切换阶段 ──
+        self.phase = "duet"
+
+        # ── G5 注册 ──
+        self.duet_g5_pid = g5_player_id
+
+        # ── Regard 重置（保证第一轮演出顺利进行）──
+        self.regard = max(4.0, self.regard)
+
+        # ── 热力值初始化 ──
+        self.duet_heat = {
+            ACCAREZZEVOLE: 0.0,
+            INDIFFERENZA:  0.0,
+            STRAPPANDO:    0.0,
+        }
+        self.duet_round = 0
+        self.duet_buttons = []
+        self.duet_encores = 0
+        self.harmonize_active = False
+        self.duet_curtain_triggered = False
+
+        # ── G5 移动到舞台 ──
+        if g5_player:
+            old_loc = g5_player.location
+            g5_player.location = self.g2_home
+            game_state.markers.on_player_move(g5_player_id)
+            display.show_info(
+                f"  🏠 {g5_player.name} 从 {old_loc} 移动到舞台中心（{self.g2_home}）。"
+            )
+
+        # ── G5 追忆预算初始化（从 talent 读取或默认 12）──
+        if g5_player and g5_player.talent:
+            talent = g5_player.talent
+            if not getattr(talent, 'duet_joined', False):
+                talent.duet_joined = True
+                talent.reminiscence_budget = 12.0
+                talent.harmonize_count = 0
+
+        # ── 冻结 G2 独唱系统 ──
+        # 旋律（在 duet 中禁用）
+        # faction_victory_check（R4 不再检查阵营胜利）
+        # Embrace 自动标记（伤害流水线中暂停）
+
+        g2_name = g2_player.name if g2_player else "??"
+        g5_name = g5_player.name if g5_player else "??"
+        display.show_info(
+            f"\n{'='*50}"
+            f"\n  🎤🌊 双人演出模式 —— {g2_name} & {g5_name}"
+            f"\n  Regard 初始：{self.regard}"
+            f"\n  最大轮次：8"
+            f"\n  热力计数器已就绪"
+            f"\n{'='*50}"
+        )
 
     # ================================================================
     #  展开
