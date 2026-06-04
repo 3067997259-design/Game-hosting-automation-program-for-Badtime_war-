@@ -28,6 +28,12 @@ VOICE_STR = "strappando"
 
 # ── 牌定义 ──────────────────────────────────────────────────────────
 # 每张牌：{name, count, voice_restriction (None=通用), description}
+#
+# ⚠️ 过渡期注意：_CARD_DEFS 与 engine/cards/ 下的 BaseCard 子类/CARD_REGISTRY
+# 维护了两套并行的牌定义。当前 _CARD_DEFS 供 build_deck/get_card_info/is_playable
+# 查询，而 CARD_REGISTRY 供 action_turn.py:_resolve_card_play() 分派 play()。
+# 后续应统一为从 CARD_REGISTRY 读取元数据（每张 BaseCard 自带 name/count/voice/desc），
+# 避免两套数据漂移。新增牌时需同时更新两处。
 _CARD_DEFS: List[Dict[str, Any]] = [
     # ── 通用牌 ──
     {"name": "前排票", "count": 2, "voice": None,
@@ -53,7 +59,7 @@ _CARD_DEFS: List[Dict[str, Any]] = [
     {"name": "撕票", "count": 1, "voice": VOICE_STR,
      "desc": "Str 限定。Regard -0.5。若本回合击杀 Acc 单位，额外 Regard -0.5。"},
     {"name": "倒彩", "count": 2, "voice": None,
-     "desc": "选择一名 Acc 单位，其至下个 R4 受到伤害 +0.5。若本回合攻击该目标，额外 Regard -0.25。"},
+     "desc": "选择一名 Acc 单位，其至下个 R4 受到伤害 +0.5。"},
     # ── Indifferenza 倾向 ──
     {"name": "花束", "count": 2, "voice": None,
      "desc": "选择一名单位获 0.5 临时 HP 至下个 R4。若目标为 Chorus，额外恢复 0.5 HP。"},
@@ -61,6 +67,13 @@ _CARD_DEFS: List[Dict[str, Any]] = [
      "desc": "Ind 限定。选 1 Acc + 1 Str，至下个 R4 不能互相 attack。若任一方是 Chorus，摸 1 张牌。"},
     {"name": "场刊整理", "count": 2, "voice": None,
      "desc": "Ind 倾向。选一名观众（含 Chorus），双方各摸 1 张。若声部不同，可令其中一人弃 1 张。"},
+    # ── v0.7 安定値交互牌 ──
+    {"name": "反光板", "count": 2, "voice": VOICE_IND,
+     "desc": "Ind 限定。选择一名观众，其下次旋律中 decay_factor 强制=1.0。"},
+    {"name": "耳返", "count": 2, "voice": None,
+     "desc": "下次旋律中你的 total_defense 在安定値计算时 -2。"},
+    {"name": "和弦谱", "count": 2, "voice": VOICE_ACC,
+     "desc": "Acc 限定。累计 ΔRegard +1.5。"},
 ]
 
 TRANSFER_TICKET_NAME = "改签票"
@@ -329,7 +342,11 @@ class MaterialDeck:
         return list(self.dropped_goods.get(seat, []))
 
     def get_card_info(self, card_name: str) -> Optional[Dict[str, Any]]:
-        """查询牌的元信息。"""
+        """查询牌的元信息。
+
+        ⚠️ 过渡期：当前从 _CARD_DEFS 读取。后续应改为从 CARD_REGISTRY 读取
+        BaseCard 子类的 name/voice/desc/count 属性。
+        """
         if card_name == TRANSFER_TICKET_NAME:
             return {
                 "name": TRANSFER_TICKET_NAME, "voice": None,
@@ -359,7 +376,11 @@ class MaterialDeck:
         return True
 
     def is_playable(self, player: Player, card_name: str) -> bool:
-        """检查牌是否可被该玩家打出（声部限制）。"""
+        """检查牌是否可被该玩家打出（声部限制）。
+
+        ⚠️ 过渡期：当前从 _CARD_DEFS 读取 voice 限制。后续可委托给
+        CARD_REGISTRY 中对应 BaseCard.is_playable(player)。
+        """
         if card_name == TRANSFER_TICKET_NAME:
             return False  # 改签票通过独立机制使用，不走通用出牌流程
         info = self.get_card_info(card_name)
