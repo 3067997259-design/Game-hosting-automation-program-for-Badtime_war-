@@ -70,6 +70,11 @@ class RoundManager:
                 and self.state.ish_bosheth.phase == "pending_curtain"):
             self.state.ish_bosheth.on_r0_curtain(self.state)
 
+        # v2.0: duet 模式按钮刷新
+        ish = self.state.ish_bosheth
+        if ish and ish.phase == "duet" and not ish.duet_curtain_triggered:
+            ish._spawn_duet_buttons(self.state)
+
         # 天赋轮次开始钩子
         for pid in self.state.player_order:
             p = self.state.get_player(pid)
@@ -309,6 +314,11 @@ class RoundManager:
                 return
 
             i += 1
+
+        # v2.0: duet 按钮清理
+        ish = self.state.ish_bosheth
+        if ish and ish.phase == "duet":
+            ish._despawn_duet_buttons(self.state)
 
         # 未行动保底
         initial_count = len(self.state.player_order)

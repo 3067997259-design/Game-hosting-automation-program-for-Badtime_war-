@@ -437,7 +437,9 @@ def resolve_damage(attacker, target, weapon, game_state,
                    damage_attribute_override=None,
                    is_talent_attack=False,
                    is_love_poem=False,
-                   is_embrace_damage=False):
+                   is_embrace_damage=False,
+                   *,
+                   displacement_only=False):
     """
     完整伤害结算。
     新增参数（Phase 4）：
@@ -449,6 +451,8 @@ def resolve_damage(attacker, target, weapon, game_state,
       is_love_poem: 是否为爱与记忆之诗伤害（穿透架盾）
     新增参数（G2 Reset）：
       is_embrace_damage: 相拥伤害（穿透天赋特殊防护，不穿透护甲）
+    新增参数（v2.0 G2×G5 TE）：
+      displacement_only: duet 模式下攻击只产生位移不产生 HP 伤害
     """
     # G2 相拥伤害自动检测
     if not is_embrace_damage and game_state and getattr(game_state, 'ish_bosheth', None):
@@ -485,6 +489,29 @@ def resolve_damage(attacker, target, weapon, game_state,
                         bonus_damage += 0.5
                     if target_voice == INDIFFERENZA:
                         bonus_damage += 0.5
+
+    # v2.0 G2×G5 TE: duet 模式位移 PvP 早期退出
+    # 打按钮（is_button）走这里记录热力；PvP 位移也走这里（不扣血）
+    if displacement_only and game_state and getattr(game_state, 'ish_bosheth', None):
+        ish = game_state.ish_bosheth
+        if ish.phase == "duet":
+            raw = weapon.get_effective_damage() if weapon else (raw_damage_override or 0)
+            heat = min(raw, 10.0)  # 单次按钮伤害上限 10
+            result = {
+                "success": True,
+                "reason": "duet_displacement",
+                "heat_value": heat,
+                "displacement": {"from": target.location, "to": target.location},
+            }
+            # 按钮：直接记录热力
+            if getattr(target, 'is_button', False):
+                ish.record_heat(attacker, heat)
+                result["target_type"] = "button"
+                return result
+            # 阶段 4 实现完整位移逻辑，此处仅占位
+            result["target_type"] = "player"
+            return result
+
     result = {
         "success": False,
         "reason": "",

@@ -55,6 +55,36 @@ MARK_FERVOR     = "fervor"       # 狂热（Acc 被旋律命中）
 MARK_CRACK      = "crack"        # 裂音（Str 被旋律命中）
 
 
+class ButtonDummy:
+    """双人演出大红按钮 dummy（v2.0）。
+
+    每轮两个，出现于随机座位。被攻击时记录伤害为声部热力，不扣血。
+    复用 ChorusUnit 的注册模式（register_chorus）参与 D4 和 targeting。
+    """
+    is_button: bool = True
+    is_chorus: bool = True    # 兼容现有 D4/攻击系统
+    is_alive = lambda self: True  # 永不死亡
+
+    def __init__(self, seat: str, index: int):
+        self.player_id: str = f"__button_{index}__"
+        self.name: str = f"🔴 大红按钮 #{index}"
+        self.location: str = seat
+        self.hp: float = 999.0
+        self.max_hp: float = 999.0
+        self.is_awake: bool = True
+        self.emotion: str = ""     # 无阵营
+        self.armor = None
+        self.talent = None
+        self.weapons = []
+        self.stage_statuses: set = set()
+        self.encore_layers: int = 0
+        self.temp_hp_g2: float = 0.0
+        self.temp_atk_g2: float = 0.0
+
+    def __repr__(self):
+        return f"ButtonDummy(seat={self.location}, id={self.player_id})"
+
+
 class IshBosheth:
     """舞台结界实例（v0.6）。同一时间最多一个。"""
 
@@ -176,6 +206,80 @@ class IshBosheth:
             f"\n  热力计数器已就绪"
             f"\n{'='*50}"
         )
+
+    # ================================================================
+    #  v2.0: 大红按钮管理
+    # ================================================================
+    def _spawn_duet_buttons(self, game_state: GameState):
+        """R0：在两个随机座位召唤按钮。"""
+        import random as _random
+        available = sorted(self.SEATS)
+        if len(available) < 2:
+            return
+        chosen = _random.sample(available, 2)
+        self.duet_buttons = []
+        for i, seat in enumerate(chosen, 1):
+            btn = ButtonDummy(seat, i)
+            self.duet_buttons.append(btn)
+            game_state.register_chorus(btn)
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "button.spawn",
+                default="\n🔴🔴 两个大红按钮出现在 {seat1} 和 {seat2}！"
+            ).format(seat1=chosen[0], seat2=chosen[1])
+        )
+
+    def _despawn_duet_buttons(self, game_state: GameState):
+        """R3 结束：移除本轮按钮。"""
+        for btn in self.duet_buttons:
+            game_state.unregister_chorus(btn.player_id)
+        self.duet_buttons.clear()
+
+    def record_heat(self, attacker, damage: float):
+        """攻击按钮成功 → 记录热力值。"""
+        voice = getattr(attacker, 'emotion', None)
+        if voice not in self.duet_heat:
+            return
+        self.duet_heat[voice] += damage
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "button.hit",
+                default="🔴 {name} 按下了按钮！+{heat} 热力 → {voice}"
+            ).format(name=attacker.name, heat=damage, voice=voice)
+        )
+
+    # ================================================================
+    #  v2.0: duet 轮次结算
+    # ================================================================
+    def _duet_on_r4(self, game_state: GameState):
+        """duet 模式 R4：热力→Regard 折算 + 检查谢幕条件。"""
+        # 热力→Regard 转化率 = 0.5
+        CONVERSION = 0.5
+        total_heat = sum(self.duet_heat.values())
+        regen = total_heat * CONVERSION
+        self.regard = min(self.regard_cap, self.regard + regen)
+
+        # 重置伴唱标记
+        self.harmonize_active = False
+        self.duet_round += 1
+
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "heat.round_end",
+                default="\n🎤 第 {round}/8 轮 — 热力: Acc={acc} Ind={ind} Str={str} → Regard +{regen} = {regard}"
+            ).format(
+                round=self.duet_round,
+                acc=self.duet_heat.get(ACCAREZZEVOLE, 0),
+                ind=self.duet_heat.get(INDIFFERENZA, 0),
+                str_=self.duet_heat.get(STRAPPANDO, 0),
+                regen=regen,
+                regard=self.regard,
+            )
+        )
+
+        # 检查谢幕条件
+        if self.regard <= 0 or self.duet_round >= 8:
+            self._duet_curtain(game_state)
 
     # ================================================================
     #  展开
@@ -382,6 +486,9 @@ class IshBosheth:
     #  R4 衰减（v0.6：含阵营胜利检查）
     # ================================================================
     def on_r4(self, game_state: GameState):
+        if self.phase == "duet":
+            self._duet_on_r4(game_state)
+            return
         if self.phase != "active":
             return
 
@@ -639,6 +746,24 @@ class IshBosheth:
             g2p.is_invisible = True
 
         self.end_ish_bosheth(END_CURTAIN, game_state)
+
+    # ================================================================
+    #  v2.0: duet 谢幕（占位 — Phase 6 实现完整排名/Embrace/奖励）
+    # ================================================================
+    def _duet_curtain(self, game_state: GameState):
+        """duet 谢幕：排名结算 + Embrace + 清理。"""
+        if self.duet_curtain_triggered:
+            return
+        self.duet_curtain_triggered = True
+
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "curtain.header",
+                default="\n{'='*50}\n  🎤 双人演出谢幕！\n{'='*50}"
+            )
+        )
+        # TODO Phase 6: 排名计算、Embrace 选择、安可判定
+        self.end_ish_bosheth("duet", game_state)
 
     # ================================================================
     #  统一清理（v0.6）
