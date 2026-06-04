@@ -124,6 +124,37 @@ class RippleAIHook(BaseTalentAIHook):
         if situation == "poem_law_police_action":
             return options[0] if options else ""
 
+        # ── v2.0 G2×G5 duet 决策 ──
+        if situation == "duet_vote":
+            # G5 自己当然赞成
+            for opt in options:
+                if "赞成" in opt:
+                    return opt
+            return options[0]
+
+        if situation == "duet_harmonize":
+            # 追忆够且伴唱不多时倾向伴唱
+            talent = getattr(player, 'talent', None)
+            budget = getattr(talent, 'reminiscence_budget', 0) if talent else 0
+            count = getattr(talent, 'harmonize_count', 0) if talent else 0
+            if budget >= 2 and count < 4:
+                for opt in options:
+                    if "伴唱" in opt or "harmonize" in opt.lower():
+                        return opt
+            return options[-1] if options else ""
+
+        if situation == "displacement_choose":
+            # 位移选择：优先选离按钮最远的座位
+            return options[-1] if options else options[0] if options else ""
+
+        if situation in ("pick_location", "pick_item"):
+            # 安可选择：G5 自身偏好军事基地/高斯步枪
+            if situation == "pick_location":
+                for loc in ["军事基地", "魔法所", "警察局"]:
+                    if loc in options:
+                        return loc
+            return options[0] if options else ""
+
         return None
 
     # ── 涟漪辅助方法 ──

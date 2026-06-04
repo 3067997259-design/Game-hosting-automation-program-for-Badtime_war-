@@ -103,11 +103,19 @@ class ChorusController:
         return False
 
     def _get_legal_targets(self, game_state, chorus, ish) -> list:
-        """v0.6 声部限制下的合法攻击目标。"""
+        """v0.6 声部限制下的合法攻击目标（含 duet 按钮）。"""
         from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
 
         voice = getattr(chorus, 'emotion', None)
         targets = []
+
+        # v2.0 duet 模式：按钮始终是合法目标（优先于 PvP）
+        if ish.phase == "duet" and ish.duet_buttons:
+            for btn in ish.duet_buttons:
+                if getattr(btn, 'is_alive', lambda: True)():
+                    targets.append(btn)
+            if targets:
+                return targets  # duet 中 Chorus 优先打按钮
 
         g2_owner_id = ish.g2_owner_id
 

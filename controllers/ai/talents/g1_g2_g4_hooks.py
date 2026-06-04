@@ -403,6 +403,43 @@ class HologramAIHook(BaseTalentAIHook):
         if situation == "g2_command_chorus":
             return self._pick_random_option(options)
 
+        # ── v2.0 G2×G5 duet 决策 ──
+        if situation == "duet_vote":
+            # G2 倾向于接受（TE 比 BE 好）
+            for opt in options:
+                if "赞成" in opt:
+                    return opt
+            return options[0]
+
+        if situation == "displacement_choose":
+            # 位移选择：优先选对 G2 有利的座位（离按钮远）
+            return options[-1] if len(options) > 1 else options[0]
+
+        if situation == "embrace":
+            # 按玩家人格：aggressive 拥抱 G2（攻），cautious 拥抱 G5（防）
+            personality = context.get("personality", "balanced")
+            if personality == "aggressive":
+                for opt in options:
+                    if "G2" in opt:
+                        return opt
+            elif personality in ("cautious", "passive"):
+                for opt in options:
+                    if "G5" in opt:
+                        return opt
+            return options[0] if options else ""
+
+        if situation == "pick_location":
+            # 按角色选择地点偏好
+            personality = context.get("personality", "balanced")
+            if personality == "aggressive":
+                for loc in ["军事基地", "警察局", "魔法所"]:
+                    if loc in options:
+                        return loc
+            return options[0] if options else ""
+
+        if situation == "pick_item":
+            return options[0] if options else ""
+
         return None
 
     # ── T0 激活 ──────────────────────────────────────────────────
