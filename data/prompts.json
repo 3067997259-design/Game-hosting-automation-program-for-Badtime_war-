@@ -310,7 +310,8 @@
       "enter": "\n🎤🌊 {g5_name} 走上舞台，与 {g2_name} 并肩而立。\n双人演出，即将开始——\n",
       "button.spawn": "\n🔴🔴 两个大红按钮出现在 {seat1} 和 {seat2}！",
       "button.hit": "🔴 {name} 按下了按钮！+{heat} 热力 → {voice}",
-      "heat.round_end": "\n🎤 第 {round}/8 轮 — 热力: Acc={acc} Ind={ind} Str={str_} → Regard +{regen} = {regard}"
+      "heat.round_end": "\n🎤 第 {round}/8 轮 — 热力: Acc={acc} Ind={ind} Str={str_} → Regard +{regen} = {regard}",
+      "harmonize.used": "🎤 {name} 伴唱！本轮歌曲花费减半。追忆预算：{budget}/12"
     },
     "t1oneslash": {
       "lore": [

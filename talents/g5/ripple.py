@@ -95,6 +95,36 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         self.harmonize_count: int = 0           # duet 中已伴唱次数
 
     # ================================================================
+    #  v2.0: G2×G5 duet 伴唱
+    # ================================================================
+
+    def execute_harmonize(self, player, game_state):
+        """G5 duet 伴唱：消耗追忆，本轮歌曲 Regard 花费 -50%。"""
+        ish = getattr(game_state, 'ish_bosheth', None)
+        if not ish or ish.phase != "duet":
+            return "❌ 当前不在双人演出模式"
+
+        if self.reminiscence_budget <= 0:
+            return "❌ 追忆预算已用完，无法伴唱"
+
+        if ish.harmonize_active:
+            return "❌ 本轮已伴唱，不可重复"
+
+        # 消耗追忆
+        cost = 2
+        self.reminiscence_budget = max(0, self.reminiscence_budget - cost)
+        self.harmonize_count += 1
+        ish.harmonize_active = True
+
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "harmonize.used",
+                default="🎤 {name} 伴唱！本轮歌曲花费减半。追忆预算：{budget}/12"
+            ).format(name=player.name, budget=self.reminiscence_budget)
+        )
+        return f"🎤 {player.name} 伴唱 —— 追忆预算 {self.reminiscence_budget}/12"
+
+    # ================================================================
     #  V1.92+: 消耗使用次数
     # ================================================================
 

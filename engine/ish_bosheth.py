@@ -985,6 +985,31 @@ class IshBosheth:
     # ================================================================
     def get_available_songs(self) -> list[dict]:
         songs = []
+
+        # v2.0 duet 模式：仅基础三首歌（旋律禁用），效果改为热力加成
+        if self.phase == "duet":
+            if self.regard >= 1:
+                songs.append({
+                    "name": "追寻那道光",
+                    "cost": 1,
+                    "desc": "duet: 选声部按钮伤害×1.5",
+                    "rhythms": self._get_rhythms_for_song("追寻那道光"),
+                })
+                songs.append({
+                    "name": "拼接遗憾",
+                    "cost": 1,
+                    "desc": "duet: PvP位移免疫/座位互换",
+                    "rhythms": self._get_rhythms_for_song("拼接遗憾"),
+                })
+                songs.append({
+                    "name": "Before light",
+                    "cost": 1,
+                    "desc": "duet: 转化率×1.5公共池/三按钮",
+                    "rhythms": self._get_rhythms_for_song("Before light"),
+                })
+            return songs
+
+        # 正常模式
         if self.regard >= 1:
             songs.append({
                 "name": "追寻那道光",

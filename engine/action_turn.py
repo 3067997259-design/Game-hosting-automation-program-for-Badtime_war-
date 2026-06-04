@@ -325,9 +325,9 @@ class ActionTurnManager:
 
         # G2 发动者在 ish-bosheth 内：只能演唱(special)或放弃
         if (self.state.ish_bosheth
-                and self.state.ish_bosheth.phase == "active"
+                and self.state.ish_bosheth.phase in ("active", "duet")
                 and player.player_id == self.state.ish_bosheth.g2_owner_id):
-            if self.state.ish_bosheth.regard > 0:
+            if self.state.ish_bosheth.regard > 0 or self.state.ish_bosheth.phase == "duet":
                 names = ["special", "forfeit"]
                 descs = [
                     {"usage": "special", "description": "🎵 演唱曲目"},
@@ -336,6 +336,16 @@ class ActionTurnManager:
             else:
                 names = ["forfeit"]
                 descs = [{"usage": "forfeit", "description": "放弃行动"}]
+            return names, descs
+
+        # v2.0: G5 duet 上台者：只能伴唱(special)或放弃
+        ish = self.state.ish_bosheth
+        if ish and ish.phase == "duet" and player.player_id == ish.duet_g5_pid:
+            names = ["special", "forfeit"]
+            descs = [
+                {"usage": "special", "description": "🎤 伴唱（消耗追忆，减半歌曲花费）"},
+                {"usage": "forfeit", "description": "放弃行动"},
+            ]
             return names, descs
 
         # Terror 状态：只允许 attack 和 move
@@ -1632,7 +1642,7 @@ class ActionTurnManager:
         elif action == "special":
             # G2 舞台内演唱：走 choose 流程
             if (self.state.ish_bosheth
-                    and self.state.ish_bosheth.phase == "active"
+                    and self.state.ish_bosheth.phase in ("active", "duet")
                     and player.player_id == self.state.ish_bosheth.g2_owner_id
                     and player.talent
                     and hasattr(player.talent, 'execute_sing')):
@@ -1641,6 +1651,15 @@ class ActionTurnManager:
                 cancelled = isinstance(msg, str) and (
                     msg.startswith("放弃") or msg.startswith("❌"))
                 return msg, "special", not cancelled, not cancelled
+            # v2.0: G5 duet 伴唱
+            ish = self.state.ish_bosheth
+            if (ish and ish.phase == "duet"
+                    and player.player_id == ish.duet_g5_pid
+                    and player.talent
+                    and hasattr(player.talent, 'execute_harmonize')):
+                msg = player.talent.execute_harmonize(player, self.state)
+                consumes = not (isinstance(msg, str) and msg.startswith("❌"))
+                return msg, "special", consumes, consumes
             op = parsed["operation"]
             msg, consumes = special_op.execute(player, op, self.state)
             is_ok = not msg.startswith("❌")
