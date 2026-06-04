@@ -248,6 +248,25 @@ class IshBosheth:
             ).format(name=attacker.name, heat=damage, voice=voice)
         )
 
+    def offer_heat(self, player, amount: float, card_name: str = ""):
+        """v2.0 Plan B: 上供舞台 → 低保热力。
+
+        物料牌打给 G2/G5 时调用，为使用者的声部贡献固定热力。
+        """
+        if self.phase != "duet":
+            return
+        voice = getattr(player, 'emotion', None)
+        if voice not in self.duet_heat:
+            return
+        self.duet_heat[voice] += amount
+        card_info = f"（{card_name}）" if card_name else ""
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "offer.heat",
+                default="🎁 {name} 向舞台献上 {card}！+{heat} 热力 → {voice}"
+            ).format(name=player.name, card=card_info, heat=amount, voice=voice)
+        )
+
     # ================================================================
     #  v2.0: duet 轮次结算
     # ================================================================
