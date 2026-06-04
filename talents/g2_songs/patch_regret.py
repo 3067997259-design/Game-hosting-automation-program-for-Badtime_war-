@@ -58,8 +58,7 @@ class Zeffiroso(BaseSong):
         return ish.regard >= 2
 
     def execute(self, g2_player, target, ish, game_state):
-        # Zeffiroso 选两名观众（不走 target 参数，在 execute_sing 中特殊处理）
-        pass
+        raise RuntimeError("Zeffiroso must use execute_two(), not execute()")
 
     def execute_two(self, g2_player, t1, t2, ish, game_state) -> str:
         # 交换牌

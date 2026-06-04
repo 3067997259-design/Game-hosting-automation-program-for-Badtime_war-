@@ -1760,36 +1760,16 @@ class ActionTurnManager:
     # ================================================================
     #  攻击执行
     # ================================================================
-    # ── 物料牌效果处理器（字典分派）──────────────────────────────────
-
-    @property
-    def _card_handlers(self) -> dict:
-        """物料牌 → 效果处理器的映射。"""
-        return {
-            "前排票": self._handle_front_row_ticket,
-            "小卡交换": self._handle_exchange_card,
-            "空白票根": self._handle_blank_stub,
-            "耳塞": self._handle_earplug,
-            "荧光棒": self._handle_glow_stick,
-            "24K钛合金狗牌": self._handle_dog_tag,
-            "聚光合影": self._handle_spotlight_photo,
-            "应援连呼": self._handle_support_cheer,
-            "后台通行证": self._handle_backstage_pass,
-            "撕票": self._handle_tear_ticket,
-            "倒彩": self._handle_boo,
-            "花束": self._handle_bouquet,
-            "调停": self._handle_mediation,
-            "场刊整理": self._handle_program_tidy,
-            "反光板": self._handle_reflect_board,
-            "耳返": self._handle_ear_monitor,
-            "和弦谱": self._handle_chord_sheet,
-        }
+    # ── 物料牌效果处理器（v0.7: CARD_REGISTRY 分派）──────────────────
 
     def _resolve_card_play(self, player, ish, card_name: str):
-        """v0.6: 解析并执行物料牌效果（字典分派）。"""
-        handler = self._card_handlers.get(card_name)
-        if handler:
-            handler(player, ish)
+        """v0.7: 通过 CARD_REGISTRY 分派物料牌效果。"""
+        from engine.cards import CARD_REGISTRY
+        for card_cls in CARD_REGISTRY:
+            if card_cls.name == card_name:
+                card = card_cls()
+                card.play(player, ish, self)
+                break
         # 使用后进入弃牌区
         if card_name != "改签票":
             ish.deck.discard_pile.append(card_name)

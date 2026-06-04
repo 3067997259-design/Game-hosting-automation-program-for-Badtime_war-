@@ -1040,13 +1040,13 @@ def _calc_stability(unit, cumulative_delta: float, decay_factor: float = 1.0,
                    ish=None) -> float:
     """每目标独立安定値。正=增伤，负=治疗。
 
-    受以下临时标记影响（旋律命中后清除）：
+    受以下临时标记影响（旋律命中后立即清除，不会跨目标叠加）：
     - _stability_armor_mult: Placido(×0.5) / Zeffiroso(×2)
     - _stability_force_decay: 反光板(强制decay=1.0)
     - _stability_defense_offset: 耳返(total_defense偏移)
     - ish._pivot_override: Riposato(5.0) / Dolente(2.0)"""
     base = max(-0.5, min(1.5, cumulative_delta / 6.0 - 0.5))
-    pivot = ish._pivot_override if (ish and getattr(ish, '_pivot_override', None)) else 3.5
+    pivot = ish._pivot_override if (ish and ish._pivot_override is not None) else 3.5
     offset = getattr(unit, '_stability_defense_offset', 0.0)
     total_def = get_total_defense_hp(unit) + offset
     armor_mod = (total_def - pivot) * 0.4
