@@ -2,7 +2,8 @@
 from engine.cards.base import BaseCard
 
 class BlankStub(BaseCard):
-    name = "空白票根"; count = 2
+    name = "空白票根"
+    count = 2
     desc = "选择：摸 1 张牌 / 清除 1 条舞台牵连 / 清除 1 层安可。"
 
     def play(self, player, ish, turn_mgr):

@@ -2,7 +2,8 @@
 from engine.cards.base import BaseCard
 
 class Bouquet(BaseCard):
-    name = "花束"; count = 2
+    name = "花束"
+    count = 2
     desc = "选择一名单位获 0.5 临时 HP 至下个 R4。若目标为 Chorus，额外恢复 0.5 HP。"
 
     def play(self, player, ish, turn_mgr):

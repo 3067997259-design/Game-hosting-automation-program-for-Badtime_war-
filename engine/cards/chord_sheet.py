@@ -5,7 +5,9 @@ from engine.ish_bosheth import ACCAREZZEVOLE
 
 
 class ChordSheet(BaseCard):
-    name = "和弦谱"; count = 2; voice = ACCAREZZEVOLE
+    name = "和弦谱"
+    count = 2
+    voice = ACCAREZZEVOLE
     desc = "Acc 限定。累计 ΔRegard +1.5。"
 
     def play(self, player, ish, turn_mgr):

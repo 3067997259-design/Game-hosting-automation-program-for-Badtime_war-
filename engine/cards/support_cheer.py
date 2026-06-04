@@ -4,7 +4,9 @@ from engine.cards.base import BaseCard
 from engine.ish_bosheth import ACCAREZZEVOLE, STRAPPANDO
 
 class SupportCheer(BaseCard):
-    name = "应援连呼"; count = 1; voice = ACCAREZZEVOLE
+    name = "应援连呼"
+    count = 1
+    voice = ACCAREZZEVOLE
     desc = "Acc 限定。选一名 Acc 单位获 0.5 临时 HP。若为 Acc Chorus，它立刻执行一次攻击。"
 
     def play(self, player, ish, turn_mgr):

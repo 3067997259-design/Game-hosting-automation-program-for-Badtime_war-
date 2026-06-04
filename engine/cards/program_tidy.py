@@ -2,7 +2,8 @@
 from engine.cards.base import BaseCard
 
 class ProgramTidy(BaseCard):
-    name = "场刊整理"; count = 2
+    name = "场刊整理"
+    count = 2
     desc = "Ind 倾向。选一名观众（含 Chorus），双方各摸 1 张。若声部不同，可令其中一人弃 1 张。"
 
     def play(self, player, ish, turn_mgr):
@@ -18,7 +19,8 @@ class ProgramTidy(BaseCard):
                 c = ish.deck._draw_one()
                 if c:
                     if getattr(person, 'is_chorus', False):
-                        ish.deck.chorus_slots.setdefault(person.player_id, c)
+                        if not ish.deck.chorus_slots.get(person.player_id):
+                            ish.deck.chorus_slots[person.player_id] = c
                     else:
                         ish.deck.hands.setdefault(person.player_id, []).append(c)
             if not getattr(target, 'is_chorus', False) and getattr(player, 'emotion', None) != getattr(target, 'emotion', None):

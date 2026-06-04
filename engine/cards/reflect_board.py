@@ -5,7 +5,9 @@ from engine.ish_bosheth import INDIFFERENZA
 
 
 class ReflectBoard(BaseCard):
-    name = "反光板"; count = 2; voice = INDIFFERENZA
+    name = "反光板"
+    count = 2
+    voice = INDIFFERENZA
     desc = "Ind 限定。选择一名观众，其下次旋律中 decay_factor 强制=1.0。"
 
     def play(self, player, ish, turn_mgr):

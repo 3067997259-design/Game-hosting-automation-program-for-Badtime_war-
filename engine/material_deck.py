@@ -59,7 +59,7 @@ _CARD_DEFS: List[Dict[str, Any]] = [
     {"name": "撕票", "count": 1, "voice": VOICE_STR,
      "desc": "Str 限定。Regard -0.5。若本回合击杀 Acc 单位，额外 Regard -0.5。"},
     {"name": "倒彩", "count": 2, "voice": None,
-     "desc": "选择一名 Acc 单位，其至下个 R4 受到伤害 +0.5。若本回合攻击该目标，额外 Regard -0.25。"},
+     "desc": "选择一名 Acc 单位，其至下个 R4 受到伤害 +0.5。"},
     # ── Indifferenza 倾向 ──
     {"name": "花束", "count": 2, "voice": None,
      "desc": "选择一名单位获 0.5 临时 HP 至下个 R4。若目标为 Chorus，额外恢复 0.5 HP。"},

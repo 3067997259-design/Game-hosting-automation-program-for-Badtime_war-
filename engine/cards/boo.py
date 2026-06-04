@@ -3,7 +3,8 @@ from engine.cards.base import BaseCard
 from engine.ish_bosheth import ACCAREZZEVOLE
 
 class Boo(BaseCard):
-    name = "倒彩"; count = 2
+    name = "倒彩"
+    count = 2
     desc = "选择一名 Acc 单位，其至下个 R4 受到伤害 +0.5。"
 
     def play(self, player, ish, turn_mgr):

@@ -3,7 +3,8 @@ from cli import display
 from engine.cards.base import BaseCard
 
 class SpotlightPhoto(BaseCard):
-    name = "聚光合影"; count = 2
+    name = "聚光合影"
+    count = 2
     desc = "邀请一名观众单位移动到你的座位（需对方同意）。你的回合结束后插入其额外行动回合。"
 
     def play(self, player, ish, turn_mgr):

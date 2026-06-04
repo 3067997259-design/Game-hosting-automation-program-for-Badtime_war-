@@ -2,7 +2,8 @@
 from engine.cards.base import BaseCard
 
 class CardExchange(BaseCard):
-    name = "小卡交换"; count = 2
+    name = "小卡交换"
+    count = 2
     desc = "摸 2 张牌，必须将 1 张手牌交给另一名真实观众或弃置。跨声部双方 D6+1。"
 
     def play(self, player, ish, turn_mgr):

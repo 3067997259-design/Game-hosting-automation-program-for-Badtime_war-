@@ -3,7 +3,9 @@ from engine.cards.base import BaseCard
 from engine.ish_bosheth import INDIFFERENZA, ACCAREZZEVOLE, STRAPPANDO
 
 class Mediation(BaseCard):
-    name = "调停"; count = 2; voice = INDIFFERENZA
+    name = "调停"
+    count = 2
+    voice = INDIFFERENZA
     desc = "Ind 限定。选 1 Acc + 1 Str，至下个 R4 不能互相 attack。若任一方是 Chorus，摸 1 张牌。"
 
     def play(self, player, ish, turn_mgr):
