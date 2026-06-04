@@ -1,4 +1,5 @@
 """反光板 ×2 — Ind 限定"""
+from cli import display
 from engine.cards.base import BaseCard
 from engine.ish_bosheth import INDIFFERENZA
 
@@ -17,3 +18,4 @@ class ReflectBoard(BaseCard):
                 context={"phase":"T0","situation":"g2_card_reflect_board"})
             t = next((x for x in targets if x.name == chosen), targets[0])
             t._stability_force_decay = 1.0
+            display.show_info(f"🔦 {t.name} 被反光板标记：下次旋律衰减=1.0")

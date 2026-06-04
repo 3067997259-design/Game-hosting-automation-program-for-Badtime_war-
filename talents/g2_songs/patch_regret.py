@@ -40,6 +40,8 @@ class Placido(BaseSong):
                         hand.append(c)
 
         # v0.7 安定値交互：目标下次旋律 armor_mod ×0.5
+        # 乘法叠加（×0.5^n）：若同一目标在同一R4被多次 Placido 命中，效果指数递减。
+        # 设计意图：R4内多次命中同一目标极为罕见（费 1 选 1），乘法叠加是惩罚性设计。
         target._stability_armor_mult = getattr(target, '_stability_armor_mult', 1.0) * 0.5
         prompt_manager.show("g2reset", "song.placido", target_name=target.name)
         return f"🎵 {self.name}·{self.rhythm} → {target.name}"
@@ -78,6 +80,9 @@ class Zeffiroso(BaseSong):
                                chorus_name=c.name, voice=c.emotion)
 
         # v0.7 安定値交互：选中目标下次旋律 安定値 ×2
+        # 乘法叠加（×2^n）：若同一目标在同一R4被多次 Zeffiroso 选中，效果指数递增。
+        # 设计意图：Zeffiroso 费 2 选 2，双 Zeffiroso 交换是故意的强 combo，
+        # 乘法叠加是对该战术的奖赏。Chorus 不受此加成（避免堆叠过强）。
         is_c1 = getattr(t1, 'is_chorus', False)
         is_c2 = getattr(t2, 'is_chorus', False)
         if not is_c1:

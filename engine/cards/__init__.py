@@ -1,4 +1,10 @@
-"""物料牌注册表。新增牌在此注册，然后添加 play() 实现。"""
+"""物料牌注册表。
+新增牌在此注册，然后添加 play() 实现。
+
+注意：当前 CARD_REGISTRY 用于 action_turn.py:_resolve_card_play() 分派。
+material_deck.py 中的 _CARD_DEFS 仍维护一份独立的牌元数据字典（供 build_deck/get_card_info/is_playable）。
+过渡期两套数据并存，后续应统一为从 CARD_REGISTRY 读取（每张 BaseCard 子类自带 name/count/voice/desc）。
+"""
 from engine.cards.front_row import FrontRowTicket
 from engine.cards.card_exchange import CardExchange
 from engine.cards.blank_stub import BlankStub

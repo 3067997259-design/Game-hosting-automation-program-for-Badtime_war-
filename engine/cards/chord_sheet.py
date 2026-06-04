@@ -1,4 +1,5 @@
 """和弦谱 ×2 — Acc 限定"""
+from cli import display
 from engine.cards.base import BaseCard
 from engine.ish_bosheth import ACCAREZZEVOLE
 
@@ -9,3 +10,4 @@ class ChordSheet(BaseCard):
 
     def play(self, player, ish, turn_mgr):
         ish.cumulative_delta_regard += 1.5
+        display.show_info(f"🎼 {player.name} 打出和弦谱：累计ΔRegard +1.5 → {ish.cumulative_delta_regard:.1f}")

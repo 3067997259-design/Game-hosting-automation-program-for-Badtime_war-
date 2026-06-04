@@ -1,4 +1,5 @@
 """聚光合影 ×2 — 通用"""
+from cli import display
 from engine.cards.base import BaseCard
 
 class SpotlightPhoto(BaseCard):
@@ -14,7 +15,9 @@ class SpotlightPhoto(BaseCard):
         chosen = player.controller.choose("聚光合影：邀请谁到你的座位？",
             [t.name for t in targets], context={"phase":"T0","situation":"g2_card_spotlight_photo"})
         target = next((t for t in targets if t.name == chosen), targets[0])
-        if not self._consent(player, target): return
+        if not self._consent(player, target):
+            display.show_info(f"📸 {target.name} 拒绝了合影邀请。")
+            return
         if target.location != seat:
             target.location = seat
             for p2_id in ish.participants:
@@ -25,6 +28,7 @@ class SpotlightPhoto(BaseCard):
                 if c.is_alive() and c.location == seat and c.player_id != target.player_id:
                     turn_mgr.state.markers.set_engaged(target.player_id, c.player_id)
         player._photo_invitee_id = target.player_id
+        display.show_info(f"📸 {target.name} 接受合影邀请，移动到 {seat}！")
 
     @staticmethod
     def _consent(player, target) -> bool:

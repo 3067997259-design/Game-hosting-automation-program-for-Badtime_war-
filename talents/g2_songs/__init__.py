@@ -1,4 +1,9 @@
-"""G2 曲目注册表。"""
+"""G2 曲目注册表。
+
+注意：Overture（序曲）在 pursue_light.py 中定义但在 v0.6 设定中作为
+固定开幕曲通过 execute_sing() 直接调用，不走 SONG_REGISTRY 选择流程，
+因此未注册到任何 registry。若后续 Overture 变为可选曲目，需添加到此文件。
+"""
 from talents.g2_songs.pursue_light import Soave, Sognando
 from talents.g2_songs.patch_regret import Placido, Zeffiroso
 from talents.g2_songs.before_light import Riposato, Dolente
