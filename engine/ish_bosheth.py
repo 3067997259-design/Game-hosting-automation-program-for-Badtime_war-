@@ -89,6 +89,9 @@ class IshBosheth:
         self.projection_seat: Optional[str] = None
         self.projection_round: int = -1
 
+        # v0.7 安定値交互标记
+        self._pivot_override: Optional[float] = None  # Riposato/Dolente 覆盖 pivot
+
     # ── 累计解锁阈值 ────────────────────────────────────────────
     MELODY_1_THRESHOLD = 3.0
     MELODY_2_THRESHOLD = 7.0
@@ -378,6 +381,7 @@ class IshBosheth:
                     c.temp_hp_g2 = 0.0
                     c.temp_atk_g2 = 0.0
         self.before_light = None
+        self._pivot_override = None  # v0.7: Before light 效果仅持续一个 R4
 
         # 清理物料牌临时效果
         for pid in self.participants:
@@ -911,8 +915,13 @@ class IshBosheth:
         for i, target in enumerate(targets):
             dmg = base_dmg_seq[i] if i < len(base_dmg_seq) else 0.5
             decay = decays[i] if i < len(decays) else 0.1
-            stability = _calc_stability(target, self.cumulative_delta_regard, decay)
+            stability = _calc_stability(target, self.cumulative_delta_regard, decay, ish=self)
             raw = _calc_melody_damage(dmg, stability, target.max_hp, target.hp)
+            # v0.7: 安定值临时标记清除（单次效果）
+            for attr in ('_stability_armor_mult', '_stability_force_decay',
+                         '_stability_defense_offset'):
+                if hasattr(target, attr):
+                    delattr(target, attr)
 
             prompt_manager.show("g2reset", "melody.hit",
                                index=i+1, target_name=target.name)
@@ -1027,13 +1036,27 @@ def get_total_defense_hp(unit) -> float:
     return hp
 
 
-def _calc_stability(unit, cumulative_delta: float, decay_factor: float = 1.0) -> float:
+def _calc_stability(unit, cumulative_delta: float, decay_factor: float = 1.0,
+                   ish=None) -> float:
     """每目标独立安定値。正=增伤，负=治疗。
-    decay_factor 随命中顺位衰减（第1目标=1.0, 第4目标=0.2）。"""
+
+    受以下临时标记影响（旋律命中后清除）：
+    - _stability_armor_mult: Placido(×0.5) / Zeffiroso(×2)
+    - _stability_force_decay: 反光板(强制decay=1.0)
+    - _stability_defense_offset: 耳返(total_defense偏移)
+    - ish._pivot_override: Riposato(5.0) / Dolente(2.0)"""
     base = max(-0.5, min(1.5, cumulative_delta / 6.0 - 0.5))
-    total_def = get_total_defense_hp(unit)
-    armor_mod = (total_def - 3.5) * 0.4
-    return (base + armor_mod) * decay_factor
+    pivot = ish._pivot_override if (ish and getattr(ish, '_pivot_override', None)) else 3.5
+    offset = getattr(unit, '_stability_defense_offset', 0.0)
+    total_def = get_total_defense_hp(unit) + offset
+    armor_mod = (total_def - pivot) * 0.4
+    stability = (base + armor_mod)
+    mult = getattr(unit, '_stability_armor_mult', 1.0)
+    stability *= mult
+    forced = getattr(unit, '_stability_force_decay', None)
+    if forced is not None:
+        decay_factor = forced
+    return stability * decay_factor
 
 
 def _calc_melody_damage(base_dmg: float, stability: float,

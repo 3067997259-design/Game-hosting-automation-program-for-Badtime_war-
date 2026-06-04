@@ -1780,6 +1780,9 @@ class ActionTurnManager:
             "花束": self._handle_bouquet,
             "调停": self._handle_mediation,
             "场刊整理": self._handle_program_tidy,
+            "反光板": self._handle_reflect_board,
+            "耳返": self._handle_ear_monitor,
+            "和弦谱": self._handle_chord_sheet,
         }
 
     def _resolve_card_play(self, player, ish, card_name: str):
@@ -2074,6 +2077,32 @@ class ActionTurnManager:
                         context={"phase": "T0", "situation": "g2_card_program_tidy_pick"},
                     )
                     ish.deck.discard_from_hand(vic.player_id, dc)
+
+    # ── v0.7 安定値交互牌 ──────────────────────────────────────
+
+    def _handle_reflect_board(self, player, ish):
+        """反光板：选目标，其下次旋律 decay_factor 强制=1.0。"""
+        targets = [self.state.get_player(p) for p in ish.participants
+                    if self.state.get_player(p) and self.state.get_player(p).is_alive()]
+        targets += [c for c in ish.chorus_list if c.is_alive()]
+        if targets:
+            chosen = player.controller.choose("反光板：选择目标",
+                [t.name for t in targets],
+                context={"phase":"T0","situation":"g2_card_reflect_board"})
+            t = next((x for x in targets if x.name == chosen), targets[0])
+            t._stability_force_decay = 1.0
+            display.show_info(f"🔦 {t.name} 被反光板标记：下次旋律衰减=1.0")
+
+    def _handle_ear_monitor(self, player, ish):
+        """耳返：自降 total_defense -2。"""
+        player._stability_defense_offset = (
+            getattr(player, '_stability_defense_offset', 0.0) - 2.0)
+        display.show_info(f"🎧 {player.name} 戴上耳返：旋律判定中防御-2")
+
+    def _handle_chord_sheet(self, player, ish):
+        """和弦谱：累计 ΔRegard +1.5。"""
+        ish.cumulative_delta_regard += 1.5
+        display.show_info(f"🎼 {player.name} 打出和弦谱：累计ΔRegard +1.5 → {ish.cumulative_delta_regard:.1f}")
 
     def _execute_attack(self, parsed, player, override_killer=None):
         """override_killer: 插入式笑话中传入 G6 玩家，

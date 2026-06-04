@@ -61,6 +61,13 @@ _CARD_DEFS: List[Dict[str, Any]] = [
      "desc": "Ind 限定。选 1 Acc + 1 Str，至下个 R4 不能互相 attack。若任一方是 Chorus，摸 1 张牌。"},
     {"name": "场刊整理", "count": 2, "voice": None,
      "desc": "Ind 倾向。选一名观众（含 Chorus），双方各摸 1 张。若声部不同，可令其中一人弃 1 张。"},
+    # ── v0.7 安定値交互牌 ──
+    {"name": "反光板", "count": 2, "voice": VOICE_IND,
+     "desc": "Ind 限定。选择一名观众，其下次旋律中 decay_factor 强制=1.0。"},
+    {"name": "耳返", "count": 2, "voice": None,
+     "desc": "下次旋律中你的 total_defense 在安定値计算时 -2。"},
+    {"name": "和弦谱", "count": 2, "voice": VOICE_ACC,
+     "desc": "Acc 限定。累计 ΔRegard +1.5。"},
 ]
 
 TRANSFER_TICKET_NAME = "改签票"
