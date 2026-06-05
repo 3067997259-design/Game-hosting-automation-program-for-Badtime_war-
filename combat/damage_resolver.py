@@ -511,6 +511,7 @@ def resolve_damage(attacker, target, weapon, game_state,
                 "reason": "duet_displacement",
                 "heat_value": heat,
                 "displacement": {"from": target.location, "to": target.location},
+                "details": [],
             }
             # 按钮：直接记录热力
             if getattr(target, 'is_button', False):
@@ -1619,5 +1620,11 @@ def _duet_displace(target, attacker, damage: float, ish, game_state, result: dic
     if new_loc != old_loc:
         target.location = new_loc
         game_state.markers.on_player_move(target.player_id)
+        # 校验位移后座位有效性：若不在舞台 SEATS 中，清除 on_stage 标记
+        if new_loc not in ish.SEATS:
+            target.stage_statuses.discard('on_stage')
+            display.show_info(
+                f"  ⚠️ {target.name} 被弹出舞台范围（{new_loc}），舞台状态已清除。"
+            )
 
     result["displacement"] = {"from": old_loc, "to": new_loc}

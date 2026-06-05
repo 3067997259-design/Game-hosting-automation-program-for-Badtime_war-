@@ -779,10 +779,11 @@ class IshBosheth:
         self.duet_curtain_triggered = True
 
         reached_max = self.duet_round >= 8
+        sep = "=" * 50
         display.show_info(
             prompt_manager.get_prompt(
                 "duet", "curtain.header",
-                default="\n{'='*50}\n  🎤 双人演出谢幕！\n{'='*50}"
+                default=f"\n{sep}\n  🎤 双人演出谢幕！\n{sep}"
             )
         )
 
@@ -881,12 +882,13 @@ class IshBosheth:
                     break
             if not granted:
                 display.show_info(f"  ⚠️ 无法创建「{item_choice}」，请手动发放。")
-            display.show_info(
-                prompt_manager.get_prompt(
-                    "duet", "encore.grant",
-                    default="✅ {name} 获得了 {item}！"
-                ).format(name=p.name, item=item_choice)
-            )
+            else:
+                display.show_info(
+                    prompt_manager.get_prompt(
+                        "duet", "encore.grant",
+                        default="✅ {name} 获得了 {item}！"
+                    ).format(name=p.name, item=item_choice)
+                )
 
     def _award_duet_rank_rewards(self, game_state: GameState, ranked: list, reached_max: bool):
         """按热力排名发放三等奖励。"""
@@ -918,7 +920,7 @@ class IshBosheth:
                     m._duet_damage_bonus = getattr(m, '_duet_damage_bonus', 0) + 0.5 * multiplier
                 display.show_info(
                     prompt_manager.get_prompt("duet", "curtain.reward_1st",
-                        default="🥇 第1声部({voice}): D4/D6+2，下次伤害+0.5").format(voice=voice))
+                        default="🥇 第1声部({voice}): D4/D6+1，下次伤害+0.5").format(voice=voice))
             elif rank_idx == 1:
                 for m in members:
                     m._duet_d4_bonus = True
