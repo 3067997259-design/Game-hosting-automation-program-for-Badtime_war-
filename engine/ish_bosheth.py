@@ -135,6 +135,7 @@ class IshBosheth:
         self.duet_encores: int = 0                    # 安可触发次数
         self.harmonize_active: bool = False           # G5 本轮是否伴唱
         self.duet_curtain_triggered: bool = False     # 谢幕是否已触发
+        self._duet_prev_heat: dict[str, float] = {}   # 上轮累计热力（用于当轮增量计算）
 
     # ── 累计解锁阈值 ────────────────────────────────────────────
     MELODY_1_THRESHOLD = 3.0
@@ -276,11 +277,16 @@ class IshBosheth:
     #  v2.0: duet 轮次结算
     # ================================================================
     def _duet_on_r4(self, game_state: GameState):
-        """duet 模式 R4：热力→Regard 折算 + 检查谢幕条件。"""
-        # 热力→Regard 转化率 = 0.5
+        """duet 模式 R4：当轮热力→Regard 折算 + 检查谢幕条件。"""
         CONVERSION = 0.5
-        total_heat = sum(self.duet_heat.values())
-        regen = total_heat * CONVERSION
+        # 当轮热力增量 = 当前累计 - 上轮累计（避免全赛程累积导致 Regard 快速饱和）
+        round_heat = {
+            v: self.duet_heat[v] - self._duet_prev_heat.get(v, 0)
+            for v in self.duet_heat
+        }
+        self._duet_prev_heat = dict(self.duet_heat)
+        total_round = sum(round_heat.values())
+        regen = total_round * CONVERSION
         self.regard = min(self.regard_cap, self.regard + regen)
 
         # 重置伴唱标记
@@ -290,12 +296,12 @@ class IshBosheth:
         display.show_info(
             prompt_manager.get_prompt(
                 "duet", "heat.round_end",
-                default="\n🎤 第 {round}/8 轮 — 热力: Acc={acc} Ind={ind} Str={str} → Regard +{regen} = {regard}"
+                default="\n🎤 第 {round}/8 轮 — 当轮热力: Acc=+{acc} Ind=+{ind} Str=+{str_} → Regard +{regen} = {regard}"
             ).format(
                 round=self.duet_round,
-                acc=self.duet_heat.get(ACCAREZZEVOLE, 0),
-                ind=self.duet_heat.get(INDIFFERENZA, 0),
-                str_=self.duet_heat.get(STRAPPANDO, 0),  # str_ 避免覆写 Python str 内建类型
+                acc=round_heat.get(ACCAREZZEVOLE, 0),
+                ind=round_heat.get(INDIFFERENZA, 0),
+                str_=round_heat.get(STRAPPANDO, 0),  # str_ 避免覆写 Python str 内建类型
                 regen=regen,
                 regard=self.regard,
             )

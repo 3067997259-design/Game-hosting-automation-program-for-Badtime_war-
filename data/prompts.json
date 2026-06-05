@@ -311,7 +311,7 @@
       "enter.info": "\n==================================================\n  🎤🌊 双人演出模式 —— {g2} & {g5}\n  Regard 初始：{regard}\n  最大轮次：8\n  热力计数器已就绪\n==================================================",
       "button.spawn": "\n🔴🔴 两个大红按钮出现在 {seat1} 和 {seat2}！",
       "button.hit": "🔴 {name} 按下了按钮！+{heat} 热力 → {voice}",
-      "heat.round_end": "\n🎤 第 {round}/8 轮 — 累计热力: Acc={acc} Ind={ind} Str={str_} → Regard +{regen} = {regard}",
+      "heat.round_end": "\n🎤 第 {round}/8 轮 — 当轮热力: Acc=+{acc} Ind=+{ind} Str=+{str_} → Regard +{regen} = {regard}",
       "harmonize.used": "🎤 {name} 伴唱！本轮歌曲花费减半。追忆预算：{budget}/12",
       "displacement.random": "💨 {name} 被弹飞到 {seat}！",
       "displacement.chosen": "🎯 {attacker} 将 {name} 推到了 {seat}！",

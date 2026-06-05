@@ -111,7 +111,7 @@ class RoundManager:
                 max_val = final
 
         # Chorus 参与 D4
-        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase in ("active", "duet"):
             for c in self.state.ish_bosheth.chorus_list:
                 if c.is_alive() and c.location:
                     base_roll = roll_d4()
@@ -210,7 +210,7 @@ class RoundManager:
 
         # v0.6 ish-bosheth: G2 保底最优先行动
         ish = self.state.ish_bosheth
-        if ish and ish.phase == "active":
+        if ish and ish.phase in ("active", "duet"):
             g2_pid = ish.g2_owner_id
             if g2_pid in action_queue:
                 action_queue.remove(g2_pid)
@@ -471,7 +471,7 @@ class RoundManager:
 
         # R4-2.5: ish-bosheth R4 衰减
         if (self.state.ish_bosheth
-                and self.state.ish_bosheth.phase == "active"):
+                and self.state.ish_bosheth.phase in ("active", "duet")):
             self.state.ish_bosheth.on_r4(self.state)
         if self.state.check_victory():
             return
