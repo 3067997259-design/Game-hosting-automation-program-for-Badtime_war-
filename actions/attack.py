@@ -72,6 +72,10 @@ def execute(player, target_id, weapon_name, game_state,
             target_layer = None
             target_attr = None
 
+    # v2.0 duet: 所有攻击走位移/热力路径（按钮→热力，玩家→位移）
+    ish = getattr(game_state, 'ish_bosheth', None)
+    duet_displace = (ish is not None and ish.phase == "duet")
+
     # 执行伤害结算
     result = resolve_damage(
         attacker=player,
@@ -83,6 +87,7 @@ def execute(player, target_id, weapon_name, game_state,
         ignore_element=ignore_element,
         damage_multiplier=damage_multiplier,
         bonus_damage=bonus_damage,
+        displacement_only=duet_displace,
     )
 
     # 组装消息

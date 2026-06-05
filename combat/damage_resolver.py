@@ -1,7 +1,9 @@
 """伤害结算管线（Phase 4 完整版）：支持天赋参数、电磁步枪/陶瓷护甲特效"""
 
+import random as _random
 from utils.attribute import Attribute, is_effective
 from models.equipment import ArmorLayer, WeaponRange
+from cli import display
 from engine.prompt_manager import prompt_manager
 
 def _get_hologram_bonus(target, game_state):
@@ -489,6 +491,14 @@ def resolve_damage(attacker, target, weapon, game_state,
                         bonus_damage += 0.5
                     if target_voice == INDIFFERENZA:
                         bonus_damage += 0.5
+
+    # v2.0 duet embrace buff: 拥抱 G2→伤害+X / 拥抱 G5→减伤X（一次性消耗）
+    if attacker and getattr(attacker, '_embrace_g2_buff', 0) > 0:
+        bonus_damage += attacker._embrace_g2_buff
+        attacker._embrace_g2_buff = 0
+    if getattr(target, '_embrace_g5_buff', 0) > 0:
+        bonus_damage -= target._embrace_g5_buff
+        target._embrace_g5_buff = 0
 
     # v2.0 G2×G5 TE: duet 模式位移 PvP 早期退出
     if displacement_only and game_state and getattr(game_state, 'ish_bosheth', None):
@@ -1552,10 +1562,6 @@ def _duet_displace(target, attacker, damage: float, ish, game_state, result: dic
     - damage > 1.0: 50% 概率随机弹飞 / 50% 攻击者指定目的地
     - 不造成 HP 伤害，仅改变 location。
     """
-    import random as _random
-    from cli import display
-    from engine.prompt_manager import prompt_manager
-
     # 收集可用座位（排除目标当前位置）
     available = sorted(s for s in ish.SEATS if s != target.location)
     if not available:
@@ -1577,7 +1583,10 @@ def _duet_displace(target, attacker, damage: float, ish, game_state, result: dic
             )
         else:
             display.show_info(
-                f"  🛡️ {target.name} 站稳了脚步，未被弹飞。"
+                prompt_manager.get_prompt(
+                    "duet", "displacement.resist",
+                    default="  🛡️ {name} 站稳了脚步，未被弹飞。"
+                ).format(name=target.name)
             )
     else:
         # 高伤线：50% 随机 / 50% 攻击者指定

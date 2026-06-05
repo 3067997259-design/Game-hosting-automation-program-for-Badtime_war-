@@ -177,6 +177,12 @@ class Player:
         self._card_tear_ticket_active: bool = False  # 撕票：本回合击杀 Acc 额外 Regard -0.5
         self._dog_tag_active: bool = False       # 24K钛合金狗牌：本回合攻击无视属性克制
         self._photo_invitee_id: Optional[str] = None  # 聚光合影邀请的目标 id
+        # v2.0 G2×G5 duet 奖励属性
+        self._duet_d4_bonus: bool = False        # duet 谢幕后 D4+1
+        self._duet_d6_bonus: bool = False        # duet 谢幕后 D6+1
+        self._duet_damage_bonus: float = 0.0     # duet 谢幕后下次伤害+X
+        self._embrace_g2_buff: float = 0.0       # 拥抱 G2：下次攻击伤害+X
+        self._embrace_g5_buff: float = 0.0       # 拥抱 G5：下次被攻击免伤X
 
     def is_alive(self):
         return self.hp > 0
@@ -207,6 +213,10 @@ class Player:
         if getattr(self, '_g2_curtain_d4_bonus', False):
             bonus += 1
             self._g2_curtain_d4_bonus = False
+        # v2.0 duet 谢幕 D4+1 奖励
+        if self._duet_d4_bonus:
+            bonus += 1
+            self._duet_d4_bonus = False
         return bonus
 
     def get_d6_bonus(self):
@@ -214,6 +224,10 @@ class Player:
         if self.talent:
             talent_bonus = self.talent.on_d6_bonus(self) if hasattr(self.talent, 'on_d6_bonus') else 0
             bonus += talent_bonus
+        # v2.0 duet 谢幕 D6+1 奖励
+        if self._duet_d6_bonus:
+            bonus += 1
+            self._duet_d6_bonus = False
         return bonus
 
     def has_weapon(self, weapon_name):

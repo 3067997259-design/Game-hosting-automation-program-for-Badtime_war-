@@ -5,6 +5,7 @@
 展开 ish-bosheth 舞台结界：三声部阵营、物料牌系统、Regard、旋律、曲目。
 """
 
+import math
 import random
 
 from talents.base_talent import BaseTalent
@@ -159,7 +160,6 @@ class Hologram(BaseTalent):
 
         # v2.0 duet: G5 伴唱减半花费
         if ish.phase == "duet" and ish.harmonize_active:
-            import math
             total_cost = max(0, int(math.ceil(total_cost / 2)))
             ish.harmonize_active = False
             display.show_info(

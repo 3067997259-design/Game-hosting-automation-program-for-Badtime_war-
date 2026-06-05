@@ -49,6 +49,7 @@ END_CURTAIN     = "curtain"
 END_MAX_DURATION = "max_duration"
 END_FORCED      = "forced"
 END_DEATH       = "death"
+END_DUET        = "duet"          # v2.0: G2×G5 双人演出谢幕
 
 # ── 声部特效标记 ──────────────────────────────────────────────────
 MARK_FERVOR     = "fervor"       # 狂热（Acc 被旋律命中）
@@ -63,7 +64,9 @@ class ButtonDummy:
     """
     is_button: bool = True
     is_chorus: bool = True    # 兼容现有 D4/攻击系统
-    is_alive = lambda self: True  # 永不死亡
+
+    def is_alive(self) -> bool:
+        return True  # 永不死亡
 
     def __init__(self, seat: str, index: int):
         self.player_id: str = f"__button_{index}__"
@@ -290,7 +293,7 @@ class IshBosheth:
                 round=self.duet_round,
                 acc=self.duet_heat.get(ACCAREZZEVOLE, 0),
                 ind=self.duet_heat.get(INDIFFERENZA, 0),
-                str_=self.duet_heat.get(STRAPPANDO, 0),
+                str_=self.duet_heat.get(STRAPPANDO, 0),  # str_ 避免覆写 Python str 内建类型
                 regen=regen,
                 regard=self.regard,
             )
@@ -807,7 +810,7 @@ class IshBosheth:
         self._duet_embrace_phase(game_state, ranked)
 
         # ── 清理 ──
-        self.end_ish_bosheth("duet", game_state)
+        self.end_ish_bosheth(END_DUET, game_state)
 
     def _check_duet_encore(self, game_state: GameState):
         """检查安可条件：第 8 轮 + G5 追忆完全未使用。"""
@@ -864,6 +867,7 @@ class IshBosheth:
             if item_choice not in items:
                 item_choice = items[0]
             # 发放
+            granted = False
             for factory in (make_weapon, make_armor, make_item):
                 obj = factory(item_choice)
                 if obj:
@@ -873,7 +877,10 @@ class IshBosheth:
                         p.add_armor(obj)
                     else:
                         p.add_item(obj)
+                    granted = True
                     break
+            if not granted:
+                display.show_info(f"  ⚠️ 无法创建「{item_choice}」，请手动发放。")
             display.show_info(
                 prompt_manager.get_prompt(
                     "duet", "encore.grant",
@@ -982,7 +989,7 @@ class IshBosheth:
                 breaker._g2_curtain_d4_bonus = True
 
         # 空场 / 谢幕 / 完整演出 G2 隐身
-        if reason in (END_EMPTY, END_CURTAIN, END_SILENT, END_IND_WIN) and g2p and g2p.is_alive():
+        if reason in (END_EMPTY, END_CURTAIN, END_SILENT, END_IND_WIN, END_DUET) and g2p and g2p.is_alive():
             game_state.markers.clear_all_relations(self.g2_owner_id)
             g2p.is_invisible = True
 
