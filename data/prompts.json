@@ -305,6 +305,8 @@
     },
     "duet": {
       "vote.trigger": "\n🎤🌊 {g5_name} 向舞台上的 {g2_name} 献上「追光」之诗……\n「请一直，注视着我——」\n「——我在注视着你。」\n",
+      "vote.yes": "  ✓ {name}（{weight}票）→ 赞成",
+      "vote.no": "  ✗ {name}（{weight}票）→ 反对",
       "vote.result_pass": "\n✨ 赞成 {yes}/{total} —— 演出进入双人模式！",
       "vote.result_fail": "\n💧 赞成 {yes}/{total} —— 不足半数，双人演出未通过。\n追光之诗按标准效果生效。",
       "enter": "\n🎤🌊 {g5_name} 走上舞台，与 {g2_name} 并肩而立。\n双人演出，即将开始——\n",

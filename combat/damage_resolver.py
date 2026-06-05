@@ -1620,7 +1620,8 @@ def _duet_displace(target, attacker, damage: float, ish, game_state, result: dic
     if new_loc != old_loc:
         target.location = new_loc
         game_state.markers.on_player_move(target.player_id)
-        # 校验位移后座位有效性：若不在舞台 SEATS 中，清除 on_stage 标记
+        # 防御性检查：available 已过滤为 SEATS 子集，正常流程不可达，
+        # 保留以防未来代码变更导致非 SEATS 位置被传入
         if new_loc not in ish.SEATS:
             target.stage_statuses.discard('on_stage')
             display.show_info(

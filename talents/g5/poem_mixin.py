@@ -578,9 +578,10 @@ class PoemMixin:
         """
         talent = target.talent
 
-        # ── G2×G5 TE: 检测 ish-bosheth 是否激活 ──
+        # ── G2×G5 TE: 检测 ish-bosheth 是否激活（已尝试过则不可重试）──
         ish = getattr(self.state, 'ish_bosheth', None)
-        if ish is not None and ish.phase == "active":
+        if (ish is not None and ish.phase == "active"
+                and not getattr(self, 'duet_joined', False)):
             return self._poem_light_duet_attempt(target)
 
         # ── 标准追光 buff ──
@@ -666,12 +667,20 @@ class PoemMixin:
                 )
             if choice and "赞成" in choice:
                 yes_votes += weight
-                display.show_info(f"  ✓ {name}（{weight}票）→ 赞成")
+                display.show_info(
+                    prompt_manager.get_prompt(
+                        "duet", "vote.yes",
+                        default="  ✓ {name}（{weight}票）→ 赞成"
+                    ).format(name=name, weight=weight))
             else:
-                display.show_info(f"  ✗ {name}（{weight}票）→ 反对")
+                display.show_info(
+                    prompt_manager.get_prompt(
+                        "duet", "vote.no",
+                        default="  ✗ {name}（{weight}票）→ 反对"
+                    ).format(name=name, weight=weight))
 
-        # ── 判定 ──
-        if yes_votes >= total_votes / 2:
+        # ── 判定（防御：无投票者视为不通过）──
+        if total_votes > 0 and yes_votes >= total_votes / 2:
             display.show_info(
                 prompt_manager.get_prompt(
                     "duet", "vote.result_pass",

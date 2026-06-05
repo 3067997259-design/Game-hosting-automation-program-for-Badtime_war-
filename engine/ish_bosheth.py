@@ -78,6 +78,7 @@ class ButtonDummy:
         self.emotion: str = ""     # 无阵营
         self.armor = None
         self.talent = None
+        self.controller = None     # 按钮不参与 choose/get_command，显式置 None 以防遍历误触
         self.weapons = []
         self.stage_statuses: set = set()
         self.encore_layers: int = 0
