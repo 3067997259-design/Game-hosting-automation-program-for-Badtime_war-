@@ -202,12 +202,15 @@ class IshBosheth:
         g2_name = g2_player.name if g2_player else "??"
         g5_name = g5_player.name if g5_player else "??"
         display.show_info(
-            f"\n{'='*50}"
-            f"\n  🎤🌊 双人演出模式 —— {g2_name} & {g5_name}"
-            f"\n  Regard 初始：{self.regard}"
-            f"\n  最大轮次：8"
-            f"\n  热力计数器已就绪"
-            f"\n{'='*50}"
+            prompt_manager.get_prompt(
+                "duet", "enter.info",
+                default="\n==================================================\n"
+                        "  🎤🌊 双人演出模式 —— {g2} & {g5}\n"
+                        "  Regard 初始：{regard}\n"
+                        "  最大轮次：8\n"
+                        "  热力计数器已就绪\n"
+                        "=================================================="
+            ).format(g2=g2_name, g5=g5_name, regard=self.regard)
         )
 
     # ================================================================
@@ -215,11 +218,10 @@ class IshBosheth:
     # ================================================================
     def _spawn_duet_buttons(self, game_state: GameState):
         """R0：在两个随机座位召唤按钮。"""
-        import random as _random
         available = sorted(self.SEATS)
         if len(available) < 2:
             return
-        chosen = _random.sample(available, 2)
+        chosen = random.sample(available, 2)
         self.duet_buttons = []
         for i, seat in enumerate(chosen, 1):
             btn = ButtonDummy(seat, i)
@@ -822,6 +824,8 @@ class IshBosheth:
             return
         talent = g5.talent
         budget = getattr(talent, 'reminiscence_budget', 0)
+        # 预算仅通过 max(0, budget - 2) 递减，2 的倍数路径简单，
+        # 浮点精度不影响等值判定（budget 不会是 12.0 - ε）
         if budget < 12.0:
             return
 
@@ -943,32 +947,40 @@ class IshBosheth:
         if not g2 or not g5:
             return
 
+        # 真实玩家
         for pid in list(self.participants):
             p = game_state.get_player(pid)
             if not p or not p.is_alive():
                 continue
-            voice = getattr(p, 'emotion', None)
-            # 确定排名
-            rank_idx = next((i for i, (v, _) in enumerate(ranked) if v == voice), 2)
-            embrace_mult = 2.0 if rank_idx == 0 else (1.0 if rank_idx == 1 else 0.5)
+            self._embrace_player(p, g2, g5, ranked)
+        # v2.0: Chorus 也可参与 Embrace
+        for c in self.chorus_list:
+            if c.is_alive():
+                self._embrace_player(c, g2, g5, ranked)
 
-            choice = p.controller.choose(
-                f"谢幕拥抱 —— {p.name}，选择拥抱：",
-                [f"拥抱 {g2.name}", f"拥抱 {g5.name}", "不拥抱"],
-                context={"phase": "duet_curtain", "situation": "embrace"}
-            )
-            if "不抱" in choice:
-                continue
-            if g2.name in choice:
-                p._embrace_g2_buff = embrace_mult
-                display.show_info(
-                    prompt_manager.get_prompt("duet", "embrace.g2",
-                        default="🤗 {name} 拥抱了 G2！").format(name=p.name))
-            elif g5.name in choice:
-                p._embrace_g5_buff = embrace_mult
-                display.show_info(
-                    prompt_manager.get_prompt("duet", "embrace.g5",
-                        default="🤗 {name} 拥抱了 G5！").format(name=p.name))
+    def _embrace_player(self, p, g2, g5, ranked):
+        """单个单位（真实玩家或 Chorus）的 Embrace 逻辑。"""
+        voice = getattr(p, 'emotion', None)
+        rank_idx = next((i for i, (v, _) in enumerate(ranked) if v == voice), 2)
+        embrace_mult = 2.0 if rank_idx == 0 else (1.0 if rank_idx == 1 else 0.5)
+
+        choice = p.controller.choose(
+            f"谢幕拥抱 —— {p.name}，选择拥抱：",
+            [f"拥抱 {g2.name}", f"拥抱 {g5.name}", "不拥抱"],
+            context={"phase": "duet_curtain", "situation": "embrace"}
+        )
+        if "不抱" in choice:
+            return
+        if g2.name in choice:
+            p._embrace_g2_buff = embrace_mult
+            display.show_info(
+                prompt_manager.get_prompt("duet", "embrace.g2",
+                    default="🤗 {name} 拥抱了 G2！").format(name=p.name))
+        elif g5.name in choice:
+            p._embrace_g5_buff = embrace_mult
+            display.show_info(
+                prompt_manager.get_prompt("duet", "embrace.g5",
+                    default="🤗 {name} 拥抱了 G5！").format(name=p.name))
 
     # ================================================================
     #  统一清理（v0.6）
