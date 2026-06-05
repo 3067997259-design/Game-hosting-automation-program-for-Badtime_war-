@@ -314,6 +314,7 @@
       "harmonize.used": "🎤 {name} 伴唱！本轮歌曲花费减半。追忆预算：{budget}/12",
       "displacement.random": "💨 {name} 被弹飞到 {seat}！",
       "displacement.chosen": "🎯 {attacker} 将 {name} 推到了 {seat}！",
+      "displacement.resist": "  🛡️ {name} 站稳了脚步，未被弹飞。",
       "encore.trigger": "\n🎉🎉 安可！安可！G5 的 12 追忆分毫未动！\n   G2 与 G5 合唱双人曲 —— 所有观众自选一件物品！",
       "encore.pick_location": "选择获取地点：",
       "encore.pick_item": "选择要获取的物品：",

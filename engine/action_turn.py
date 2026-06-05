@@ -1478,8 +1478,8 @@ class ActionTurnManager:
                     if c.is_alive() and c.player_id != player.player_id:
                         legal_targets.append(c)
 
-        # 物料牌加成定向
-        dmg_bonus = getattr(player, '_card_damage_bonus', 0.0)
+        # 物料牌加成定向 + v2.0 duet 谢幕伤害加成
+        dmg_bonus = getattr(player, '_card_damage_bonus', 0.0) + getattr(player, '_duet_damage_bonus', 0.0)
         dmg_target_id = getattr(player, '_card_damage_bonus_target_id', None)
         dmg_voice_filter = getattr(player, '_card_damage_bonus_voice_filter', None)
         if dmg_bonus and (dmg_target_id or dmg_voice_filter) and legal_targets:
@@ -1517,6 +1517,9 @@ class ActionTurnManager:
         # v0.6: 狗牌效果仅持续本回合
         if getattr(player, '_dog_tag_active', False):
             player._dog_tag_active = False
+        # v2.0: duet 谢幕伤害加成仅持续一次攻击
+        if getattr(player, '_duet_damage_bonus', 0) > 0:
+            player._duet_damage_bonus = 0
         if player.talent:
             player.talent.on_turn_end(player, action_type)
 
