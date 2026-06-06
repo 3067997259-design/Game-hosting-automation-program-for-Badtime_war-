@@ -249,7 +249,7 @@ def setup_game():
 
         # 问是否手动配置每个AI
         auto_ai = True
-        if game_mode == "mixed":
+        if game_mode in ("mixed", "all_ai"):
             while True:
                 raw = input("  是否自动配置AI？(y=自动随机/n=逐个配置，默认y)：").strip().lower()
                 if raw in ("", "y", "yes", "是"):
