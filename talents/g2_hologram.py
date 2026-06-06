@@ -64,9 +64,7 @@ class Hologram(BaseTalent):
             self.used = True
 
         ish = IshBosheth(self.player_id)
-        open_lines = ish.open(self.state, player)
-
-        display.show_result("\n".join(open_lines))
+        ish.open(self.state, player)   # open() 内部已逐行 display
 
         # 触发序曲（开幕免费，不计入 melody_1_used）
         from controllers.human import HumanController
@@ -81,7 +79,7 @@ class Hologram(BaseTalent):
                              player=self.player_id,
                              location=player.location)
 
-        return "\n".join(open_lines), "talent"
+        return "ish-bosheth 展开完毕", "talent"
 
     # ================================================================
     #  骰子加成（v0.6: G2 固定 D4=0，此处不再提供加成）
@@ -96,8 +94,13 @@ class Hologram(BaseTalent):
     #  描述
     # ================================================================
     def describe_status(self):
-        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase in ("active", "duet"):
             ish = self.state.ish_bosheth
+            if ish.phase == "duet":
+                return (
+                    f"🎤 双人演出中 | Regard: {ish.regard}/{ish.regard_cap} "
+                    f"| 第{ish.duet_round}/8轮"
+                )
             return (
                 f"ish-bosheth 活跃 | Regard: {ish.regard}/{ish.regard_cap} "
                 f"| R4#{ish.r4_count}"

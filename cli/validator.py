@@ -468,9 +468,9 @@ def validate_special(player, op_name, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
     if not op_name:
-        # G2 在 ish-bosheth 中的演唱走交互式 choose 流程
+        # G2 在 ish-bosheth 中的演唱走交互式 choose 流程（含 duet 模式）
         if (getattr(game_state, 'ish_bosheth', None)
-                and game_state.ish_bosheth.phase == "active"
+                and game_state.ish_bosheth.phase in ("active", "duet")
                 and player.player_id == game_state.ish_bosheth.g2_owner_id):
             return True, ""
         return False, "请指定操作名。"

@@ -122,8 +122,8 @@ class RoundManager:
                     if final > max_val:
                         max_val = final
 
-        # v0.6 ish-bosheth 模式：G2 固定 D4=0，所有人按 D4 排序，全部行动
-        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+        # v0.6 ish-bosheth/duet 模式：G2 固定 D4=0，所有人按 D4 排序，全部行动
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase in ("active", "duet"):
             g2_pid = self.state.ish_bosheth.g2_owner_id
             raw[g2_pid] = 0
             bonuses[g2_pid] = 0
@@ -132,8 +132,8 @@ class RoundManager:
         self.state.d4_results = raw
         self.state.d4_bonuses = bonuses
 
-        # ish-bosheth 活跃 → 所有参与者按 D4 排序，全部获得行动权
-        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+        # ish-bosheth/duet 活跃 → 所有参与者按 D4 排序，全部获得行动权
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase in ("active", "duet"):
             sorted_pids = sorted(results.keys(),
                                  key=lambda pid: results[pid], reverse=True)
             self.state.round_winners = sorted_pids
