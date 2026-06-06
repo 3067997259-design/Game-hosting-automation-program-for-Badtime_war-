@@ -64,7 +64,8 @@ class Hologram(BaseTalent):
             self.used = True
 
         ish = IshBosheth(self.player_id)
-        ish.open(self.state, player)   # open() 内部已逐行 display
+        open_lines = ish.open(self.state, player)
+        display.show_result("\n".join(open_lines))
 
         # 触发序曲（开幕免费，不计入 melody_1_used）
         from controllers.human import HumanController
