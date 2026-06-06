@@ -185,7 +185,10 @@ class IshBosheth:
             g5_player.location = self.g2_home
             game_state.markers.on_player_move(g5_player_id)
             display.show_info(
-                f"  🏠 {g5_player.name} 从 {old_loc} 移动到舞台中心（{self.g2_home}）。"
+                prompt_manager.get_prompt(
+                    "duet", "enter.move_to_stage",
+                    default="  🏠 {name} 从 {old_loc} 移动到舞台中心（{stage_home}）。"
+                ).format(name=g5_player.name, old_loc=old_loc, stage_home=self.g2_home)
             )
 
         # ── G5 追忆预算初始化（从 talent 读取或默认 12）──
@@ -210,9 +213,10 @@ class IshBosheth:
                         "  🎤🌊 双人演出模式 —— {g2} & {g5}\n"
                         "  Regard 初始：{regard}\n"
                         "  最大轮次：8\n"
+                        "  G5 追忆预算：{budget}/12\n"
                         "  热力计数器已就绪\n"
                         "=================================================="
-            ).format(g2=g2_name, g5=g5_name, regard=self.regard)
+            ).format(g2=g2_name, g5=g5_name, regard=self.regard, budget=12)
         )
 
     # ================================================================
@@ -982,12 +986,14 @@ class IshBosheth:
             p._embrace_g2_buff = embrace_mult
             display.show_info(
                 prompt_manager.get_prompt("duet", "embrace.g2",
-                    default="🤗 {name} 拥抱了 G2！").format(name=p.name))
+                    default="🤗 {name} 拥抱了 G2！获得「歌者的祝福」：下次攻击伤害+{mult}"
+                ).format(name=p.name, mult=embrace_mult))
         elif g5.name in choice:
             p._embrace_g5_buff = embrace_mult
             display.show_info(
                 prompt_manager.get_prompt("duet", "embrace.g5",
-                    default="🤗 {name} 拥抱了 G5！").format(name=p.name))
+                    default="🤗 {name} 拥抱了 G5！获得「涟漪的余韵」：下次被攻击免伤{mult}"
+                ).format(name=p.name, mult=embrace_mult))
 
     # ================================================================
     #  统一清理（v0.6）

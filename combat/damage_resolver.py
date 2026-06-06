@@ -1601,7 +1601,10 @@ def _duet_displace(target, attacker, damage: float, ish, game_state, result: dic
             )
         elif attacker and hasattr(attacker, 'controller') and available:
             chosen = attacker.controller.choose(
-                f"选择 {target.name} 的位移目的地：",
+                prompt_manager.get_prompt(
+                    "duet", "displacement.choose_dest",
+                    default="选择 {target_name} 的位移目的地："
+                ).format(target_name=target.name),
                 available,
                 context={"phase": "duet_pvp", "situation": "displacement_choose"}
             )
@@ -1625,7 +1628,10 @@ def _duet_displace(target, attacker, damage: float, ish, game_state, result: dic
         if new_loc not in ish.SEATS:
             target.stage_statuses.discard('on_stage')
             display.show_info(
-                f"  ⚠️ {target.name} 被弹出舞台范围（{new_loc}），舞台状态已清除。"
+                prompt_manager.get_prompt(
+                    "duet", "displacement.oob",
+                    default="  ⚠️ {name} 被弹出舞台范围（{loc}），舞台状态已清除。"
+                ).format(name=target.name, loc=new_loc)
             )
 
     result["displacement"] = {"from": old_loc, "to": new_loc}

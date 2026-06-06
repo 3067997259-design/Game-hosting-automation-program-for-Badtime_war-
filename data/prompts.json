@@ -310,7 +310,7 @@
       "vote.result_pass": "\n✨ 赞成 {yes}/{total} —— 演出进入双人模式！",
       "vote.result_fail": "\n💧 赞成 {yes}/{total} —— 不足半数，双人演出未通过。\n追光之诗按标准效果生效。",
       "enter": "\n🎤🌊 {g5_name} 走上舞台，与 {g2_name} 并肩而立。\n双人演出，即将开始——\n",
-      "enter.info": "\n==================================================\n  🎤🌊 双人演出模式 —— {g2} & {g5}\n  Regard 初始：{regard}\n  最大轮次：8\n  热力计数器已就绪\n==================================================",
+      "enter.info": "\n==================================================\n  🎤🌊 双人演出模式 —— {g2} & {g5}\n  Regard 初始：{regard}\n  最大轮次：8\n  G5 追忆预算：{budget}/12\n  热力计数器已就绪\n==================================================",
       "button.spawn": "\n🔴🔴 两个大红按钮出现在 {seat1} 和 {seat2}！",
       "button.hit": "🔴 {name} 按下了按钮！+{heat} 热力 → {voice}",
       "heat.round_end": "\n🎤 第 {round}/8 轮 — 当轮热力: Acc=+{acc} Ind=+{ind} Str=+{str_} → Regard +{regen} = {regard}",
@@ -327,9 +327,12 @@
       "curtain.reward_1st": "🥇 第1声部({voice}): D4/D6+1，下次伤害+0.5",
       "curtain.reward_2nd": "🥈 第2声部({voice}): D4/D6+1，tempHP+0.5",
       "curtain.reward_3rd": "🥉 第3声部({voice}): D4+1",
-      "embrace.g2": "🤗 {name} 拥抱了 G2！获得「歌者的祝福」：下次攻击伤害+0.5（持续2轮）",
-      "embrace.g5": "🤗 {name} 拥抱了 G5！获得「涟漪的余韵」：下次被攻击免伤0.5（持续2轮）",
-      "offer.heat": "🎁 {name} 向舞台献上 {card}！+{heat} 热力 → {voice}"
+      "embrace.g2": "🤗 {name} 拥抱了 G2！获得「歌者的祝福」：下次攻击伤害+{mult}",
+      "embrace.g5": "🤗 {name} 拥抱了 G5！获得「涟漪的余韵」：下次被攻击免伤{mult}",
+      "offer.heat": "🎁 {name} 向舞台献上 {card}！+{heat} 热力 → {voice}",
+      "enter.move_to_stage": "  🏠 {name} 从 {old_loc} 移动到舞台中心（{stage_home}）。",
+      "displacement.choose_dest": "选择 {target_name} 的位移目的地：",
+      "displacement.oob": "  ⚠️ {name} 被弹出舞台范围（{loc}），舞台状态已清除。"
     },
     "t1oneslash": {
       "lore": [

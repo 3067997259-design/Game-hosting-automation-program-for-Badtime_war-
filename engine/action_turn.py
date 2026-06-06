@@ -15,7 +15,7 @@ from actions import (action_registry, wake_up, move, interact,
 def _build_ish_bosheth_context(game_state, player) -> dict:
     """提取 ish-bosheth 舞台状态用于 context（供远程客户端 / bot_bridge 读取）。"""
     ish = getattr(game_state, 'ish_bosheth', None)
-    if not ish or ish.phase != "active":
+    if not ish or ish.phase not in ("active", "duet"):
         return {}
     from engine.ish_bosheth import EMOTION_LABELS
     members = []
@@ -30,7 +30,7 @@ def _build_ish_bosheth_context(game_state, player) -> dict:
             members.append({"name": c.name, "emotion": emo_tag})
     g2p = game_state.get_player(ish.g2_owner_id)
     my_emo = EMOTION_LABELS.get(getattr(player, 'emotion', None), "")
-    return {
+    ctx = {
         "ish_bosheth": {
             "regard": ish.regard,
             "regard_cap": ish.regard_cap,
@@ -42,6 +42,23 @@ def _build_ish_bosheth_context(game_state, player) -> dict:
             "g2_max_hp": g2p.max_hp if g2p else 0,
         }
     }
+    # v2.0: duet 特有字段（供远程客户端 / AI 决策读取）
+    if ish.phase == "duet":
+        g5p = game_state.get_player(ish.duet_g5_pid)
+        button_seats = [b.location for b in getattr(ish, 'duet_buttons', [])]
+        budget = 0.0
+        if g5p and g5p.talent:
+            budget = getattr(g5p.talent, 'reminiscence_budget', 0.0)
+        ctx["ish_bosheth"].update({
+            "phase": "duet",
+            "duet_round": ish.duet_round,
+            "duet_heat": dict(ish.duet_heat),
+            "duet_buttons": button_seats,
+            "g5_budget": budget,
+            "g5_name": g5p.name if g5p else "",
+            "harmonize_active": getattr(ish, 'harmonize_active', False),
+        })
+    return ctx
 
 
 class ActionTurnManager:
