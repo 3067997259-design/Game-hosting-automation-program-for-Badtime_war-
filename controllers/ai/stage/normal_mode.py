@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 from controllers.ai.stage.target_filter import (
     get_legal_normal_targets, get_teammates, get_hand, pick_best_weapon,
+    _DEFAULT_DMG,
 )
 
 if TYPE_CHECKING:
@@ -19,8 +20,6 @@ if TYPE_CHECKING:
 
 # 声部常量
 from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
-
-_DEFAULT_DMG = 0.5  # 无武器时的默认伤害估算
 
 
 # ================================================================

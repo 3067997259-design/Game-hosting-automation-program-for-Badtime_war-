@@ -14,18 +14,13 @@ from controllers.ai.stage.target_filter import (
     get_opponents,
     get_hand,
     pick_best_weapon,
+    _DEFAULT_DMG,
 )
 
 if TYPE_CHECKING:
     from models.player import Player
     from engine.ish_bosheth import IshBosheth
 
-
-# ================================================================
-#  常量
-# ================================================================
-
-_DEFAULT_DMG = 0.5  # 无武器/未知伤害时的默认估算值
 
 def assess_duet_stance(player, ish: IshBosheth, game_state) -> str:
     """评估当前轮次 AI 应采取的博弈姿态。
@@ -146,15 +141,8 @@ def decide_duet_action(
         btn = next(b for b in ish.duet_buttons if b.location == my_seat)
         wname = pick_best_weapon(player)
         return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
-    if best_dmg >= 1.5 and "attack" in available_actions and weapons:
-        # 不在按钮旁+好武器 → 优先去 PvP 还是去按钮，由 move 决策
-        pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
-        if pvp_target:
-            wname = pick_best_weapon(player)
-            tname = getattr(pvp_target, 'name', str(pvp_target))
-            return f"attack {tname} with {wname}" if wname else f"attack {tname}"
     if "attack" in available_actions and weapons:
-        # 弱武器 → PvP 干扰（不在按钮旁时退而求其次）
+        # 不在按钮旁 → PvP 位移对立声部（好武器主动压制 / 弱武器退而求其次）
         pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
         if pvp_target:
             wname = pick_best_weapon(player)

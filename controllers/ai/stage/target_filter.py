@@ -1,10 +1,10 @@
-"""target_filter.py — 声部合法目标过滤（纯函数，零依赖）
+"""target_filter.py — 声部合法目标过滤 + 共享工具（纯函数，零依赖）
 
 G2 舞台内所有非 G2 攻击者的目标选择规则，被 normal_mode / duet_mode 共同引用。
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from models.player import Player
@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 # 声部常量（统一来源）
 from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
+
+_DEFAULT_DMG = 0.5  # 无武器时的默认伤害估算（与 normal_mode / duet_mode 统一）
 
 
 def get_legal_normal_targets(
@@ -193,5 +195,5 @@ def pick_best_weapon(player) -> Optional[str]:
     weapons = getattr(player, 'weapons', [])
     if not weapons:
         return None
-    best = max(weapons, key=lambda w: getattr(w, 'get_effective_damage', lambda: 0)())
+    best = max(weapons, key=lambda w: getattr(w, 'get_effective_damage', lambda: _DEFAULT_DMG)())
     return getattr(best, 'name', None)
