@@ -1,7 +1,9 @@
 """伤害结算管线（Phase 4 完整版）：支持天赋参数、电磁步枪/陶瓷护甲特效"""
 
+import random as _random
 from utils.attribute import Attribute, is_effective
 from models.equipment import ArmorLayer, WeaponRange
+from cli import display
 from engine.prompt_manager import prompt_manager
 
 def _get_hologram_bonus(target, game_state):
@@ -437,7 +439,9 @@ def resolve_damage(attacker, target, weapon, game_state,
                    damage_attribute_override=None,
                    is_talent_attack=False,
                    is_love_poem=False,
-                   is_embrace_damage=False):
+                   is_embrace_damage=False,
+                   *,
+                   displacement_only=False):
     """
     完整伤害结算。
     新增参数（Phase 4）：
@@ -449,6 +453,8 @@ def resolve_damage(attacker, target, weapon, game_state,
       is_love_poem: 是否为爱与记忆之诗伤害（穿透架盾）
     新增参数（G2 Reset）：
       is_embrace_damage: 相拥伤害（穿透天赋特殊防护，不穿透护甲）
+    新增参数（v2.0 G2×G5 TE）：
+      displacement_only: duet 模式下攻击只产生位移不产生 HP 伤害
     """
     # G2 相拥伤害自动检测
     if not is_embrace_damage and game_state and getattr(game_state, 'ish_bosheth', None):
@@ -485,6 +491,38 @@ def resolve_damage(attacker, target, weapon, game_state,
                         bonus_damage += 0.5
                     if target_voice == INDIFFERENZA:
                         bonus_damage += 0.5
+
+    # v2.0 duet embrace buff: 拥抱 G2→伤害+X / 拥抱 G5→减伤X（一次性消耗）
+    if attacker and getattr(attacker, '_embrace_g2_buff', 0) > 0:
+        bonus_damage += attacker._embrace_g2_buff
+        attacker._embrace_g2_buff = 0
+    if getattr(target, '_embrace_g5_buff', 0) > 0:
+        bonus_damage -= target._embrace_g5_buff
+        target._embrace_g5_buff = 0
+
+    # v2.0 G2×G5 TE: duet 模式位移 PvP 早期退出
+    if displacement_only and game_state and getattr(game_state, 'ish_bosheth', None):
+        ish = game_state.ish_bosheth
+        if ish.phase == "duet":
+            raw = weapon.get_effective_damage() if weapon else (raw_damage_override or 0)
+            heat = min(raw, 10.0)  # 单次按钮伤害上限 10
+            result = {
+                "success": True,
+                "reason": "duet_displacement",
+                "heat_value": heat,
+                "displacement": {"from": target.location, "to": target.location},
+                "details": [],
+            }
+            # 按钮：直接记录热力
+            if getattr(target, 'is_button', False):
+                ish.record_heat(attacker, heat)
+                result["target_type"] = "button"
+                return result
+            # 玩家 PvP：执行位移
+            result["target_type"] = "player"
+            _duet_displace(target, attacker, raw, ish, game_state, result)
+            return result
+
     result = {
         "success": False,
         "reason": "",
@@ -1515,3 +1553,85 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
         target.talent.on_being_attacked(attacker, None, False)
 
     return result
+
+
+def _duet_displace(target, attacker, damage: float, ish, game_state, result: dict):
+    """v2.0 G2×G5 TE: duet 模式 PvP 位移逻辑。
+
+    规则：
+    - damage ≤ 1.0: 50% 概率随机弹飞 / 50% 无事发生
+    - damage > 1.0: 50% 概率随机弹飞 / 50% 攻击者指定目的地
+    - 不造成 HP 伤害，仅改变 location。
+    """
+    # 收集可用座位（排除目标当前位置）
+    available = sorted(s for s in ish.SEATS if s != target.location)
+    if not available:
+        result["displacement"] = {"from": target.location, "to": target.location, "reason": "no_seats"}
+        return
+
+    old_loc = target.location
+    new_loc = target.location
+
+    if damage <= 1.0:
+        # 低伤线：50% 随机弹飞
+        if _random.random() < 0.5 and available:
+            new_loc = _random.choice(available)
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.random",
+                    default="💨 {name} 被弹飞到 {seat}！"
+                ).format(name=target.name, seat=new_loc)
+            )
+        else:
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.resist",
+                    default="  🛡️ {name} 站稳了脚步，未被弹飞。"
+                ).format(name=target.name)
+            )
+    else:
+        # 高伤线：50% 随机 / 50% 攻击者指定
+        if _random.random() < 0.5:
+            new_loc = _random.choice(available)
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.random",
+                    default="💨 {name} 被弹飞到 {seat}！"
+                ).format(name=target.name, seat=new_loc)
+            )
+        elif attacker and hasattr(attacker, 'controller') and available:
+            chosen = attacker.controller.choose(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.choose_dest",
+                    default="选择 {target_name} 的位移目的地："
+                ).format(target_name=target.name),
+                available,
+                context={"phase": "duet_pvp", "situation": "displacement_choose"}
+            )
+            if chosen in available:
+                new_loc = chosen
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.chosen",
+                    default="🎯 {attacker} 将 {name} 推到了 {seat}！"
+                ).format(attacker=attacker.name, name=target.name, seat=new_loc)
+            )
+        else:
+            new_loc = _random.choice(available) if available else target.location
+
+    # 执行位移
+    if new_loc != old_loc:
+        target.location = new_loc
+        game_state.markers.on_player_move(target.player_id)
+        # 防御性检查：available 已过滤为 SEATS 子集，正常流程不可达，
+        # 保留以防未来代码变更导致非 SEATS 位置被传入
+        if new_loc not in ish.SEATS:
+            target.stage_statuses.discard('on_stage')
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.oob",
+                    default="  ⚠️ {name} 被弹出舞台范围（{loc}），舞台状态已清除。"
+                ).format(name=target.name, loc=new_loc)
+            )
+
+    result["displacement"] = {"from": old_loc, "to": new_loc}

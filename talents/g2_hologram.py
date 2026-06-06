@@ -5,6 +5,7 @@
 展开 ish-bosheth 舞台结界：三声部阵营、物料牌系统、Regard、旋律、曲目。
 """
 
+import math
 import random
 
 from talents.base_talent import BaseTalent
@@ -63,9 +64,7 @@ class Hologram(BaseTalent):
             self.used = True
 
         ish = IshBosheth(self.player_id)
-        open_lines = ish.open(self.state, player)
-
-        display.show_result("\n".join(open_lines))
+        ish.open(self.state, player)   # open() 内部已逐行 display
 
         # 触发序曲（开幕免费，不计入 melody_1_used）
         from controllers.human import HumanController
@@ -80,7 +79,7 @@ class Hologram(BaseTalent):
                              player=self.player_id,
                              location=player.location)
 
-        return "\n".join(open_lines), "talent"
+        return "ish-bosheth 展开完毕", "talent"
 
     # ================================================================
     #  骰子加成（v0.6: G2 固定 D4=0，此处不再提供加成）
@@ -95,8 +94,13 @@ class Hologram(BaseTalent):
     #  描述
     # ================================================================
     def describe_status(self):
-        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase in ("active", "duet"):
             ish = self.state.ish_bosheth
+            if ish.phase == "duet":
+                return (
+                    f"🎤 双人演出中 | Regard: {ish.regard}/{ish.regard_cap} "
+                    f"| 第{ish.duet_round}/8轮"
+                )
             return (
                 f"ish-bosheth 活跃 | Regard: {ish.regard}/{ish.regard_cap} "
                 f"| R4#{ish.r4_count}"
@@ -109,9 +113,9 @@ class Hologram(BaseTalent):
     #  曲目执行（v0.6 新效果）
     # ================================================================
     def execute_sing(self, player, game_state):
-        """G2 发动者的演唱行动入口。"""
+        """G2 发动者的演唱行动入口（含 duet 模式）。"""
         ish = game_state.ish_bosheth
-        if not ish or ish.phase != "active":
+        if not ish or ish.phase not in ("active", "duet"):
             return "❌ ish-bosheth 未激活"
 
         songs = ish.get_available_songs()
@@ -156,6 +160,15 @@ class Hologram(BaseTalent):
                 rhythms[0])
 
         total_cost = selected_rhythm['cost']
+
+        # v2.0 duet: G5 伴唱减半花费
+        if ish.phase == "duet" and ish.harmonize_active:
+            total_cost = max(0, int(math.ceil(total_cost / 2)))
+            ish.harmonize_active = False
+            display.show_info(
+                f"  🎤 G5 伴唱生效！实际花费：{total_cost} Regard"
+            )
+
         if ish.regard < total_cost:
             return "❌ Regard 不足"
 

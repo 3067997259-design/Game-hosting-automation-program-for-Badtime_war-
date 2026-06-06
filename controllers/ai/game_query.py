@@ -101,6 +101,56 @@ class GameQuery:
                     and not getattr(talent, 'active', False))
         return False
 
+    # ================================================================
+    #  v2.0 G2×G5 duet 模式查询
+    # ================================================================
+
+    @staticmethod
+    def is_duet_active(state) -> bool:
+        """ish-bosheth 是否处于 duet 模式。"""
+        ish = getattr(state, 'ish_bosheth', None)
+        return bool(ish and ish.phase == "duet")
+
+    @staticmethod
+    def get_duet_heat(state, voice: str) -> float:
+        """获取某声部在 duet 中的累计热力值。"""
+        ish = getattr(state, 'ish_bosheth', None)
+        if not ish or ish.phase != "duet":
+            return 0.0
+        return ish.duet_heat.get(voice, 0.0)
+
+    @staticmethod
+    def get_duet_buttons(state) -> list:
+        """获取当前 duet 轮次的活跃按钮。"""
+        ish = getattr(state, 'ish_bosheth', None)
+        if not ish or ish.phase != "duet":
+            return []
+        return ish.duet_buttons
+
+    @staticmethod
+    def get_g5_reminiscence(state, g5_pid: str) -> float:
+        """获取 G5 在 duet 中的剩余追忆预算。"""
+        p = state.get_player(g5_pid)
+        if not p or not p.talent:
+            return 0.0
+        return getattr(p.talent, 'reminiscence_budget', 0.0)
+
+    @staticmethod
+    def get_g5_harmonize_count(state, g5_pid: str) -> int:
+        """获取 G5 在 duet 中的已伴唱次数。"""
+        p = state.get_player(g5_pid)
+        if not p or not p.talent:
+            return 0
+        return getattr(p.talent, 'harmonize_count', 0)
+
+    @staticmethod
+    def is_g5_in_duet(state, player) -> bool:
+        """检查某玩家是否为 duet 模式中的 G5 上台者。"""
+        ish = getattr(state, 'ish_bosheth', None)
+        if not ish or ish.phase != "duet":
+            return False
+        return getattr(player, 'player_id', None) == ish.duet_g5_pid
+
     @staticmethod
     def has_hoshino_talent(player) -> bool:
         talent = getattr(player, 'talent', None)

@@ -70,6 +70,11 @@ class RoundManager:
                 and self.state.ish_bosheth.phase == "pending_curtain"):
             self.state.ish_bosheth.on_r0_curtain(self.state)
 
+        # v2.0: duet 模式按钮刷新
+        ish = self.state.ish_bosheth
+        if ish and ish.phase == "duet" and not ish.duet_curtain_triggered:
+            ish._spawn_duet_buttons(self.state)
+
         # 天赋轮次开始钩子
         for pid in self.state.player_order:
             p = self.state.get_player(pid)
@@ -106,7 +111,7 @@ class RoundManager:
                 max_val = final
 
         # Chorus 参与 D4
-        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase in ("active", "duet"):
             for c in self.state.ish_bosheth.chorus_list:
                 if c.is_alive() and c.location:
                     base_roll = roll_d4()
@@ -117,8 +122,8 @@ class RoundManager:
                     if final > max_val:
                         max_val = final
 
-        # v0.6 ish-bosheth 模式：G2 固定 D4=0，所有人按 D4 排序，全部行动
-        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+        # v0.6 ish-bosheth/duet 模式：G2 固定 D4=0，所有人按 D4 排序，全部行动
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase in ("active", "duet"):
             g2_pid = self.state.ish_bosheth.g2_owner_id
             raw[g2_pid] = 0
             bonuses[g2_pid] = 0
@@ -127,8 +132,8 @@ class RoundManager:
         self.state.d4_results = raw
         self.state.d4_bonuses = bonuses
 
-        # ish-bosheth 活跃 → 所有参与者按 D4 排序，全部获得行动权
-        if self.state.ish_bosheth and self.state.ish_bosheth.phase == "active":
+        # ish-bosheth/duet 活跃 → 所有参与者按 D4 排序，全部获得行动权
+        if self.state.ish_bosheth and self.state.ish_bosheth.phase in ("active", "duet"):
             sorted_pids = sorted(results.keys(),
                                  key=lambda pid: results[pid], reverse=True)
             self.state.round_winners = sorted_pids
@@ -205,7 +210,7 @@ class RoundManager:
 
         # v0.6 ish-bosheth: G2 保底最优先行动
         ish = self.state.ish_bosheth
-        if ish and ish.phase == "active":
+        if ish and ish.phase in ("active", "duet"):
             g2_pid = ish.g2_owner_id
             if g2_pid in action_queue:
                 action_queue.remove(g2_pid)
@@ -309,6 +314,11 @@ class RoundManager:
                 return
 
             i += 1
+
+        # v2.0: duet 按钮清理
+        ish = self.state.ish_bosheth
+        if ish and ish.phase == "duet":
+            ish._despawn_duet_buttons(self.state)
 
         # 未行动保底
         initial_count = len(self.state.player_order)
@@ -461,7 +471,7 @@ class RoundManager:
 
         # R4-2.5: ish-bosheth R4 衰减
         if (self.state.ish_bosheth
-                and self.state.ish_bosheth.phase == "active"):
+                and self.state.ish_bosheth.phase in ("active", "duet")):
             self.state.ish_bosheth.on_r4(self.state)
         if self.state.check_victory():
             return

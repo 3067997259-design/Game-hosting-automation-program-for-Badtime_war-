@@ -49,10 +49,44 @@ END_CURTAIN     = "curtain"
 END_MAX_DURATION = "max_duration"
 END_FORCED      = "forced"
 END_DEATH       = "death"
+END_DUET        = "duet"          # v2.0: G2×G5 双人演出谢幕
 
 # ── 声部特效标记 ──────────────────────────────────────────────────
 MARK_FERVOR     = "fervor"       # 狂热（Acc 被旋律命中）
 MARK_CRACK      = "crack"        # 裂音（Str 被旋律命中）
+
+
+class ButtonDummy:
+    """双人演出大红按钮 dummy（v2.0）。
+
+    每轮两个，出现于随机座位。被攻击时记录伤害为声部热力，不扣血。
+    复用 ChorusUnit 的注册模式（register_chorus）参与 D4 和 targeting。
+    """
+    is_button: bool = True
+    is_chorus: bool = True    # 兼容现有 D4/攻击系统
+
+    def is_alive(self) -> bool:
+        return True  # 永不死亡
+
+    def __init__(self, seat: str, index: int):
+        self.player_id: str = f"__button_{index}__"
+        self.name: str = f"🔴 大红按钮 #{index}"
+        self.location: str = seat
+        self.hp: float = 999.0
+        self.max_hp: float = 999.0
+        self.is_awake: bool = True
+        self.emotion: str = ""     # 无阵营
+        self.armor = None
+        self.talent = None
+        self.controller = None     # 按钮不参与 choose/get_command，显式置 None 以防遍历误触
+        self.weapons = []
+        self.stage_statuses: set = set()
+        self.encore_layers: int = 0
+        self.temp_hp_g2: float = 0.0
+        self.temp_atk_g2: float = 0.0
+
+    def __repr__(self):
+        return f"ButtonDummy(seat={self.location}, id={self.player_id})"
 
 
 class IshBosheth:
@@ -92,6 +126,18 @@ class IshBosheth:
         # v0.7 安定値交互标记
         self._pivot_override: Optional[float] = None  # Riposato/Dolente 覆盖 pivot
 
+        # ==================================================================
+        #  v2.0: G2×G5 双人演出 TE 状态
+        # ==================================================================
+        self.duet_g5_pid: Optional[str] = None       # 上台的 G5 玩家 ID
+        self.duet_heat: dict[str, float] = {}         # {voice: total_heat}
+        self.duet_round: int = 0                      # duet 当前轮次（最大 8）
+        self.duet_buttons: list = []                  # 当前轮按钮实体
+        self.duet_encores: int = 0                    # 安可触发次数
+        self.harmonize_active: bool = False           # G5 本轮是否伴唱
+        self.duet_curtain_triggered: bool = False     # 谢幕是否已触发
+        self._duet_prev_heat: dict[str, float] = {}   # 上轮累计热力（用于当轮增量计算）
+
     # ── 累计解锁阈值 ────────────────────────────────────────────
     MELODY_1_THRESHOLD = 3.0
     MELODY_2_THRESHOLD = 7.0
@@ -103,6 +149,176 @@ class IshBosheth:
         self.regard = max(0.0, min(self.regard_cap, self.regard + delta))
         actual = abs(self.regard - old)
         self.cumulative_delta_regard += actual
+
+    # ================================================================
+    #  v2.0: G2×G5 双人演出 TE 入口
+    # ================================================================
+    def enter_duet(self, g5_player_id: str, game_state: GameState):
+        """G5 献诗上台通过投票 → 进入双人演出模式。"""
+        g2_player = game_state.get_player(self.g2_owner_id)
+        g5_player = game_state.get_player(g5_player_id)
+
+        # ── 切换阶段 ──
+        self.phase = "duet"
+
+        # ── G5 注册 ──
+        self.duet_g5_pid = g5_player_id
+
+        # ── Regard 重置（保证第一轮演出顺利进行）──
+        self.regard = max(4.0, self.regard)
+
+        # ── 热力值初始化 ──
+        self.duet_heat = {
+            ACCAREZZEVOLE: 0.0,
+            INDIFFERENZA:  0.0,
+            STRAPPANDO:    0.0,
+        }
+        self.duet_round = 0
+        self.duet_buttons = []
+        self.duet_encores = 0
+        self.harmonize_active = False
+        self.duet_curtain_triggered = False
+
+        # ── G5 移动到舞台 ──
+        if g5_player:
+            old_loc = g5_player.location
+            g5_player.location = self.g2_home
+            game_state.markers.on_player_move(g5_player_id)
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "enter.move_to_stage",
+                    default="  🏠 {name} 从 {old_loc} 移动到舞台中心（{stage_home}）。"
+                ).format(name=g5_player.name, old_loc=old_loc, stage_home=self.g2_home)
+            )
+
+        # ── G5 追忆预算初始化（从 talent 读取或默认 12）──
+        if g5_player and g5_player.talent:
+            talent = g5_player.talent
+            if not getattr(talent, 'duet_joined', False):
+                talent.duet_joined = True
+                talent.reminiscence_budget = 12.0
+                talent.harmonize_count = 0
+        elif g5_player and not g5_player.talent:
+            # 防御：无天赋玩家不可能出现在此路径，但兜底设 budget 确保不崩
+            g5_player._g5_duet_fallback = True
+
+        # ── 冻结 G2 独唱系统 ──
+        # 旋律（在 duet 中禁用）
+        # faction_victory_check（R4 不再检查阵营胜利）
+        # Embrace 自动标记（伤害流水线中暂停）
+
+        g2_name = g2_player.name if g2_player else "??"
+        g5_name = g5_player.name if g5_player else "??"
+        budget = getattr(g5_player.talent, 'reminiscence_budget', 12.0) if g5_player and g5_player.talent else 12.0
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "enter.info",
+                default="\n==================================================\n"
+                        "  🎤🌊 双人演出模式 —— {g2} & {g5}\n"
+                        "  Regard 初始：{regard}\n"
+                        "  G5 追忆预算：{budget}/12\n"
+                        "  最大轮次：8\n"
+                        "  热力计数器已就绪\n"
+                        "=================================================="
+            ).format(g2=g2_name, g5=g5_name, regard=self.regard, budget=budget)
+        )
+
+    # ================================================================
+    #  v2.0: 大红按钮管理
+    # ================================================================
+    def _spawn_duet_buttons(self, game_state: GameState):
+        """R0：在两个随机座位召唤按钮。"""
+        available = sorted(self.SEATS)
+        if len(available) < 2:
+            return
+        chosen = random.sample(available, 2)
+        self.duet_buttons = []
+        for i, seat in enumerate(chosen, 1):
+            btn = ButtonDummy(seat, i)
+            self.duet_buttons.append(btn)
+            game_state.register_chorus(btn)
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "button.spawn",
+                default="\n🔴🔴 两个大红按钮出现在 {seat1} 和 {seat2}！"
+            ).format(seat1=chosen[0], seat2=chosen[1])
+        )
+
+    def _despawn_duet_buttons(self, game_state: GameState):
+        """R3 结束：移除本轮按钮。"""
+        for btn in self.duet_buttons:
+            game_state.unregister_chorus(btn.player_id)
+        self.duet_buttons.clear()
+
+    def record_heat(self, attacker, damage: float):
+        """攻击按钮成功 → 记录热力值。"""
+        voice = getattr(attacker, 'emotion', None)
+        if voice not in self.duet_heat:
+            return
+        self.duet_heat[voice] += damage
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "button.hit",
+                default="🔴 {name} 按下了按钮！+{heat} 热力 → {voice}"
+            ).format(name=attacker.name, heat=damage, voice=voice)
+        )
+
+    def offer_heat(self, player, amount: float, card_name: str = ""):
+        """v2.0 Plan B: 上供舞台 → 低保热力。
+
+        物料牌打给 G2/G5 时调用，为使用者的声部贡献固定热力。
+        """
+        if self.phase != "duet":
+            return
+        voice = getattr(player, 'emotion', None)
+        if voice not in self.duet_heat:
+            return
+        self.duet_heat[voice] += amount
+        card_info = f"（{card_name}）" if card_name else ""
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "offer.heat",
+                default="🎁 {name} 向舞台献上 {card}！+{heat} 热力 → {voice}"
+            ).format(name=player.name, card=card_info, heat=amount, voice=voice)
+        )
+
+    # ================================================================
+    #  v2.0: duet 轮次结算
+    # ================================================================
+    def _duet_on_r4(self, game_state: GameState):
+        """duet 模式 R4：当轮热力→Regard 折算 + 检查谢幕条件。"""
+        CONVERSION = 0.5
+        # 当轮热力增量 = 当前累计 - 上轮累计（避免全赛程累积导致 Regard 快速饱和）
+        round_heat = {
+            v: self.duet_heat[v] - self._duet_prev_heat.get(v, 0)
+            for v in self.duet_heat
+        }
+        self._duet_prev_heat = dict(self.duet_heat)
+        total_round = sum(round_heat.values())
+        regen = total_round * CONVERSION
+        self.regard = min(self.regard_cap, self.regard + regen)
+
+        # 重置伴唱标记
+        self.harmonize_active = False
+        self.duet_round += 1
+
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "heat.round_end",
+                default="\n🎤 第 {round}/8 轮 — 当轮热力: Acc=+{acc} Ind=+{ind} Str=+{str_} → Regard +{regen} = {regard}"
+            ).format(
+                round=self.duet_round,
+                acc=round_heat.get(ACCAREZZEVOLE, 0),
+                ind=round_heat.get(INDIFFERENZA, 0),
+                str_=round_heat.get(STRAPPANDO, 0),  # str_ 避免覆写 Python str 内建类型
+                regen=regen,
+                regard=self.regard,
+            )
+        )
+
+        # 检查谢幕条件
+        if self.regard <= 0 or self.duet_round >= 8:
+            self._duet_curtain(game_state)
 
     # ================================================================
     #  展开
@@ -309,6 +525,9 @@ class IshBosheth:
     #  R4 衰减（v0.6：含阵营胜利检查）
     # ================================================================
     def on_r4(self, game_state: GameState):
+        if self.phase == "duet":
+            self._duet_on_r4(game_state)
+            return
         if self.phase != "active":
             return
 
@@ -568,6 +787,219 @@ class IshBosheth:
         self.end_ish_bosheth(END_CURTAIN, game_state)
 
     # ================================================================
+    #  v2.0: duet 谢幕结算（排名 + Embrace + 安可）
+    # ================================================================
+    def _duet_curtain(self, game_state: GameState):
+        """duet 谢幕：排名结算 + Embrace + 安可 + 清理。"""
+        if self.duet_curtain_triggered:
+            return
+        self.duet_curtain_triggered = True
+
+        reached_max = self.duet_round >= 8
+        sep = "=" * 50
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "curtain.header",
+                default=f"\n{sep}\n  🎤 双人演出谢幕！\n{sep}"
+            )
+        )
+
+        # ── 安可判定 ──
+        self._check_duet_encore(game_state)
+
+        # ── 热力排名 ──
+        ranked = sorted(self.duet_heat.items(), key=lambda x: x[1], reverse=True)
+        if len(ranked) >= 3:
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "curtain.ranking",
+                    default="🏆 热力排名：第1 — {first}({hf}) / 第2 — {second}({hs}) / 第3 — {third}({ht})"
+                ).format(
+                    first=VOICE_LABELS.get(ranked[0][0], ranked[0][0]), hf=ranked[0][1],
+                    second=VOICE_LABELS.get(ranked[1][0], ranked[1][0]), hs=ranked[1][1],
+                    third=VOICE_LABELS.get(ranked[2][0], ranked[2][0]), ht=ranked[2][1],
+                )
+            )
+
+        # ── 各声部奖励 ──
+        self._award_duet_rank_rewards(game_state, ranked, reached_max)
+
+        # ── Embrace 谢幕拥抱 ──
+        self._duet_embrace_phase(game_state, ranked)
+
+        # ── 清理 ──
+        self.end_ish_bosheth(END_DUET, game_state)
+
+    def _check_duet_encore(self, game_state: GameState):
+        """检查安可条件：第 8 轮 + G5 追忆完全未使用。"""
+        if self.duet_round < 8 or self.duet_encores > 0:
+            return
+        g5 = game_state.get_player(self.duet_g5_pid)
+        if not g5 or not g5.talent:
+            return
+        talent = g5.talent
+        budget = getattr(talent, 'reminiscence_budget', 0)
+        # 预算仅通过 max(0, budget - 2) 递减，2 的倍数路径简单，
+        # 浮点精度不影响等值判定（budget 不会是 12.0 - ε）
+        if budget < 12.0:
+            return
+
+        self.duet_encores += 1
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "encore.trigger",
+                default="\n🎉🎉 安可！安可！G5 的 12 追忆分毫未动！\n"
+                        "   G2 与 G5 合唱双人曲 —— 所有观众自选一件物品！"
+            )
+        )
+
+        # 全员自选物品（两轮选择：地点 → 物品）
+        from models.equipment import make_weapon, make_armor, make_item
+        LOCATION_ITEMS = {
+            "商店": ["小刀", "盾牌", "陶瓷护甲", "隐身衣", "防毒面具", "通行证"],
+            "警察局": ["警棍", "防毒面具"],
+            "军事基地": ["高斯步枪", "电磁步枪", "导弹", "AT力场", "热成像仪"],
+            "魔法所": ["魔法弹幕", "远程魔法弹幕", "魔法护盾"],
+            "医院": ["防毒面具"],
+            "家": ["小刀", "磨刀石", "通行证"],
+        }
+        locations = list(LOCATION_ITEMS.keys())
+
+        for pid in list(self.participants):
+            p = game_state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            # 第一轮：选地点
+            loc_choice = p.controller.choose(
+                prompt_manager.get_prompt("duet", "encore.pick_location", default="选择获取地点："),
+                locations,
+                context={"phase": "duet_encore", "situation": "pick_location"}
+            )
+            if loc_choice not in LOCATION_ITEMS:
+                loc_choice = locations[0]
+            # 第二轮：选物品
+            items = LOCATION_ITEMS.get(loc_choice, ["小刀"])
+            item_choice = p.controller.choose(
+                prompt_manager.get_prompt("duet", "encore.pick_item", default="选择要获取的物品："),
+                items,
+                context={"phase": "duet_encore", "situation": "pick_item", "location": loc_choice}
+            )
+            if item_choice not in items:
+                item_choice = items[0]
+            # 发放
+            granted = False
+            for factory in (make_weapon, make_armor, make_item):
+                obj = factory(item_choice)
+                if obj:
+                    if factory is make_weapon:
+                        p.add_weapon(obj)
+                    elif factory is make_armor:
+                        p.add_armor(obj)
+                    else:
+                        p.add_item(obj)
+                    granted = True
+                    break
+            if not granted:
+                display.show_info(f"  ⚠️ 无法创建「{item_choice}」，请手动发放。")
+            else:
+                display.show_info(
+                    prompt_manager.get_prompt(
+                        "duet", "encore.grant",
+                        default="✅ {name} 获得了 {item}！"
+                    ).format(name=p.name, item=item_choice)
+                )
+
+    def _award_duet_rank_rewards(self, game_state: GameState, ranked: list, reached_max: bool):
+        """按热力排名发放三等奖励。"""
+        multiplier = 1.0
+        if not reached_max:
+            total_rounds = self.duet_round
+            if total_rounds >= 6:
+                multiplier = 0.75
+            elif total_rounds >= 4:
+                multiplier = 0.5
+            else:
+                multiplier = 0.25
+
+        for rank_idx, (voice, heat) in enumerate(ranked):
+            # 收集该声部的真实玩家
+            members = []
+            for pid in self.participants:
+                p = game_state.get_player(pid)
+                if p and p.is_alive() and getattr(p, 'emotion', None) == voice:
+                    members.append(p)
+            for c in self.chorus_list:
+                if c.is_alive() and c.emotion == voice:
+                    members.append(c)
+
+            if rank_idx == 0:
+                for m in members:
+                    m._duet_d4_bonus = True
+                    m._duet_d6_bonus = True
+                    m._duet_damage_bonus = getattr(m, '_duet_damage_bonus', 0) + 0.5 * multiplier
+                display.show_info(
+                    prompt_manager.get_prompt("duet", "curtain.reward_1st",
+                        default="🥇 第1声部({voice}): D4/D6+1，下次伤害+0.5").format(voice=voice))
+            elif rank_idx == 1:
+                for m in members:
+                    m._duet_d4_bonus = True
+                    m._duet_d6_bonus = True
+                    m.temp_hp_g2 += 0.5 * multiplier
+                display.show_info(
+                    prompt_manager.get_prompt("duet", "curtain.reward_2nd",
+                        default="🥈 第2声部({voice}): D4/D6+1，tempHP+0.5").format(voice=voice))
+            else:
+                for m in members:
+                    m._duet_d4_bonus = True
+                display.show_info(
+                    prompt_manager.get_prompt("duet", "curtain.reward_3rd",
+                        default="🥉 第3声部({voice}): D4+1").format(voice=voice))
+
+    def _duet_embrace_phase(self, game_state: GameState, ranked: list):
+        """谢幕拥抱阶段：可选 embrace G2 或 G5。"""
+        g2 = game_state.get_player(self.g2_owner_id)
+        g5 = game_state.get_player(self.duet_g5_pid)
+        if not g2 or not g5:
+            return
+
+        # 真实玩家
+        for pid in list(self.participants):
+            p = game_state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            self._embrace_player(p, g2, g5, ranked)
+        # v2.0: Chorus 也可参与 Embrace
+        for c in self.chorus_list:
+            if c.is_alive():
+                self._embrace_player(c, g2, g5, ranked)
+
+    def _embrace_player(self, p, g2, g5, ranked):
+        """单个单位（真实玩家或 Chorus）的 Embrace 逻辑。"""
+        voice = getattr(p, 'emotion', None)
+        rank_idx = next((i for i, (v, _) in enumerate(ranked) if v == voice), 2)
+        embrace_mult = 2.0 if rank_idx == 0 else (1.0 if rank_idx == 1 else 0.5)
+
+        choice = p.controller.choose(
+            f"谢幕拥抱 —— {p.name}，选择拥抱：",
+            [f"拥抱 {g2.name}", f"拥抱 {g5.name}", "不拥抱"],
+            context={"phase": "duet_curtain", "situation": "embrace"}
+        )
+        if "不抱" in choice:
+            return
+        if g2.name in choice:
+            p._embrace_g2_buff = embrace_mult
+            display.show_info(
+                prompt_manager.get_prompt("duet", "embrace.g2",
+                    default="🤗 {name} 拥抱了 G2！获得「歌者的祝福」：下次攻击伤害+{mult}"
+                ).format(name=p.name, mult=embrace_mult))
+        elif g5.name in choice:
+            p._embrace_g5_buff = embrace_mult
+            display.show_info(
+                prompt_manager.get_prompt("duet", "embrace.g5",
+                    default="🤗 {name} 拥抱了 G5！获得「涟漪的余韵」：下次被攻击免伤{mult}"
+                ).format(name=p.name, mult=embrace_mult))
+
+    # ================================================================
     #  统一清理（v0.6）
     # ================================================================
     def end_ish_bosheth(self, reason: str, game_state: GameState,
@@ -588,7 +1020,7 @@ class IshBosheth:
                 breaker._g2_curtain_d4_bonus = True
 
         # 空场 / 谢幕 / 完整演出 G2 隐身
-        if reason in (END_EMPTY, END_CURTAIN, END_SILENT, END_IND_WIN) and g2p and g2p.is_alive():
+        if reason in (END_EMPTY, END_CURTAIN, END_SILENT, END_IND_WIN, END_DUET) and g2p and g2p.is_alive():
             game_state.markers.clear_all_relations(self.g2_owner_id)
             g2p.is_invisible = True
 
@@ -787,6 +1219,32 @@ class IshBosheth:
     # ================================================================
     def get_available_songs(self) -> list[dict]:
         songs = []
+
+        # v2.0 duet 模式：仅基础三首歌（旋律禁用）
+        # TODO: duet 歌曲效果待实现（按钮伤害×1.5, PvP位移免疫, 转化率×1.5公共池 等）
+        if self.phase == "duet":
+            if self.regard >= 1:
+                songs.append({
+                    "name": "追寻那道光",
+                    "cost": 1,
+                    "desc": "[待实现] duet: 选声部按钮伤害×1.5",
+                    "rhythms": self._get_rhythms_for_song("追寻那道光"),
+                })
+                songs.append({
+                    "name": "拼接遗憾",
+                    "cost": 1,
+                    "desc": "[待实现] duet: PvP位移免疫/座位互换",
+                    "rhythms": self._get_rhythms_for_song("拼接遗憾"),
+                })
+                songs.append({
+                    "name": "Before light",
+                    "cost": 1,
+                    "desc": "[待实现] duet: 转化率×1.5公共池/三按钮",
+                    "rhythms": self._get_rhythms_for_song("Before light"),
+                })
+            return songs
+
+        # 正常模式
         if self.regard >= 1:
             songs.append({
                 "name": "追寻那道光",
@@ -1063,7 +1521,7 @@ def _calc_melody_damage(base_dmg: float, stability: float,
                         unit_max_hp: float, unit_current_hp: float) -> float:
     """安定値修正后的旋律伤害。≤0 → 负值表示治疗量。
     注意：衰减已在 _calc_stability 中生效，此处不再重复。"""
-    raw = base_dmg * (1.0 + stability)
+    raw = round(base_dmg * (1.0 + stability), 2)
     if raw <= 0:
         return max(raw, unit_current_hp - unit_max_hp)
     return max(0.5, raw)
