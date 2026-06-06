@@ -171,7 +171,12 @@ class Hologram(BaseTalent):
             )
 
         if ish.regard < total_cost:
+            display.show_info(f"  ❌ G2 Regard不足({ish.regard}<{total_cost})，演唱失败")
             return "❌ Regard 不足"
+
+        display.show_info(
+            f"  🎵 G2 演唱 {selected_song['name']}·{selected_rhythm['name']} "
+            f"(花费{total_cost} Regard)")
 
         # 旋律不需选目标
         if "旋律" in selected_song['name']:
