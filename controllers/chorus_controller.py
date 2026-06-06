@@ -101,7 +101,12 @@ class ChorusController:
         return False
 
     def _get_legal_targets(self, game_state, chorus, ish) -> list:
-        """v0.6 声部限制下的合法攻击目标（含 duet 按钮）。"""
+        """v0.6 声部限制下的合法攻击目标（含 duet 按钮）。
+
+        @deprecated: 新逻辑已迁移至 controllers.ai.stage.target_filter。
+        当前仅保留用于 G2 指挥指令 (commanded_id) 的目标匹配路径。
+        未来应改为直接调用 target_filter.get_legal_normal_targets()。
+        """
         from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
 
         voice = getattr(chorus, 'emotion', None)

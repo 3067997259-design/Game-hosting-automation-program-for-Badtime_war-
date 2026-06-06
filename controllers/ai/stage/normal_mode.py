@@ -193,6 +193,10 @@ def _decide_normal_move(player, ish: IshBosheth, game_state) -> Optional[str]:
 def should_play_card(player, ish: IshBosheth, game_state) -> Optional[str]:
     """正常模式下的简单出牌启发式。
 
+    供 T0 物料阶段调用（当前未接入 stage_ai.get_command；调用方应在
+    _phase_t0 出牌决策处引用此函数）。
+
+
     返回牌名表示建议打出，None 表示不出。
     当前仅处理最通用的几张牌，复杂决策留待后续。
     """
