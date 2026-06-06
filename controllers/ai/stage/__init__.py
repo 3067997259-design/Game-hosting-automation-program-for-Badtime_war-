@@ -10,6 +10,8 @@ from controllers.ai.stage.target_filter import (
     get_legal_duet_targets,
     get_teammates,
     get_opponents,
+    get_hand,
+    pick_best_weapon,
 )
 
 __all__ = [
@@ -18,4 +20,6 @@ __all__ = [
     "get_legal_duet_targets",
     "get_teammates",
     "get_opponents",
+    "get_hand",
+    "pick_best_weapon",
 ]

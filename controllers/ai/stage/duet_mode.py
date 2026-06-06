@@ -36,7 +36,7 @@ def assess_duet_stance(player, ish: IshBosheth, game_state) -> str:
     """
     voice = getattr(player, 'emotion', None)
 
-    # 当轮增量（首轮 _duet_prev_heat 为空 → total_round=累计，此时无背叛风险，判定安全）
+    # 当轮增量（_duet_prev_heat 在 enter_duet 初始化为全0，首轮 total_round=0，无背叛风险）
     prev = getattr(ish, '_duet_prev_heat', {})
     total_round = sum(ish.duet_heat.get(v, 0) - prev.get(v, 0)
                       for v in ish.duet_heat)

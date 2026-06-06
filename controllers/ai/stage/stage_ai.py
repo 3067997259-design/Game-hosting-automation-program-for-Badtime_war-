@@ -112,7 +112,6 @@ class StageAI:
             result = vote_duet_entry(player, ish, game_state, options)
             StageAI._dbg(1, player, f"duet_vote → {result}")
             return result
-            return vote_duet_entry(player, ish, game_state, options)
 
         # ── Duet 歌曲投票 ──
         if situation == "duet_song_vote":
