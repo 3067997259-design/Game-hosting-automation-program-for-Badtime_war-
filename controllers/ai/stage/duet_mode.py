@@ -1,0 +1,263 @@
+"""duet_mode.py — G2×G5 双人演出模式 AI 行为决策
+
+负责：自适应互惠（合作/竞争/混合三姿态）、按钮/PvP/上供五级优先级、
+      位移目标选择。MVP 暂留 TODO 的函数：投票/Embrace/安可选择。
+"""
+
+from __future__ import annotations
+import random
+from typing import TYPE_CHECKING, List, Optional
+
+from controllers.ai.stage.target_filter import (
+    get_legal_duet_targets,
+    get_teammates,
+    get_opponents,
+)
+
+if TYPE_CHECKING:
+    from models.player import Player
+    from engine.ish_bosheth import IshBosheth
+
+
+# ================================================================
+#  自适应互惠 — 公共品博弈姿态
+# ================================================================
+
+def assess_duet_stance(player, ish: IshBosheth, game_state) -> str:
+    """评估当前轮次 AI 应采取的博弈姿态。
+
+    输入信号（全部公开状态）：
+      - 各声部当轮热力增量（累计 - 上轮累计）
+      - 总当轮热力 vs 预期（2 按钮 × ~3.0 均伤 = ~6.0）
+      - 本声部热力排名
+      - Regard 剩余
+      - G5 追忆预算（安可预期）
+
+    Returns: "cooperate" | "compete" | "mixed"
+    """
+    voice = getattr(player, 'emotion', None)
+
+    # 当轮增量
+    prev = getattr(ish, '_duet_prev_heat', {})
+    total_round = sum(ish.duet_heat.get(v, 0) - prev.get(v, 0)
+                      for v in ish.duet_heat)
+    regard = ish.regard
+    duet_round = ish.duet_round
+
+    # 本声部排名
+    ranking = sorted(ish.duet_heat.items(), key=lambda x: x[1], reverse=True)
+    my_rank = next((i for i, (v, _) in enumerate(ranking) if v == voice), 2)
+
+    # G5 安可预期
+    g5 = game_state.get_player(ish.duet_g5_pid) if ish.duet_g5_pid else None
+    encore_possible = False
+    if g5 and g5.talent:
+        encore_possible = getattr(g5.talent, 'reminiscence_budget', 0) >= 12.0
+
+    # ── 阈值判定 ──
+    high_coop = 4.0   # 大于此 → 大家都在合作
+    low_coop = 2.0    # 小于此 → 背叛蔓延
+
+    # 安可修正：合作阈值降低
+    if encore_possible:
+        high_coop = 2.8
+        low_coop = 1.4
+
+    if total_round >= high_coop:
+        return "cooperate"
+    if total_round < low_coop and regard > 3:
+        return "compete"
+    if total_round < low_coop and regard <= 3:
+        return "cooperate"  # 先保命
+
+    # 中等热度 → 按排名决策
+    if my_rank == 0:
+        return "cooperate"   # 领先 → 保持
+    elif my_rank == 2:
+        return "mixed"       # 垫底 → 混合
+    return "cooperate"
+
+
+# ================================================================
+#  行动决策
+# ================================================================
+
+def decide_duet_action(
+    player,
+    ish: IshBosheth,
+    game_state,
+    available_actions: List[str],
+    threat_scores: Optional[dict] = None,
+) -> str:
+    """Duet 模式下的单轮行动决策。
+
+    五级优先级（按 stance 变化）：
+      合作: 按钮 > 上供 > move(去按钮) > forfeit
+      竞争: 按钮 > PvP(对立打手) > move > forfeit
+      混合: 好武器→按钮, 坏武器→PvP
+    """
+    stance = assess_duet_stance(player, ish, game_state)
+    my_seat = getattr(player, 'location', None)
+    weapons = getattr(player, 'weapons', [])
+    best_dmg = max((getattr(w, 'get_effective_damage', lambda: 0.5)() for w in weapons),
+                   default=0.5)
+
+    # ── 按钮位置 ──
+    button_seats = {b.location for b in ish.duet_buttons if hasattr(b, 'is_alive') and b.is_alive()}
+    at_button = my_seat in button_seats
+    has_button = bool(button_seats)
+
+    # ── 合作态 ──
+    if stance == "cooperate":
+        if at_button and "attack" in available_actions and weapons:
+            btn = next(b for b in ish.duet_buttons if b.location == my_seat)
+            wname = _best_weapon_name(player)
+            return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
+        if _has_offering_card(player, ish) and "attack" in available_actions:
+            return _use_offering_card(player, ish, game_state)
+        if has_button and "move" in available_actions:
+            return f"move {next(iter(button_seats))}"
+        return "forfeit"
+
+    # ── 竞争态 ──
+    if stance == "compete":
+        if at_button and "attack" in available_actions and weapons:
+            btn = next(b for b in ish.duet_buttons if b.location == my_seat)
+            wname = _best_weapon_name(player)
+            return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
+        # PvP: 攻击对立声部中在按钮旁的单位
+        if "attack" in available_actions and weapons:
+            pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
+            if pvp_target:
+                wname = _best_weapon_name(player)
+                tname = getattr(pvp_target, 'name', str(pvp_target))
+                return f"attack {tname} with {wname}" if wname else f"attack {tname}"
+        # fallback
+        if has_button and "move" in available_actions:
+            return f"move {next(iter(button_seats))}"
+        return "forfeit"
+
+    # ── 混合态 ──
+    if best_dmg >= 1.5 and "attack" in available_actions:
+        if at_button and weapons:
+            btn = next(b for b in ish.duet_buttons if b.location == my_seat)
+            wname = _best_weapon_name(player)
+            return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
+    else:
+        if "attack" in available_actions and weapons:
+            pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
+            if pvp_target:
+                wname = _best_weapon_name(player)
+                tname = getattr(pvp_target, 'name', str(pvp_target))
+                return f"attack {tname} with {wname}" if wname else f"attack {tname}"
+    if has_button and "move" in available_actions:
+        return f"move {next(iter(button_seats))}"
+    return "forfeit"
+
+
+def _pick_pvp_target(player, ish: IshBosheth, game_state, button_seats: set):
+    """Duet PvP 位移：选择对立声部中在按钮旁威胁最大的单位。"""
+    opponents = get_opponents(player, ish, game_state)
+    # 优先选在按钮旁的
+    at_btn = [o for o in opponents if getattr(o, 'location', None) in button_seats]
+    if at_btn:
+        opponents = at_btn
+    if not opponents:
+        return None
+    return max(opponents, key=lambda o: max(
+        (getattr(w, 'get_effective_damage', lambda: 0)() for w in getattr(o, 'weapons', [])),
+        default=0))
+
+
+# ================================================================
+#  上供舞台
+# ================================================================
+
+OFFERING_CARDS = {"花束", "荧光棒", "反光板", "场刊整理"}
+
+
+def _has_offering_card(player, ish: IshBosheth) -> bool:
+    """检查是否有可上供舞台的物料牌。"""
+    hand = _get_hand(player, ish)
+    return bool(set(hand) & OFFERING_CARDS)
+
+
+def _use_offering_card(player, ish: IshBosheth, game_state) -> str:
+    """使用上供牌。返回 forfeit（因为 T0 物料阶段已经处理了出牌）。"""
+    # 实际出牌在 T0 阶段由现有流程处理，此处仅返回 forfeit（T1 无其他行动）
+    return "forfeit"
+
+
+# ================================================================
+#  辅助
+# ================================================================
+
+def _best_weapon_name(player) -> Optional[str]:
+    weapons = getattr(player, 'weapons', [])
+    if not weapons:
+        return None
+    best = max(weapons, key=lambda w: getattr(w, 'get_effective_damage', lambda: 0)())
+    return getattr(best, 'name', None)
+
+
+def _get_hand(player, ish: IshBosheth):
+    if ish.deck is None:
+        return []
+    if getattr(player, 'is_chorus', False):
+        card = ish.deck.chorus_slots.get(player.player_id)
+        return [card] if card else []
+    return list(ish.deck.hands.get(player.player_id, []))
+
+
+# ================================================================
+#  MVP TODO 占位 — 未来迭代
+# ================================================================
+
+def vote_duet_entry(player, ish: IshBosheth, game_state, options: List[str]) -> str:
+    """Duet 入口投票决策。
+
+    TODO: 未来根据声部优势/HP 安全/安可预期决定。
+    当前 MVP: 总是赞成。
+    """
+    for opt in options:
+        if "赞成" in opt:
+            return opt
+    return options[0] if options else ""
+
+
+def vote_song(player, ish: IshBosheth, game_state, options: List[str]) -> str:
+    """Duet 歌曲投票决策。
+
+    TODO: 未来根据声部排名/安可预期/博弈姿态选择最优节奏。
+    当前 MVP: 返回第一个选项。
+    """
+    return options[0] if options else ""
+
+
+def decide_embrace(player, ish: IshBosheth, game_state, options: List[str]) -> str:
+    """Embrace 选择决策。
+
+    TODO: 未来根据攻防需求（HP/护甲/武器状态）决定。
+    当前 MVP: 缺攻→G2, 缺防→G5。简单启发式。
+    """
+    hp = getattr(player, 'hp', 1.0)
+    has_armor = bool(getattr(player, 'armor', None))
+    if hp <= 0.5 and not has_armor:
+        # 急需防御 → G5（免伤）
+        for opt in options:
+            if "G5" in opt:
+                return opt
+    # 默认 → G2（攻击 buff）
+    for opt in options:
+        if "G2" in opt:
+            return opt
+    return options[0] if options else ""
+
+
+def choose_displacement_target(
+    player, ish: IshBosheth, game_state, options: List[str]
+) -> str:
+    """位移目标选择：优先选对立声部中威胁最大的单位所在的座位（推远）。
+    当前 MVP: 返回最后一个选项（最远座位）。
+    """
+    return options[-1] if len(options) > 1 else (options[0] if options else "")

@@ -63,29 +63,27 @@ class ChorusController:
                     # Chorus 只能造成 Regard -1，不触发破幕
                     ish.regard = max(0, ish.regard - 1.0)
 
-        # 优先 attack
-        if "attack" in available_actions:
-            legal_targets = self._get_legal_targets(game_state, chorus, ish)
-            if legal_targets:
-                # G2 Sognando 可指定 Chorus 攻击目标
-                commanded_id = getattr(chorus, '_g2_commanded_target_id', None)
-                if commanded_id:
-                    commanded_target = next(
-                        (t for t in legal_targets if t.player_id == commanded_id), None)
-                    if commanded_target:
-                        # G2 指挥指令仅在成功执行后清除，避免目标在指令与执行间死亡导致指令丢失
-                        weapons = getattr(chorus, 'weapons', [])
-                        if weapons:
-                            weapon = random.choice(weapons)
-                            return f"attack {commanded_target.name} with {weapon.name}"
-                        return f"attack {commanded_target.name}"
-                target = random.choice(legal_targets)
-                weapons = getattr(chorus, 'weapons', [])
-                if weapons:
-                    weapon = random.choice(weapons)
-                    return f"attack {target.name} with {weapon.name}"
-                return f"attack {target.name}"
-            return "forfeit"
+        # v2.0 StageAI: 舞台内攻击决策（Chorus + BasicAI 共用）
+        if "attack" in available_actions or "move" in available_actions:
+            # G2 Sognando 可指定 Chorus 攻击目标 → 仍优先
+            commanded_id = getattr(chorus, '_g2_commanded_target_id', None)
+            if commanded_id:
+                legal_targets = self._get_legal_targets(game_state, chorus, ish)
+                commanded_target = next(
+                    (t for t in legal_targets if t.player_id == commanded_id), None)
+                if commanded_target:
+                    weapons = getattr(chorus, 'weapons', [])
+                    if weapons:
+                        weapon = random.choice(weapons)
+                        return f"attack {commanded_target.name} with {weapon.name}"
+                    return f"attack {commanded_target.name}"
+
+            # 委托 StageAI 决策
+            from controllers.ai.stage import StageAI
+            cmd = StageAI.get_command(chorus, game_state, available_actions,
+                                       {"chorus_unit": chorus, "game_state": game_state})
+            if cmd:
+                return cmd
 
         return "forfeit"
 

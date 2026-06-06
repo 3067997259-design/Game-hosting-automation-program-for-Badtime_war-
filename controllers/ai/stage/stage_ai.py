@@ -1,0 +1,102 @@
+"""stage_ai.py — StageAI 统一入口
+
+薄封装，不存状态。检测舞台状态 → 分发到对应模块 → 返回指令。
+ChorusController 和 BasicAI 共用此入口。
+"""
+
+from __future__ import annotations
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from engine.ish_bosheth import IshBosheth
+
+
+class StageAI:
+    """舞台 AI 决策入口（纯静态方法，无状态）。"""
+
+    # ================================================================
+    #  get_command — 主指令生成
+    # ================================================================
+
+    @staticmethod
+    def get_command(
+        player,
+        game_state,
+        available_actions: List[str],
+        context: Optional[dict] = None,
+    ) -> Optional[str]:
+        """为舞台内单位生成行动指令。
+
+        Returns:
+            指令字符串（"attack X with Y", "move Z", "forfeit" 等），
+            或 None（表示不由 StageAI 处理，调用方自行 fallback）。
+        """
+        ish = getattr(game_state, 'ish_bosheth', None)
+        if not ish:
+            return None
+
+        # Duet 模式
+        if ish.phase == "duet":
+            if player.player_id in (ish.g2_owner_id, ish.duet_g5_pid):
+                return None  # G2/G5 由 restricted action 处理
+            from controllers.ai.stage.duet_mode import decide_duet_action
+            ctx = context or {}
+            return decide_duet_action(player, ish, game_state, available_actions,
+                                      threat_scores=ctx.get("threat_scores"))
+
+        # 正常模式
+        if ish.phase == "active":
+            if player.player_id == ish.g2_owner_id:
+                return None  # G2 的 special/forfeit 由 restricted action 处理
+            from controllers.ai.stage.normal_mode import decide_normal_action
+            ctx = context or {}
+            return decide_normal_action(player, ish, game_state, available_actions,
+                                        threat_scores=ctx.get("threat_scores"))
+
+        return None
+
+    # ================================================================
+    #  choose — 交互式决策（投票/Embrace/安可等）
+    # ================================================================
+
+    @staticmethod
+    def choose(
+        player,
+        game_state,
+        situation: str,
+        options: List[str],
+        context: Optional[dict] = None,
+    ) -> Optional[str]:
+        """处理舞台内的交互式选择。
+
+        当前 MVP: duet 投票/Embrace/安可 均为 TODO 占位，返回默认值。
+        """
+        ish = getattr(game_state, 'ish_bosheth', None)
+        if not ish:
+            return None
+
+        # ── Duet 入口投票 ──
+        if situation == "duet_vote":
+            from controllers.ai.stage.duet_mode import vote_duet_entry
+            return vote_duet_entry(player, ish, game_state, options)
+
+        # ── Duet 歌曲投票 ──
+        if situation == "duet_song_vote":
+            from controllers.ai.stage.duet_mode import vote_song
+            return vote_song(player, ish, game_state, options)
+
+        # ── 位移目的地选择 ──
+        if situation == "displacement_choose":
+            from controllers.ai.stage.duet_mode import choose_displacement_target
+            return choose_displacement_target(player, ish, game_state, options)
+
+        # ── Embrace 选择 ──
+        if situation == "embrace":
+            from controllers.ai.stage.duet_mode import decide_embrace
+            return decide_embrace(player, ish, game_state, options)
+
+        # ── 安可物品选择 ──
+        if situation in ("pick_location", "pick_item"):
+            return options[0] if options else ""
+
+        return None
