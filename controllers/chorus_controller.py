@@ -112,14 +112,8 @@ class ChorusController:
         voice = getattr(chorus, 'emotion', None)
         targets = []
 
-        # v2.0 duet 模式：按钮始终是合法目标（优先于 PvP）
-        if getattr(ish, 'phase', None) == "duet" and getattr(ish, 'duet_buttons', None):
-            for btn in ish.duet_buttons:
-                if getattr(btn, 'is_alive', lambda: True)():
-                    targets.append(btn)
-            if targets:
-                return targets  # duet 中 Chorus 优先打按钮
-
+        # unreachable: ChorusController 仅在 active 阶段运行，duet 已委托 StageAI
+        # (get_command() L39: phase != "active" → forfeit)
         g2_owner_id = ish.g2_owner_id
 
         # Str 可攻击 G2（G2 不在 participants 中，需单独处理）

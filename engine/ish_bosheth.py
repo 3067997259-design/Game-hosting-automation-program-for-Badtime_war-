@@ -173,6 +173,7 @@ class IshBosheth:
             INDIFFERENZA:  0.0,
             STRAPPANDO:    0.0,
         }
+        self._duet_prev_heat = dict(self.duet_heat)  # 与 duet_heat 同步，首轮增量=0
         self.duet_round = 0
         self.duet_buttons = []
         self.duet_encores = 0
