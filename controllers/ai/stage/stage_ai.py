@@ -15,6 +15,29 @@ class StageAI:
     """舞台 AI 决策入口（纯静态方法，无状态）。"""
 
     # ================================================================
+    #  调试输出
+    # ================================================================
+
+    @staticmethod
+    def _dbg(level: int, player, msg: str):
+        """分级调试输出，遵循 engine.debug_config 体系。
+
+        级别: 1=基本(发生了什么) 2=详细(为什么) 3=完整(全部上下文)
+        标签: [Stg] / [Stg·] / [Stg··]（与 [Orch] 区分）
+        """
+        try:
+            from engine.debug_config import DebugConfig
+            if not DebugConfig.should_show(level):
+                return
+        except Exception:
+            return
+        name = getattr(player, 'name', str(player))
+        voice = getattr(player, 'emotion', '')
+        voice_str = f"({voice})" if voice else ""
+        prefix = {1: "[Stg]", 2: "[Stg·]", 3: "[Stg··]"}.get(level, "[Stg]")
+        print(f"{prefix} {name}{voice_str}: {msg}")
+
+    # ================================================================
     #  get_command — 主指令生成
     # ================================================================
 
@@ -39,19 +62,25 @@ class StageAI:
         if ish.phase == "duet":
             if player.player_id in (ish.g2_owner_id, ish.duet_g5_pid):
                 return None  # G2/G5 由 restricted action 处理
+            StageAI._dbg(1, player, "StageAI 接管 (duet模式)")
             from controllers.ai.stage.duet_mode import decide_duet_action
             ctx = context or {}
-            return decide_duet_action(player, ish, game_state, available_actions,
-                                      threat_scores=ctx.get("threat_scores"))
+            cmd = decide_duet_action(player, ish, game_state, available_actions,
+                                     threat_scores=ctx.get("threat_scores"))
+            StageAI._dbg(1, player, f"→ {cmd}")
+            return cmd
 
         # 正常模式
         if ish.phase == "active":
             if player.player_id == ish.g2_owner_id:
                 return None  # G2 的 special/forfeit 由 restricted action 处理
+            StageAI._dbg(1, player, "StageAI 接管 (正常模式)")
             from controllers.ai.stage.normal_mode import decide_normal_action
             ctx = context or {}
-            return decide_normal_action(player, ish, game_state, available_actions,
-                                        threat_scores=ctx.get("threat_scores"))
+            cmd = decide_normal_action(player, ish, game_state, available_actions,
+                                       threat_scores=ctx.get("threat_scores"))
+            StageAI._dbg(1, player, f"→ {cmd}")
+            return cmd
 
         return None
 
@@ -75,9 +104,14 @@ class StageAI:
         if not ish:
             return None
 
+        StageAI._dbg(2, player, f"choose {situation} opts={len(options)}")
+
         # ── Duet 入口投票 ──
         if situation == "duet_vote":
             from controllers.ai.stage.duet_mode import vote_duet_entry
+            result = vote_duet_entry(player, ish, game_state, options)
+            StageAI._dbg(1, player, f"duet_vote → {result}")
+            return result
             return vote_duet_entry(player, ish, game_state, options)
 
         # ── Duet 歌曲投票 ──

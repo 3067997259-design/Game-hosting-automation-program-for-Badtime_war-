@@ -87,6 +87,22 @@ def rank_targets(
         scored.append((target, score))
 
     scored.sort(key=lambda x: x[1], reverse=True)
+
+    # L2: 前 3 名评分明细
+    if scored:
+        from controllers.ai.stage.stage_ai import StageAI
+        top = scored[:3]
+        details = " / ".join(
+            f"{getattr(t, 'name', str(t))}:{s:.0f}" for t, s in top
+        )
+        StageAI._dbg(2, player, f"目标排序: {details}")
+        # L3: 全部候选
+        if len(scored) > 3:
+            all_details = ", ".join(
+                f"{getattr(t, 'name', str(t))}:{s:.0f}" for t, s in scored
+            )
+            StageAI._dbg(3, player, f"候选{len(scored)}人: [{all_details}]")
+
     return scored
 
 

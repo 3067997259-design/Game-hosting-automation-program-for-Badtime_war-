@@ -71,10 +71,24 @@ def assess_duet_stance(player, ish: IshBosheth, game_state) -> str:
 
     # 中等热度 → 按排名决策
     if my_rank == 0:
-        return "cooperate"   # 领先 → 保持
+        result = "cooperate"
     elif my_rank == 2:
-        return "mixed"       # 垫底 → 混合
-    return "cooperate"
+        result = "mixed"
+    else:
+        result = "cooperate"
+
+    # L2: 姿态评估
+    from controllers.ai.stage.stage_ai import StageAI
+    encore_str = "可能" if encore_possible else "否"
+    StageAI._dbg(2, player,
+        f"姿态={result} (当轮热力={total_round:.1f} 排名=#{my_rank+1}/3 Regard={regard:.1f} 安可={encore_str})")
+    # L3: 热力完整数据
+    StageAI._dbg(3, player,
+        f"热力: Acc={ish.duet_heat.get('accarezzevole',0):.1f} "
+        f"Ind={ish.duet_heat.get('indifferenza',0):.1f} "
+        f"Str={ish.duet_heat.get('strappando',0):.1f}")
+
+    return result
 
 
 # ================================================================
@@ -105,6 +119,13 @@ def decide_duet_action(
     button_seats = {b.location for b in ish.duet_buttons if hasattr(b, 'is_alive') and b.is_alive()}
     at_button = my_seat in button_seats
     has_button = bool(button_seats)
+
+    # L3: 按钮/上供检查
+    from controllers.ai.stage.stage_ai import StageAI
+    if button_seats:
+        StageAI._dbg(3, player,
+            f"按钮: {len(button_seats)}个 座位={button_seats} 在旁={at_button} "
+            f"武器伤害={best_dmg:.1f} 有上供牌={_has_offering_card(player, ish)}")
 
     # ── 合作态 ──
     if stance == "cooperate":
