@@ -172,7 +172,9 @@ def setup_game_cli(args) -> GameState:
 
         if assigned_talent:
             for n, tname, cls, desc in TALENT_TABLE:
-                if tname == assigned_talent and n not in taken_talents:
+                # TALENT_TABLE 中 T1-T7 为短名(如"一刀缭断")、G1-G7 带前缀(如"神代天赋-往世的涟漪")
+                # resolve_talent() 返回短名，此处匹配短名或全名包含关系
+                if (tname == assigned_talent or assigned_talent in tname) and n not in taken_talents:
                     inst = cls(pid, game_state)
                     player.talent = inst
                     player.talent_name = tname
