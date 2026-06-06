@@ -1970,6 +1970,11 @@ class ActionTurnManager:
                     lines.append(f"      ⚡ {t.name} 进入震荡状态！")
 
             if res.get("killed"):
+                # G2 发动者死亡 → 舞台崩塌（防御性补全：范围攻击等非标准攻击路径）
+                if (self.state.ish_bosheth
+                        and self.state.ish_bosheth.phase == "active"
+                        and t.player_id == self.state.ish_bosheth.g2_owner_id):
+                    self.state.ish_bosheth.end_ish_bosheth("death", self.state)
                 killer.kill_count += 1
                 self.state.markers.on_player_death(t.player_id)
                 if self.state.police_engine:

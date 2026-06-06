@@ -34,7 +34,7 @@ class Hologram(BaseTalent):
     #  发动限制
     # ================================================================
     def _calc_min_round(self) -> int:
-        return 1  # DEBUG
+        return 10 + 2 * (len(self.state.player_order) - 2)
 
     # ================================================================
     #  T0 选项
