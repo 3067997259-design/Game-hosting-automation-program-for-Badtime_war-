@@ -15,10 +15,10 @@ if TYPE_CHECKING:
     from models.chorus import ChorusUnit
     from engine.ish_bosheth import IshBosheth
 
-# 声部常量（模块自给）
-ACCAREZZEVOLE = "accarezzevole"
-INDIFFERENZA = "indifferenza"
-STRAPPANDO = "strappando"
+# 声部常量
+from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
+
+_DEFAULT_DMG = 0.5  # 无武器时的默认伤害估算
 
 
 # ================================================================
@@ -43,8 +43,8 @@ def rank_targets(
     """
     scored: list = []
     weapons = getattr(player, 'weapons', [])
-    best_dmg = max((getattr(w, 'get_effective_damage', lambda: 0.5)() for w in weapons),
-                   default=0.5)
+    best_dmg = max((getattr(w, 'get_effective_damage', lambda: _DEFAULT_DMG)() for w in weapons),
+                   default=_DEFAULT_DMG)
     my_seat = getattr(player, 'location', None)
     voice = getattr(player, 'emotion', None)
 

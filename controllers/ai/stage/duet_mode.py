@@ -20,8 +20,10 @@ if TYPE_CHECKING:
 
 
 # ================================================================
-#  自适应互惠 — 公共品博弈姿态
+#  常量
 # ================================================================
+
+_DEFAULT_DMG = 0.5  # 无武器/未知伤害时的默认估算值
 
 def assess_duet_stance(player, ish: IshBosheth, game_state) -> str:
     """评估当前轮次 AI 应采取的博弈姿态。
@@ -37,7 +39,7 @@ def assess_duet_stance(player, ish: IshBosheth, game_state) -> str:
     """
     voice = getattr(player, 'emotion', None)
 
-    # 当轮增量
+    # 当轮增量（首轮 _duet_prev_heat 为空 → total_round=累计，此时无背叛风险，判定安全）
     prev = getattr(ish, '_duet_prev_heat', {})
     total_round = sum(ish.duet_heat.get(v, 0) - prev.get(v, 0)
                       for v in ish.duet_heat)
@@ -99,8 +101,8 @@ def decide_duet_action(
     stance = assess_duet_stance(player, ish, game_state)
     my_seat = getattr(player, 'location', None)
     weapons = getattr(player, 'weapons', [])
-    best_dmg = max((getattr(w, 'get_effective_damage', lambda: 0.5)() for w in weapons),
-                   default=0.5)
+    best_dmg = max((getattr(w, 'get_effective_damage', lambda: _DEFAULT_DMG)() for w in weapons),
+                   default=_DEFAULT_DMG)
 
     # ── 按钮位置 ──
     button_seats = {b.location for b in ish.duet_buttons if hasattr(b, 'is_alive') and b.is_alive()}
@@ -137,19 +139,25 @@ def decide_duet_action(
             return f"move {next(iter(button_seats))}"
         return "forfeit"
 
-    # ── 混合态 ──
-    if best_dmg >= 1.5 and "attack" in available_actions:
-        if at_button and weapons:
-            btn = next(b for b in ish.duet_buttons if b.location == my_seat)
+    # ── 混合态：在按钮旁优先打按钮（任何热力 > 低伤害 PvP）──
+    if at_button and "attack" in available_actions and weapons:
+        btn = next(b for b in ish.duet_buttons if b.location == my_seat)
+        wname = _best_weapon_name(player)
+        return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
+    if best_dmg >= 1.5 and "attack" in available_actions and weapons:
+        # 不在按钮旁+好武器 → 优先去 PvP 还是去按钮，由 move 决策
+        pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
+        if pvp_target:
             wname = _best_weapon_name(player)
-            return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
-    else:
-        if "attack" in available_actions and weapons:
-            pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
-            if pvp_target:
-                wname = _best_weapon_name(player)
-                tname = getattr(pvp_target, 'name', str(pvp_target))
-                return f"attack {tname} with {wname}" if wname else f"attack {tname}"
+            tname = getattr(pvp_target, 'name', str(pvp_target))
+            return f"attack {tname} with {wname}" if wname else f"attack {tname}"
+    if "attack" in available_actions and weapons:
+        # 弱武器 → PvP 干扰（不在按钮旁时退而求其次）
+        pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
+        if pvp_target:
+            wname = _best_weapon_name(player)
+            tname = getattr(pvp_target, 'name', str(pvp_target))
+            return f"attack {tname} with {wname}" if wname else f"attack {tname}"
     if has_button and "move" in available_actions:
         return f"move {next(iter(button_seats))}"
     return "forfeit"
@@ -183,8 +191,11 @@ def _has_offering_card(player, ish: IshBosheth) -> bool:
 
 
 def _use_offering_card(player, ish: IshBosheth, game_state) -> str:
-    """使用上供牌。返回 forfeit（因为 T0 物料阶段已经处理了出牌）。"""
-    # 实际出牌在 T0 阶段由现有流程处理，此处仅返回 forfeit（T1 无其他行动）
+    """使用上供牌。
+
+    TODO: T0 物料阶段已处理出牌，T1 暂无独立"上供"动作——当前回 forfeit。
+    未来可扩展为"若有多张上供牌且手牌超限，T1 再打一张"。
+    """
     return "forfeit"
 
 

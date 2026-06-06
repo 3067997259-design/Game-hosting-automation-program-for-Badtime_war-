@@ -11,10 +11,8 @@ if TYPE_CHECKING:
     from models.chorus import ChorusUnit
     from engine.ish_bosheth import ButtonDummy, IshBosheth
 
-# 声部常量（模块内自给，不依赖 ish_bosheth 导入时的循环风险）
-ACCAREZZEVOLE = "accarezzevole"
-INDIFFERENZA = "indifferenza"
-STRAPPANDO = "strappando"
+# 声部常量（统一来源）
+from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
 
 
 def get_legal_normal_targets(
