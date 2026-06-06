@@ -12,6 +12,8 @@ from controllers.ai.stage.target_filter import (
     get_legal_duet_targets,
     get_teammates,
     get_opponents,
+    get_hand,
+    pick_best_weapon,
 )
 
 if TYPE_CHECKING:
@@ -113,7 +115,7 @@ def decide_duet_action(
     if stance == "cooperate":
         if at_button and "attack" in available_actions and weapons:
             btn = next(b for b in ish.duet_buttons if b.location == my_seat)
-            wname = _best_weapon_name(player)
+            wname = pick_best_weapon(player)
             return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
         if _has_offering_card(player, ish) and "attack" in available_actions:
             return _use_offering_card(player, ish, game_state)
@@ -125,13 +127,13 @@ def decide_duet_action(
     if stance == "compete":
         if at_button and "attack" in available_actions and weapons:
             btn = next(b for b in ish.duet_buttons if b.location == my_seat)
-            wname = _best_weapon_name(player)
+            wname = pick_best_weapon(player)
             return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
         # PvP: 攻击对立声部中在按钮旁的单位
         if "attack" in available_actions and weapons:
             pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
             if pvp_target:
-                wname = _best_weapon_name(player)
+                wname = pick_best_weapon(player)
                 tname = getattr(pvp_target, 'name', str(pvp_target))
                 return f"attack {tname} with {wname}" if wname else f"attack {tname}"
         # fallback
@@ -142,20 +144,20 @@ def decide_duet_action(
     # ── 混合态：在按钮旁优先打按钮（任何热力 > 低伤害 PvP）──
     if at_button and "attack" in available_actions and weapons:
         btn = next(b for b in ish.duet_buttons if b.location == my_seat)
-        wname = _best_weapon_name(player)
+        wname = pick_best_weapon(player)
         return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
     if best_dmg >= 1.5 and "attack" in available_actions and weapons:
         # 不在按钮旁+好武器 → 优先去 PvP 还是去按钮，由 move 决策
         pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
         if pvp_target:
-            wname = _best_weapon_name(player)
+            wname = pick_best_weapon(player)
             tname = getattr(pvp_target, 'name', str(pvp_target))
             return f"attack {tname} with {wname}" if wname else f"attack {tname}"
     if "attack" in available_actions and weapons:
         # 弱武器 → PvP 干扰（不在按钮旁时退而求其次）
         pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
         if pvp_target:
-            wname = _best_weapon_name(player)
+            wname = pick_best_weapon(player)
             tname = getattr(pvp_target, 'name', str(pvp_target))
             return f"attack {tname} with {wname}" if wname else f"attack {tname}"
     if has_button and "move" in available_actions:
@@ -186,7 +188,7 @@ OFFERING_CARDS = {"花束", "荧光棒", "反光板", "场刊整理"}
 
 def _has_offering_card(player, ish: IshBosheth) -> bool:
     """检查是否有可上供舞台的物料牌。"""
-    hand = _get_hand(player, ish)
+    hand = get_hand(player, ish)
     return bool(set(hand) & OFFERING_CARDS)
 
 
@@ -202,23 +204,6 @@ def _use_offering_card(player, ish: IshBosheth, game_state) -> str:
 # ================================================================
 #  辅助
 # ================================================================
-
-def _best_weapon_name(player) -> Optional[str]:
-    weapons = getattr(player, 'weapons', [])
-    if not weapons:
-        return None
-    best = max(weapons, key=lambda w: getattr(w, 'get_effective_damage', lambda: 0)())
-    return getattr(best, 'name', None)
-
-
-def _get_hand(player, ish: IshBosheth):
-    if ish.deck is None:
-        return []
-    if getattr(player, 'is_chorus', False):
-        card = ish.deck.chorus_slots.get(player.player_id)
-        return [card] if card else []
-    return list(ish.deck.hands.get(player.player_id, []))
-
 
 # ================================================================
 #  MVP TODO 占位 — 未来迭代

@@ -8,7 +8,9 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
-from controllers.ai.stage.target_filter import get_legal_normal_targets, get_teammates
+from controllers.ai.stage.target_filter import (
+    get_legal_normal_targets, get_teammates, get_hand, pick_best_weapon,
+)
 
 if TYPE_CHECKING:
     from models.player import Player
@@ -128,7 +130,7 @@ def decide_normal_action(
     if legal and "attack" in available_actions:
         ranked = rank_targets(player, legal, ish, game_state, threat_scores)
         best_target, _ = ranked[0]
-        weapon = _pick_best_weapon(player, best_target)
+        weapon = pick_best_weapon(player)
         tname = getattr(best_target, 'name', str(best_target))
         if weapon:
             return f"attack {tname} with {weapon}"
@@ -141,15 +143,6 @@ def decide_normal_action(
             return move_cmd
 
     return "forfeit"
-
-
-def _pick_best_weapon(player, target) -> Optional[str]:
-    """选择对目标最有效的武器（最高伤害，不考虑属性克制简化）。"""
-    weapons = getattr(player, 'weapons', [])
-    if not weapons:
-        return None
-    best = max(weapons, key=lambda w: getattr(w, 'get_effective_damage', lambda: 0)())
-    return getattr(best, 'name', None)
 
 
 def _decide_normal_move(player, ish: IshBosheth, game_state) -> Optional[str]:
@@ -200,7 +193,7 @@ def should_play_card(player, ish: IshBosheth, game_state) -> Optional[str]:
     返回牌名表示建议打出，None 表示不出。
     当前仅处理最通用的几张牌，复杂决策留待后续。
     """
-    hand = _get_hand(player, ish)
+    hand = get_hand(player, ish)
     if not hand:
         return None
 
@@ -221,12 +214,3 @@ def should_play_card(player, ish: IshBosheth, game_state) -> Optional[str]:
 
     return None
 
-
-def _get_hand(player, ish: IshBosheth) -> List[str]:
-    """获取玩家手牌列表。"""
-    if ish.deck is None:
-        return []
-    if getattr(player, 'is_chorus', False):
-        card = ish.deck.chorus_slots.get(player.player_id)
-        return [card] if card else []
-    return list(ish.deck.hands.get(player.player_id, []))

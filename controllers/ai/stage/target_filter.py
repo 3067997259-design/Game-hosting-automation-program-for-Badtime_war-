@@ -172,3 +172,26 @@ def _holds_card(unit, ish: IshBosheth) -> bool:
     if getattr(unit, 'is_chorus', False):
         return bool(ish.deck.chorus_slots.get(unit.player_id))
     return bool(ish.deck.hands.get(unit.player_id))
+
+
+# ================================================================
+#  共享工具（normal_mode / duet_mode 共用）
+# ================================================================
+
+def get_hand(player, ish: IshBosheth) -> list[str]:
+    """获取玩家或 Chorus 的当前手牌列表。"""
+    if ish.deck is None:
+        return []
+    if getattr(player, 'is_chorus', False):
+        card = ish.deck.chorus_slots.get(player.player_id)
+        return [card] if card else []
+    return list(ish.deck.hands.get(player.player_id, []))
+
+
+def pick_best_weapon(player) -> Optional[str]:
+    """选择当前持有的最高伤害武器名（无武器返回 None）。"""
+    weapons = getattr(player, 'weapons', [])
+    if not weapons:
+        return None
+    best = max(weapons, key=lambda w: getattr(w, 'get_effective_damage', lambda: 0)())
+    return getattr(best, 'name', None)
