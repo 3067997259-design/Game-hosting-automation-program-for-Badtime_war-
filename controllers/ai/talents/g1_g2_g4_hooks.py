@@ -458,11 +458,15 @@ class HologramAIHook(BaseTalentAIHook):
         alive_count = len(state.alive_players())
         been_attacked = bool(context.get("been_attacked_by", set()))
 
-        # v0.6 激活条件：发育完成 + 存活≥3人 + （有护甲 或 被攻击）
-        should_activate = dev_ok and alive_count >= 3 and (outer >= 1 or been_attacked)
+        # v0.6 激活条件：发育完成 + （有护甲 或 被攻击）
+        # 2 人局降低门槛：发育完成即可
+        if alive_count <= 2:
+            should_activate = dev_ok
+        else:
+            should_activate = dev_ok and (outer >= 1 or been_attacked)
 
         # HP 低 + 被攻击 → 防御性激活
-        if not should_activate and player.hp <= 1.0 and been_attacked and alive_count >= 3:
+        if not should_activate and player.hp <= 1.0 and been_attacked:
             should_activate = True
 
         if should_activate:
