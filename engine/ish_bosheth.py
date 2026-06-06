@@ -198,6 +198,9 @@ class IshBosheth:
                 talent.duet_joined = True
                 talent.reminiscence_budget = 12.0
                 talent.harmonize_count = 0
+        elif g5_player and not g5_player.talent:
+            # 防御：无天赋玩家不可能出现在此路径，但兜底设 budget 确保不崩
+            g5_player._g5_duet_fallback = True
 
         # ── 冻结 G2 独唱系统 ──
         # 旋律（在 duet 中禁用）
@@ -206,17 +209,18 @@ class IshBosheth:
 
         g2_name = g2_player.name if g2_player else "??"
         g5_name = g5_player.name if g5_player else "??"
+        budget = getattr(g5_player.talent, 'reminiscence_budget', 12.0) if g5_player and g5_player.talent else 12.0
         display.show_info(
             prompt_manager.get_prompt(
                 "duet", "enter.info",
                 default="\n==================================================\n"
                         "  🎤🌊 双人演出模式 —— {g2} & {g5}\n"
                         "  Regard 初始：{regard}\n"
-                        "  最大轮次：8\n"
                         "  G5 追忆预算：{budget}/12\n"
+                        "  最大轮次：8\n"
                         "  热力计数器已就绪\n"
                         "=================================================="
-            ).format(g2=g2_name, g5=g5_name, regard=self.regard, budget=12)
+            ).format(g2=g2_name, g5=g5_name, regard=self.regard, budget=budget)
         )
 
     # ================================================================
@@ -811,9 +815,9 @@ class IshBosheth:
                     "duet", "curtain.ranking",
                     default="🏆 热力排名：第1 — {first}({hf}) / 第2 — {second}({hs}) / 第3 — {third}({ht})"
                 ).format(
-                    first=ranked[0][0], hf=ranked[0][1],
-                    second=ranked[1][0], hs=ranked[1][1],
-                    third=ranked[2][0], ht=ranked[2][1],
+                    first=VOICE_LABELS.get(ranked[0][0], ranked[0][0]), hf=ranked[0][1],
+                    second=VOICE_LABELS.get(ranked[1][0], ranked[1][0]), hs=ranked[1][1],
+                    third=VOICE_LABELS.get(ranked[2][0], ranked[2][0]), ht=ranked[2][1],
                 )
             )
 
@@ -1216,25 +1220,26 @@ class IshBosheth:
     def get_available_songs(self) -> list[dict]:
         songs = []
 
-        # v2.0 duet 模式：仅基础三首歌（旋律禁用），效果改为热力加成
+        # v2.0 duet 模式：仅基础三首歌（旋律禁用）
+        # TODO: duet 歌曲效果待实现（按钮伤害×1.5, PvP位移免疫, 转化率×1.5公共池 等）
         if self.phase == "duet":
             if self.regard >= 1:
                 songs.append({
                     "name": "追寻那道光",
                     "cost": 1,
-                    "desc": "duet: 选声部按钮伤害×1.5",
+                    "desc": "[待实现] duet: 选声部按钮伤害×1.5",
                     "rhythms": self._get_rhythms_for_song("追寻那道光"),
                 })
                 songs.append({
                     "name": "拼接遗憾",
                     "cost": 1,
-                    "desc": "duet: PvP位移免疫/座位互换",
+                    "desc": "[待实现] duet: PvP位移免疫/座位互换",
                     "rhythms": self._get_rhythms_for_song("拼接遗憾"),
                 })
                 songs.append({
                     "name": "Before light",
                     "cost": 1,
-                    "desc": "duet: 转化率×1.5公共池/三按钮",
+                    "desc": "[待实现] duet: 转化率×1.5公共池/三按钮",
                     "rhythms": self._get_rhythms_for_song("Before light"),
                 })
             return songs
@@ -1516,7 +1521,7 @@ def _calc_melody_damage(base_dmg: float, stability: float,
                         unit_max_hp: float, unit_current_hp: float) -> float:
     """安定値修正后的旋律伤害。≤0 → 负值表示治疗量。
     注意：衰减已在 _calc_stability 中生效，此处不再重复。"""
-    raw = base_dmg * (1.0 + stability)
+    raw = round(base_dmg * (1.0 + stability), 2)
     if raw <= 0:
         return max(raw, unit_current_hp - unit_max_hp)
     return max(0.5, raw)
