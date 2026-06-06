@@ -63,29 +63,27 @@ class ChorusController:
                     # Chorus 只能造成 Regard -1，不触发破幕
                     ish.regard = max(0, ish.regard - 1.0)
 
-        # 优先 attack
-        if "attack" in available_actions:
-            legal_targets = self._get_legal_targets(game_state, chorus, ish)
-            if legal_targets:
-                # G2 Sognando 可指定 Chorus 攻击目标
-                commanded_id = getattr(chorus, '_g2_commanded_target_id', None)
-                if commanded_id:
-                    commanded_target = next(
-                        (t for t in legal_targets if t.player_id == commanded_id), None)
-                    if commanded_target:
-                        # G2 指挥指令仅在成功执行后清除，避免目标在指令与执行间死亡导致指令丢失
-                        weapons = getattr(chorus, 'weapons', [])
-                        if weapons:
-                            weapon = random.choice(weapons)
-                            return f"attack {commanded_target.name} with {weapon.name}"
-                        return f"attack {commanded_target.name}"
-                target = random.choice(legal_targets)
-                weapons = getattr(chorus, 'weapons', [])
-                if weapons:
-                    weapon = random.choice(weapons)
-                    return f"attack {target.name} with {weapon.name}"
-                return f"attack {target.name}"
-            return "forfeit"
+        # v2.0 StageAI: 舞台内攻击决策（Chorus + BasicAI 共用）
+        if "attack" in available_actions or "move" in available_actions:
+            # G2 Sognando 可指定 Chorus 攻击目标 → 仍优先
+            commanded_id = getattr(chorus, '_g2_commanded_target_id', None)
+            if commanded_id:
+                legal_targets = self._get_legal_targets(game_state, chorus, ish)
+                commanded_target = next(
+                    (t for t in legal_targets if t.player_id == commanded_id), None)
+                if commanded_target:
+                    weapons = getattr(chorus, 'weapons', [])
+                    if weapons:
+                        weapon = random.choice(weapons)
+                        return f"attack {commanded_target.name} with {weapon.name}"
+                    return f"attack {commanded_target.name}"
+
+            # 委托 StageAI 决策
+            from controllers.ai.stage import StageAI
+            cmd = StageAI.get_command(chorus, game_state, available_actions,
+                                       {"chorus_unit": chorus, "game_state": game_state})
+            if cmd:
+                return cmd
 
         return "forfeit"
 
@@ -103,20 +101,19 @@ class ChorusController:
         return False
 
     def _get_legal_targets(self, game_state, chorus, ish) -> list:
-        """v0.6 声部限制下的合法攻击目标（含 duet 按钮）。"""
+        """v0.6 声部限制下的合法攻击目标（含 duet 按钮）。
+
+        @deprecated: 新逻辑已迁移至 controllers.ai.stage.target_filter。
+        当前仅保留用于 G2 指挥指令 (commanded_id) 的目标匹配路径。
+        未来应改为直接调用 target_filter.get_legal_normal_targets()。
+        """
         from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
 
         voice = getattr(chorus, 'emotion', None)
         targets = []
 
-        # v2.0 duet 模式：按钮始终是合法目标（优先于 PvP）
-        if getattr(ish, 'phase', None) == "duet" and getattr(ish, 'duet_buttons', None):
-            for btn in ish.duet_buttons:
-                if getattr(btn, 'is_alive', lambda: True)():
-                    targets.append(btn)
-            if targets:
-                return targets  # duet 中 Chorus 优先打按钮
-
+        # unreachable: ChorusController 仅在 active 阶段运行，duet 已委托 StageAI
+        # (get_command() L39: phase != "active" → forfeit)
         g2_owner_id = ish.g2_owner_id
 
         # Str 可攻击 G2（G2 不在 participants 中，需单独处理）
