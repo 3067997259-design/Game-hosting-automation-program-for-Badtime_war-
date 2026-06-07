@@ -483,48 +483,58 @@ class HologramAIHook(BaseTalentAIHook):
         if not ish:
             return self._pick_last_or_forfeit(options)
 
+        result = None
+
         # 1. 旋律优先（免费，一次性）
         for opt in options:
             if "第三间章" in opt:
-                return opt
-        for opt in options:
-            if "第二间章" in opt:
-                return opt
+                result = opt
+        if not result:
+            for opt in options:
+                if "第二间章" in opt:
+                    result = opt
 
         # 2. 统计声部分布
-        str_real = self._count_voice_real(state, ish, "strappando")
-        acc_real = self._count_voice_real(state, ish, "accarezzevole")
-        regard = ish.regard
+        if not result:
+            str_real = self._count_voice_real(state, ish, "strappando")
+            acc_real = self._count_voice_real(state, ish, "accarezzevole")
+            regard = ish.regard
 
-        # 3. 高危 Strappando → Sognando（if regard ≥ 2）
-        if str_real >= 1 and regard >= 2:
-            for opt in options:
-                if "Sognando" in opt or "追寻那道光" in opt:
-                    return opt
+            # 3. 高危 Strappando → Sognando（if regard ≥ 2）
+            if str_real >= 1 and regard >= 2:
+                for opt in options:
+                    if "Sognando" in opt or "追寻那道光" in opt:
+                        result = opt
 
-        # 4. 多个 Acc + 有敌意 → Before light Dolente
-        if acc_real >= 2 and regard >= 2:
-            for opt in options:
-                if "Dolente" in opt or "Before light" in opt:
-                    return opt
+            # 4. 多个 Acc + 有敌意 → Before light Dolente
+            if not result and acc_real >= 2 and regard >= 2:
+                for opt in options:
+                    if "Dolente" in opt or "Before light" in opt:
+                        result = opt
 
-        # 5. 有盟友 → Soave
-        if regard >= 1:
-            for opt in options:
-                if "Soave" in opt or "追寻那道光" in opt:
-                    return opt
+            # 5. 有盟友 → Soave
+            if not result and regard >= 1:
+                for opt in options:
+                    if "Soave" in opt or "追寻那道光" in opt:
+                        result = opt
 
-        # 6. 困住敌人 → Placido/Zeffiroso
-        if regard >= 1:
-            for opt in options:
-                if "拼接遗憾" in opt:
-                    return opt
+            # 6. 困住敌人 → Placido/Zeffiroso
+            if not result and regard >= 1:
+                for opt in options:
+                    if "拼接遗憾" in opt:
+                        result = opt
 
         # 7. 保 regard → forfeit
-        for opt in options:
-            if "放弃" in opt:
-                return opt
-        return self._pick_last_or_forfeit(options)
+        if not result:
+            for opt in options:
+                if "放弃" in opt:
+                    result = opt
+        if not result:
+            result = self._pick_last_or_forfeit(options)
+
+        phase = getattr(ish, 'phase', 'active') if ish else '?'
+        debug_ai_basic(player.name, f"G2 选曲 → {result} (phase={phase}, Regard={getattr(ish, 'regard', '?')})")
+        return result
 
     def _choose_rhythm(self, player, state, options) -> Optional[str]:
         """选节奏：优先低成本（保 Regard）。"""
@@ -665,7 +675,7 @@ class HologramAIHook(BaseTalentAIHook):
     ) -> Optional[List[str]]:
         """v0.6: 舞台激活中，G2 只能 sing。"""
         ish = getattr(state, 'ish_bosheth', None)
-        if not ish or ish.phase != "active":
+        if not ish or ish.phase not in ("active", "duet"):
             return None
         if not self._is_my_talent(player):
             return None

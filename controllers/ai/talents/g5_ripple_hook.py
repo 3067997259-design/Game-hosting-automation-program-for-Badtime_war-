@@ -13,6 +13,23 @@ class RippleAIHook(BaseTalentAIHook):
     def __init__(self, controller: Any):
         self._ctrl = controller
 
+    # ════════════════════════════════════════════════════════════════
+    #  v2.0: duet 候选覆盖（G5 上台后只能伴唱/放弃）
+    # ════════════════════════════════════════════════════════════════
+
+    def should_override_candidates(
+        self, player: Any, state: Any, available: List[str]
+    ) -> Optional[List[str]]:
+        """duet 模式中 G5 只能 special（伴唱）或 forfeit。"""
+        ish = getattr(state, 'ish_bosheth', None)
+        if not ish or ish.phase != "duet":
+            return None
+        if player.player_id != getattr(ish, 'duet_g5_pid', None):
+            return None
+        if "special" in available:
+            return ["special", "forfeit"]
+        return ["forfeit"]
+
     def handle_choose(
         self, player: Any, state: Any, situation: str,
         options: List[str], context: Dict,
