@@ -608,7 +608,7 @@ from engine.ish_bosheth import (
 
     def _duet_choose_voice(self, g2_player, ish) -> Optional[str]:
         """G2 选择声部（duet 歌曲共用）。"""
-        from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO, VOICE_LABELS
+        voices = [ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO]
         voices = [ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO]
         labels = [VOICE_LABELS.get(v, v) for v in voices]
         choice = g2_player.controller.choose(
