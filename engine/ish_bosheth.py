@@ -1264,7 +1264,7 @@ class IshBosheth:
                     "rhythms": self._get_rhythms_for_song("拼接遗憾"),
                 })
                 # Before light duet 消耗不同：Riposato=2, Dolente=3
-                bl_rhythms = self._get_rhythms_for_song("Before light")
+                bl_rhythms = [dict(r) for r in self._get_rhythms_for_song("Before light")]
                 for r in bl_rhythms:
                     if r.get("duet_key") == "riposato":
                         r["cost"] = 2

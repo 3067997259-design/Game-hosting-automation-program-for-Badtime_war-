@@ -7,7 +7,7 @@
 
 import math
 import random
-from typing import Optional
+from typing import Optional, Union, TYPE_CHECKING
 
 from talents.base_talent import BaseTalent
 from cli import display
@@ -18,6 +18,13 @@ from engine.ish_bosheth import (
     ButtonDummy,
 )
 from engine.material_deck import MAX_HAND_SIZE
+
+if TYPE_CHECKING:
+    from models.player import Player
+    from models.chorus import ChorusUnit
+
+# duet 常量
+DUET_EXTRA_BUTTON_IDX = 3  # Dolente 额外按钮编号
 
 
 class Hologram(BaseTalent):
@@ -502,9 +509,8 @@ class Hologram(BaseTalent):
     # ── 追寻那道光·Soave ──────────────────────────────────────────
     def _duet_soave(self, g2_player, ish, game_state):
         """选择声部 → 该声部按钮伤害×1.5，G2摸1牌。"""
-        voice = self._duet_choose_voice(g2_player, ish)
-        if voice:
-            ish._duet_voice_button_mult[voice] = 1.5
+        if self._duet_apply_voice_mult(g2_player, ish) is None:
+            return "❌ 声部选择失败"
         # G2 摸 1 牌
         if ish.deck:
             card = ish.deck._draw_one()
@@ -512,14 +518,16 @@ class Hologram(BaseTalent):
                 hand = ish.deck.hands.setdefault(g2_player.player_id, [])
                 if len(hand) < MAX_HAND_SIZE:
                     hand.append(card)
+            else:
+                display.show_info("⚠️ 牌库已空，摸牌失败")
         return f"🎵 追寻那道光·Soave (duet)"
 
     # ── 追寻那道光·Sognando ───────────────────────────────────────
     def _duet_sognando(self, g2_player, ish, game_state):
         """选择声部 → ×1.5 + 该声部一单位移至按钮座。"""
-        voice = self._duet_choose_voice(g2_player, ish)
-        if voice:
-            ish._duet_voice_button_mult[voice] = 1.5
+        voice = self._duet_apply_voice_mult(g2_player, ish)
+        if voice is None:
+            return "❌ 声部选择失败"
         # 选择该声部一名单位移往随机按钮座
         units = self._duet_get_units(ish, game_state,
             lambda u: getattr(u, 'emotion', None) == voice)
@@ -550,7 +558,7 @@ class Hologram(BaseTalent):
             "选择 Placido 目标：", tnames,
             context={"situation": "g2_duet_placido_target"},
         )
-        target = next((t for t in targets if t.name in choice), None)
+        target = next((t for t in targets if t.name == choice.split("[")[0]), None)
         if target is None:
             display.show_info(f"⚠️ 无法匹配目标「{choice}」，Placido 施放失败")
             return "❌ 无法匹配目标"
@@ -605,7 +613,7 @@ class Hologram(BaseTalent):
         available = [s for s in ish.SEATS if s not in occupied]
         if available:
             seat = random.choice(available)
-            btn = ButtonDummy(seat, 3)
+            btn = ButtonDummy(seat, DUET_EXTRA_BUTTON_IDX)
             ish.duet_buttons.append(btn)
             game_state.register_chorus(btn)
         ish._duet_button_dmg_mult = 1.3
@@ -614,7 +622,7 @@ class Hologram(BaseTalent):
     # ── duet 辅助 ─────────────────────────────────────────────────
 
     def _duet_choose_voice(self, g2_player, ish) -> Optional[str]:
-        """G2 选择声部（duet 歌曲共用）。"""
+        """G2 选择声部（duet 歌曲共用）。匹配失败返回 None。"""
         voices = [ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO]
         labels = [VOICE_LABELS.get(v, v) for v in voices]
         choice = g2_player.controller.choose(
@@ -624,10 +632,20 @@ class Hologram(BaseTalent):
         for v, label in zip(voices, labels):
             if label in choice or choice in label:
                 return v
-        return voices[0]
+        display.show_info(f"⚠️ 无法匹配声部「{choice}」")
+        return None
+
+    def _duet_apply_voice_mult(self, g2_player, ish, mult=1.5) -> Optional[str]:
+        """选择声部并应用按钮倍率。返回声部名，失败返回 None。"""
+        voice = self._duet_choose_voice(g2_player, ish)
+        if voice is None:
+            display.show_info("⚠️ 无法匹配声部，倍率效果跳过")
+            return None
+        ish._duet_voice_button_mult[voice] = mult
+        return voice
 
     @staticmethod
-    def _duet_get_units(ish, game_state, predicate) -> list:
+    def _duet_get_units(ish, game_state, predicate) -> "list[Union[Player, ChorusUnit]]":
         """获取 duet 中满足 predicate 的所有存活单位。"""
         units = []
         for pid in ish.participants:
