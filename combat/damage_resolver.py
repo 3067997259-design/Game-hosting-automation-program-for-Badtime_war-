@@ -1563,6 +1563,11 @@ def _duet_displace(target, attacker, damage: float, ish, game_state, result: dic
     - damage > 1.0: 50% 概率随机弹飞 / 50% 攻击者指定目的地
     - 不造成 HP 伤害，仅改变 location。
     """
+    # 位移免疫（拼接遗憾·Placido）
+    if target.player_id in getattr(ish, '_duet_displacement_immune', set()):
+        result["displacement"] = {"from": target.location, "to": target.location,
+                                  "reason": "immune"}
+        return
     # 收集可用座位（排除目标当前位置）
     available = sorted(s for s in ish.SEATS if s != target.location)
     if not available:

@@ -137,6 +137,12 @@ class IshBosheth:
         self.harmonize_active: bool = False           # G5 本轮是否伴唱
         self.duet_curtain_triggered: bool = False     # 谢幕是否已触发
         self._duet_prev_heat: dict[str, float] = {}   # 上轮累计热力（用于当轮增量计算）
+        # v2.0 duet 歌曲效果状态（每轮在 _spawn_duet_buttons 中重置）
+        self._duet_voice_button_mult: dict[str, float] = {}  # {voice: multiplier}
+        self._duet_displacement_immune: set[str] = set()     # player_ids
+        self._duet_pooled_heat: bool = False                 # Riposato 公共池
+        self._duet_heat_conversion_mult: float = 1.0         # Riposato ×1.5
+        self._duet_button_dmg_mult: float = 1.0              # Dolente ×1.3
 
     # ── 累计解锁阈值 ────────────────────────────────────────────
     MELODY_1_THRESHOLD = 3.0
@@ -238,6 +244,12 @@ class IshBosheth:
             btn = ButtonDummy(seat, i)
             self.duet_buttons.append(btn)
             game_state.register_chorus(btn)
+        # 重置 duet 歌曲效果（每轮清零）
+        self._duet_voice_button_mult.clear()
+        self._duet_displacement_immune.clear()
+        self._duet_pooled_heat = False
+        self._duet_heat_conversion_mult = 1.0
+        self._duet_button_dmg_mult = 1.0
         display.show_info(
             prompt_manager.get_prompt(
                 "duet", "button.spawn",
@@ -252,17 +264,32 @@ class IshBosheth:
         self.duet_buttons.clear()
 
     def record_heat(self, attacker, damage: float):
-        """攻击按钮成功 → 记录热力值。"""
+        """攻击按钮成功 → 记录热力值（含 duet 歌曲效果倍率）。"""
         voice = getattr(attacker, 'emotion', None)
         if voice not in self.duet_heat:
             return
-        self.duet_heat[voice] += damage
-        display.show_info(
-            prompt_manager.get_prompt(
-                "duet", "button.hit",
-                default="🔴 {name} 按下了按钮！+{heat} 热力 → {voice}"
-            ).format(name=attacker.name, heat=damage, voice=voice)
-        )
+        # v2.0: duet 歌曲效果 — 声部倍率 + 全局按钮倍率
+        damage *= self._duet_voice_button_mult.get(voice, 1.0)
+        damage *= self._duet_button_dmg_mult
+        if self._duet_pooled_heat:
+            # Riposato 公共池：三等分到三个声部
+            split = round(damage / 3, 2)
+            for v in self.duet_heat:
+                self.duet_heat[v] += split
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "button.hit",
+                    default="🔴 {name} 按下了按钮！+{heat} 热力（公共池 三等分）"
+                ).format(name=attacker.name, heat=damage)
+            )
+        else:
+            self.duet_heat[voice] += damage
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "button.hit",
+                    default="🔴 {name} 按下了按钮！+{heat} 热力 → {voice}"
+                ).format(name=attacker.name, heat=damage, voice=voice)
+            )
 
     def offer_heat(self, player, amount: float, card_name: str = ""):
         """v2.0 Plan B: 上供舞台 → 低保热力。
@@ -296,7 +323,7 @@ class IshBosheth:
         }
         self._duet_prev_heat = dict(self.duet_heat)
         total_round = sum(round_heat.values())
-        regen = total_round * CONVERSION
+        regen = total_round * CONVERSION * self._duet_heat_conversion_mult
         self.regard = min(self.regard_cap, self.regard + regen)
 
         # 重置伴唱标记
@@ -1222,26 +1249,32 @@ class IshBosheth:
         songs = []
 
         # v2.0 duet 模式：仅基础三首歌（旋律禁用）
-        # TODO: duet 歌曲效果待实现（按钮伤害×1.5, PvP位移免疫, 转化率×1.5公共池 等）
         if self.phase == "duet":
             if self.regard >= 1:
                 songs.append({
                     "name": "追寻那道光",
                     "cost": 1,
-                    "desc": "[待实现] duet: 选声部按钮伤害×1.5",
+                    "desc": "选声部 → 按钮伤害×1.5 / 位移至按钮座",
                     "rhythms": self._get_rhythms_for_song("追寻那道光"),
                 })
                 songs.append({
                     "name": "拼接遗憾",
                     "cost": 1,
-                    "desc": "[待实现] duet: PvP位移免疫/座位互换",
+                    "desc": "位移免疫+临时HP / 互换两座位全员+复活Chorus",
                     "rhythms": self._get_rhythms_for_song("拼接遗憾"),
                 })
+                # Before light duet 消耗不同：Riposato=2, Dolente=3
+                bl_rhythms = self._get_rhythms_for_song("Before light")
+                for r in bl_rhythms:
+                    if r.get("duet_key") == "riposato":
+                        r["cost"] = 2
+                    elif r.get("duet_key") == "dolente":
+                        r["cost"] = 3
                 songs.append({
                     "name": "Before light",
-                    "cost": 1,
-                    "desc": "[待实现] duet: 转化率×1.5公共池/三按钮",
-                    "rhythms": self._get_rhythms_for_song("Before light"),
+                    "cost": 2,
+                    "desc": "转化率×1.5公共池 / 生成第3按钮+全局×1.3",
+                    "rhythms": bl_rhythms,
                 })
             return songs
 
@@ -1291,19 +1324,25 @@ class IshBosheth:
 
     def _get_rhythms_for_song(self, song_name: str) -> list[dict]:
         if song_name == "追寻那道光":
-            rhythms = [{"name": "温柔 (Soave)", "cost": 1}]
+            rhythms = [
+                {"name": "温柔 (Soave)", "cost": 1, "duet_key": "soave"},
+            ]
             if self.regard >= 2:
-                rhythms.append({"name": "追寻 (Sognando)", "cost": 2})
+                rhythms.append({"name": "追寻 (Sognando)", "cost": 2, "duet_key": "sognando"})
             return rhythms
         elif song_name == "Before light":
-            rhythms = [{"name": "休息 (Riposato)", "cost": 1}]
+            rhythms = [
+                {"name": "休息 (Riposato)", "cost": 1, "duet_key": "riposato"},
+            ]
             if self.regard >= 2:
-                rhythms.append({"name": "悲伤 (Dolente)", "cost": 2})
+                rhythms.append({"name": "悲伤 (Dolente)", "cost": 2, "duet_key": "dolente"})
             return rhythms
         elif song_name == "拼接遗憾":
-            rhythms = [{"name": "平静 (Placido)", "cost": 1}]
+            rhythms = [
+                {"name": "平静 (Placido)", "cost": 1, "duet_key": "placido"},
+            ]
             if self.regard >= 2:
-                rhythms.append({"name": "遗憾 (Zeffiroso)", "cost": 2})
+                rhythms.append({"name": "遗憾 (Zeffiroso)", "cost": 2, "duet_key": "zeffiroso"})
             return rhythms
         return []
 
