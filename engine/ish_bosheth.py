@@ -1263,7 +1263,8 @@ class IshBosheth:
                     "desc": "位移免疫+临时HP / 互换两座位全员+复活Chorus",
                     "rhythms": self._get_rhythms_for_song("拼接遗憾"),
                 })
-                # Before light duet 消耗不同：Riposato=2, Dolente=3
+            # Before light 最低消耗 2，单独用 Regard>=2 门槛
+            if self.regard >= 2:
                 bl_rhythms = [dict(r) for r in self._get_rhythms_for_song("Before light")]
                 for r in bl_rhythms:
                     if r.get("duet_key") == "riposato":
