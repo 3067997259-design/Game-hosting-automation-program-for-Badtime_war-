@@ -1689,7 +1689,8 @@ class ActionTurnManager:
                 # 放弃：消耗回合，不触发重试；❌：失败，可重试
                 cancelled = isinstance(msg, str) and msg.startswith("放弃")
                 failed = isinstance(msg, str) and msg.startswith("❌")
-                return msg, "special", not failed, cancelled
+                # 成功+放弃都消耗回合，只有 ❌ 不消耗（与 G5 伴唱一致）
+                return msg, "special", not failed, not failed
             # v2.0: G5 duet 伴唱
             ish = self.state.ish_bosheth
             if (ish and ish.phase == "duet"
