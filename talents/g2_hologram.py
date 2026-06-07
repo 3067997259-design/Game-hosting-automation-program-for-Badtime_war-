@@ -34,7 +34,9 @@ class Hologram(BaseTalent):
     #  发动限制
     # ================================================================
     def _calc_min_round(self) -> int:
-        return 10 + 2 * (len(self.state.player_order) - 2)
+        # DEBUG: 硬编码为 1，调试完 G2×G5 duet TE 前不会合并到 main 分支
+        # 原始公式: 10 + 2 * (len(self.state.player_order) - 2)
+        return 1
 
     # ================================================================
     #  T0 选项
@@ -64,7 +66,8 @@ class Hologram(BaseTalent):
             self.used = True
 
         ish = IshBosheth(self.player_id)
-        ish.open(self.state, player)   # open() 内部已逐行 display
+        open_lines = ish.open(self.state, player)
+        display.show_result("\n".join(open_lines))
 
         # 触发序曲（开幕免费，不计入 melody_1_used）
         from controllers.human import HumanController
@@ -170,7 +173,12 @@ class Hologram(BaseTalent):
             )
 
         if ish.regard < total_cost:
+            display.show_info(f"  ❌ G2 Regard不足({ish.regard}<{total_cost})，演唱失败")
             return "❌ Regard 不足"
+
+        display.show_info(
+            f"  🎵 G2 演唱 {selected_song['name']}·{selected_rhythm['name']} "
+            f"(花费{total_cost} Regard)")
 
         # 旋律不需选目标
         if "旋律" in selected_song['name']:

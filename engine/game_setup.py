@@ -97,8 +97,6 @@ TALENT_TABLE = [
 AI_DISABLED_TALENTS: set = _resolve_disabled_talents(
     _GAME_CONFIG.get("ai_disabled_talents", []), TALENT_TABLE
 )
-# G2 ish-bosheth 实验性改动：暂时禁止 RL agent 持有 G2
-AI_DISABLED_TALENTS.add(9)
 if AI_DISABLED_TALENTS:
     disabled_names = [name for num, name, cls, desc in TALENT_TABLE if num in AI_DISABLED_TALENTS]
     print(f"  ⚠️ AI禁用天赋：{', '.join(disabled_names)}")
@@ -251,7 +249,7 @@ def setup_game():
 
         # 问是否手动配置每个AI
         auto_ai = True
-        if game_mode == "mixed":
+        if game_mode in ("mixed", "all_ai"):
             while True:
                 raw = input("  是否自动配置AI？(y=自动随机/n=逐个配置，默认y)：").strip().lower()
                 if raw in ("", "y", "yes", "是"):

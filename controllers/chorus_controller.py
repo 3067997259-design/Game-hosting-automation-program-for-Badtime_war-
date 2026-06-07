@@ -36,7 +36,7 @@ class ChorusController:
             return "forfeit"
 
         ish = getattr(game_state, 'ish_bosheth', None)
-        if not ish or ish.phase != "active":
+        if not ish or ish.phase not in ("active", "duet"):
             return "forfeit"
 
         # v0.6 T0 物料阶段

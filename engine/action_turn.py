@@ -8,6 +8,7 @@ from cli.validator import validate
 from engine.prompt_manager import prompt_manager
 from engine.action_enumerator import build_action_options
 from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
+from engine.debug_config import debug_ai_basic
 from actions import (action_registry, wake_up, move, interact,
                      forfeit, lock_target, find_target, attack, special_op)
 
@@ -180,7 +181,7 @@ class ActionTurnManager:
 
         # ---- G2 发动者在舞台内免疫硬控 ----
         if (self.state.ish_bosheth
-                and self.state.ish_bosheth.phase == "active"
+                and self.state.ish_bosheth.phase in ("active", "duet")
                 and player.player_id == self.state.ish_bosheth.g2_owner_id):
             if player.is_stunned:
                 player.is_stunned = False
@@ -1477,8 +1478,33 @@ class ActionTurnManager:
         from cli.parser import parse
         from cli.validator import validate
 
-        # v0.6: 声部限制目标选择
         ish = self.state.ish_bosheth
+
+        # v2.0 duet: 委托 StageAI 决策（按钮/PvP/移动），不再走旧随机逻辑
+        if ish and ish.phase == "duet" and hasattr(player, 'controller'):
+            available = ["attack", "move", "forfeit"]
+            raw = player.controller.get_command(
+                available_actions=available,
+                context={"phase": "T1", "game_state": self.state, "chorus_unit": player}
+            )
+            if raw and raw != "forfeit":
+                parsed = parse(raw, player.player_id)
+                if parsed:
+                    is_valid, reason = validate(parsed, player, self.state)
+                    if is_valid:
+                        display.show_info(f"  👥 {player.name} {raw}")
+                        msg, action, consumed, _ = self._execute_action(parsed, player)
+                        return action if consumed else "forfeit"
+                    else:
+                        debug_ai_basic(player.name,
+                            f"Chorus duet StageAI 指令被拒: {raw} → {reason}")
+                else:
+                    debug_ai_basic(player.name,
+                        f"Chorus duet StageAI 指令解析失败: {raw}")
+            display.show_info(f"  👥 {player.name} 放弃行动")
+            return "forfeit"
+
+        # v0.6: 声部限制目标选择
         if ish and hasattr(player, 'controller') and hasattr(player.controller, '_get_legal_targets'):
             legal_targets = player.controller._get_legal_targets(self.state, player, ish)
         else:
@@ -1667,10 +1693,11 @@ class ActionTurnManager:
                     and player.talent
                     and hasattr(player.talent, 'execute_sing')):
                 msg = player.talent.execute_sing(player, self.state)
-                # 放弃或失败不消耗回合
-                cancelled = isinstance(msg, str) and (
-                    msg.startswith("放弃") or msg.startswith("❌"))
-                return msg, "special", not cancelled, not cancelled
+                # 放弃：消耗回合，不触发重试；❌：失败，可重试
+                cancelled = isinstance(msg, str) and msg.startswith("放弃")
+                failed = isinstance(msg, str) and msg.startswith("❌")
+                # 成功+放弃都消耗回合，只有 ❌ 不消耗（与 G5 伴唱一致）
+                return msg, "special", not failed, not failed
             # v2.0: G5 duet 伴唱
             ish = self.state.ish_bosheth
             if (ish and ish.phase == "duet"
@@ -1984,6 +2011,11 @@ class ActionTurnManager:
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
                     self.state, t.player_id, killer_id=killer.player_id)
+                # G2 发动者死亡 → 舞台崩塌（含 duet 模式）
+                if (self.state.ish_bosheth
+                        and self.state.ish_bosheth.phase in ("active", "duet")
+                        and t.player_id == self.state.ish_bosheth.g2_owner_id):
+                    self.state.ish_bosheth.end_ish_bosheth("death", self.state)
                 # 撕票：击杀 Acc 单位额外 Regard -0.5
                 if getattr(killer, '_card_tear_ticket_active', False):
                     ish2 = getattr(self.state, 'ish_bosheth', None)

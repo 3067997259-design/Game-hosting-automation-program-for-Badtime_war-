@@ -709,10 +709,12 @@ class PoemMixin:
                 talent.ripple_enhanced = True
             # G5 在同一次演出中不可再次献诗上台
             self.duet_joined = True   # 标记为"已尝试"，阻止再次触发
+            vuln = 0.5 + getattr(talent, 'ripple_extra_vulnerability', 0.0)
+            uses = getattr(talent, 'max_uses', 0)
             return prompt_manager.get_prompt(
                 "talent", "g5ripple.poem_light_enhanced",
-                default="✨{target_name} 的全息影像增强！"
-            ).format(target_name=target.name)
+                default="✨{target_name} 的「请一直，注视着我」增强！\n   易伤+{vuln} | 可用次数+1（当前{uses}次）"
+            ).format(target_name=target.name, vuln=vuln, uses=uses)
 
     def _poem_bear(self, target):
         """献予「负世」之诗：愿负世增强（可重复）"""
