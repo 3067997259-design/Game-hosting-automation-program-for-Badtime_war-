@@ -518,6 +518,9 @@ class Hologram(BaseTalent):
                 hand = ish.deck.hands.setdefault(g2_player.player_id, [])
                 if len(hand) < MAX_HAND_SIZE:
                     hand.append(card)
+                    display.show_info(f"🃏 G2 摸到「{card}」")
+                else:
+                    display.show_info("⚠️ 手牌已满，摸牌丢弃")
             else:
                 display.show_info("⚠️ 牌库已空，摸牌失败")
         return f"🎵 追寻那道光·Soave (duet)"
@@ -538,7 +541,7 @@ class Hologram(BaseTalent):
                 unit_names,
                 context={"situation": "g2_duet_sognando_target"},
             )
-            target = next((u for u in units if u.name in choice), None)
+            target = next((u for u in units if u.name == choice), None)
             if target:
                 btn_seats = [b.location for b in ish.duet_buttons
                             if b.location != target.location]
@@ -606,7 +609,11 @@ class Hologram(BaseTalent):
 
     # ── Before light·Dolente ──────────────────────────────────────
     def _duet_dolente(self, g2_player, ish, game_state):
-        """生成第3按钮 + 所有按钮伤害×1.3。"""
+        """生成第3按钮 + 所有按钮伤害×1.3。
+
+        时序: R0 _spawn_duet_buttons 生 2 按钮 → R3 G2 优先演唱 →
+        R3 末 _despawn_duet_buttons 清理，Dolente 按钮仅在当轮有效。
+        """
         if len(ish.duet_buttons) >= len(ish.SEATS):
             return "❌ 所有座位已有按钮，无法再生成"
         occupied = {b.location for b in ish.duet_buttons}
