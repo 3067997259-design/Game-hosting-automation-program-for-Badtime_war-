@@ -594,7 +594,11 @@ class Hologram(BaseTalent):
         available = [s for s in ish.SEATS if s not in occupied]
         if available:
             seat = random.choice(available)
-            btn = ButtonDummy(seat, 3)
+from engine.ish_bosheth import (
+    IshBosheth,
+    ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO, VOICE_LABELS,
+    ButtonDummy,
+)
             ish.duet_buttons.append(btn)
             game_state.register_chorus(btn)
         ish._duet_button_dmg_mult = 1.3
