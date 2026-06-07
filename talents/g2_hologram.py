@@ -502,9 +502,12 @@ class Hologram(BaseTalent):
         if not method_name:
             return "❌ 未知 duet 节奏 key"
 
-        ish.adjust_regard(-total_cost)
         method = getattr(self, method_name)
-        return method(g2_player, ish, game_state)
+        result = method(g2_player, ish, game_state)
+        # 仅在效果成功时扣费：❌ 失败可重试，不损失 Regard
+        if not (isinstance(result, str) and result.startswith("❌")):
+            ish.adjust_regard(-total_cost)
+        return result
 
     # ── 追寻那道光·Soave ──────────────────────────────────────────
     def _duet_soave(self, g2_player, ish, game_state):
@@ -547,6 +550,8 @@ class Hologram(BaseTalent):
                             if b.location != target.location]
                 if btn_seats:
                     target.location = random.choice(btn_seats)
+                    # 清除旧位置的 LOCKED_BY / ENGAGED_WITH 关系
+                    game_state.markers.on_player_move(target.player_id)
         return f"🎵 追寻那道光·Sognando (duet)"
 
     # ── 拼接遗憾·Placido ──────────────────────────────────────────
@@ -589,8 +594,10 @@ class Hologram(BaseTalent):
         units_s2 = self._duet_get_units(ish, game_state, lambda u: u.location == s2)
         for u in units_s1:
             u.location = s2
+            game_state.markers.on_player_move(u.player_id)
         for u in units_s2:
             u.location = s1
+            game_state.markers.on_player_move(u.player_id)
         # 复活 1 名死 Chorus
         dead_chorus = [c for c in ish.chorus_list if not c.is_alive()]
         if dead_chorus:
@@ -598,6 +605,7 @@ class Hologram(BaseTalent):
             c.hp = 1.0
             c.emotion = self._minority_voice(ish, game_state)
             c.location = random.choice(seats)
+            game_state.markers.on_player_move(c.player_id)
         return f"🎵 拼接遗憾·Zeffiroso → {s1}↔{s2}"
 
     # ── Before light·Riposato ─────────────────────────────────────

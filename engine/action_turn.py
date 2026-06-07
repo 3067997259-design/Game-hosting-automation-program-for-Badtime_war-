@@ -1553,7 +1553,7 @@ class ActionTurnManager:
                     result = self._execute_action(parsed, player)
                     msg, action, consumed = result[0], result[1], result[2]
                     consumes_turn = result[3] if len(result) > 3 else consumed
-                    return action if consumed else "forfeit"
+                    return action if consumes_turn else "forfeit"
         display.show_info(f"  👥 {player.name} 放弃行动")
         return "forfeit"
 
