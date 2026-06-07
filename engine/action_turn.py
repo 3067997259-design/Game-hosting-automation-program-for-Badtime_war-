@@ -1550,7 +1550,9 @@ class ActionTurnManager:
                 is_valid, reason = validate(parsed, player, self.state)
                 if is_valid:
                     display.show_info(f"  👥 {player.name} 攻击 {target.name}")
-                    msg, action, consumed, _ = self._execute_action(parsed, player)
+                    result = self._execute_action(parsed, player)
+                    msg, action, consumed = result[0], result[1], result[2]
+                    consumes_turn = result[3] if len(result) > 3 else consumed
                     return action if consumed else "forfeit"
         display.show_info(f"  👥 {player.name} 放弃行动")
         return "forfeit"
