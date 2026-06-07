@@ -1493,8 +1493,10 @@ class ActionTurnManager:
                     is_valid, reason = validate(parsed, player, self.state)
                     if is_valid:
                         display.show_info(f"  👥 {player.name} {raw}")
-                        msg, action, consumed, _ = self._execute_action(parsed, player)
-                        return action if consumed else "forfeit"
+                        result = self._execute_action(parsed, player)
+                        msg, action_type, success = result[0], result[1], result[2]
+                        consumes_turn = result[3] if len(result) > 3 else success
+                        return action_type if consumes_turn else "forfeit"
                     else:
                         debug_ai_basic(player.name,
                             f"Chorus duet StageAI 指令被拒: {raw} → {reason}")
@@ -1548,8 +1550,10 @@ class ActionTurnManager:
                 is_valid, reason = validate(parsed, player, self.state)
                 if is_valid:
                     display.show_info(f"  👥 {player.name} 攻击 {target.name}")
-                    msg, action, consumed, _ = self._execute_action(parsed, player)
-                    return action if consumed else "forfeit"
+                    result = self._execute_action(parsed, player)
+                    msg, action, consumed = result[0], result[1], result[2]
+                    consumes_turn = result[3] if len(result) > 3 else consumed
+                    return action if consumes_turn else "forfeit"
         display.show_info(f"  👥 {player.name} 放弃行动")
         return "forfeit"
 

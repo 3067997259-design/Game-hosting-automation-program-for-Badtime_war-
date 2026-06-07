@@ -7,6 +7,7 @@
 
 import math
 import random
+from typing import Optional, Union, TYPE_CHECKING
 
 from talents.base_talent import BaseTalent
 from cli import display
@@ -14,7 +15,16 @@ from engine.prompt_manager import prompt_manager
 from engine.ish_bosheth import (
     IshBosheth,
     ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO, VOICE_LABELS,
+    ButtonDummy,
 )
+from engine.material_deck import MAX_HAND_SIZE
+
+if TYPE_CHECKING:
+    from models.player import Player
+    from models.chorus import ChorusUnit
+
+# duet 常量
+DUET_EXTRA_BUTTON_IDX = 3  # Dolente 额外按钮编号
 
 
 class Hologram(BaseTalent):
@@ -179,6 +189,11 @@ class Hologram(BaseTalent):
         display.show_info(
             f"  🎵 G2 演唱 {selected_song['name']}·{selected_rhythm['name']} "
             f"(花费{total_cost} Regard)")
+
+        # v2.0 duet: 歌曲效果走 duet 专有逻辑
+        if ish.phase == "duet":
+            return self._execute_duet_song(player, ish, game_state,
+                                           selected_song, selected_rhythm, total_cost)
 
         # 旋律不需选目标
         if "旋律" in selected_song['name']:
@@ -465,3 +480,194 @@ class Hologram(BaseTalent):
         elif "Dolente" in rhythm['name'] or "悲伤" in rhythm['name']:
             ish.before_light = "dolente"
             prompt_manager.show("g2reset", "song.dolente_v06")
+
+    # ════════════════════════════════════════════════════════════════
+    #  v2.0 Duet 歌曲效果分发
+    # ════════════════════════════════════════════════════════════════
+
+    _DUET_DISPATCH = {
+        "soave":    "_duet_soave",
+        "sognando": "_duet_sognando",
+        "placido":  "_duet_placido",
+        "zeffiroso":"_duet_zeffiroso",
+        "riposato": "_duet_riposato",
+        "dolente":  "_duet_dolente",
+    }
+
+    def _execute_duet_song(self, g2_player, ish, game_state,
+                           selected_song, selected_rhythm, total_cost):
+        """duet 模式歌曲分发（按 duet_key，与显示名解耦）。"""
+        duet_key = selected_rhythm.get("duet_key", "")
+        method_name = self._DUET_DISPATCH.get(duet_key)
+        if not method_name:
+            return "❌ 未知 duet 节奏 key"
+
+        method = getattr(self, method_name)
+        result = method(g2_player, ish, game_state)
+        # 仅在效果成功时扣费：❌ 失败可重试，不损失 Regard
+        if not (isinstance(result, str) and result.startswith("❌")):
+            ish.adjust_regard(-total_cost)
+        return result
+
+    # ── 追寻那道光·Soave ──────────────────────────────────────────
+    def _duet_soave(self, g2_player, ish, game_state):
+        """选择声部 → 该声部按钮伤害×1.5，G2摸1牌。"""
+        if self._duet_apply_voice_mult(g2_player, ish) is None:
+            return "❌ 声部选择失败"
+        # G2 摸 1 牌
+        if ish.deck:
+            card = ish.deck._draw_one()
+            if card:
+                hand = ish.deck.hands.setdefault(g2_player.player_id, [])
+                if len(hand) < MAX_HAND_SIZE:
+                    hand.append(card)
+                    display.show_info(f"🃏 G2 摸到「{card}」")
+                else:
+                    display.show_info("⚠️ 手牌已满，摸牌丢弃")
+            else:
+                display.show_info("⚠️ 牌库已空，摸牌失败")
+        return f"🎵 追寻那道光·Soave (duet)"
+
+    # ── 追寻那道光·Sognando ───────────────────────────────────────
+    def _duet_sognando(self, g2_player, ish, game_state):
+        """选择声部 → ×1.5 + 该声部一单位移至按钮座。"""
+        voice = self._duet_apply_voice_mult(g2_player, ish)
+        if voice is None:
+            return "❌ 声部选择失败"
+        # 选择该声部一名单位移往随机按钮座
+        units = self._duet_get_units(ish, game_state,
+            lambda u: getattr(u, 'emotion', None) == voice)
+        if units and ish.duet_buttons:
+            unit_names = [u.name for u in units]
+            choice = g2_player.controller.choose(
+                f"选择移往按钮座的{VOICE_LABELS.get(voice, voice)}单位：",
+                unit_names,
+                context={"situation": "g2_duet_sognando_target"},
+            )
+            target = next((u for u in units if u.name == choice), None)
+            if target:
+                btn_seats = [b.location for b in ish.duet_buttons
+                            if b.location != target.location]
+                if btn_seats:
+                    target.location = random.choice(btn_seats)
+                    # 清除旧位置的 LOCKED_BY / ENGAGED_WITH 关系
+                    game_state.markers.on_player_move(target.player_id)
+        return f"🎵 追寻那道光·Sognando (duet)"
+
+    # ── 拼接遗憾·Placido ──────────────────────────────────────────
+    def _duet_placido(self, g2_player, ish, game_state):
+        """选1目标 → PvP位移免疫 + 0.5临时HP。"""
+        targets = ish.get_legal_sing_targets(game_state, "", "")
+        if not targets:
+            return "❌ 没有合法听者"
+        tnames = [f"{t.name}[{VOICE_LABELS.get(getattr(t, 'emotion', None), '?')}]"
+                  for t in targets]
+        choice = g2_player.controller.choose(
+            "选择 Placido 目标：", tnames,
+            context={"situation": "g2_duet_placido_target"},
+        )
+        target = next((t for t in targets if t.name == choice.split("[")[0]), None)
+        if target is None:
+            display.show_info(f"⚠️ 无法匹配目标「{choice}」，Placido 施放失败")
+            return "❌ 无法匹配目标"
+        ish._duet_displacement_immune.add(target.player_id)
+        target.temp_hp_g2 = getattr(target, 'temp_hp_g2', 0) + 0.5
+        return f"🎵 拼接遗憾·Placido → {target.name}"
+
+    # ── 拼接遗憾·Zeffiroso ────────────────────────────────────────
+    def _duet_zeffiroso(self, g2_player, ish, game_state):
+        """选2座位 → 互换座内全员 + 复活1名死Chorus。"""
+        seats = sorted(ish.SEATS)
+        if len(seats) < 2:
+            return "❌ 需要至少2个座位"
+        s1 = g2_player.controller.choose(
+            "选择第一个座位：", seats,
+            context={"situation": "g2_duet_zeffiroso_seat1"},
+        )
+        remaining = [s for s in seats if s != s1]
+        s2 = g2_player.controller.choose(
+            "选择第二个座位：", remaining,
+            context={"situation": "g2_duet_zeffiroso_seat2"},
+        )
+        # 收集两座位上的所有单位
+        units_s1 = self._duet_get_units(ish, game_state, lambda u: u.location == s1)
+        units_s2 = self._duet_get_units(ish, game_state, lambda u: u.location == s2)
+        for u in units_s1:
+            u.location = s2
+            game_state.markers.on_player_move(u.player_id)
+        for u in units_s2:
+            u.location = s1
+            game_state.markers.on_player_move(u.player_id)
+        # 复活 1 名死 Chorus
+        dead_chorus = [c for c in ish.chorus_list if not c.is_alive()]
+        if dead_chorus:
+            c = dead_chorus[0]
+            c.hp = 1.0
+            c.emotion = self._minority_voice(ish, game_state)
+            c.location = random.choice(seats)
+            game_state.markers.on_player_move(c.player_id)
+        return f"🎵 拼接遗憾·Zeffiroso → {s1}↔{s2}"
+
+    # ── Before light·Riposato ─────────────────────────────────────
+    def _duet_riposato(self, g2_player, ish, game_state):
+        """转化率×1.5 + 按钮伤害汇入公共池（无视声部）。"""
+        ish._duet_heat_conversion_mult = 1.5
+        ish._duet_pooled_heat = True
+        return "🎵 Before light·Riposato (duet)"
+
+    # ── Before light·Dolente ──────────────────────────────────────
+    def _duet_dolente(self, g2_player, ish, game_state):
+        """生成第3按钮 + 所有按钮伤害×1.3。
+
+        时序: R0 _spawn_duet_buttons 生 2 按钮 → R3 G2 优先演唱 →
+        R3 末 _despawn_duet_buttons 清理，Dolente 按钮仅在当轮有效。
+        """
+        if len(ish.duet_buttons) >= len(ish.SEATS):
+            return "❌ 所有座位已有按钮，无法再生成"
+        occupied = {b.location for b in ish.duet_buttons}
+        available = [s for s in ish.SEATS if s not in occupied]
+        if available:
+            seat = random.choice(available)
+            btn = ButtonDummy(seat, DUET_EXTRA_BUTTON_IDX)
+            ish.duet_buttons.append(btn)
+            game_state.register_chorus(btn)
+        ish._duet_button_dmg_mult = 1.3
+        return "🎵 Before light·Dolente (duet)"
+
+    # ── duet 辅助 ─────────────────────────────────────────────────
+
+    def _duet_choose_voice(self, g2_player, ish) -> Optional[str]:
+        """G2 选择声部（duet 歌曲共用）。匹配失败返回 None。"""
+        voices = [ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO]
+        labels = [VOICE_LABELS.get(v, v) for v in voices]
+        choice = g2_player.controller.choose(
+            "选择目标声部：", labels,
+            context={"situation": "g2_duet_choose_voice"},
+        )
+        for v, label in zip(voices, labels):
+            if label in choice or choice in label:
+                return v
+        display.show_info(f"⚠️ 无法匹配声部「{choice}」")
+        return None
+
+    def _duet_apply_voice_mult(self, g2_player, ish, mult=1.5) -> Optional[str]:
+        """选择声部并应用按钮倍率。返回声部名，失败返回 None。"""
+        voice = self._duet_choose_voice(g2_player, ish)
+        if voice is None:
+            display.show_info("⚠️ 无法匹配声部，倍率效果跳过")
+            return None
+        ish._duet_voice_button_mult[voice] = mult
+        return voice
+
+    @staticmethod
+    def _duet_get_units(ish, game_state, predicate) -> "list[Union[Player, ChorusUnit]]":
+        """获取 duet 中满足 predicate 的所有存活单位。"""
+        units = []
+        for pid in ish.participants:
+            p = game_state.get_player(pid)
+            if p and p.is_alive() and predicate(p):
+                units.append(p)
+        for c in ish.chorus_list:
+            if c.is_alive() and predicate(c):
+                units.append(c)
+        return units
