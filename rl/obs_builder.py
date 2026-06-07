@@ -1185,7 +1185,7 @@ def build_obs(player: "Player", game_state: "GameState",
         # before_light 3-hot [2-4]
         if ish.before_light == "riposato":  obs[stage_start + 2] = 1.0
         elif ish.before_light == "dolente": obs[stage_start + 3] = 1.0
-        # else: none → [4]=1 (implicit default, leave 0)
+        else:                               obs[stage_start + 4] = 1.0  # none
         # my emotion 3-hot [5-7]
         my_emo = getattr(player, 'emotion', None)
         if my_emo == ACCAREZZEVOLE:  obs[stage_start + 5] = 1.0
