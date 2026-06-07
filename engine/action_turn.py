@@ -1494,6 +1494,14 @@ class ActionTurnManager:
                         display.show_info(f"  👥 {player.name} {raw}")
                         msg, action, consumed, _ = self._execute_action(parsed, player)
                         return action if consumed else "forfeit"
+                    else:
+                        from engine.debug_config import debug_ai_basic
+                        debug_ai_basic(player.name,
+                            f"Chorus duet StageAI 指令被拒: {raw} → {reason}")
+                else:
+                    from engine.debug_config import debug_ai_basic
+                    debug_ai_basic(player.name,
+                        f"Chorus duet StageAI 指令解析失败: {raw}")
             display.show_info(f"  👥 {player.name} 放弃行动")
             return "forfeit"
 

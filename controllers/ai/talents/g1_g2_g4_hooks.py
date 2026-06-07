@@ -673,7 +673,7 @@ class HologramAIHook(BaseTalentAIHook):
     def should_override_candidates(
         self, player: Any, state: Any, available: List[str]
     ) -> Optional[List[str]]:
-        """v0.6: 舞台激活中，G2 只能 sing。"""
+        """v0.6: 舞台激活中（含 duet），G2 只能 sing。"""
         ish = getattr(state, 'ish_bosheth', None)
         if not ish or ish.phase not in ("active", "duet"):
             return None
