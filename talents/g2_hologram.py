@@ -7,6 +7,7 @@
 
 import math
 import random
+from typing import Optional
 
 from talents.base_talent import BaseTalent
 from cli import display
@@ -14,7 +15,9 @@ from engine.prompt_manager import prompt_manager
 from engine.ish_bosheth import (
     IshBosheth,
     ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO, VOICE_LABELS,
+    ButtonDummy,
 )
+from engine.material_deck import MAX_HAND_SIZE
 
 
 class Hologram(BaseTalent):
@@ -507,7 +510,7 @@ class Hologram(BaseTalent):
             card = ish.deck._draw_one()
             if card:
                 hand = ish.deck.hands.setdefault(g2_player.player_id, [])
-                if len(hand) < 3:
+                if len(hand) < MAX_HAND_SIZE:
                     hand.append(card)
         return f"🎵 追寻那道光·Soave (duet)"
 
@@ -518,9 +521,9 @@ class Hologram(BaseTalent):
         if voice:
             ish._duet_voice_button_mult[voice] = 1.5
         # 选择该声部一名单位移往随机按钮座
-        units = self._duet_get_voice_units(voice, ish, game_state)
+        units = self._duet_get_units(ish, game_state,
+            lambda u: getattr(u, 'emotion', None) == voice)
         if units and ish.duet_buttons:
-            btn_seats = [b.location for b in ish.duet_buttons]
             unit_names = [u.name for u in units]
             choice = g2_player.controller.choose(
                 f"选择移往按钮座的{VOICE_LABELS.get(voice, voice)}单位：",
@@ -528,8 +531,11 @@ class Hologram(BaseTalent):
                 context={"situation": "g2_duet_sognando_target"},
             )
             target = next((u for u in units if u.name in choice), None)
-            if target and btn_seats:
-                target.location = random.choice(btn_seats)
+            if target:
+                btn_seats = [b.location for b in ish.duet_buttons
+                            if b.location != target.location]
+                if btn_seats:
+                    target.location = random.choice(btn_seats)
         return f"🎵 追寻那道光·Sognando (duet)"
 
     # ── 拼接遗憾·Placido ──────────────────────────────────────────
@@ -544,7 +550,10 @@ class Hologram(BaseTalent):
             "选择 Placido 目标：", tnames,
             context={"situation": "g2_duet_placido_target"},
         )
-        target = next((t for t in targets if t.name in choice), targets[0])
+        target = next((t for t in targets if t.name in choice), None)
+        if target is None:
+            display.show_info(f"⚠️ 无法匹配目标「{choice}」，Placido 施放失败")
+            return "❌ 无法匹配目标"
         ish._duet_displacement_immune.add(target.player_id)
         target.temp_hp_g2 = getattr(target, 'temp_hp_g2', 0) + 0.5
         return f"🎵 拼接遗憾·Placido → {target.name}"
@@ -565,8 +574,8 @@ class Hologram(BaseTalent):
             context={"situation": "g2_duet_zeffiroso_seat2"},
         )
         # 收集两座位上的所有单位
-        units_s1 = self._duet_get_units_at(s1, ish, game_state)
-        units_s2 = self._duet_get_units_at(s2, ish, game_state)
+        units_s1 = self._duet_get_units(ish, game_state, lambda u: u.location == s1)
+        units_s2 = self._duet_get_units(ish, game_state, lambda u: u.location == s2)
         for u in units_s1:
             u.location = s2
         for u in units_s2:
@@ -590,15 +599,13 @@ class Hologram(BaseTalent):
     # ── Before light·Dolente ──────────────────────────────────────
     def _duet_dolente(self, g2_player, ish, game_state):
         """生成第3按钮 + 所有按钮伤害×1.3。"""
+        if len(ish.duet_buttons) >= len(ish.SEATS):
+            return "❌ 所有座位已有按钮，无法再生成"
         occupied = {b.location for b in ish.duet_buttons}
         available = [s for s in ish.SEATS if s not in occupied]
         if available:
             seat = random.choice(available)
-from engine.ish_bosheth import (
-    IshBosheth,
-    ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO, VOICE_LABELS,
-    ButtonDummy,
-)
+            btn = ButtonDummy(seat, 3)
             ish.duet_buttons.append(btn)
             game_state.register_chorus(btn)
         ish._duet_button_dmg_mult = 1.3
@@ -608,7 +615,6 @@ from engine.ish_bosheth import (
 
     def _duet_choose_voice(self, g2_player, ish) -> Optional[str]:
         """G2 选择声部（duet 歌曲共用）。"""
-        voices = [ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO]
         voices = [ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO]
         labels = [VOICE_LABELS.get(v, v) for v in voices]
         choice = g2_player.controller.choose(
@@ -621,27 +627,14 @@ from engine.ish_bosheth import (
         return voices[0]
 
     @staticmethod
-    def _duet_get_voice_units(voice, ish, game_state) -> list:
-        """获取 duet 中指定声部的所有存活单位。"""
+    def _duet_get_units(ish, game_state, predicate) -> list:
+        """获取 duet 中满足 predicate 的所有存活单位。"""
         units = []
         for pid in ish.participants:
             p = game_state.get_player(pid)
-            if p and p.is_alive() and getattr(p, 'emotion', None) == voice:
+            if p and p.is_alive() and predicate(p):
                 units.append(p)
         for c in ish.chorus_list:
-            if c.is_alive() and getattr(c, 'emotion', None) == voice:
-                units.append(c)
-        return units
-
-    @staticmethod
-    def _duet_get_units_at(seat, ish, game_state) -> list:
-        """获取某座位上的所有单位。"""
-        units = []
-        for pid in ish.participants:
-            p = game_state.get_player(pid)
-            if p and p.is_alive() and p.location == seat:
-                units.append(p)
-        for c in ish.chorus_list:
-            if c.is_alive() and c.location == seat:
+            if c.is_alive() and predicate(c):
                 units.append(c)
         return units

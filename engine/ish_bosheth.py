@@ -273,7 +273,7 @@ class IshBosheth:
         damage *= self._duet_button_dmg_mult
         if self._duet_pooled_heat:
             # Riposato 公共池：三等分到三个声部
-            split = round(damage / 3, 2)
+            split = round(damage / 3, 4)
             for v in self.duet_heat:
                 self.duet_heat[v] += split
             display.show_info(
