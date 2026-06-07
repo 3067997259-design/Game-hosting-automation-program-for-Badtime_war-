@@ -8,6 +8,7 @@ from cli.validator import validate
 from engine.prompt_manager import prompt_manager
 from engine.action_enumerator import build_action_options
 from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
+from engine.debug_config import debug_ai_basic
 from actions import (action_registry, wake_up, move, interact,
                      forfeit, lock_target, find_target, attack, special_op)
 
@@ -1495,11 +1496,9 @@ class ActionTurnManager:
                         msg, action, consumed, _ = self._execute_action(parsed, player)
                         return action if consumed else "forfeit"
                     else:
-                        from engine.debug_config import debug_ai_basic
                         debug_ai_basic(player.name,
                             f"Chorus duet StageAI 指令被拒: {raw} → {reason}")
                 else:
-                    from engine.debug_config import debug_ai_basic
                     debug_ai_basic(player.name,
                         f"Chorus duet StageAI 指令解析失败: {raw}")
             display.show_info(f"  👥 {player.name} 放弃行动")
@@ -2007,6 +2006,11 @@ class ActionTurnManager:
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
                     self.state, t.player_id, killer_id=killer.player_id)
+                # G2 发动者死亡 → 舞台崩塌（含 duet 模式）
+                if (self.state.ish_bosheth
+                        and self.state.ish_bosheth.phase in ("active", "duet")
+                        and t.player_id == self.state.ish_bosheth.g2_owner_id):
+                    self.state.ish_bosheth.end_ish_bosheth("death", self.state)
                 # 撕票：击杀 Acc 单位额外 Regard -0.5
                 if getattr(killer, '_card_tear_ticket_active', False):
                     ish2 = getattr(self.state, 'ish_bosheth', None)

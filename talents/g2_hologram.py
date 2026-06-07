@@ -34,7 +34,9 @@ class Hologram(BaseTalent):
     #  发动限制
     # ================================================================
     def _calc_min_round(self) -> int:
-        return 1  # DEBUG
+        # DEBUG: 硬编码为 1，调试完 G2×G5 duet TE 前不会合并到 main 分支
+        # 原始公式: 10 + 2 * (len(self.state.player_order) - 2)
+        return 1
 
     # ================================================================
     #  T0 选项

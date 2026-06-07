@@ -459,7 +459,7 @@ class HologramAIHook(BaseTalentAIHook):
         been_attacked = bool(context.get("been_attacked_by", set()))
 
         # v0.6 激活条件：发育完成 + （有护甲 或 被攻击）
-        # 2 人局降低门槛：发育完成即可
+        # v2.0 duet: 2 人局降低门槛 — 发育完成即可（原 alive_count >= 3 过严）
         if alive_count <= 2:
             should_activate = dev_ok
         else:
@@ -532,7 +532,7 @@ class HologramAIHook(BaseTalentAIHook):
         if not result:
             result = self._pick_last_or_forfeit(options)
 
-        phase = getattr(ish, 'phase', 'active') if ish else '?'
+        phase = getattr(ish, 'phase', 'active')  # ish 已在 L483 保证非 None
         debug_ai_basic(player.name, f"G2 选曲 → {result} (phase={phase}, Regard={getattr(ish, 'regard', '?')})")
         return result
 
