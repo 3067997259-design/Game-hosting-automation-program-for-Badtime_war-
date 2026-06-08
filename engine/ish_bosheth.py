@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, List, Optional, Set
 
 from cli import display
 from engine.prompt_manager import prompt_manager
-from models.chorus import ChorusUnit
+from models.chorus import ChorusUnit, _ChorusArmorSlots
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -76,7 +76,7 @@ class ButtonDummy:
         self.max_hp: float = 999.0
         self.is_awake: bool = True
         self.emotion: str = ""     # 无阵营
-        self.armor = None
+        self.armor = _ChorusArmorSlots()  # 兼容护甲遍历（空槽，无实际护甲）
         self.talent = None
         self.controller = None     # 按钮不参与 choose/get_command，显式置 None 以防遍历误触
         self.weapons = []
@@ -84,6 +84,9 @@ class ButtonDummy:
         self.encore_layers: int = 0
         self.temp_hp_g2: float = 0.0
         self.temp_atk_g2: float = 0.0
+        # 兼容字段（按钮永不被杀/不涉警察，但某些路径会读取）
+        self.kill_count: int = 0
+        self.has_police_protection: bool = False
 
     def __repr__(self):
         return f"ButtonDummy(seat={self.location}, id={self.player_id})"

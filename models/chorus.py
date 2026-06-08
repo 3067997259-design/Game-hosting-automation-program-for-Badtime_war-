@@ -127,6 +127,7 @@ class ChorusUnit:
         self.has_detection: bool = False
         self.has_seal: bool = False
         self.has_military_pass: bool = False
+        self.kill_count: int = 0      # 兼容击杀计数路径
         self.talent = None
         self.talent_name = None
         self.controller = None
