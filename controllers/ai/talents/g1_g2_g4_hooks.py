@@ -609,23 +609,30 @@ class HologramAIHook(BaseTalentAIHook):
         if "不打" in options and len(options) <= 2:
             return "不打"
 
-        # 战斗中优先
+        # 过滤不可打出的牌（标注了"(不可打出"），并提取纯牌名
+        playable_names = set()
+        for opt in options:
+            if "不打" in opt:
+                continue
+            name = opt.split(" — ")[0] if " — " in opt else opt
+            if "(不可打出" not in opt:
+                playable_names.add(name)
+
         combat_cards = ["荧光棒", "聚光合影", "后台通行证", "撕票", "倒彩"]
         defense_cards = ["耳塞", "花束"]
         utility_cards = ["前排票", "小卡交换", "空白票根", "场刊整理"]
 
         for card in combat_cards:
-            if card in options:
+            if card in playable_names:
                 return card
         for card in defense_cards:
-            if card in options:
+            if card in playable_names:
                 return card
         for card in utility_cards:
-            if card in options:
+            if card in playable_names:
                 return card
-        for opt in options:
-            if opt != "不打":
-                return opt
+        if playable_names:
+            return next(iter(playable_names))
         return "不打"
 
     def _choose_card_to_discard(self, player, state, options) -> Optional[str]:
