@@ -175,15 +175,27 @@ def decide_duet_action(
 
 
 def _pick_pvp_target(player, ish: IshBosheth, game_state, button_seats: set):
-    """Duet PvP 位移：选择对立声部中在按钮旁威胁最大的单位。"""
+    """Duet PvP 位移：选择对立声部中可达的、威胁最大的单位。
+
+    远程武器可跨座攻击，近战需同座。过滤不可达目标避免生成无效 attack 指令。
+    """
     opponents = get_opponents(player, ish, game_state)
-    # 优先选在按钮旁的
-    at_btn = [o for o in opponents if getattr(o, 'location', None) in button_seats]
-    if at_btn:
-        opponents = at_btn
-    if not opponents:
+    my_seat = getattr(player, 'location', None)
+    # 检查是否有远程武器
+    weapons = getattr(player, 'weapons', [])
+    from models.equipment import WeaponRange
+    has_ranged = any(
+        getattr(w, 'weapon_range', None) == WeaponRange.RANGED
+        for w in weapons
+    )
+    # 过滤可达目标（远程可跨座，近战需同座）
+    reachable = [o for o in opponents
+                 if has_ranged or getattr(o, 'location', None) == my_seat]
+    if not reachable:
         return None
-    return max(opponents, key=lambda o: max(
+    # 优先选在按钮旁的
+    at_btn = [o for o in reachable if getattr(o, 'location', None) in button_seats]
+    return max(at_btn or reachable, key=lambda o: max(
         (getattr(w, 'get_effective_damage', lambda: 0)() for w in getattr(o, 'weapons', [])),
         default=0))
 
