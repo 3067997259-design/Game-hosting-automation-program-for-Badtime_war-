@@ -174,19 +174,12 @@ class ChorusController:
         return targets
 
     @staticmethod
-    def _can_chorus_use_card(chorus, card_name: str) -> bool:
-        """Chorus 能否使用该物料牌。"""
-        if card_name == "改签票":
-            return False
-        # 改签票只能真实玩家使用；应援连呼/调停需要选择目标的复杂交互
-        chorus_only = {"应援连呼", "调停"}
-        if card_name in chorus_only:
-            return False
-        return True
-
-    @staticmethod
     def _apply_card_effect(chorus, ish, card_name: str):
         """Chorus 打出物料牌后应用效果。"""
+        # 需要复杂目标选择的牌 Chorus 无法处理，安全阻止
+        if card_name in ("应援连呼", "调停", "改签票"):
+            display.show_info(f"  → Chorus 无法使用「{card_name}」（需选择目标）")
+            return
         if card_name in ("荧光棒", "聚光合影"):
             chorus._card_damage_bonus = 0.5
             display.show_info("  → 伤害+0.5")
