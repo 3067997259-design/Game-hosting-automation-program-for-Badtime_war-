@@ -244,14 +244,22 @@ class ActionTurnManager:
                 for _ in range(max_plays):
                     if not playable:
                         break
+                    # 卡牌选项附加效果描述
+                    card_options = []
+                    for c in playable:
+                        info = ish.deck.get_card_info(c)
+                        desc = info.get("desc", "") if info else ""
+                        card_options.append(f"{c} — {desc}" if desc else c)
                     play_choice = player.controller.choose(
                         "打出物料牌（或不打）：",
-                        playable + ["不打"],
+                        card_options + ["不打"],
                         context={"phase": "T0", "situation": "g2_play_card"},
                     )
-                    if play_choice in playable:
-                        self._resolve_card_play(player, ish, play_choice)
-                        hand.remove(play_choice)
+                    # 从选项字符串中提取纯牌名
+                    play_choice_clean = play_choice.split(" — ")[0] if " — " in play_choice else play_choice
+                    if play_choice_clean in playable:
+                        self._resolve_card_play(player, ish, play_choice_clean)
+                        hand.remove(play_choice_clean)
                         ish.deck.played_this_turn[pid] = True
                         playable = [c for c in hand if ish.deck.is_playable(player, c)]
                     else:

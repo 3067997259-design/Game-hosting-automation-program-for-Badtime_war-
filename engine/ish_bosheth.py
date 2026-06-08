@@ -1378,23 +1378,34 @@ class IshBosheth:
 
         seat_names = sorted(occupied.keys())
 
+        # 旋律预览：为每个座位生成伤害预测
+        preview_lines = _build_melody_preview(game_state, self, occupied,
+                                              seat_names, base_dmg_seq,
+                                              self.cumulative_delta_regard)
+        seat_options = [f"{s} — {preview_lines.get(s, '（空）')}" for s in seat_names]
+
         # 选座位 1（必选）
         chosen1 = g2_player.controller.choose(
             "选择旋律目标座位 1：",
-            seat_names,
+            seat_options,
             context={"situation": "g2_melody_seat"},
         )
+        chosen1 = chosen1.split(" — ")[0] if " — " in chosen1 else chosen1
         if chosen1 not in occupied:
             chosen1 = seat_names[0]
 
         # 选座位 2（可选"不选"）
-        remaining = [s for s in seat_names if s != chosen1]
-        remaining.append("不选")
+        remaining_preview = []
+        for s in seat_names:
+            if s != chosen1:
+                remaining_preview.append(f"{s} — {preview_lines.get(s, '（空）')}")
+        remaining_preview.append("不选")
         chosen2 = g2_player.controller.choose(
             "选择旋律目标座位 2（或不选）：",
-            remaining,
+            remaining_preview,
             context={"situation": "g2_melody_seat2"},
         )
+        chosen2 = chosen2.split(" — ")[0] if " — " in chosen2 else chosen2
         if chosen2 not in occupied:
             chosen2 = None
 
@@ -1533,6 +1544,31 @@ def get_total_defense_hp(unit) -> float:
         for p in armor.get_all_active():
             hp += p.current_hp
     return hp
+
+
+def _build_melody_preview(game_state, ish, occupied: dict, seat_names: list,
+                          base_dmg_seq: list, cumulative_delta: float) -> dict:
+    """为每个座位生成旋律伤害预览。返回 {seat_name: preview_string}。"""
+    decays = [1.0, 0.6, 0.4, 0.2]
+    preview = {}
+    for seat in seat_names:
+        units = occupied.get(seat, [])
+        if not units:
+            preview[seat] = "空"
+            continue
+        parts = []
+        for i, unit in enumerate(units[:4]):
+            dmg = base_dmg_seq[i] if i < len(base_dmg_seq) else 0.5
+            decay = decays[i] if i < len(decays) else 0.1
+            stability = _calc_stability(unit, cumulative_delta, decay, ish=ish)
+            actual = _calc_melody_damage(dmg, stability, unit.max_hp, unit.hp)
+            if actual > 0:
+                hp_after = round(unit.hp - actual, 2)
+                parts.append(f"{unit.name} {unit.hp}→{hp_after}")
+            else:
+                parts.append(f"{unit.name} +{-actual:.1f}HP")
+        preview[seat] = ", ".join(parts)
+    return preview
 
 
 def _calc_stability(unit, cumulative_delta: float, decay_factor: float = 1.0,

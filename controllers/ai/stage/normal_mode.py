@@ -198,30 +198,25 @@ def _decide_normal_move(player, ish: IshBosheth, game_state) -> Optional[str]:
 #  出牌判断
 # ================================================================
 
-def should_play_card(player, ish: IshBosheth, game_state) -> Optional[str]:
-    """正常模式下的简单出牌启发式。
+def decide_t0_normal(player, ish: IshBosheth, game_state,
+                     assessment: dict, playable: list[str]) -> Optional[str]:
+    """正常模式 T0：基于 assessment 选择最优物料牌。
 
-    供 T0 物料阶段调用（当前未接入 stage_ai.get_command；调用方应在
-    _phase_t0 出牌决策处引用此函数）。
-
-
-    返回牌名表示建议打出，None 表示不出。
-    当前仅处理最通用的几张牌，复杂决策留待后续。
+    优先级：
+      1. 荧光棒 → 有同座合法目标
+      2. 前排票 → 有猎物不在同座
+      3. 花束 → 同声部 Chorus 队友受伤
     """
-    hand = get_hand(player, ish)
-    if not hand:
-        return None
+    my_seat = getattr(player, 'location', None)
+    if assessment.get("legal_targets"):
+        same_seat = [t for t in assessment["legal_targets"]
+                     if getattr(t, 'location', None) == my_seat]
+        if "荧光棒" in playable and same_seat:
+            return "荧光棒"
+        if "前排票" in playable and not same_seat:
+            return "前排票"
 
-    # 荧光棒：有目标且同地点 → 打
-    if "荧光棒" in hand:
-        legal = get_legal_normal_targets(player, ish, game_state)
-        my_seat = getattr(player, 'location', None)
-        for t in legal:
-            if getattr(t, 'location', None) == my_seat:
-                return "荧光棒"
-
-    # 花束：有 Chorus 队友受伤 → 打
-    if "花束" in hand:
+    if "花束" in playable:
         for c in ish.chorus_list:
             if (c.is_alive() and getattr(c, 'emotion', None) == getattr(player, 'emotion', None)
                     and getattr(c, 'hp', 0) < 1.0):

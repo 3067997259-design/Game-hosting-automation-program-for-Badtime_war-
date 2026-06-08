@@ -98,6 +98,7 @@ def decide_duet_action(
     game_state,
     available_actions: List[str],
     threat_scores: Optional[dict] = None,
+    assessment: Optional[dict] = None,
 ) -> str:
     """Duet 模式下的单轮行动决策。
 
@@ -106,9 +107,13 @@ def decide_duet_action(
       竞争: 按钮 > PvP(对立打手) > move > forfeit
       混合: 好武器→按钮, 坏武器→PvP
     """
-    stance = assess_duet_stance(player, ish, game_state)
+    if assessment is None:
+        stance = assess_duet_stance(player, ish, game_state)
+        weapons = getattr(player, 'weapons', [])
+    else:
+        stance = assessment.get("stance", "cooperate")
+        weapons = assessment.get("weapons", [])
     my_seat = getattr(player, 'location', None)
-    weapons = getattr(player, 'weapons', [])
     best_dmg = max((getattr(w, 'get_effective_damage', lambda: _DEFAULT_DMG)() for w in weapons),
                    default=_DEFAULT_DMG)
 
@@ -253,3 +258,46 @@ def choose_displacement_target(
     当前 MVP: 返回最后一个选项（最远座位）。
     """
     return options[-1] if len(options) > 1 else (options[0] if options else "")
+
+
+# ================================================================
+#  T0 物料牌决策（duet 模式）
+# ================================================================
+
+def decide_t0_duet(player, ish: IshBosheth, assessment: dict,
+                   playable: list[str]) -> Optional[str]:
+    """基于 duet assessment 选择最优牌。
+
+    优先级：
+      1. 前排票 → 若不在按钮旁，T0 move 到按钮座，T1 直接 attack
+      2. 后台通行证 → Regard 告急时加速谢幕
+      3. 荧光棒/聚光合影 → 在按钮旁时预加伤害
+      4. 花束 → 同声部队友受伤时回血
+      5. 否则不出（保留手牌等下一轮）
+    """
+    at_button = assessment.get("at_button", False)
+    regard = ish.regard
+
+    # 优先级 1: 前排票 → 移动到按钮旁
+    if "前排票" in playable and not at_button:
+        return "前排票"
+
+    # 优先级 2: 后台通行证 → Regard 低时加速
+    if "后台通行证" in playable and regard <= 3:
+        return "后台通行证"
+
+    # 优先级 3: 荧光棒 → 在按钮旁时预加伤害
+    if "荧光棒" in playable and at_button:
+        return "荧光棒"
+    if "聚光合影" in playable and at_button:
+        return "聚光合影"
+
+    # 优先级 4: 花束 → 同声部队友受伤
+    if "花束" in playable:
+        from controllers.ai.stage.target_filter import get_teammates
+        teammates = get_teammates(player, ish, game_state)
+        for t in teammates:
+            if getattr(t, 'is_alive', lambda: True)() and getattr(t, 'hp', 0) < 1.0:
+                return "花束"
+
+    return None

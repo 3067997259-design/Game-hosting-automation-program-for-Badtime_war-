@@ -41,38 +41,23 @@ class ChorusController:
         if not ish or ish.phase not in ("active", "duet"):
             return "forfeit"
 
-        # v0.6 T0 物料阶段
+        # v2.0 T0 物料阶段：委托 StageAI 统一评估 + 决策
+        from controllers.ai.stage import StageAI
+        assessment = StageAI.assess(chorus, game_state)
         if ish.deck and available_actions:
-            # Chorus T0: 若没持牌，摸1张
             cid = chorus.player_id
+            # 摸牌
             if not ish.deck.chorus_slots.get(cid):
                 ish.deck.chorus_draw(cid)
                 card = ish.deck.chorus_slots.get(cid)
                 if card:
                     display.show_info(f"🃏 {chorus.name} 摸到「{card}」")
-
-            # Chorus 尝试使用持有的牌
-            card = ish.deck.chorus_slots.get(cid)
-            if card and self._can_chorus_use_card(chorus, card):
-                # Chorus 使用牌（简单策略：有牌就用）
-                ish.deck.chorus_play_card(chorus, card)
-                display.show_info(f"🎴 {chorus.name} 使用「{card}」")
-                # 牌效果在此处理（简化：只处理战斗相关牌）
-                if card in ("荧光棒", "聚光合影"):
-                    chorus._card_damage_bonus = 0.5
-                    display.show_info(f"  → 伤害+0.5")
-                elif card == "耳塞":
-                    chorus._card_earplug = True
-                    ent = getattr(chorus, 'stage_entangle', [])
-                    if ent:
-                        ent.pop()
-                    display.show_info(f"  → 解除1层牵连")
-                elif card == "后台通行证":
-                    # Chorus 只能造成 Regard -1，不触发破幕
-                    ish.regard = max(0, ish.regard - 1.0)
-                    display.show_info(f"  → Regard -1（当前 {ish.regard}）")
-                else:
-                    display.show_info(f"  → 效果未实现（{card}）")
+            # 决策出牌
+            chosen = StageAI.decide_t0(chorus, ish, game_state, assessment)
+            if chosen and ish.deck.chorus_slots.get(cid) == chosen:
+                ish.deck.chorus_play_card(chorus, chosen)
+                display.show_info(f"🎴 {chorus.name} 使用「{chosen}」")
+                self._apply_card_effect(chorus, ish, chosen)
 
         # v2.0 StageAI: 舞台内攻击决策（Chorus + BasicAI 共用）
         if "attack" in available_actions or "move" in available_actions:
@@ -89,10 +74,11 @@ class ChorusController:
                         return f"attack {commanded_target.name} {weapon.name}"
                     return f"attack {commanded_target.name}"
 
-            # 委托 StageAI 决策
+            # 委托 StageAI 决策（复用 T0 的 assessment）
             from controllers.ai.stage import StageAI
-            cmd = StageAI.get_command(chorus, game_state, available_actions,
-                                       {"chorus_unit": chorus, "game_state": game_state})
+            ctx = {"chorus_unit": chorus, "game_state": game_state,
+                   "assessment": assessment}
+            cmd = StageAI.get_command(chorus, game_state, available_actions, ctx)
             if cmd:
                 return cmd
 
@@ -197,3 +183,34 @@ class ChorusController:
         if card_name in chorus_only:
             return False
         return True
+
+    @staticmethod
+    def _apply_card_effect(chorus, ish, card_name: str):
+        """Chorus 打出物料牌后应用效果。"""
+        if card_name in ("荧光棒", "聚光合影"):
+            chorus._card_damage_bonus = 0.5
+            display.show_info("  → 伤害+0.5")
+        elif card_name == "耳塞":
+            chorus._card_earplug = True
+            ent = getattr(chorus, 'stage_entangle', [])
+            if ent:
+                ent.pop()
+            display.show_info("  → 解除1层牵连")
+        elif card_name == "后台通行证":
+            ish.regard = max(0, ish.regard - 1.0)
+            display.show_info(f"  → Regard -1（当前 {ish.regard}）")
+        elif card_name in ("花束", "反光板", "场刊整理", "和弦谱"):
+            ish.offer_heat(chorus, 1.0, card_name)
+            display.show_info(f"  → 上供舞台 +1.0 热力")
+        elif card_name == "前排票":
+            btn_seats = [b.location for b in getattr(ish, 'duet_buttons', [])]
+            if btn_seats:
+                import random
+                chorus.location = random.choice(btn_seats)
+                display.show_info(f"  → 移动到 {chorus.location}")
+        elif card_name == "空白票根":
+            if ish.deck:
+                ish.deck.chorus_draw(chorus.player_id)
+                display.show_info("  → 摸1张牌")
+        else:
+            display.show_info(f"  → 效果未实现（{card_name}）")
