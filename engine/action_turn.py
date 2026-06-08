@@ -201,7 +201,7 @@ class ActionTurnManager:
 
         # ---- G2 ish-bosheth v0.6: 声部锁定 + T0 物料阶段 ----
         if (self.state.ish_bosheth
-                and self.state.ish_bosheth.phase == "active"
+                and self.state.ish_bosheth.phase in ("active", "duet")
                 and "liberamente_vivace" in getattr(player, 'stage_statuses', set())
                 and player.player_id != self.state.ish_bosheth.g2_owner_id):
             from engine.ish_bosheth import (

@@ -137,6 +137,7 @@ def decide_duet_action(
             return f"attack {btn.name} {wname}" if wname else f"attack {btn.name}"
         if has_button and "move" in available_actions:
             return f"move {random.choice(list(button_seats))}"
+        StageAI._dbg(2, player, f"forfeit(cooperate): at_btn={at_button} has_btn={has_button}")
         return "forfeit"
 
     # ── 竞争态 ──
@@ -155,6 +156,7 @@ def decide_duet_action(
         # fallback
         if has_button and "move" in available_actions:
             return f"move {random.choice(list(button_seats))}"
+        StageAI._dbg(2, player, f"forfeit(compete): at_btn={at_button} has_btn={has_button} has_weapons={bool(weapons)}")
         return "forfeit"
 
     # ── 混合态：在按钮旁优先打按钮（任何热力 > 低伤害 PvP）──
@@ -171,6 +173,7 @@ def decide_duet_action(
             return f"attack {tname} {wname}" if wname else f"attack {tname}"
     if has_button and "move" in available_actions:
         return f"move {random.choice(list(button_seats))}"
+    StageAI._dbg(2, player, f"forfeit(mixed): at_btn={at_button} has_btn={has_button} has_weapons={bool(weapons)}")
     return "forfeit"
 
 
@@ -299,5 +302,15 @@ def decide_t0_duet(player, ish: IshBosheth, game_state, assessment: dict,
         for t in teammates:
             if getattr(t, 'is_alive', lambda: True)() and getattr(t, 'hp', 0) < 1.0:
                 return "花束"
+
+    # 优先级 5: 场刊整理/反光板 → 上供热力+手牌流转
+    if "场刊整理" in playable:
+        return "场刊整理"
+    if "反光板" in playable:
+        return "反光板"
+
+    # 优先级 6: 和弦谱 → 累计 ΔRegard+1.5
+    if "和弦谱" in playable:
+        return "和弦谱"
 
     return None
