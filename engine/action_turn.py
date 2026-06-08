@@ -1596,6 +1596,12 @@ class ActionTurnManager:
                                 and c.player_id != player.player_id):
                             self.state.markers.set_engaged(
                                 player.player_id, c.player_id)
+                    # v2.0 duet: 按钮也在座位上，需 auto-engage
+                    for btn in getattr(ish2, 'duet_buttons', []):
+                        if (btn.location == dest
+                                and btn.player_id != player.player_id):
+                            self.state.markers.set_engaged(
+                                player.player_id, btn.player_id)
             if (self.state.police_engine
                     and self.state.police.reported_target_id == player.player_id
                     and self.state.police.report_phase == "dispatched"):
