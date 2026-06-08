@@ -998,11 +998,20 @@ class IshBosheth:
         if not g2 or not g5:
             return
 
-        # 真实玩家
+        # G2/G5 自动互相拥抱，获最高等级双重奖励（跳过选择）
+        g2._embrace_g5_buff = 2.0
+        g5._embrace_g2_buff = 2.0
+        g2_name = getattr(g2, 'name', 'G2')
+        g5_name = getattr(g5, 'name', 'G5')
+        display.show_info(f"🤗 {g2_name} 与 {g5_name} 互相拥抱！获双重最高祝福")
+
+        # 其他真实玩家
         for pid in list(self.participants):
             p = game_state.get_player(pid)
             if not p or not p.is_alive():
                 continue
+            if p.player_id in (self.g2_owner_id, self.duet_g5_pid):
+                continue  # G2/G5 已在上面处理
             self._embrace_player(p, g2, g5, ranked)
         # v2.0: Chorus 也可参与 Embrace
         for c in self.chorus_list:

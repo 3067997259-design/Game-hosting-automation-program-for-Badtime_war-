@@ -64,15 +64,15 @@ class ChorusController:
             # G2 Sognando 可指定 Chorus 攻击目标 → 仍优先
             commanded_id = getattr(chorus, '_g2_commanded_target_id', None)
             if commanded_id:
-                legal_targets = self._get_legal_targets(game_state, chorus, ish)
-                commanded_target = next(
-                    (t for t in legal_targets if t.player_id == commanded_id), None)
-                if commanded_target:
+                del chorus._g2_commanded_target_id  # 仅生效一次
+                target = game_state.get_player(commanded_id)
+                if target and target.is_alive() and target.location == chorus.location:
                     weapons = getattr(chorus, 'weapons', [])
                     if weapons:
                         weapon = random.choice(weapons)
-                        return f"attack {commanded_target.name} {weapon.name}"
-                    return f"attack {commanded_target.name}"
+                        return f"attack {target.name} {weapon.name}"
+                    return f"attack {target.name}"
+                # 目标不在同地点 → 放弃指挥，走 StageAI
 
             # 委托 StageAI 决策（复用 T0 的 assessment）
             from controllers.ai.stage import StageAI
