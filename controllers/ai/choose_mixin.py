@@ -756,6 +756,10 @@ class ChooseMixin(_Base):
                     return target_loc
             return options[0]
 
+        # ---- G2 舞台初始声部选择（非 G2 的通用 fallback，随机避免全 Acc） ----
+        if situation == "g2_voice_choice":
+            return random.choice(options)
+
         # ---- 默认 ----
         return options[0]
 

@@ -370,9 +370,6 @@ class HologramAIHook(BaseTalentAIHook):
         if situation == "g2_melody_seat":
             return self._choose_melody_seat(player, state, options)
 
-        # ── v0.6 初始声部选择（v2.0: 简化为随机，由 ma_non_troppo 平衡）
-        if situation == "g2_voice_choice":
-            return random.choice(options) if options else ""
 
         # ── v0.6 物料牌决策 ──
         if situation == "g2_play_card":
