@@ -1,6 +1,6 @@
 """duet_mode.py — G2×G5 双人演出模式 AI 行为决策
 
-负责：自适应互惠（合作/竞争/混合三姿态）、按钮/PvP/上供五级优先级、
+负责：自适应互惠（合作/竞争/混合三姿态）、按钮/PvP/move 优先级、
       位移目标选择。MVP 暂留 TODO 的函数：投票/Embrace/安可选择。
 """
 
@@ -104,7 +104,7 @@ def decide_duet_action(
     """Duet 模式下的单轮行动决策。
 
     五级优先级（按 stance 变化）：
-      合作: 按钮 > 上供 > move(去按钮) > forfeit
+      合作: 按钮 > move(去按钮) > forfeit
       竞争: 按钮 > PvP(对立打手) > move > forfeit
       混合: 好武器→按钮, 坏武器→PvP
     """
@@ -119,7 +119,7 @@ def decide_duet_action(
     at_button = my_seat in button_seats
     has_button = bool(button_seats)
 
-    # L3: 按钮/上供检查
+    # L3: 按钮检查
     from controllers.ai.stage.stage_ai import StageAI
     if button_seats:
         StageAI._dbg(3, player,
