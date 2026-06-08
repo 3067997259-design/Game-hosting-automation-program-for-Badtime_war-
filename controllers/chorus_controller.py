@@ -13,6 +13,8 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from cli import display
+
 if TYPE_CHECKING:
     from models.player import Player
 
@@ -45,23 +47,32 @@ class ChorusController:
             cid = chorus.player_id
             if not ish.deck.chorus_slots.get(cid):
                 ish.deck.chorus_draw(cid)
+                card = ish.deck.chorus_slots.get(cid)
+                if card:
+                    display.show_info(f"🃏 {chorus.name} 摸到「{card}」")
 
             # Chorus 尝试使用持有的牌
             card = ish.deck.chorus_slots.get(cid)
             if card and self._can_chorus_use_card(chorus, card):
                 # Chorus 使用牌（简单策略：有牌就用）
                 ish.deck.chorus_play_card(chorus, card)
+                display.show_info(f"🎴 {chorus.name} 使用「{card}」")
                 # 牌效果在此处理（简化：只处理战斗相关牌）
                 if card in ("荧光棒", "聚光合影"):
                     chorus._card_damage_bonus = 0.5
+                    display.show_info(f"  → 伤害+0.5")
                 elif card == "耳塞":
                     chorus._card_earplug = True
                     ent = getattr(chorus, 'stage_entangle', [])
                     if ent:
                         ent.pop()
+                    display.show_info(f"  → 解除1层牵连")
                 elif card == "后台通行证":
                     # Chorus 只能造成 Regard -1，不触发破幕
                     ish.regard = max(0, ish.regard - 1.0)
+                    display.show_info(f"  → Regard -1（当前 {ish.regard}）")
+                else:
+                    display.show_info(f"  → 效果未实现（{card}）")
 
         # v2.0 StageAI: 舞台内攻击决策（Chorus + BasicAI 共用）
         if "attack" in available_actions or "move" in available_actions:

@@ -133,7 +133,7 @@ def decide_duet_action(
             wname = pick_best_weapon(player)
             return f"attack {btn.name} {wname}" if wname else f"attack {btn.name}"
         if has_button and "move" in available_actions:
-            return f"move {next(iter(button_seats))}"
+            return f"move {random.choice(list(button_seats))}"
         return "forfeit"
 
     # ── 竞争态 ──
@@ -151,7 +151,7 @@ def decide_duet_action(
                 return f"attack {tname} {wname}" if wname else f"attack {tname}"
         # fallback
         if has_button and "move" in available_actions:
-            return f"move {next(iter(button_seats))}"
+            return f"move {random.choice(list(button_seats))}"
         return "forfeit"
 
     # ── 混合态：在按钮旁优先打按钮（任何热力 > 低伤害 PvP）──
