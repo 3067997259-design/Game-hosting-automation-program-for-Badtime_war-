@@ -242,14 +242,26 @@ class ActionTurnManager:
                 extra = getattr(player, '_card_extra_play', False)
                 max_plays = 2 if extra else 1
                 for _ in range(max_plays):
-                    if not playable:
+                    if not hand:
                         break
-                    # 卡牌选项附加效果描述
+                    # 卡牌选项：可打出牌附效果描述，不可打出牌附原因
                     card_options = []
-                    for c in playable:
+                    for c in hand:
                         info = ish.deck.get_card_info(c)
                         desc = info.get("desc", "") if info else ""
-                        card_options.append(f"{c} — {desc}" if desc else c)
+                        if c in playable:
+                            card_options.append(f"{c} — {desc}" if desc else c)
+                        else:
+                            voice_req = info.get("voice") if info else None
+                            if voice_req:
+                                from engine.ish_bosheth import VOICE_LABELS
+                                vlabel = VOICE_LABELS.get(voice_req, voice_req)
+                                reason = f"限定{vlabel}声部"
+                            elif c == "改签票":
+                                reason = "通过舞台系统使用"
+                            else:
+                                reason = "当前不可用"
+                            card_options.append(f"{c} — (不可打出：{reason})")
                     play_choice = player.controller.choose(
                         "打出物料牌（或不打）：",
                         card_options + ["不打"],
@@ -259,10 +271,16 @@ class ActionTurnManager:
                     play_choice_clean = play_choice.split(" — ")[0] if " — " in play_choice else play_choice
                     if play_choice_clean in playable:
                         self._resolve_card_play(player, ish, play_choice_clean)
-                        # _resolve_card_play 可能追加新手牌（如场刊整理），刷新本地引用
+                        if play_choice_clean in hand:
+                            hand.remove(play_choice_clean)
+                        # _resolve_card_play 可能追加新手牌，刷新引用
                         hand = ish.deck.hands.get(pid, [])
                         ish.deck.played_this_turn[pid] = True
                         playable = [c for c in hand if ish.deck.is_playable(player, c)]
+                    elif play_choice_clean in hand:
+                        # 选了不可打出的牌 → 提示原因，不消耗出牌次数
+                        display.show_info(f"⚠️ 无法打出「{play_choice_clean}」（声部或条件不符）")
+                        continue
                     else:
                         break
                 player._card_extra_play = False
