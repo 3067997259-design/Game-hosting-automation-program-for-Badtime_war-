@@ -13,6 +13,8 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from cli import display
+
 if TYPE_CHECKING:
     from models.player import Player
 
@@ -39,49 +41,44 @@ class ChorusController:
         if not ish or ish.phase not in ("active", "duet"):
             return "forfeit"
 
-        # v0.6 T0 物料阶段
+        # v2.0 T0 物料阶段：委托 StageAI 统一评估 + 决策
+        from controllers.ai.stage import StageAI
+        assessment = StageAI.assess(chorus, game_state)
         if ish.deck and available_actions:
-            # Chorus T0: 若没持牌，摸1张
             cid = chorus.player_id
+            # 摸牌
             if not ish.deck.chorus_slots.get(cid):
                 ish.deck.chorus_draw(cid)
-
-            # Chorus 尝试使用持有的牌
-            card = ish.deck.chorus_slots.get(cid)
-            if card and self._can_chorus_use_card(chorus, card):
-                # Chorus 使用牌（简单策略：有牌就用）
-                ish.deck.chorus_play_card(chorus, card)
-                # 牌效果在此处理（简化：只处理战斗相关牌）
-                if card in ("荧光棒", "聚光合影"):
-                    chorus._card_damage_bonus = 0.5
-                elif card == "耳塞":
-                    chorus._card_earplug = True
-                    ent = getattr(chorus, 'stage_entangle', [])
-                    if ent:
-                        ent.pop()
-                elif card == "后台通行证":
-                    # Chorus 只能造成 Regard -1，不触发破幕
-                    ish.regard = max(0, ish.regard - 1.0)
+                card = ish.deck.chorus_slots.get(cid)
+                if card:
+                    display.show_info(f"🃏 {chorus.name} 摸到「{card}」")
+            # 决策出牌
+            chosen = StageAI.decide_t0(chorus, ish, game_state, assessment)
+            if chosen and ish.deck.chorus_slots.get(cid) == chosen:
+                ish.deck.chorus_play_card(chorus, chosen)
+                display.show_info(f"🎴 {chorus.name} 使用「{chosen}」")
+                self._apply_card_effect(chorus, ish, chosen)
 
         # v2.0 StageAI: 舞台内攻击决策（Chorus + BasicAI 共用）
         if "attack" in available_actions or "move" in available_actions:
             # G2 Sognando 可指定 Chorus 攻击目标 → 仍优先
             commanded_id = getattr(chorus, '_g2_commanded_target_id', None)
             if commanded_id:
-                legal_targets = self._get_legal_targets(game_state, chorus, ish)
-                commanded_target = next(
-                    (t for t in legal_targets if t.player_id == commanded_id), None)
-                if commanded_target:
+                del chorus._g2_commanded_target_id  # 仅生效一次
+                target = game_state.get_player(commanded_id)
+                if target and target.is_alive() and target.location == chorus.location:
                     weapons = getattr(chorus, 'weapons', [])
                     if weapons:
                         weapon = random.choice(weapons)
-                        return f"attack {commanded_target.name} {weapon.name}"
-                    return f"attack {commanded_target.name}"
+                        return f"attack {target.name} {weapon.name}"
+                    return f"attack {target.name}"
+                # 目标不在同地点 → 放弃指挥，走 StageAI
 
-            # 委托 StageAI 决策
+            # 委托 StageAI 决策（复用 T0 的 assessment）
             from controllers.ai.stage import StageAI
-            cmd = StageAI.get_command(chorus, game_state, available_actions,
-                                       {"chorus_unit": chorus, "game_state": game_state})
+            ctx = {"chorus_unit": chorus, "game_state": game_state,
+                   "assessment": assessment}
+            cmd = StageAI.get_command(chorus, game_state, available_actions, ctx)
             if cmd:
                 return cmd
 
@@ -112,8 +109,8 @@ class ChorusController:
         voice = getattr(chorus, 'emotion', None)
         targets = []
 
-        # unreachable: ChorusController 仅在 active 阶段运行，duet 已委托 StageAI
-        # (get_command() L39: phase != "active" → forfeit)
+        # @deprecated: 新逻辑已迁至 target_filter；仅测试引用。
+        # 不包含 duet_buttons，若 commanded_id 指向按钮会 fallback 到 StageAI。
         g2_owner_id = ish.g2_owner_id
 
         # Str 可攻击 G2（G2 不在 participants 中，需单独处理）
@@ -177,12 +174,36 @@ class ChorusController:
         return targets
 
     @staticmethod
-    def _can_chorus_use_card(chorus, card_name: str) -> bool:
-        """Chorus 能否使用该物料牌。"""
-        if card_name == "改签票":
-            return False
-        # 改签票只能真实玩家使用；应援连呼/调停需要选择目标的复杂交互
-        chorus_only = {"应援连呼", "调停"}
-        if card_name in chorus_only:
-            return False
-        return True
+    def _apply_card_effect(chorus, ish, card_name: str):
+        """Chorus 打出物料牌后应用效果。"""
+        # 需要复杂目标选择的牌 Chorus 无法处理，安全阻止
+        if card_name in ("应援连呼", "调停", "改签票"):
+            display.show_info(f"  → Chorus 无法使用「{card_name}」（需选择目标）")
+            return
+        if card_name in ("荧光棒", "聚光合影"):
+            chorus._card_damage_bonus = 0.5
+            display.show_info("  → 伤害+0.5")
+        elif card_name == "耳塞":
+            chorus._card_earplug = True
+            ent = getattr(chorus, 'stage_entangle', [])
+            if ent:
+                ent.pop()
+            display.show_info("  → 解除1层牵连")
+        elif card_name == "后台通行证":
+            ish.regard = max(0, ish.regard - 1.0)
+            display.show_info(f"  → Regard -1（当前 {ish.regard}）")
+        elif card_name in ("花束", "反光板", "场刊整理", "和弦谱"):
+            ish.offer_heat(chorus, 1.0, card_name)
+            display.show_info(f"  → 上供舞台 +1.0 热力")
+        elif card_name == "前排票":
+            btn_seats = [b.location for b in getattr(ish, 'duet_buttons', [])]
+            if btn_seats:
+                import random
+                chorus.location = random.choice(btn_seats)
+                display.show_info(f"  → 移动到 {chorus.location}")
+        elif card_name == "空白票根":
+            if ish.deck:
+                ish.deck.chorus_draw(chorus.player_id)
+                display.show_info("  → 摸1张牌")
+        else:
+            display.show_info(f"  → 效果未实现（{card_name}）")

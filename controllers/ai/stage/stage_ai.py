@@ -42,6 +42,58 @@ class StageAI:
     # ================================================================
 
     @staticmethod
+    def assess(player, game_state) -> dict:
+        """T0 评估：预先计算局面，供 T0 选牌 + T1 指令复用。"""
+        ish = getattr(game_state, 'ish_bosheth', None)
+        if not ish:
+            return {"phase": None}
+
+        assessment = {"phase": ish.phase}
+        if ish.phase == "duet":
+            from controllers.ai.stage.duet_mode import assess_duet_stance
+            from controllers.ai.stage.target_filter import get_hand
+            button_seats = {b.location for b in getattr(ish, 'duet_buttons', [])}
+            assessment.update({
+                "stance": assess_duet_stance(player, ish, game_state),
+                "button_seats": button_seats,
+                "at_button": getattr(player, 'location', None) in button_seats,
+                "weapons": getattr(player, 'weapons', []),
+                "hand": get_hand(player, ish),
+            })
+            StageAI._dbg(2, player, f"T0评估: stance={assessment['stance']} "
+                         f"at_btn={assessment['at_button']} hand={assessment['hand']}")
+        elif ish.phase == "active":
+            from controllers.ai.stage.target_filter import (
+                get_legal_normal_targets, get_teammates, get_hand,
+            )
+            from controllers.ai.stage.normal_mode import rank_targets
+            legal = get_legal_normal_targets(player, ish, game_state)
+            assessment.update({
+                "legal_targets": legal,
+                "ranked": rank_targets(player, legal, ish, game_state) if legal else [],
+                "hand": get_hand(player, ish),
+            })
+            StageAI._dbg(2, player, f"T0评估: targets={len(legal)} hand={assessment['hand']}")
+        return assessment
+
+    @staticmethod
+    def decide_t0(player, ish, game_state, assessment: dict) -> Optional[str]:
+        """T0 物料阶段：基于 assessment 选择最优牌。返回牌名或 None。"""
+        hand = assessment.get("hand", [])
+        if not hand or not ish or not ish.deck:
+            return None
+        playable = [c for c in hand if ish.deck.is_playable(player, c)]
+        if not playable:
+            return None
+
+        if assessment.get("phase") == "duet":
+            from controllers.ai.stage.duet_mode import decide_t0_duet
+            return decide_t0_duet(player, ish, game_state, assessment, playable)
+        else:
+            from controllers.ai.stage.normal_mode import decide_t0_normal
+            return decide_t0_normal(player, ish, game_state, assessment, playable)
+
+    @staticmethod
     def get_command(
         player,
         game_state,
@@ -66,7 +118,8 @@ class StageAI:
             from controllers.ai.stage.duet_mode import decide_duet_action
             ctx = context or {}
             cmd = decide_duet_action(player, ish, game_state, available_actions,
-                                     threat_scores=ctx.get("threat_scores"))
+                                     threat_scores=ctx.get("threat_scores"),
+                                     assessment=ctx.get("assessment"))
             StageAI._dbg(1, player, f"→ {cmd}")
             return cmd
 

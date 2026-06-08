@@ -1,6 +1,6 @@
 """duet_mode.py — G2×G5 双人演出模式 AI 行为决策
 
-负责：自适应互惠（合作/竞争/混合三姿态）、按钮/PvP/上供五级优先级、
+负责：自适应互惠（合作/竞争/混合三姿态）、按钮/PvP/move 优先级、
       位移目标选择。MVP 暂留 TODO 的函数：投票/Embrace/安可选择。
 """
 
@@ -9,10 +9,7 @@ import random
 from typing import TYPE_CHECKING, List, Optional
 
 from controllers.ai.stage.target_filter import (
-    get_legal_duet_targets,
-    get_teammates,
     get_opponents,
-    get_hand,
     pick_best_weapon,
     _DEFAULT_DMG,
 )
@@ -101,17 +98,22 @@ def decide_duet_action(
     game_state,
     available_actions: List[str],
     threat_scores: Optional[dict] = None,
+    assessment: Optional[dict] = None,
 ) -> str:
     """Duet 模式下的单轮行动决策。
 
     五级优先级（按 stance 变化）：
-      合作: 按钮 > 上供 > move(去按钮) > forfeit
+      合作: 按钮 > move(去按钮) > forfeit
       竞争: 按钮 > PvP(对立打手) > move > forfeit
       混合: 好武器→按钮, 坏武器→PvP
     """
-    stance = assess_duet_stance(player, ish, game_state)
+    if assessment is None:
+        stance = assess_duet_stance(player, ish, game_state)
+        weapons = getattr(player, 'weapons', [])
+    else:
+        stance = assessment.get("stance", "cooperate")
+        weapons = assessment.get("weapons", [])
     my_seat = getattr(player, 'location', None)
-    weapons = getattr(player, 'weapons', [])
     best_dmg = max((getattr(w, 'get_effective_damage', lambda: _DEFAULT_DMG)() for w in weapons),
                    default=_DEFAULT_DMG)
 
@@ -120,12 +122,12 @@ def decide_duet_action(
     at_button = my_seat in button_seats
     has_button = bool(button_seats)
 
-    # L3: 按钮/上供检查
+    # L3: 按钮检查
     from controllers.ai.stage.stage_ai import StageAI
     if button_seats:
         StageAI._dbg(3, player,
             f"按钮: {len(button_seats)}个 座位={button_seats} 在旁={at_button} "
-            f"武器伤害={best_dmg:.1f} 有上供牌={_has_offering_card(player, ish)}")
+            f"武器伤害={best_dmg:.1f}")
 
     # ── 合作态 ──
     if stance == "cooperate":
@@ -133,10 +135,9 @@ def decide_duet_action(
             btn = next(b for b in ish.duet_buttons if b.location == my_seat)
             wname = pick_best_weapon(player)
             return f"attack {btn.name} {wname}" if wname else f"attack {btn.name}"
-        if _has_offering_card(player, ish) and "attack" in available_actions:
-            return _use_offering_card(player, ish, game_state)
         if has_button and "move" in available_actions:
-            return f"move {next(iter(button_seats))}"
+            return f"move {random.choice(list(button_seats))}"
+        StageAI._dbg(2, player, f"forfeit(cooperate): at_btn={at_button} has_btn={has_button}")
         return "forfeit"
 
     # ── 竞争态 ──
@@ -154,7 +155,8 @@ def decide_duet_action(
                 return f"attack {tname} {wname}" if wname else f"attack {tname}"
         # fallback
         if has_button and "move" in available_actions:
-            return f"move {next(iter(button_seats))}"
+            return f"move {random.choice(list(button_seats))}"
+        StageAI._dbg(2, player, f"forfeit(compete): at_btn={at_button} has_btn={has_button} has_weapons={bool(weapons)}")
         return "forfeit"
 
     # ── 混合态：在按钮旁优先打按钮（任何热力 > 低伤害 PvP）──
@@ -170,7 +172,8 @@ def decide_duet_action(
             tname = getattr(pvp_target, 'name', str(pvp_target))
             return f"attack {tname} {wname}" if wname else f"attack {tname}"
     if has_button and "move" in available_actions:
-        return f"move {next(iter(button_seats))}"
+        return f"move {random.choice(list(button_seats))}"
+    StageAI._dbg(2, player, f"forfeit(mixed): at_btn={at_button} has_btn={has_button} has_weapons={bool(weapons)}")
     return "forfeit"
 
 
@@ -200,26 +203,6 @@ def _pick_pvp_target(player, ish: IshBosheth, game_state, button_seats: set):
         default=0))
 
 
-# ================================================================
-#  上供舞台
-# ================================================================
-
-OFFERING_CARDS = {"花束", "荧光棒", "反光板", "场刊整理"}
-
-
-def _has_offering_card(player, ish: IshBosheth) -> bool:
-    """检查是否有可上供舞台的物料牌。"""
-    hand = get_hand(player, ish)
-    return bool(set(hand) & OFFERING_CARDS)
-
-
-def _use_offering_card(player, ish: IshBosheth, game_state) -> str:
-    """使用上供牌。
-
-    TODO: T0 物料阶段已处理出牌，T1 暂无独立"上供"动作——当前回 forfeit。
-    未来可扩展为"若有多张上供牌且手牌超限，T1 再打一张"。
-    """
-    return "forfeit"
 
 
 # ================================================================
@@ -278,3 +261,56 @@ def choose_displacement_target(
     当前 MVP: 返回最后一个选项（最远座位）。
     """
     return options[-1] if len(options) > 1 else (options[0] if options else "")
+
+
+# ================================================================
+#  T0 物料牌决策（duet 模式）
+# ================================================================
+
+def decide_t0_duet(player, ish: IshBosheth, game_state, assessment: dict,
+                   playable: list[str]) -> Optional[str]:
+    """基于 duet assessment 选择最优牌。
+
+    优先级：
+      1. 前排票 → 若不在按钮旁，T0 move 到按钮座，T1 直接 attack
+      2. 后台通行证 → Regard 告急时加速谢幕
+      3. 荧光棒/聚光合影 → 在按钮旁时预加伤害
+      4. 花束 → 同声部队友受伤时回血
+      5. 否则不出（保留手牌等下一轮）
+    """
+    at_button = assessment.get("at_button", False)
+    regard = ish.regard
+
+    # 优先级 1: 前排票 → 移动到按钮旁
+    if "前排票" in playable and not at_button:
+        return "前排票"
+
+    # 优先级 2: 后台通行证 → Regard 低时加速
+    if "后台通行证" in playable and regard <= 3:
+        return "后台通行证"
+
+    # 优先级 3: 荧光棒 → 在按钮旁时预加伤害
+    if "荧光棒" in playable and at_button:
+        return "荧光棒"
+    if "聚光合影" in playable and at_button:
+        return "聚光合影"
+
+    # 优先级 4: 花束 → 同声部队友受伤
+    if "花束" in playable:
+        from controllers.ai.stage.target_filter import get_teammates
+        teammates = get_teammates(player, ish, game_state)
+        for t in teammates:
+            if getattr(t, 'is_alive', lambda: True)() and getattr(t, 'hp', 0) < 1.0:
+                return "花束"
+
+    # 优先级 5: 场刊整理/反光板 → 上供热力+手牌流转
+    if "场刊整理" in playable:
+        return "场刊整理"
+    if "反光板" in playable:
+        return "反光板"
+
+    # 优先级 6: 和弦谱 → 累计 ΔRegard+1.5
+    if "和弦谱" in playable:
+        return "和弦谱"
+
+    return None

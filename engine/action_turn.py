@@ -201,7 +201,7 @@ class ActionTurnManager:
 
         # ---- G2 ish-bosheth v0.6: 声部锁定 + T0 物料阶段 ----
         if (self.state.ish_bosheth
-                and self.state.ish_bosheth.phase == "active"
+                and self.state.ish_bosheth.phase in ("active", "duet")
                 and "liberamente_vivace" in getattr(player, 'stage_statuses', set())
                 and player.player_id != self.state.ish_bosheth.g2_owner_id):
             from engine.ish_bosheth import (
@@ -242,18 +242,45 @@ class ActionTurnManager:
                 extra = getattr(player, '_card_extra_play', False)
                 max_plays = 2 if extra else 1
                 for _ in range(max_plays):
-                    if not playable:
+                    if not hand:
                         break
+                    # 卡牌选项：可打出牌附效果描述，不可打出牌附原因
+                    card_options = []
+                    for c in hand:
+                        info = ish.deck.get_card_info(c)
+                        desc = info.get("desc", "") if info else ""
+                        if c in playable:
+                            card_options.append(f"{c} — {desc}" if desc else c)
+                        else:
+                            voice_req = info.get("voice") if info else None
+                            if voice_req:
+                                from engine.ish_bosheth import VOICE_LABELS
+                                vlabel = VOICE_LABELS.get(voice_req, voice_req)
+                                reason = f"限定{vlabel}声部"
+                            elif c == "改签票":
+                                reason = "通过舞台系统使用"
+                            else:
+                                reason = "当前不可用"
+                            card_options.append(f"{c} — (不可打出：{reason})")
                     play_choice = player.controller.choose(
                         "打出物料牌（或不打）：",
-                        playable + ["不打"],
+                        card_options + ["不打"],
                         context={"phase": "T0", "situation": "g2_play_card"},
                     )
-                    if play_choice in playable:
-                        self._resolve_card_play(player, ish, play_choice)
-                        hand.remove(play_choice)
+                    # 从选项字符串中提取纯牌名
+                    play_choice_clean = play_choice.split(" — ")[0] if " — " in play_choice else play_choice
+                    if play_choice_clean in playable:
+                        self._resolve_card_play(player, ish, play_choice_clean)
+                        if play_choice_clean in hand:
+                            hand.remove(play_choice_clean)
+                        # _resolve_card_play 可能追加新手牌，刷新引用
+                        hand = ish.deck.hands.get(pid, [])
                         ish.deck.played_this_turn[pid] = True
                         playable = [c for c in hand if ish.deck.is_playable(player, c)]
+                    elif play_choice_clean in hand:
+                        # 选了不可打出的牌 → 提示原因，不消耗出牌次数
+                        display.show_info(f"⚠️ 无法打出「{play_choice_clean}」（声部或条件不符）")
+                        continue
                     else:
                         break
                 player._card_extra_play = False
@@ -1580,8 +1607,9 @@ class ActionTurnManager:
             msg = move.execute(player, dest, self.state)
             # 到达舞台座位 → auto-find 该座位的所有人
             ish2 = self.state.ish_bosheth
-            if (ish2 and ish2.phase == "active"
-                    and "liberamente_vivace" in getattr(player, 'stage_statuses', set())):
+            if (ish2 and ish2.phase in ("active", "duet")
+                    and (ish2.phase == "duet"
+                         or "liberamente_vivace" in getattr(player, 'stage_statuses', set()))):
                 stage_locations = ish2.SEATS | {ish2.g2_home}
                 if dest in stage_locations:
                     for pid in ish2.participants:
@@ -1595,6 +1623,12 @@ class ActionTurnManager:
                                 and c.player_id != player.player_id):
                             self.state.markers.set_engaged(
                                 player.player_id, c.player_id)
+                    # v2.0 duet: 按钮也在座位上，需 auto-engage
+                    for btn in getattr(ish2, 'duet_buttons', []):
+                        if (btn.location == dest
+                                and btn.player_id != player.player_id):
+                            self.state.markers.set_engaged(
+                                player.player_id, btn.player_id)
             if (self.state.police_engine
                     and self.state.police.reported_target_id == player.player_id
                     and self.state.police.report_phase == "dispatched"):
@@ -1840,7 +1874,8 @@ class ActionTurnManager:
                                                        breaker_id=player.player_id)
                 return msg, "attack", True
 
-            # G2 非致命攻击 Regard -1
+            # G2 非致命攻击 Regard -1（仅 normal 模式；duet 中 G2 被 PvP 位移
+            # 打伤是演出正常流程，不扣 Regard，避免惩罚正当的舞台互动）
             if (self.state.ish_bosheth
                     and self.state.ish_bosheth.phase == "active"
                     and target_id == self.state.ish_bosheth.g2_owner_id
@@ -1863,7 +1898,7 @@ class ActionTurnManager:
             if result.get("killed") and target:
                 # G2 发动者真正死亡 → 舞台崩塌
                 if (self.state.ish_bosheth
-                        and self.state.ish_bosheth.phase == "active"
+                        and self.state.ish_bosheth.phase in ("active", "duet")
                         and target_id == self.state.ish_bosheth.g2_owner_id):
                     self.state.ish_bosheth.end_ish_bosheth("death", self.state)
                 killer.kill_count += 1
@@ -1871,7 +1906,7 @@ class ActionTurnManager:
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target_id)
                 display.show_death(target.name, f"被 {killer.name} 的 {weapon_name} 击杀")
-                # 新增：通知所有天赋（星野色彩计数等）
+                # 通知所有天赋（星野色彩计数等）
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
                     self.state, target_id, killer_id=killer.player_id)
@@ -1951,11 +1986,6 @@ class ActionTurnManager:
                     lines.append(f"      ⚡ {t.name} 进入震荡状态！")
 
             if res.get("killed"):
-                # G2 发动者死亡 → 舞台崩塌（防御性补全：范围攻击等非标准攻击路径）
-                if (self.state.ish_bosheth
-                        and self.state.ish_bosheth.phase == "active"
-                        and t.player_id == self.state.ish_bosheth.g2_owner_id):
-                    self.state.ish_bosheth.end_ish_bosheth("death", self.state)
                 killer.kill_count += 1
                 self.state.markers.on_player_death(t.player_id)
                 if self.state.police_engine:
@@ -1966,6 +1996,9 @@ class ActionTurnManager:
                 RoundManager.notify_all_talents_of_death(
                     self.state, t.player_id, killer_id=killer.player_id)
                 # G2 发动者死亡 → 舞台崩塌（含 duet 模式）
+                # 注：范围攻击中延迟到 notify_all_talents + 撕票之后才清理，
+                # 避免中途 end_ish_bosheth 干扰循环中其余受害者的处理。
+                # 单目标攻击路径反之（L1885），因无需顾虑多目标循环。
                 if (self.state.ish_bosheth
                         and self.state.ish_bosheth.phase in ("active", "duet")
                         and t.player_id == self.state.ish_bosheth.g2_owner_id):

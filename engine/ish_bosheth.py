@@ -70,7 +70,7 @@ class ButtonDummy:
 
     def __init__(self, seat: str, index: int):
         self.player_id: str = f"__button_{index}__"
-        self.name: str = f"🔴 大红按钮 #{index}"
+        self.name: str = f"大红按钮{index}"
         self.location: str = seat
         self.hp: float = 999.0
         self.max_hp: float = 999.0
@@ -244,6 +244,14 @@ class IshBosheth:
             btn = ButtonDummy(seat, i)
             self.duet_buttons.append(btn)
             game_state.register_chorus(btn)
+            # 按钮坐下时，同座位已存在的单位自动建立面对面
+            for pid in self.participants:
+                p = game_state.get_player(pid)
+                if p and p.is_alive() and p.location == seat:
+                    game_state.markers.set_engaged(p.player_id, btn.player_id)
+            for c in self.chorus_list:
+                if c.is_alive() and c.location == seat:
+                    game_state.markers.set_engaged(c.player_id, btn.player_id)
         # 重置 duet 歌曲效果（每轮清零）
         self._duet_voice_button_mult.clear()
         self._duet_displacement_immune.clear()
@@ -990,11 +998,20 @@ class IshBosheth:
         if not g2 or not g5:
             return
 
-        # 真实玩家
+        # G2/G5 自动互相拥抱，获最高等级双重奖励（跳过选择）
+        g2._embrace_g5_buff = 2.0
+        g5._embrace_g2_buff = 2.0
+        g2_name = getattr(g2, 'name', 'G2')
+        g5_name = getattr(g5, 'name', 'G5')
+        display.show_info(f"🤗 {g2_name} 与 {g5_name} 互相拥抱！获双重最高祝福")
+
+        # 其他真实玩家
         for pid in list(self.participants):
             p = game_state.get_player(pid)
             if not p or not p.is_alive():
                 continue
+            if p.player_id in (self.g2_owner_id, self.duet_g5_pid):
+                continue  # G2/G5 已在上面处理
             self._embrace_player(p, g2, g5, ranked)
         # v2.0: Chorus 也可参与 Embrace
         for c in self.chorus_list:
@@ -1086,6 +1103,9 @@ class IshBosheth:
                 g2p.stage_entangle.clear()
             g2p.temp_hp_g2 = 0.0
             g2p.temp_atk_g2 = 0.0
+
+        # v2.0 duet 按钮清理（非正常结束路径不走 R3 _despawn_duet_buttons）
+        self._despawn_duet_buttons(game_state)
 
         # Chorus 消散
         for c in self.chorus_list:
@@ -1378,23 +1398,34 @@ class IshBosheth:
 
         seat_names = sorted(occupied.keys())
 
+        # 旋律预览：为每个座位生成伤害预测
+        preview_lines = _build_melody_preview(game_state, self, occupied,
+                                              seat_names, base_dmg_seq,
+                                              self.cumulative_delta_regard)
+        seat_options = [f"{s} — {preview_lines.get(s, '（空）')}" for s in seat_names]
+
         # 选座位 1（必选）
         chosen1 = g2_player.controller.choose(
             "选择旋律目标座位 1：",
-            seat_names,
+            seat_options,
             context={"situation": "g2_melody_seat"},
         )
+        chosen1 = chosen1.split(" — ")[0] if " — " in chosen1 else chosen1
         if chosen1 not in occupied:
             chosen1 = seat_names[0]
 
         # 选座位 2（可选"不选"）
-        remaining = [s for s in seat_names if s != chosen1]
-        remaining.append("不选")
+        remaining_preview = []
+        for s in seat_names:
+            if s != chosen1:
+                remaining_preview.append(f"{s} — {preview_lines.get(s, '（空）')}")
+        remaining_preview.append("不选")
         chosen2 = g2_player.controller.choose(
             "选择旋律目标座位 2（或不选）：",
-            remaining,
+            remaining_preview,
             context={"situation": "g2_melody_seat2"},
         )
+        chosen2 = chosen2.split(" — ")[0] if " — " in chosen2 else chosen2
         if chosen2 not in occupied:
             chosen2 = None
 
@@ -1533,6 +1564,35 @@ def get_total_defense_hp(unit) -> float:
         for p in armor.get_all_active():
             hp += p.current_hp
     return hp
+
+
+def _build_melody_preview(game_state, ish, occupied: dict, seat_names: list,
+                          base_dmg_seq: list, cumulative_delta: float) -> dict:
+    """为每个座位生成旋律伤害预览。返回 {seat_name: preview_string}。"""
+    decays = [1.0, 0.6, 0.4, 0.2]
+    preview = {}
+    for seat in seat_names:
+        units = occupied.get(seat, [])
+        if not units:
+            preview[seat] = "空"
+            continue
+        parts = []
+        for i, unit in enumerate(units[:4]):
+            dmg = base_dmg_seq[i] if i < len(base_dmg_seq) else 0.5
+            decay = decays[i] if i < len(decays) else 0.1
+            stability = _calc_stability(unit, cumulative_delta, decay, ish=ish)
+            raw = _calc_melody_damage(dmg, stability, unit.max_hp, unit.hp)
+            # 应用伤害量化规则（quantize_damage）使预览与实战一致
+            from combat.damage_resolver import quantize_damage
+            actual = quantize_damage(raw) if raw > 0 else raw
+            if actual > 0:
+                parts.append(f"{unit.name}: {actual:.1f}伤害")
+            elif raw < 0:
+                parts.append(f"{unit.name}: {-raw:.1f}治疗")
+            else:
+                parts.append(f"{unit.name}: 无效")
+        preview[seat] = ", ".join(parts)
+    return preview
 
 
 def _calc_stability(unit, cumulative_delta: float, decay_factor: float = 1.0,
