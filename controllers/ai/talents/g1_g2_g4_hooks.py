@@ -370,9 +370,9 @@ class HologramAIHook(BaseTalentAIHook):
         if situation == "g2_melody_seat":
             return self._choose_melody_seat(player, state, options)
 
-        # ── v0.6 初始声部选择 ──
+        # ── v0.6 初始声部选择（v2.0: 简化为随机，由 ma_non_troppo 平衡）
         if situation == "g2_voice_choice":
-            return self._choose_initial_voice(player, state, options)
+            return random.choice(options) if options else ""
 
         # ── v0.6 物料牌决策 ──
         if situation == "g2_play_card":
@@ -605,32 +605,6 @@ class HologramAIHook(BaseTalentAIHook):
                 best_seat = seat_name
         return best_seat or self._pick_random_option(options)
 
-    # ── 声部选择 ──────────────────────────────────────────────────
-
-    def _choose_initial_voice(self, player, state, options) -> Optional[str]:
-        """AI 初始声部选择策略。"""
-        threat_scores = getattr(self._ctrl, '_threat_scores', {})
-        hp = player.hp
-        outer = GameQuery.count_outer_armor(player)
-
-        # 高HP + 有护甲 + 有敌人想杀 → Accarezzevole（积极攻击）
-        if hp >= 1.5 and outer >= 1 and self._has_threatening_enemy(state, threat_scores):
-            for opt in options:
-                if "Accarezzevole" in opt or "入戏" in opt:
-                    return opt
-
-        # 低HP 或 无护甲 → Strappando（需要减伤/离场）
-        if hp <= 0.5 or outer == 0:
-            for opt in options:
-                if "Strappando" in opt or "反抗" in opt:
-                    return opt
-
-        # 默认 → Indifferenza（观望）
-        for opt in options:
-            if "Indifferenza" in opt or "抽离" in opt:
-                return opt
-        return self._pick_random_option(options)
-
     # ── 物料牌决策 ────────────────────────────────────────────────
 
     def _choose_card_to_play(self, player, state, options) -> Optional[str]:
@@ -751,14 +725,6 @@ class HologramAIHook(BaseTalentAIHook):
             if c.is_alive() and c.name in option:
                 return c
         return None
-
-    @staticmethod
-    def _has_threatening_enemy(state, threat_scores) -> bool:
-        for pid in state.player_order:
-            p = state.get_player(pid)
-            if p and p.is_alive() and threat_scores.get(p.name, 0) > 30:
-                return True
-        return False
 
     @staticmethod
     def _pick_random_option(options: List[str]) -> Optional[str]:
