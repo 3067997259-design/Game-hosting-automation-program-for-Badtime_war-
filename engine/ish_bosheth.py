@@ -244,6 +244,14 @@ class IshBosheth:
             btn = ButtonDummy(seat, i)
             self.duet_buttons.append(btn)
             game_state.register_chorus(btn)
+            # 按钮坐下时，同座位已存在的单位自动建立面对面
+            for pid in self.participants:
+                p = game_state.get_player(pid)
+                if p and p.is_alive() and p.location == seat:
+                    game_state.markers.set_engaged(p.player_id, btn.player_id)
+            for c in self.chorus_list:
+                if c.is_alive() and c.location == seat:
+                    game_state.markers.set_engaged(c.player_id, btn.player_id)
         # 重置 duet 歌曲效果（每轮清零）
         self._duet_voice_button_mult.clear()
         self._duet_displacement_immune.clear()
