@@ -1847,7 +1847,8 @@ class ActionTurnManager:
                                                        breaker_id=player.player_id)
                 return msg, "attack", True
 
-            # G2 非致命攻击 Regard -1
+            # G2 非致命攻击 Regard -1（仅 normal 模式；duet 中 G2 被 PvP 位移
+            # 打伤是演出正常流程，不扣 Regard，避免惩罚正当的舞台互动）
             if (self.state.ish_bosheth
                     and self.state.ish_bosheth.phase == "active"
                     and target_id == self.state.ish_bosheth.g2_owner_id

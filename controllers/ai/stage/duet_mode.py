@@ -9,8 +9,6 @@ import random
 from typing import TYPE_CHECKING, List, Optional
 
 from controllers.ai.stage.target_filter import (
-    get_legal_duet_targets,
-    get_teammates,
     get_opponents,
     pick_best_weapon,
     _DEFAULT_DMG,
@@ -167,7 +165,7 @@ def decide_duet_action(
             tname = getattr(pvp_target, 'name', str(pvp_target))
             return f"attack {tname} {wname}" if wname else f"attack {tname}"
     if has_button and "move" in available_actions:
-        return f"move {next(iter(button_seats))}"
+        return f"move {random.choice(list(button_seats))}"
     return "forfeit"
 
 
