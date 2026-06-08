@@ -1473,18 +1473,19 @@ class ActionTurnManager:
     #  T1：Chorus 简化回合（v0.6 声部限制 + 物料牌加成）
     # ================================================================
     def _phase_t1_chorus(self, player):
-        """Chorus 的简化行动回合：按声部限制选目标 attack 或 forfeit。"""
-        import random as _random
+        """Chorus 行动回合：统一委托 StageAI 决策（normal + duet）。"""
         from cli.parser import parse
         from cli.validator import validate
 
         ish = self.state.ish_bosheth
+        if not ish or ish.phase not in ("active", "duet"):
+            display.show_info(f"  👥 {player.name} 放弃行动")
+            return "forfeit"
 
-        # v2.0 duet: 委托 StageAI 决策（按钮/PvP/移动），不再走旧随机逻辑
-        if ish and ish.phase == "duet" and hasattr(player, 'controller'):
-            available = ["attack", "move", "forfeit"]
+        # 统一委托 StageAI 决策（normal + duet，Chorus/BasicAI 共享信源）
+        if hasattr(player, 'controller'):
             raw = player.controller.get_command(
-                available_actions=available,
+                available_actions=["attack", "move", "forfeit"],
                 context={"phase": "T1", "game_state": self.state, "chorus_unit": player}
             )
             if raw and raw != "forfeit":
@@ -1499,61 +1500,10 @@ class ActionTurnManager:
                         return action_type if consumes_turn else "forfeit"
                     else:
                         debug_ai_basic(player.name,
-                            f"Chorus duet StageAI 指令被拒: {raw} → {reason}")
+                            f"Chorus StageAI 指令被拒: {raw} → {reason}")
                 else:
                     debug_ai_basic(player.name,
-                        f"Chorus duet StageAI 指令解析失败: {raw}")
-            display.show_info(f"  👥 {player.name} 放弃行动")
-            return "forfeit"
-
-        # v0.6: 声部限制目标选择
-        if ish and hasattr(player, 'controller') and hasattr(player.controller, '_get_legal_targets'):
-            legal_targets = player.controller._get_legal_targets(self.state, player, ish)
-        else:
-            legal_targets = []
-            for pid in self.state.player_order:
-                p = self.state.get_player(pid)
-                if not p or not p.is_alive() or not p.is_on_map():
-                    continue
-                if p.player_id == player.player_id:
-                    continue
-                legal_targets.append(p)
-            if ish:
-                for c in ish.chorus_list:
-                    if c.is_alive() and c.player_id != player.player_id:
-                        legal_targets.append(c)
-
-        # 物料牌加成定向 + v2.0 duet 谢幕伤害加成
-        dmg_bonus = getattr(player, '_card_damage_bonus', 0.0) + getattr(player, '_duet_damage_bonus', 0.0)
-        dmg_target_id = getattr(player, '_card_damage_bonus_target_id', None)
-        dmg_voice_filter = getattr(player, '_card_damage_bonus_voice_filter', None)
-        if dmg_bonus and (dmg_target_id or dmg_voice_filter) and legal_targets:
-            if dmg_voice_filter:
-                bonus_targets = [t for t in legal_targets
-                                 if getattr(t, 'emotion', None) == dmg_voice_filter]
-            else:
-                bonus_targets = [t for t in legal_targets
-                                 if t.player_id == dmg_target_id]
-            if bonus_targets:
-                legal_targets = bonus_targets
-
-        if legal_targets:
-            target = _random.choice(legal_targets)
-            weapons = getattr(player, 'weapons', [])
-            if weapons:
-                weapon = _random.choice(weapons)
-                raw_cmd = f"attack {target.name} with {weapon.name}"
-            else:
-                raw_cmd = f"attack {target.name}"
-            parsed = parse(raw_cmd, player.player_id)
-            if parsed:
-                is_valid, reason = validate(parsed, player, self.state)
-                if is_valid:
-                    display.show_info(f"  👥 {player.name} 攻击 {target.name}")
-                    result = self._execute_action(parsed, player)
-                    msg, action, consumed = result[0], result[1], result[2]
-                    consumes_turn = result[3] if len(result) > 3 else consumed
-                    return action if consumes_turn else "forfeit"
+                        f"Chorus StageAI 指令解析失败: {raw}")
         display.show_info(f"  👥 {player.name} 放弃行动")
         return "forfeit"
 
