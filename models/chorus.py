@@ -33,6 +33,9 @@ class _ChorusArmorSlots:
         self.outer: list[ArmorPiece] = []
         self.inner: list[ArmorPiece] = []
 
+    def _get_layer_list(self, layer: ArmorLayer) -> list[ArmorPiece]:
+        return self.outer if layer == ArmorLayer.OUTER else self.inner
+
     def get_active(self, layer: ArmorLayer) -> list[ArmorPiece]:
         lst = self.outer if layer == ArmorLayer.OUTER else self.inner
         return [a for a in lst if not a.is_broken]
