@@ -12,7 +12,6 @@ from controllers.ai.stage.target_filter import (
     get_legal_duet_targets,
     get_teammates,
     get_opponents,
-    get_hand,
     pick_best_weapon,
     _DEFAULT_DMG,
 )
@@ -125,7 +124,7 @@ def decide_duet_action(
     if button_seats:
         StageAI._dbg(3, player,
             f"按钮: {len(button_seats)}个 座位={button_seats} 在旁={at_button} "
-            f"武器伤害={best_dmg:.1f} 有上供牌={_has_offering_card(player, ish)}")
+            f"武器伤害={best_dmg:.1f}")
 
     # ── 合作态 ──
     if stance == "cooperate":
@@ -133,8 +132,6 @@ def decide_duet_action(
             btn = next(b for b in ish.duet_buttons if b.location == my_seat)
             wname = pick_best_weapon(player)
             return f"attack {btn.name} {wname}" if wname else f"attack {btn.name}"
-        if _has_offering_card(player, ish) and "attack" in available_actions:
-            return _use_offering_card(player, ish, game_state)
         if has_button and "move" in available_actions:
             return f"move {next(iter(button_seats))}"
         return "forfeit"
@@ -200,26 +197,6 @@ def _pick_pvp_target(player, ish: IshBosheth, game_state, button_seats: set):
         default=0))
 
 
-# ================================================================
-#  上供舞台
-# ================================================================
-
-OFFERING_CARDS = {"花束", "荧光棒", "反光板", "场刊整理"}
-
-
-def _has_offering_card(player, ish: IshBosheth) -> bool:
-    """检查是否有可上供舞台的物料牌。"""
-    hand = get_hand(player, ish)
-    return bool(set(hand) & OFFERING_CARDS)
-
-
-def _use_offering_card(player, ish: IshBosheth, game_state) -> str:
-    """使用上供牌。
-
-    TODO: T0 物料阶段已处理出牌，T1 暂无独立"上供"动作——当前回 forfeit。
-    未来可扩展为"若有多张上供牌且手牌超限，T1 再打一张"。
-    """
-    return "forfeit"
 
 
 # ================================================================

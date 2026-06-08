@@ -70,7 +70,7 @@ class ButtonDummy:
 
     def __init__(self, seat: str, index: int):
         self.player_id: str = f"__button_{index}__"
-        self.name: str = f"🔴 大红按钮 #{index}"
+        self.name: str = f"大红按钮{index}"
         self.location: str = seat
         self.hp: float = 999.0
         self.max_hp: float = 999.0
