@@ -88,7 +88,7 @@ class StageAI:
 
         if assessment.get("phase") == "duet":
             from controllers.ai.stage.duet_mode import decide_t0_duet
-            return decide_t0_duet(player, ish, assessment, playable)
+            return decide_t0_duet(player, ish, game_state, assessment, playable)
         else:
             from controllers.ai.stage.normal_mode import decide_t0_normal
             return decide_t0_normal(player, ish, game_state, assessment, playable)

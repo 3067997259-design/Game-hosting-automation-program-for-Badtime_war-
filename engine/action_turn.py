@@ -1978,6 +1978,9 @@ class ActionTurnManager:
                 RoundManager.notify_all_talents_of_death(
                     self.state, t.player_id, killer_id=killer.player_id)
                 # G2 发动者死亡 → 舞台崩塌（含 duet 模式）
+                # 注：范围攻击中延迟到 notify_all_talents + 撕票之后才清理，
+                # 避免中途 end_ish_bosheth 干扰循环中其余受害者的处理。
+                # 单目标攻击路径反之（L1885），因无需顾虑多目标循环。
                 if (self.state.ish_bosheth
                         and self.state.ish_bosheth.phase in ("active", "duet")
                         and t.player_id == self.state.ish_bosheth.g2_owner_id):

@@ -264,7 +264,7 @@ def choose_displacement_target(
 #  T0 物料牌决策（duet 模式）
 # ================================================================
 
-def decide_t0_duet(player, ish: IshBosheth, assessment: dict,
+def decide_t0_duet(player, ish: IshBosheth, game_state, assessment: dict,
                    playable: list[str]) -> Optional[str]:
     """基于 duet assessment 选择最优牌。
 
