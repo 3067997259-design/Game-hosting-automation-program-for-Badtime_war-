@@ -1609,6 +1609,7 @@ class ActionTurnManager:
             ish2 = self.state.ish_bosheth
             if (ish2 and ish2.phase in ("active", "duet")
                     and (ish2.phase == "duet"
+                         or getattr(player, 'is_chorus', False)
                          or "liberamente_vivace" in getattr(player, 'stage_statuses', set()))):
                 stage_locations = ish2.SEATS | {ish2.g2_home}
                 if dest in stage_locations:

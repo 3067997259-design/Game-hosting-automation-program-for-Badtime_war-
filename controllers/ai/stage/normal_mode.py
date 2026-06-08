@@ -159,8 +159,8 @@ def decide_normal_action(
             if weapon:
                 return f"attack {tname} {weapon}"
             return f"attack {tname}"
-        # 近战不可达 → 移动到目标座位
-        if t_seat and "move" in available_actions:
+        # 近战不可达 → 移动到目标座位（仅限舞台 SEAT）
+        if t_seat and t_seat in ish.SEATS and "move" in available_actions:
             return f"move {t_seat}"
 
     # 无合法目标：移动决策
