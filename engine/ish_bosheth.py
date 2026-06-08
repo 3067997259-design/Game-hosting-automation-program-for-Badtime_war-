@@ -1104,6 +1104,9 @@ class IshBosheth:
             g2p.temp_hp_g2 = 0.0
             g2p.temp_atk_g2 = 0.0
 
+        # v2.0 duet 按钮清理（非正常结束路径不走 R3 _despawn_duet_buttons）
+        self._despawn_duet_buttons(game_state)
+
         # Chorus 消散
         for c in self.chorus_list:
             game_state.unregister_chorus(c.player_id)

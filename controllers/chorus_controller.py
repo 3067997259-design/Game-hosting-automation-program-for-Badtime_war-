@@ -109,8 +109,8 @@ class ChorusController:
         voice = getattr(chorus, 'emotion', None)
         targets = []
 
-        # unreachable: ChorusController 仅在 active 阶段运行，duet 已委托 StageAI
-        # (get_command() L39: phase != "active" → forfeit)
+        # @deprecated: 新逻辑已迁至 target_filter；仅测试引用。
+        # 不包含 duet_buttons，若 commanded_id 指向按钮会 fallback 到 StageAI。
         g2_owner_id = ish.g2_owner_id
 
         # Str 可攻击 G2（G2 不在 participants 中，需单独处理）
