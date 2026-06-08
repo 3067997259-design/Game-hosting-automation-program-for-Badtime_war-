@@ -1561,11 +1561,14 @@ def _build_melody_preview(game_state, ish, occupied: dict, seat_names: list,
             dmg = base_dmg_seq[i] if i < len(base_dmg_seq) else 0.5
             decay = decays[i] if i < len(decays) else 0.1
             stability = _calc_stability(unit, cumulative_delta, decay, ish=ish)
-            actual = _calc_melody_damage(dmg, stability, unit.max_hp, unit.hp)
-            if actual > 0.01:
+            raw = _calc_melody_damage(dmg, stability, unit.max_hp, unit.hp)
+            # 应用伤害量化规则（quantize_damage）使预览与实战一致
+            from combat.damage_resolver import quantize_damage
+            actual = quantize_damage(raw) if raw > 0 else raw
+            if actual > 0:
                 parts.append(f"{unit.name}: {actual:.1f}伤害")
-            elif actual < -0.01:
-                parts.append(f"{unit.name}: {-actual:.1f}治疗")
+            elif raw < 0:
+                parts.append(f"{unit.name}: {-raw:.1f}治疗")
             else:
                 parts.append(f"{unit.name}: 无效")
         preview[seat] = ", ".join(parts)
