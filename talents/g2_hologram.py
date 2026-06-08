@@ -44,9 +44,8 @@ class Hologram(BaseTalent):
     #  发动限制
     # ================================================================
     def _calc_min_round(self) -> int:
-        # DEBUG: 硬编码为 1，调试完 G2×G5 duet TE 前不会合并到 main 分支
-        # 原始公式: 10 + 2 * (len(self.state.player_order) - 2)
-        return 1
+        """阶梯式冷却：2人=10轮，每多1人+2轮。"""
+        return 10 + 2 * (len(self.state.player_order) - 2)
 
     # ================================================================
     #  T0 选项
