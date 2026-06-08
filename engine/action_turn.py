@@ -1580,8 +1580,9 @@ class ActionTurnManager:
             msg = move.execute(player, dest, self.state)
             # 到达舞台座位 → auto-find 该座位的所有人
             ish2 = self.state.ish_bosheth
-            if (ish2 and ish2.phase == "active"
-                    and "liberamente_vivace" in getattr(player, 'stage_statuses', set())):
+            if (ish2 and ish2.phase in ("active", "duet")
+                    and (ish2.phase == "duet"
+                         or "liberamente_vivace" in getattr(player, 'stage_statuses', set()))):
                 stage_locations = ish2.SEATS | {ish2.g2_home}
                 if dest in stage_locations:
                     for pid in ish2.participants:
@@ -1863,7 +1864,7 @@ class ActionTurnManager:
             if result.get("killed") and target:
                 # G2 发动者真正死亡 → 舞台崩塌
                 if (self.state.ish_bosheth
-                        and self.state.ish_bosheth.phase == "active"
+                        and self.state.ish_bosheth.phase in ("active", "duet")
                         and target_id == self.state.ish_bosheth.g2_owner_id):
                     self.state.ish_bosheth.end_ish_bosheth("death", self.state)
                 killer.kill_count += 1
@@ -1871,7 +1872,7 @@ class ActionTurnManager:
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target_id)
                 display.show_death(target.name, f"被 {killer.name} 的 {weapon_name} 击杀")
-                # 新增：通知所有天赋（星野色彩计数等）
+                # 通知所有天赋（星野色彩计数等）
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
                     self.state, target_id, killer_id=killer.player_id)
@@ -1951,11 +1952,6 @@ class ActionTurnManager:
                     lines.append(f"      ⚡ {t.name} 进入震荡状态！")
 
             if res.get("killed"):
-                # G2 发动者死亡 → 舞台崩塌（防御性补全：范围攻击等非标准攻击路径）
-                if (self.state.ish_bosheth
-                        and self.state.ish_bosheth.phase == "active"
-                        and t.player_id == self.state.ish_bosheth.g2_owner_id):
-                    self.state.ish_bosheth.end_ish_bosheth("death", self.state)
                 killer.kill_count += 1
                 self.state.markers.on_player_death(t.player_id)
                 if self.state.police_engine:
