@@ -259,7 +259,8 @@ class ActionTurnManager:
                     play_choice_clean = play_choice.split(" — ")[0] if " — " in play_choice else play_choice
                     if play_choice_clean in playable:
                         self._resolve_card_play(player, ish, play_choice_clean)
-                        hand.remove(play_choice_clean)
+                        # _resolve_card_play 可能追加新手牌（如场刊整理），刷新本地引用
+                        hand = ish.deck.hands.get(pid, [])
                         ish.deck.played_this_turn[pid] = True
                         playable = [c for c in hand if ish.deck.is_playable(player, c)]
                     else:
