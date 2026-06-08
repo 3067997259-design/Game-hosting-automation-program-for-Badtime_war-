@@ -1562,11 +1562,12 @@ def _build_melody_preview(game_state, ish, occupied: dict, seat_names: list,
             decay = decays[i] if i < len(decays) else 0.1
             stability = _calc_stability(unit, cumulative_delta, decay, ish=ish)
             actual = _calc_melody_damage(dmg, stability, unit.max_hp, unit.hp)
-            if actual > 0:
-                hp_after = round(unit.hp - actual, 2)
-                parts.append(f"{unit.name} {unit.hp}→{hp_after}")
+            if actual > 0.01:
+                parts.append(f"{unit.name}: {actual:.1f}伤害")
+            elif actual < -0.01:
+                parts.append(f"{unit.name}: {-actual:.1f}治疗")
             else:
-                parts.append(f"{unit.name} +{-actual:.1f}HP")
+                parts.append(f"{unit.name}: 无效")
         preview[seat] = ", ".join(parts)
     return preview
 
