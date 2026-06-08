@@ -233,8 +233,28 @@ class ActionTurnManager:
                     if pickup in dropped:
                         ish.deck.pickup_floor(pid, seat, pickup)
 
-                # 3. 可进行 1 次自愿换牌
-                # （AI 通过 choose 处理，Human 通过提示处理）
+                # 3. 可进行 1 次自愿换牌（仅限同座位单位）
+                if ish.deck.can_trade(pid):
+                    from controllers.ai.stage import StageAI
+                    assessment = StageAI.assess(player, self.state)
+                    trade = StageAI.decide_trade(player, ish, self.state,
+                                                 assessment, hand)
+                    if trade:
+                        partner, my_card, their_card = trade
+                        partner_accepts = partner.controller.choose(
+                            f"换牌请求：{player.name} 想用「{my_card}」"
+                            f"换你的「{their_card}」，是否同意？",
+                            ["同意", "拒绝"],
+                            context={"phase": "T0", "situation": "g2_trade_accept",
+                                     "from_name": player.name,
+                                     "offered": my_card, "wanted": their_card}
+                        )
+                        if "同意" in partner_accepts:
+                            ish.deck.execute_trade(
+                                pid, partner.player_id, my_card, their_card)
+                            display.show_info(
+                                f"🔄 {player.name} 与 {partner.name} 换牌："
+                                f"{my_card} ↔ {their_card}")
 
                 # 4. 可打出最多 1 张牌
                 hand = ish.deck.hands.get(pid, [])

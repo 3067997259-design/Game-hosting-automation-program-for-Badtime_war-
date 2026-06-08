@@ -760,6 +760,19 @@ class ChooseMixin(_Base):
         if situation == "g2_voice_choice":
             return random.choice(options)
 
+        # ---- G2 舞台换牌接受 ----
+        if situation == "g2_trade_accept":
+            offered = (context or {}).get("offered", "")
+            ish = getattr(self._game_state, 'ish_bosheth', None)
+            if ish and self._player:
+                from controllers.ai.stage import StageAI
+                my_hand = ish.deck.hands.get(self._player.player_id, [])
+                if StageAI.decide_trade_accept(self._player, ish, offered, my_hand):
+                    for opt in options:
+                        if "同意" in opt:
+                            return opt
+            return "拒绝"
+
         # ---- 默认 ----
         return options[0]
 
