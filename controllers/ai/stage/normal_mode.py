@@ -148,7 +148,7 @@ def decide_normal_action(
         weapon = pick_best_weapon(player)
         tname = getattr(best_target, 'name', str(best_target))
         if weapon:
-            return f"attack {tname} with {weapon}"
+            return f"attack {tname} {weapon}"
         return f"attack {tname}"
 
     # 无合法目标：移动决策

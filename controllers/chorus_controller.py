@@ -75,7 +75,7 @@ class ChorusController:
                     weapons = getattr(chorus, 'weapons', [])
                     if weapons:
                         weapon = random.choice(weapons)
-                        return f"attack {commanded_target.name} with {weapon.name}"
+                        return f"attack {commanded_target.name} {weapon.name}"
                     return f"attack {commanded_target.name}"
 
             # 委托 StageAI 决策

@@ -132,7 +132,7 @@ def decide_duet_action(
         if at_button and "attack" in available_actions and weapons:
             btn = next(b for b in ish.duet_buttons if b.location == my_seat)
             wname = pick_best_weapon(player)
-            return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
+            return f"attack {btn.name} {wname}" if wname else f"attack {btn.name}"
         if _has_offering_card(player, ish) and "attack" in available_actions:
             return _use_offering_card(player, ish, game_state)
         if has_button and "move" in available_actions:
@@ -144,14 +144,14 @@ def decide_duet_action(
         if at_button and "attack" in available_actions and weapons:
             btn = next(b for b in ish.duet_buttons if b.location == my_seat)
             wname = pick_best_weapon(player)
-            return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
+            return f"attack {btn.name} {wname}" if wname else f"attack {btn.name}"
         # PvP: 攻击对立声部中在按钮旁的单位
         if "attack" in available_actions and weapons:
             pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
             if pvp_target:
                 wname = pick_best_weapon(player)
                 tname = getattr(pvp_target, 'name', str(pvp_target))
-                return f"attack {tname} with {wname}" if wname else f"attack {tname}"
+                return f"attack {tname} {wname}" if wname else f"attack {tname}"
         # fallback
         if has_button and "move" in available_actions:
             return f"move {next(iter(button_seats))}"
@@ -161,14 +161,14 @@ def decide_duet_action(
     if at_button and "attack" in available_actions and weapons:
         btn = next(b for b in ish.duet_buttons if b.location == my_seat)
         wname = pick_best_weapon(player)
-        return f"attack {btn.name} with {wname}" if wname else f"attack {btn.name}"
+        return f"attack {btn.name} {wname}" if wname else f"attack {btn.name}"
     if "attack" in available_actions and weapons:
         # 不在按钮旁 → PvP 位移对立声部（好武器主动压制 / 弱武器退而求其次）
         pvp_target = _pick_pvp_target(player, ish, game_state, button_seats)
         if pvp_target:
             wname = pick_best_weapon(player)
             tname = getattr(pvp_target, 'name', str(pvp_target))
-            return f"attack {tname} with {wname}" if wname else f"attack {tname}"
+            return f"attack {tname} {wname}" if wname else f"attack {tname}"
     if has_button and "move" in available_actions:
         return f"move {next(iter(button_seats))}"
     return "forfeit"
