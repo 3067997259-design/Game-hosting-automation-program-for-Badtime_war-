@@ -470,6 +470,13 @@ class IshBosheth:
 
         # 10. ma non troppo 开场声部分配
         self.ma_non_troppo(game_state, voice_prefs)
+        # 输出最终声部结果
+        for pid in self.participants:
+            p = game_state.get_player(pid)
+            if p:
+                lines.append(f"  {p.name} 最终声部 → {VOICE_LABELS.get(getattr(p, 'emotion', None), '?')}。")
+        for c in self.chorus_list:
+            lines.append(f"  {c.name} 最终声部 → {VOICE_LABELS.get(c.emotion, '?')}。")
 
         # 11. 创建物料牌系统
         from engine.material_deck import MaterialDeck

@@ -145,11 +145,23 @@ def decide_normal_action(
     if legal and "attack" in available_actions:
         ranked = rank_targets(player, legal, ish, game_state, threat_scores)
         best_target, _ = ranked[0]
-        weapon = pick_best_weapon(player)
-        tname = getattr(best_target, 'name', str(best_target))
-        if weapon:
-            return f"attack {tname} {weapon}"
-        return f"attack {tname}"
+        my_seat = getattr(player, 'location', None)
+        t_seat = getattr(best_target, 'location', None)
+        # 检查射程：远程可跨座，近战需同座；不可达则改为 move
+        from models.equipment import WeaponRange
+        weapons = getattr(player, 'weapons', [])
+        has_ranged = any(
+            getattr(w, 'weapon_range', None) == WeaponRange.RANGED for w in weapons
+        )
+        if has_ranged or t_seat == my_seat:
+            weapon = pick_best_weapon(player)
+            tname = getattr(best_target, 'name', str(best_target))
+            if weapon:
+                return f"attack {tname} {weapon}"
+            return f"attack {tname}"
+        # 近战不可达 → 移动到目标座位
+        if t_seat and "move" in available_actions:
+            return f"move {t_seat}"
 
     # 无合法目标：移动决策
     if "move" in available_actions:
