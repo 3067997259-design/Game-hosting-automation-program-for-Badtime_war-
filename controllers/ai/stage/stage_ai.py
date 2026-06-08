@@ -51,7 +51,7 @@ class StageAI:
         """为舞台内单位生成行动指令。
 
         Returns:
-            指令字符串（"attack X with Y", "move Z", "forfeit" 等），
+            指令字符串（"attack X Y", "move Z", "forfeit" 等），
             或 None（表示不由 StageAI 处理，调用方自行 fallback）。
         """
         ish = getattr(game_state, 'ish_bosheth', None)
