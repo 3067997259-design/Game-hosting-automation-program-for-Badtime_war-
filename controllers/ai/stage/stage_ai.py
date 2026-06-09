@@ -196,7 +196,7 @@ class StageAI:
         """T0 换牌决策。返回 (partner, my_card, their_card) 或 None。"""
         from controllers.ai.stage.target_filter import get_hand
         my_seat = getattr(player, 'location', None)
-        # 同座位可选交易对象（需持牌 + 有 controller 以完成 choose 交互）
+        # 同座位可选交易对象（需持牌；ButtonDummy等无牌单位自动过滤）
         partners = []
         for pid in ish.participants:
             p = game_state.get_player(pid)
@@ -218,7 +218,7 @@ class StageAI:
         my_voice = getattr(player, 'emotion', None)
         junk = []
         for card in hand:
-            info = ish.deck.get_card_info(card)
+            info = ish.deck.get_card_info(card) if ish.deck else {}
             voice = info.get("voice") if info else None
             if voice and voice != my_voice:
                 junk.append((card, voice))
