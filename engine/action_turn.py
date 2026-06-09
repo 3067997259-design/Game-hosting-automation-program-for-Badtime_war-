@@ -2107,13 +2107,15 @@ def _human_trade_choose(player, ish, game_state) -> Optional[tuple]:
         if (p and p.is_alive() and p.player_id != player.player_id
                 and p.location == my_seat
                 and ish.deck.can_trade(p.player_id)
-                and get_hand(p, ish)):
+                and get_hand(p, ish)
+                and getattr(p, 'controller', None) is not None):
             partners.append(p)
     for c in ish.chorus_list:
         if (c.is_alive() and c.player_id != player.player_id
                 and c.location == my_seat
                 and ish.deck.can_trade(c.player_id)
-                and get_hand(c, ish)):
+                and get_hand(c, ish)
+                and getattr(c, 'controller', None) is not None):
             partners.append(c)
     if not partners:
         display.show_info("⚠️ 同座位无可交易单位")

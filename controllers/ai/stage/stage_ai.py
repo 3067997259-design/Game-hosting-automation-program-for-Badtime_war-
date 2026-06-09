@@ -245,8 +245,8 @@ class StageAI:
         my_voice = getattr(player, 'emotion', None)
         info = ish.deck.get_card_info(offered_card) if ish.deck else {}
         offered_voice = info.get("voice")
-        # 是我声部的专属牌 → 接受
-        if offered_voice == my_voice:
+        # 是我声部的专属牌 → 接受（需有声部，避免 None==None 误匹配）
+        if my_voice is not None and offered_voice == my_voice:
             return True
         # 通用好牌 + 我手上有其他声部垃圾 → 接受
         if offered_voice is None and offered_card in (
@@ -262,7 +262,7 @@ def _pick_want_card(ish, p_hand: list, my_voice) -> Optional[str]:
     """从对方手牌中选期望换入的牌。"""
     for card in p_hand:
         info = ish.deck.get_card_info(card) if ish.deck else {}
-        if info.get("voice") == my_voice:
+        if my_voice is not None and info.get("voice") == my_voice:
             return card
     for card in ("前排票", "荧光棒", "耳塞", "花束", "空白票根"):
         if card in p_hand:
