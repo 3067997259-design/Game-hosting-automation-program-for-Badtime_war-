@@ -771,7 +771,10 @@ class ChooseMixin(_Base):
                     for opt in options:
                         if "同意" in opt:
                             return opt
-            return "拒绝"
+            for opt in options:
+                if "拒绝" in opt:
+                    return opt
+            return options[-1]  # 兜底：最后一项通常为否定选项
 
         # ---- 默认 ----
         return options[0]

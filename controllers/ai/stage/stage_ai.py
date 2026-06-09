@@ -197,18 +197,20 @@ class StageAI:
         """T0 换牌决策。返回 (partner, my_card, their_card) 或 None。"""
         from controllers.ai.stage.target_filter import get_hand
         my_seat = getattr(player, 'location', None)
-        # 同座位可选交易对象
+        # 同座位可选交易对象（需有 controller 以完成 choose 交互）
         partners = []
         for pid in ish.participants:
             p = game_state.get_player(pid)
             if (p and p.is_alive() and p.player_id != player.player_id
                     and p.location == my_seat
-                    and ish.deck.can_trade(p.player_id)):
+                    and ish.deck.can_trade(p.player_id)
+                    and getattr(p, 'controller', None) is not None):
                 partners.append(p)
         for c in ish.chorus_list:
             if (c.is_alive() and c.player_id != player.player_id
                     and c.location == my_seat
-                    and ish.deck.can_trade(c.player_id)):
+                    and ish.deck.can_trade(c.player_id)
+                    and getattr(c, 'controller', None) is not None):
                 partners.append(c)
         if not partners:
             return None
@@ -266,4 +268,4 @@ def _pick_want_card(ish, p_hand: list, my_voice) -> Optional[str]:
     for card in ("前排票", "荧光棒", "耳塞", "花束", "空白票根"):
         if card in p_hand:
             return card
-    return p_hand[0] if p_hand else None
+    return None  # 找不到优先牌，不盲目换
