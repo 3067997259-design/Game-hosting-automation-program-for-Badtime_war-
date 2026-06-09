@@ -2098,19 +2098,22 @@ def _human_trade_choose(player, ish, game_state) -> Optional[tuple]:
     if "不换" in want_trade:
         return None
 
-    # 2. 同座位可选交易对象
+    # 2. 同座位可选交易对象（需持牌才能参与交易）
     my_seat = player.location
+    from controllers.ai.stage.target_filter import get_hand
     partners = []
     for pid in ish.participants:
         p = game_state.get_player(pid)
         if (p and p.is_alive() and p.player_id != player.player_id
                 and p.location == my_seat
-                and ish.deck.can_trade(p.player_id)):
+                and ish.deck.can_trade(p.player_id)
+                and get_hand(p, ish)):
             partners.append(p)
     for c in ish.chorus_list:
         if (c.is_alive() and c.player_id != player.player_id
                 and c.location == my_seat
-                and ish.deck.can_trade(c.player_id)):
+                and ish.deck.can_trade(c.player_id)
+                and get_hand(c, ish)):
             partners.append(c)
     if not partners:
         display.show_info("⚠️ 同座位无可交易单位")
@@ -2134,7 +2137,6 @@ def _human_trade_choose(player, ish, game_state) -> Optional[tuple]:
         return None
 
     # 4. 选期望从对方获得的牌
-    from controllers.ai.stage.target_filter import get_hand
     p_hand = get_hand(partner, ish)
     if not p_hand:
         display.show_info("⚠️ 对方无手牌")
