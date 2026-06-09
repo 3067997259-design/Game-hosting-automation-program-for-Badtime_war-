@@ -370,9 +370,6 @@ class HologramAIHook(BaseTalentAIHook):
         if situation == "g2_melody_seat":
             return self._choose_melody_seat(player, state, options)
 
-        # ── v0.6 初始声部选择 ──
-        if situation == "g2_voice_choice":
-            return self._choose_initial_voice(player, state, options)
 
         # ── v0.6 物料牌决策 ──
         if situation == "g2_play_card":
@@ -605,32 +602,6 @@ class HologramAIHook(BaseTalentAIHook):
                 best_seat = seat_name
         return best_seat or self._pick_random_option(options)
 
-    # ── 声部选择 ──────────────────────────────────────────────────
-
-    def _choose_initial_voice(self, player, state, options) -> Optional[str]:
-        """AI 初始声部选择策略。"""
-        threat_scores = getattr(self._ctrl, '_threat_scores', {})
-        hp = player.hp
-        outer = GameQuery.count_outer_armor(player)
-
-        # 高HP + 有护甲 + 有敌人想杀 → Accarezzevole（积极攻击）
-        if hp >= 1.5 and outer >= 1 and self._has_threatening_enemy(state, threat_scores):
-            for opt in options:
-                if "Accarezzevole" in opt or "入戏" in opt:
-                    return opt
-
-        # 低HP 或 无护甲 → Strappando（需要减伤/离场）
-        if hp <= 0.5 or outer == 0:
-            for opt in options:
-                if "Strappando" in opt or "反抗" in opt:
-                    return opt
-
-        # 默认 → Indifferenza（观望）
-        for opt in options:
-            if "Indifferenza" in opt or "抽离" in opt:
-                return opt
-        return self._pick_random_option(options)
-
     # ── 物料牌决策 ────────────────────────────────────────────────
 
     def _choose_card_to_play(self, player, state, options) -> Optional[str]:
@@ -638,23 +609,30 @@ class HologramAIHook(BaseTalentAIHook):
         if "不打" in options and len(options) <= 2:
             return "不打"
 
-        # 战斗中优先
+        # 过滤不可打出的牌（标注了"(不可打出"），并提取纯牌名
+        playable_names = set()
+        for opt in options:
+            if "不打" in opt:
+                continue
+            name = opt.split(" — ")[0] if " — " in opt else opt
+            if "(不可打出" not in opt:
+                playable_names.add(name)
+
         combat_cards = ["荧光棒", "聚光合影", "后台通行证", "撕票", "倒彩"]
         defense_cards = ["耳塞", "花束"]
         utility_cards = ["前排票", "小卡交换", "空白票根", "场刊整理"]
 
         for card in combat_cards:
-            if card in options:
+            if card in playable_names:
                 return card
         for card in defense_cards:
-            if card in options:
+            if card in playable_names:
                 return card
         for card in utility_cards:
-            if card in options:
+            if card in playable_names:
                 return card
-        for opt in options:
-            if opt != "不打":
-                return opt
+        if playable_names:
+            return next(iter(playable_names))
         return "不打"
 
     def _choose_card_to_discard(self, player, state, options) -> Optional[str]:
@@ -751,14 +729,6 @@ class HologramAIHook(BaseTalentAIHook):
             if c.is_alive() and c.name in option:
                 return c
         return None
-
-    @staticmethod
-    def _has_threatening_enemy(state, threat_scores) -> bool:
-        for pid in state.player_order:
-            p = state.get_player(pid)
-            if p and p.is_alive() and threat_scores.get(p.name, 0) > 30:
-                return True
-        return False
 
     @staticmethod
     def _pick_random_option(options: List[str]) -> Optional[str]:

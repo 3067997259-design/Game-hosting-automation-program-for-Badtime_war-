@@ -186,3 +186,85 @@ class StageAI:
             return options[0] if options else ""
 
         return None
+
+    # ================================================================
+    #  T0 换牌决策
+    # ================================================================
+
+    @staticmethod
+    def decide_trade(player, ish, game_state, hand: list) -> Optional[tuple]:
+        """T0 换牌决策。返回 (partner, my_card, their_card) 或 None。"""
+        from controllers.ai.stage.target_filter import get_hand
+        my_seat = getattr(player, 'location', None)
+        # 同座位可选交易对象（需持牌；ButtonDummy等无牌单位自动过滤）
+        partners = []
+        for pid in ish.participants:
+            p = game_state.get_player(pid)
+            if (p and p.is_alive() and p.player_id != player.player_id
+                    and p.location == my_seat
+                    and ish.deck.can_trade(p.player_id)
+                    and get_hand(p, ish)):
+                partners.append(p)
+        for c in ish.chorus_list:
+            if (c.is_alive() and c.player_id != player.player_id
+                    and c.location == my_seat
+                    and ish.deck.can_trade(c.player_id)
+                    and get_hand(c, ish)):
+                partners.append(c)
+        if not partners:
+            return None
+
+        # 识别其他声部的专属牌 → 优先换出
+        my_voice = getattr(player, 'emotion', None)
+        junk = []
+        for card in hand:
+            info = ish.deck.get_card_info(card) if ish.deck else {}
+            voice = info.get("voice") if info else None
+            if voice and voice != my_voice:
+                junk.append((card, voice))
+
+        if not junk:
+            return None
+
+        # 找最优交易
+        for my_card, target_voice in junk:
+            partners.sort(key=lambda p: getattr(
+                p, 'emotion', None) == target_voice, reverse=True)
+            for partner in partners:
+                p_hand = get_hand(partner, ish)
+                want = _pick_want_card(ish, p_hand, my_voice)
+                if want and ish.deck.propose_trade(
+                        player.player_id, partner.player_id, my_card, want):
+                    return (partner, my_card, want)
+        return None
+
+    @staticmethod
+    def decide_trade_accept(player, ish, offered_card: str,
+                            my_hand: list) -> bool:
+        """AI 是否接受换牌请求。"""
+        my_voice = getattr(player, 'emotion', None)
+        info = ish.deck.get_card_info(offered_card) if ish.deck else {}
+        offered_voice = info.get("voice")
+        # 是我声部的专属牌 → 接受（需有声部，避免 None==None 误匹配）
+        if my_voice is not None and offered_voice == my_voice:
+            return True
+        # 通用好牌 + 我手上有其他声部垃圾 → 接受
+        if offered_voice is None and offered_card in (
+                "荧光棒", "前排票", "花束", "耳塞"):
+            for c in my_hand:
+                cinfo = ish.deck.get_card_info(c) if ish.deck else {}
+                if cinfo.get("voice") and cinfo["voice"] != my_voice:
+                    return True
+        return False
+
+
+def _pick_want_card(ish, p_hand: list, my_voice) -> Optional[str]:
+    """从对方手牌中选期望换入的牌。"""
+    for card in p_hand:
+        info = ish.deck.get_card_info(card) if ish.deck else {}
+        if my_voice is not None and info.get("voice") == my_voice:
+            return card
+    for card in ("前排票", "荧光棒", "耳塞", "花束", "空白票根"):
+        if card in p_hand:
+            return card
+    return None  # 找不到优先牌，不盲目换

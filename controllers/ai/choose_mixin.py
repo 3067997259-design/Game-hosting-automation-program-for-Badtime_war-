@@ -756,6 +756,30 @@ class ChooseMixin(_Base):
                     return target_loc
             return options[0]
 
+        # ---- G2 舞台初始声部选择（非 G2 的通用 fallback，随机避免全 Acc） ----
+        if situation == "g2_voice_choice":
+            return random.choice(options)
+
+        # ---- G2 舞台换牌接受 ----
+        if situation == "g2_trade_accept":
+            offered = (context or {}).get("offered", "")
+            ish = getattr(self._game_state, 'ish_bosheth', None)
+            if ish and self._player:
+                from controllers.ai.stage import StageAI
+                my_hand = ish.deck.hands.get(self._player.player_id, [])
+                if StageAI.decide_trade_accept(self._player, ish, offered, my_hand):
+                    for opt in options:
+                        if "同意" in opt:
+                            return opt
+            for opt in options:
+                if "拒绝" in opt:
+                    return opt
+            # 兜底：返回第一个非"同意"选项（不依赖选项顺序）
+            for opt in options:
+                if "同意" not in opt:
+                    return opt
+            return options[-1]
+
         # ---- 默认 ----
         return options[0]
 
