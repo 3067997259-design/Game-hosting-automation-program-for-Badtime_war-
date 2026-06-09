@@ -144,22 +144,24 @@ def decide_normal_action(
 
     if legal and "attack" in available_actions:
         ranked = rank_targets(player, legal, ish, game_state, threat_scores)
-        best_target, _ = ranked[0]
         my_seat = getattr(player, 'location', None)
-        t_seat = getattr(best_target, 'location', None)
-        # 检查射程：远程可跨座，近战需同座；不可达则改为 move
         from models.equipment import WeaponRange
         weapons = getattr(player, 'weapons', [])
         has_ranged = any(
             getattr(w, 'weapon_range', None) == WeaponRange.RANGED for w in weapons
         )
-        if has_ranged or t_seat == my_seat:
-            weapon = pick_best_weapon(player)
-            tname = getattr(best_target, 'name', str(best_target))
-            if weapon:
-                return f"attack {tname} {weapon}"
-            return f"attack {tname}"
-        # 近战不可达 → 移动到目标座位（仅限舞台 SEAT）
+        # 遍历排名找第一个射程可达的目标
+        for target, _ in ranked:
+            t_seat = getattr(target, 'location', None)
+            if has_ranged or t_seat == my_seat:
+                weapon = pick_best_weapon(player)
+                tname = getattr(target, 'name', str(target))
+                if weapon:
+                    return f"attack {tname} {weapon}"
+                return f"attack {tname}"
+        # 全部不可达 → 尝试移动到排名第一的目标座位
+        best_target, _ = ranked[0]
+        t_seat = getattr(best_target, 'location', None)
         if t_seat and t_seat in ish.SEATS and "move" in available_actions:
             return f"move {t_seat}"
 

@@ -192,8 +192,7 @@ class StageAI:
     # ================================================================
 
     @staticmethod
-    def decide_trade(player, ish, game_state, assessment: dict,
-                     hand: list) -> Optional[tuple]:
+    def decide_trade(player, ish, game_state, hand: list) -> Optional[tuple]:
         """T0 换牌决策。返回 (partner, my_card, their_card) 或 None。"""
         from controllers.ai.stage.target_filter import get_hand
         my_seat = getattr(player, 'location', None)

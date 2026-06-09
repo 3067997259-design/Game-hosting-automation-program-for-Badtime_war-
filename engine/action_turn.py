@@ -2,6 +2,7 @@
 
 import copy
 import random
+from typing import Optional
 from cli import display
 from cli.parser import parse, resolve_player_target
 from cli.validator import validate
@@ -234,11 +235,15 @@ class ActionTurnManager:
                         ish.deck.pickup_floor(pid, seat, pickup)
 
                 # 3. 可进行 1 次自愿换牌（仅限同座位单位）
+                hand = ish.deck.hands.get(pid, [])  # 兜底：牌堆空时 hand 未定义
                 if ish.deck.can_trade(pid):
                     from controllers.ai.stage import StageAI
-                    assessment = StageAI.assess(player, self.state)
-                    trade = StageAI.decide_trade(player, ish, self.state,
-                                                 assessment, hand)
+                    from controllers.human import HumanController
+                    if isinstance(player.controller, HumanController):
+                        # 人类玩家自主选择换牌对象和牌
+                        trade = _human_trade_choose(player, ish, self.state)
+                    else:
+                        trade = StageAI.decide_trade(player, ish, self.state, hand)
                     if trade:
                         partner, my_card, their_card = trade
                         partner_accepts = partner.controller.choose(
@@ -2075,3 +2080,75 @@ class ActionTurnManager:
         action_type = self._phase_t1(player)
         self._phase_t2(player, action_type)
         return action_type
+
+
+def _human_trade_choose(player, ish, game_state) -> Optional[tuple]:
+    """人类玩家换牌交互：选择交易对象→选自己的牌→选对方的牌。"""
+    hand = ish.deck.hands.get(player.player_id, [])
+    if len(hand) < 2:
+        display.show_info("⚠️ 手牌不足，无法发起换牌")
+        return None
+
+    # 1. 是否换牌
+    want_trade = player.controller.choose(
+        "是否进行换牌（1次，仅限同座位单位）？",
+        ["换牌", "不换"],
+        context={"phase": "T0", "situation": "g2_trade_init"},
+    )
+    if "不换" in want_trade:
+        return None
+
+    # 2. 同座位可选交易对象
+    my_seat = player.location
+    partners = []
+    for pid in ish.participants:
+        p = game_state.get_player(pid)
+        if (p and p.is_alive() and p.player_id != player.player_id
+                and p.location == my_seat
+                and ish.deck.can_trade(p.player_id)):
+            partners.append(p)
+    for c in ish.chorus_list:
+        if (c.is_alive() and c.player_id != player.player_id
+                and c.location == my_seat
+                and ish.deck.can_trade(c.player_id)):
+            partners.append(c)
+    if not partners:
+        display.show_info("⚠️ 同座位无可交易单位")
+        return None
+
+    partner_names = [p.name for p in partners]
+    pchoice = player.controller.choose(
+        "选择交易对象：", partner_names + ["取消"],
+        context={"phase": "T0", "situation": "g2_trade_partner"},
+    )
+    partner = next((p for p in partners if p.name in pchoice), None)
+    if not partner:
+        return None
+
+    # 3. 选自己要给出的牌
+    my_choice = player.controller.choose(
+        "选择你要给出的牌：", hand,
+        context={"phase": "T0", "situation": "g2_trade_my_card"},
+    )
+    if my_choice not in hand:
+        return None
+
+    # 4. 选期望从对方获得的牌
+    from controllers.ai.stage.target_filter import get_hand
+    p_hand = get_hand(partner, ish)
+    if not p_hand:
+        display.show_info("⚠️ 对方无手牌")
+        return None
+    their_choice = player.controller.choose(
+        f"选择期望获得的牌（{partner.name}的手牌）：", p_hand,
+        context={"phase": "T0", "situation": "g2_trade_their_card"},
+    )
+    if their_choice not in p_hand:
+        return None
+
+    if not ish.deck.propose_trade(
+            player.player_id, partner.player_id, my_choice, their_choice):
+        display.show_info("⚠️ 交易无效")
+        return None
+
+    return (partner, my_choice, their_choice)
