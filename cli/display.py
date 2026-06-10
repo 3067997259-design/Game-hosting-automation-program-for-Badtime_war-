@@ -358,6 +358,21 @@ def show_all_players_status(game_state):
             if marker_desc != "无异常":
                 print(f"  状态标记：{marker_desc}")
 
+    # Chorus（G2 ish-bosheth 内）
+    ish = getattr(game_state, 'ish_bosheth', None)
+    if ish and ish.phase == "active" and ish.chorus_list:
+        from engine.ish_bosheth import EMOTION_LABELS
+        print(f"\n  ── Chorus 单位 ──")
+        for c in ish.chorus_list:
+            alive_str = "存活" if c.is_alive() else "死亡"
+            emo = EMOTION_LABELS.get(getattr(c, 'emotion', ''), '?')
+            wps = ', '.join(getattr(w, 'name', '?') for w in c.weapons)
+            armor_desc = c.armor.describe()
+            print(f"\n  [{alive_str}] {c.name} @ {c.location}")
+            print(f"    HP: {c.hp}/{c.max_hp} | 情绪: {emo}")
+            print(f"    武器: {wps}")
+            print(f"    护甲: {armor_desc}")
+
     # 病毒状态
     if game_state.virus.is_active:
         print()

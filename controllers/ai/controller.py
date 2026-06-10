@@ -352,6 +352,18 @@ class BasicAIController(
         attempt = context.get("attempt", 1) if context else 1
         situation = (context or {}).get("situation", "")
 
+        # v2.0 StageAI: 舞台内决策接管（正常模式 + duet 模式）
+        ish = getattr(game_state, 'ish_bosheth', None)
+        if ish and ish.phase in ("active", "duet") and attempt == 1:
+            from controllers.ai.stage import StageAI
+            ctx = context or {}
+            ctx.setdefault("threat_scores", getattr(self, '_threat_scores', {}))
+            cmd = StageAI.get_command(player, game_state, available_actions, ctx)
+            if cmd:
+                self._candidates = [cmd]
+                self._attempt_index = 0
+                return cmd
+
         # 星野战术宏输入：从预生成队列逐条弹出
         if situation == "hoshino_tactical_input":
             available_action_names = [

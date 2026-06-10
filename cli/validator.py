@@ -468,6 +468,15 @@ def validate_special(player, op_name, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
     if not op_name:
+        ish = getattr(game_state, 'ish_bosheth', None)
+        # G2 在 ish-bosheth 中的演唱走交互式 choose 流程（含 duet 模式）
+        if (ish and ish.phase in ("active", "duet")
+                and player.player_id == ish.g2_owner_id):
+            return True, ""
+        # v2.0: G5 duet 伴唱走 _execute_action 分发（execute_harmonize）
+        if (ish and ish.phase == "duet"
+                and player.player_id == getattr(ish, 'duet_g5_pid', None)):
+            return True, ""
         return False, "请指定操作名。"
     ok, reason = _check_not_disabled(player, game_state)
     if not ok:

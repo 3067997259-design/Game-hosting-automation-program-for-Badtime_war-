@@ -303,6 +303,37 @@
       "talent_not_in_poem_list": "❌ {target_name} 的天赋不在献诗列表中。",
       "anchor_fate_started": "锚定命运已启动：{anchor_detail}"
     },
+    "duet": {
+      "vote.trigger": "\n🎤🌊 {g5_name} 向舞台上的 {g2_name} 献上「追光」之诗……\n「请一直，注视着我——」\n「——我在注视着你。」\n",
+      "vote.yes": "  ✓ {name}（{weight}票）→ 赞成",
+      "vote.no": "  ✗ {name}（{weight}票）→ 反对",
+      "vote.result_pass": "\n✨ 赞成 {yes}/{total} —— 演出进入双人模式！",
+      "vote.result_fail": "\n💧 赞成 {yes}/{total} —— 不足半数，双人演出未通过。\n追光之诗按标准效果生效。",
+      "enter": "\n🎤🌊 {g5_name} 走上舞台，与 {g2_name} 并肩而立。\n双人演出，即将开始——\n",
+      "enter.info": "\n==================================================\n  🎤🌊 双人演出模式 —— {g2} & {g5}\n  Regard 初始：{regard}\n  G5 追忆预算：{budget}/12\n  最大轮次：8\n  热力计数器已就绪\n==================================================",
+      "button.spawn": "\n🔴🔴 两个大红按钮出现在 {seat1} 和 {seat2}！",
+      "button.hit": "🔴 {name} 按下了按钮！+{heat} 热力 → {voice}",
+      "heat.round_end": "\n🎤 第 {round}/8 轮 — 当轮热力: Acc=+{acc} Ind=+{ind} Str=+{str_} → Regard +{regen} = {regard}",
+      "harmonize.used": "🎤 {name} 伴唱！本轮歌曲花费减半。追忆预算：{budget}/12",
+      "displacement.random": "💨 {name} 被弹飞到 {seat}！",
+      "displacement.chosen": "🎯 {attacker} 将 {name} 推到了 {seat}！",
+      "displacement.resist": "  🛡️ {name} 站稳了脚步，未被弹飞。",
+      "encore.trigger": "\n🎉🎉 安可！安可！G5 的 12 追忆分毫未动！\n   G2 与 G5 合唱双人曲 —— 所有观众自选一件物品！",
+      "encore.pick_location": "选择获取地点：",
+      "encore.pick_item": "选择要获取的物品：",
+      "encore.grant": "✅ {name} 获得了 {item}！",
+      "curtain.header": "\n==================================================\n  🎤 双人演出谢幕！\n==================================================",
+      "curtain.ranking": "🏆 热力排名：第1声部 — {first} ({hf}) / 第2声部 — {second} ({hs}) / 第3声部 — {third} ({ht})",
+      "curtain.reward_1st": "🥇 第1声部({voice}): D4/D6+1，下次伤害+0.5",
+      "curtain.reward_2nd": "🥈 第2声部({voice}): D4/D6+1，tempHP+0.5",
+      "curtain.reward_3rd": "🥉 第3声部({voice}): D4+1",
+      "embrace.g2": "🤗 {name} 拥抱了 G2！获得「歌者的祝福」：下次攻击伤害+{mult}",
+      "embrace.g5": "🤗 {name} 拥抱了 G5！获得「涟漪的余韵」：下次被攻击免伤{mult}",
+      "offer.heat": "🎁 {name} 向舞台献上 {card}！+{heat} 热力 → {voice}",
+      "enter.move_to_stage": "  🏠 {name} 从 {old_loc} 移动到舞台中心（{stage_home}）。",
+      "displacement.choose_dest": "选择 {target_name} 的位移目的地：",
+      "displacement.oob": "  ⚠️ {name} 被弹出舞台范围（{loc}），舞台状态已清除。"
+    },
     "t1oneslash": {
       "lore": [
         "「他说，那一刀未必不可企及……」",
@@ -645,6 +676,57 @@
     "warning": "⚠️ {message}",
     "error": "❌ {message}",
     "info": "💡 {message}"
+  },
+  "g2reset": {
+    "stage": {
+      "activate": "  🎭 {player_name} 展开了 ish-bosheth！",
+      "end_header": "  🎭 ish-bosheth 结束 (原因: {reason})",
+      "regard_zero": "🎭 Regard 归零，ish-bosheth 进入待谢幕状态。",
+      "max_duration": "🎭 已持续 8 轮，ish-bosheth 进入待谢幕状态。",
+      "curtain_damage": "  🎭 {player_name} 受到废墟谢幕伤害 0.5 → HP: {hp}",
+      "g2_invisible": "  {player_name} 无人阻挡，清除标记并隐身。",
+      "g2_empty_leave": "  {player_name} 空场退场，清除标记并隐身。",
+      "break_reward": "  🎭 {player_name} 获得下轮 D4+1 奖励！",
+      "break_success": "🎭💥 破幕成功！ish-bosheth 结界崩溃！",
+      "regard_minus_one": "  🎭 Regard -1 → {regard}",
+      "already_active": "ish-bosheth 已展开中。",
+      "not_active": "ish-bosheth 未激活。",
+      "no_songs": "没有可用曲目（Regard 不足）。",
+      "regard_insufficient": "Regard 不足（需要 {needed}，当前 {current}）。",
+      "no_targets": "没有合法听者。",
+      "leave_success": "🎭 {player_name} 离开了 ish-bosheth 舞台！",
+      "encore_block": "🎭 安可阻止 {player_name} 离场！（剩余 {layers} 层）",
+      "submerge_count": "  {count} 个非玩家单位被压制 (Submerged)。"
+    },
+    "emotion": {
+      "initial": "  🎭 {player_name} 初始情绪：{emotion}",
+      "changed": "  🎭 {player_name} 情绪：{emotion}",
+      "immunity_stun": "🎭 {player_name} 在舞台中免疫眩晕。",
+      "immunity_shock": "🎭 {player_name} 在舞台中免疫震荡。",
+      "immunity_petrify": "🎭 {player_name} 在舞台中免疫石化。",
+      "moderation_lock": "  🎭 {player_name} 受 ma non troppo 限制，本轮不可切换情绪。",
+      "sognando_lock": "  🎭 {player_name} 受 Sognando 情绪锁定，不可切换情绪。",
+      "indifferenza_auto": "  🎭 {player_name} 发起攻击，自动转为入戏"
+    },
+    "ma_non_troppo": {
+      "corrected": "  🎭 ma non troppo: {player_name} {old_emotion} → {new_emotion}"
+    },
+    "song": {
+      "soave": "  🎵 追寻那道光·温柔 → {target_name} 获得聚光灯+额外行动！",
+      "sognando": "  🎵 追寻那道光·追寻 → {target_name} 强制入戏+聚光灯+情绪锁定！",
+      "placido": "  🎵 拼接遗憾·平静 → {target_name} 安可（当前{layers}层）！",
+      "zeffiroso": "  🎵 拼接遗憾·遗憾 → {target_name} 情绪上调，安可={layers}！",
+      "riposato": "  🎵 Before light·休息 (Riposato): 入戏者+0.5伤害，反抗者-0.5伤害。",
+      "dolente": "  🎵 Before light·悲伤 (Dolente): 全体额外+0.5伤害。",
+      "regard_status": "  🎵 Regard: {regard}/{cap}"
+    },
+    "melody": {
+      "no_targets": "  旋律：无合法目标。",
+      "hit": "  🎵 旋律 #{index} → {target_name}:"
+    },
+    "snap": {
+      "triggered": "  🎻 断弦！{player_name} 受到 0.5 伤害 → HP: {hp}，进入失衡。"
+    }
   },
   "error": {
     "file_not_found": "文件不存在: {path}",

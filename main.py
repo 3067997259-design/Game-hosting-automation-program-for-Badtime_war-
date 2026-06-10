@@ -63,7 +63,7 @@ def parse_args():
 TALENT_SHORT = {
     "T1": "一刀缭断", "T2": "剪刀手一突", "T3": "天星",
     "T4": "六爻", "T5": "combo", "T6": "朝阳好市民", "T7": "死者苏生",
-    "G1": "火萤IV型-完全燃烧", "G2": "请一直，注视着我",
+    "G1": "火萤IV型-完全燃烧", "G2": "请一直注视着我",
     "G3": "神话之外", "G4": "愿负世，照拂黎明",
     "G5": "往世的涟漪", "G6": "要有笑声！",
     "G7": "大叔我啊，剪短发了",
@@ -172,7 +172,9 @@ def setup_game_cli(args) -> GameState:
 
         if assigned_talent:
             for n, tname, cls, desc in TALENT_TABLE:
-                if tname == assigned_talent and n not in taken_talents:
+                # TALENT_TABLE 中 T1-T7 为短名(如"一刀缭断")、G1-G7 带前缀(如"神代天赋-往世的涟漪")
+                # resolve_talent() 返回短名，此处匹配短名或全名包含关系
+                if (tname == assigned_talent or assigned_talent in tname) and n not in taken_talents:
                     inst = cls(pid, game_state)
                     player.talent = inst
                     player.talent_name = tname

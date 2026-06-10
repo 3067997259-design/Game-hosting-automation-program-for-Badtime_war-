@@ -66,6 +66,9 @@ class Mythland(BaseTalent):
             return None
         if self.active:
             return None
+        # G2 ish-bosheth 活跃时禁止 G3 发动
+        if getattr(self.state, 'ish_bosheth', None) and self.state.ish_bosheth.phase == "active":
+            return None
 
         others = self._get_same_location_targets(player)
         if others:

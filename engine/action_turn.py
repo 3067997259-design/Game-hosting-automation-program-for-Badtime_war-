@@ -1,13 +1,66 @@
 """行动回合调度器（Phase 4 完整版 + Controller 接入）：T0天赋+石化+完整行动分发"""
 
 import copy
+import random
+from typing import Optional
 from cli import display
 from cli.parser import parse, resolve_player_target
 from cli.validator import validate
 from engine.prompt_manager import prompt_manager
 from engine.action_enumerator import build_action_options
+from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
+from engine.debug_config import debug_ai_basic
 from actions import (action_registry, wake_up, move, interact,
                      forfeit, lock_target, find_target, attack, special_op)
+
+
+def _build_ish_bosheth_context(game_state, player) -> dict:
+    """提取 ish-bosheth 舞台状态用于 context（供远程客户端 / bot_bridge 读取）。"""
+    ish = getattr(game_state, 'ish_bosheth', None)
+    if not ish or ish.phase not in ("active", "duet"):
+        return {}
+    from engine.ish_bosheth import EMOTION_LABELS
+    members = []
+    for pid in ish.participants:
+        p = game_state.get_player(pid)
+        if p:
+            emo_tag = EMOTION_LABELS.get(getattr(p, 'emotion', None), "")
+            members.append({"name": p.name, "emotion": emo_tag})
+    for c in ish.chorus_list:
+        if c.is_alive():
+            emo_tag = EMOTION_LABELS.get(getattr(c, 'emotion', None), "")
+            members.append({"name": c.name, "emotion": emo_tag})
+    g2p = game_state.get_player(ish.g2_owner_id)
+    my_emo = EMOTION_LABELS.get(getattr(player, 'emotion', None), "")
+    ctx = {
+        "ish_bosheth": {
+            "regard": ish.regard,
+            "regard_cap": ish.regard_cap,
+            "before_light": ish.before_light,
+            "my_emotion": my_emo,
+            "members": members,
+            "g2_owner": g2p.name if g2p else "",
+            "g2_hp": g2p.hp if g2p else 0,
+            "g2_max_hp": g2p.max_hp if g2p else 0,
+        }
+    }
+    # v2.0: duet 特有字段（供远程客户端 / AI 决策读取）
+    if ish.phase == "duet":
+        g5p = game_state.get_player(ish.duet_g5_pid)
+        button_seats = [b.location for b in getattr(ish, 'duet_buttons', [])]
+        budget = 0.0
+        if g5p and g5p.talent:
+            budget = getattr(g5p.talent, 'reminiscence_budget', 0.0)
+        ctx["ish_bosheth"].update({
+            "phase": "duet",
+            "duet_round": ish.duet_round,
+            "duet_heat": dict(ish.duet_heat),
+            "duet_buttons": button_seats,
+            "g5_budget": budget,
+            "g5_name": g5p.name if g5p else "",
+            "harmonize_active": getattr(ish, 'harmonize_active', False),
+        })
+    return ctx
 
 
 class ActionTurnManager:
@@ -18,16 +71,23 @@ class ActionTurnManager:
     #  主入口
     # ================================================================
     def execute_action_turn(self, player):
+        # Chorus 单位：跳过 T0/T2，直接选行动
+        is_chorus = getattr(player, 'is_chorus', False)
+        if is_chorus:
+            display.show_action_turn_header(player.name)
+            action_type = self._phase_t1_chorus(player)
+            return action_type
         display.show_action_turn_header(player.name)
+        # 未起床：先起床（T0 物料阶段/天赋选项在起床后才运行）
+        if not player.is_awake:
+            result_msg = wake_up.execute(player, self.state)
+            display.show_result(result_msg)
+            return "wake"
         skip = self._phase_t0(player)
         if skip:
             from utils.pacing import action_pause
             action_pause(self.state, f"{player.name} → {skip}")
             return skip
-        if not player.is_awake:
-            result_msg = wake_up.execute(player, self.state)
-            display.show_result(result_msg)
-            return "wake"
         action_type = self._phase_t1(player)
         self._phase_t2(player, action_type)
         return action_type
@@ -93,9 +153,10 @@ class ActionTurnManager:
                     player.is_petrified = False
                     remaining = 0.5
                     # 让天赋的临时HP（光环、炽愿等）先吸收
-                    if (player.talent and hasattr(player.talent, 'receive_damage_to_temp_hp')
+                    if (player.talent
                             and not getattr(player, '_mythland_talent_suppressed', False)):
-                        remaining = player.talent.receive_damage_to_temp_hp(remaining)
+                        remaining = player.talent.receive_damage_to_temp_hp(
+                            remaining, is_embrace=False)
                     if remaining > 0:
                         player.hp = round(max(0, player.hp - remaining), 2)
                     absorbed = round(0.5 - remaining, 2)
@@ -118,6 +179,151 @@ class ActionTurnManager:
                 else:
                     display.show_info(f"🗿 {player.name} 选择保持石化，跳过本回合。")
                     return "petrify_skip"
+
+        # ---- G2 发动者在舞台内免疫硬控 ----
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase in ("active", "duet")
+                and player.player_id == self.state.ish_bosheth.g2_owner_id):
+            if player.is_stunned:
+                player.is_stunned = False
+                self.state.markers.on_stun_recover(player.player_id)
+                prompt_manager.show("g2reset", "emotion.immunity_stun",
+                               player_name=player.name)
+            if player.is_shocked:
+                player.is_shocked = False
+                self.state.markers.on_shock_recover(player.player_id)
+                prompt_manager.show("g2reset", "emotion.immunity_shock",
+                                   player_name=player.name)
+            if getattr(player, 'is_petrified', False):
+                player.is_petrified = False
+                self.state.markers.on_petrify_recover(player.player_id)
+                prompt_manager.show("g2reset", "emotion.immunity_petrify",
+                                   player_name=player.name)
+
+        # ---- G2 ish-bosheth v0.6: 声部锁定 + T0 物料阶段 ----
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase in ("active", "duet")
+                and "liberamente_vivace" in getattr(player, 'stage_statuses', set())
+                and player.player_id != self.state.ish_bosheth.g2_owner_id):
+            from engine.ish_bosheth import (
+                ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO,
+                VOICE_LABELS,
+            )
+            # v0.6: 声部已固定，不再弹切换菜单
+            # T0 物料阶段：摸牌 + 拾取 + 出牌 + 弃牌
+            ish = self.state.ish_bosheth
+            if ish.deck:
+                pid = player.player_id
+                seat = player.location
+
+                # 1. 摸 1 张
+                card = ish.deck._draw_one()
+                if card:
+                    hand = ish.deck.hands.setdefault(pid, [])
+                    hand.append(card)
+                    display.show_info(f"🃏 {player.name} 摸到「{card}」| 手牌: {hand}")
+
+                # 2. 拾取座位掉落 1 张
+                dropped = ish.deck.dropped_goods.get(seat, [])
+                if dropped:
+                    pickup = player.controller.choose(
+                        f"拾取掉落物料（{seat}）：",
+                        dropped + ["不拾取"],
+                        context={"phase": "T0", "situation": "g2_pickup_floor"},
+                    )
+                    if pickup in dropped:
+                        ish.deck.pickup_floor(pid, seat, pickup)
+
+                # 3. 可进行 1 次自愿换牌（仅限同座位单位）
+                hand = ish.deck.hands.get(pid, [])  # 兜底：牌堆空时 hand 未定义
+                if ish.deck.can_trade(pid):
+                    from controllers.ai.stage import StageAI
+                    from controllers.human import HumanController
+                    if isinstance(player.controller, HumanController):
+                        # 人类玩家自主选择换牌对象和牌
+                        trade = _human_trade_choose(player, ish, self.state)
+                    else:
+                        trade = StageAI.decide_trade(player, ish, self.state, hand)
+                    if trade:
+                        partner, my_card, their_card = trade
+                        partner_accepts = partner.controller.choose(
+                            f"换牌请求：{player.name} 想用「{my_card}」"
+                            f"换你的「{their_card}」，是否同意？",
+                            ["同意", "拒绝"],
+                            context={"phase": "T0", "situation": "g2_trade_accept",
+                                     "from_name": player.name,
+                                     "offered": my_card, "wanted": their_card}
+                        )
+                        if "同意" in partner_accepts:
+                            ish.deck.execute_trade(
+                                pid, partner.player_id, my_card, their_card)
+                            display.show_info(
+                                f"🔄 {player.name} 与 {partner.name} 换牌："
+                                f"{my_card} ↔ {their_card}")
+
+                # 4. 可打出最多 1 张牌
+                hand = ish.deck.hands.get(pid, [])
+                playable = [c for c in hand if ish.deck.is_playable(player, c)]
+                extra = getattr(player, '_card_extra_play', False)
+                max_plays = 2 if extra else 1
+                for _ in range(max_plays):
+                    if not hand:
+                        break
+                    # 卡牌选项：可打出牌附效果描述，不可打出牌附原因
+                    card_options = []
+                    for c in hand:
+                        info = ish.deck.get_card_info(c)
+                        desc = info.get("desc", "") if info else ""
+                        if c in playable:
+                            card_options.append(f"{c} — {desc}" if desc else c)
+                        else:
+                            voice_req = info.get("voice") if info else None
+                            if voice_req:
+                                from engine.ish_bosheth import VOICE_LABELS
+                                vlabel = VOICE_LABELS.get(voice_req, voice_req)
+                                reason = f"限定{vlabel}声部"
+                            elif c == "改签票":
+                                reason = "通过舞台系统使用"
+                            else:
+                                reason = "当前不可用"
+                            card_options.append(f"{c} — (不可打出：{reason})")
+                    play_choice = player.controller.choose(
+                        "打出物料牌（或不打）：",
+                        card_options + ["不打"],
+                        context={"phase": "T0", "situation": "g2_play_card"},
+                    )
+                    # 从选项字符串中提取纯牌名
+                    play_choice_clean = play_choice.split(" — ")[0] if " — " in play_choice else play_choice
+                    if play_choice_clean in playable:
+                        self._resolve_card_play(player, ish, play_choice_clean)
+                        if play_choice_clean in hand:
+                            hand.remove(play_choice_clean)
+                        # _resolve_card_play 可能追加新手牌，刷新引用
+                        hand = ish.deck.hands.get(pid, [])
+                        ish.deck.played_this_turn[pid] = True
+                        playable = [c for c in hand if ish.deck.is_playable(player, c)]
+                    elif play_choice_clean in hand:
+                        # 选了不可打出的牌 → 提示原因，不消耗出牌次数
+                        display.show_info(f"⚠️ 无法打出「{play_choice_clean}」（声部或条件不符）")
+                        continue
+                    else:
+                        break
+                player._card_extra_play = False
+
+                # 5. 弃至手牌上限 3
+                hand = ish.deck.hands.get(pid, [])
+                while len(hand) > 3:
+                    discard_choice = player.controller.choose(
+                        "手牌超限，选择弃置 1 张：",
+                        hand,
+                        context={"phase": "T0", "situation": "g2_discard"},
+                    )
+                    if discard_choice in hand:
+                        ish.deck.discard_from_hand(pid, discard_choice)
+                    else:
+                        discarded = hand.pop()
+                        ish.deck.discard_from_hand(pid, discarded)
+                # 物料阶段结束
 
         # ---- 天赋T0选项 ----
         # ══ BUG FIX：choice 变量未定义问题修复 ══
@@ -187,6 +393,31 @@ class ActionTurnManager:
             descs = [{"usage": "wake", "description": "起床"}]
             return names, descs
 
+        # G2 发动者在 ish-bosheth 内：只能演唱(special)或放弃
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase in ("active", "duet")
+                and player.player_id == self.state.ish_bosheth.g2_owner_id):
+            if self.state.ish_bosheth.regard > 0 or self.state.ish_bosheth.phase == "duet":
+                names = ["special", "forfeit"]
+                descs = [
+                    {"usage": "special", "description": "🎵 演唱曲目"},
+                    {"usage": "forfeit", "description": "放弃行动"},
+                ]
+            else:
+                names = ["forfeit"]
+                descs = [{"usage": "forfeit", "description": "放弃行动"}]
+            return names, descs
+
+        # v2.0: G5 duet 上台者：只能伴唱(special)或放弃
+        ish = self.state.ish_bosheth
+        if ish and ish.phase == "duet" and player.player_id == ish.duet_g5_pid:
+            names = ["special", "forfeit"]
+            descs = [
+                {"usage": "special", "description": "🎤 伴唱（消耗追忆，减半歌曲花费）"},
+                {"usage": "forfeit", "description": "放弃行动"},
+            ]
+            return names, descs
+
         # Terror 状态：只允许 attack 和 move
         if (player.talent and hasattr(player.talent, 'is_terror')
                 and player.talent.is_terror):
@@ -219,6 +450,13 @@ class ActionTurnManager:
 
         # Terror 存活时：全场禁用 interact
         if self.state.is_terror_alive():
+            names = [n for n in names if n != "interact"]
+            descs = [d for d in descs if not d["usage"].startswith("interact")]
+
+        # v0.6 ish-bosheth 舞台内：禁用地点交互
+        if (self.state.ish_bosheth
+                and self.state.ish_bosheth.phase == "active"
+                and "liberamente_vivace" in getattr(player, 'stage_statuses', set())):
             names = [n for n in names if n != "interact"]
             descs = [d for d in descs if not d["usage"].startswith("interact")]
 
@@ -359,16 +597,18 @@ class ActionTurnManager:
         while attempts < max_retries:
             attempts += 1
 
-            raw = player.controller.get_command(
-                player=player,
-                game_state=observable,
-                available_actions=action_names,
-                context={
+            _ctx = {
                     "phase": "T1",
                     "round": self.state.current_round,
                     "attempt": attempts,
                     "action_options": action_options,
+                    **_build_ish_bosheth_context(self.state, player),
                 }
+            raw = player.controller.get_command(
+                player=player,
+                game_state=observable,
+                available_actions=action_names,
+                context=_ctx,
             )
             # ══ CONTROLLER 结束 ══
 
@@ -589,11 +829,7 @@ class ActionTurnManager:
         while attempts < max_retries:
             attempts += 1
 
-            raw = player.controller.get_command(
-                player=player,
-                game_state=observable,
-                available_actions=action_names,
-                context={
+            _ctx2 = {
                     "phase": "T1",
                     "round": self.state.current_round,
                     "attempt": attempts,
@@ -601,7 +837,13 @@ class ActionTurnManager:
                     "collected_actions": collected_actions,
                     "source_lookup": source_lookup,
                     "action_options": action_options,
+                    **_build_ish_bosheth_context(self.state, player),
                 }
+            raw = player.controller.get_command(
+                player=player,
+                game_state=observable,
+                available_actions=action_names,
+                context=_ctx2,
             )
 
             # 查看类指令
@@ -1280,9 +1522,53 @@ class ActionTurnManager:
         return action_type
 
     # ================================================================
+    #  T1：Chorus 简化回合（v0.6 声部限制 + 物料牌加成）
+    # ================================================================
+    def _phase_t1_chorus(self, player):
+        """Chorus 行动回合：统一委托 StageAI 决策（normal + duet）。"""
+        from cli.parser import parse
+        from cli.validator import validate
+
+        ish = self.state.ish_bosheth
+        if not ish or ish.phase not in ("active", "duet"):
+            display.show_info(f"  👥 {player.name} 放弃行动")
+            return "forfeit"
+
+        # 统一委托 StageAI 决策（normal + duet，Chorus/BasicAI 共享信源）
+        if hasattr(player, 'controller'):
+            raw = player.controller.get_command(
+                available_actions=["attack", "move", "forfeit"],
+                context={"phase": "T1", "game_state": self.state, "chorus_unit": player}
+            )
+            if raw and raw != "forfeit":
+                parsed = parse(raw, player.player_id)
+                if parsed:
+                    is_valid, reason = validate(parsed, player, self.state)
+                    if is_valid:
+                        display.show_info(f"  👥 {player.name} {raw}")
+                        result = self._execute_action(parsed, player)
+                        msg, action_type, success = result[0], result[1], result[2]
+                        consumes_turn = result[3] if len(result) > 3 else success
+                        return action_type if consumes_turn else "forfeit"
+                    else:
+                        debug_ai_basic(player.name,
+                            f"Chorus StageAI 指令被拒: {raw} → {reason}")
+                else:
+                    debug_ai_basic(player.name,
+                        f"Chorus StageAI 指令解析失败: {raw}")
+        display.show_info(f"  👥 {player.name} 放弃行动")
+        return "forfeit"
+
+    # ================================================================
     #  T2：回合结束触发
     # ================================================================
     def _phase_t2(self, player, action_type):
+        # v0.6: 狗牌效果仅持续本回合
+        if getattr(player, '_dog_tag_active', False):
+            player._dog_tag_active = False
+        # v2.0: duet 谢幕伤害加成仅持续一次攻击
+        if getattr(player, '_duet_damage_bonus', 0) > 0:
+            player._duet_damage_bonus = 0
         if player.talent:
             player.talent.on_turn_end(player, action_type)
 
@@ -1295,6 +1581,39 @@ class ActionTurnManager:
 
         elif action == "move":
             dest = parsed["destination"]
+            # G2 ish-bosheth 舞台内 move
+            ish = self.state.ish_bosheth
+            in_stage = (ish and ish.phase == "active"
+                        and "liberamente_vivace" in getattr(player, 'stage_statuses', set()))
+            if in_stage and player.player_id != ish.g2_owner_id:
+                home = f"home_{player.player_id}"
+                if dest == home:
+                    # move home = 离场
+                    if getattr(player, 'encore_layers', 0) > 0:
+                        player.encore_layers -= 1
+                        encore_msg = prompt_manager.get_prompt(
+                            "g2reset", "stage.encore_block",
+                            player_name=player.name, layers=player.encore_layers)
+                        display.show_info(encore_msg)
+                        return encore_msg, "move", True
+                    player.emotion = None
+                    if hasattr(player, 'stage_statuses'):
+                        player.stage_statuses.clear()
+                    player.encore_layers = 0
+                    if hasattr(player, 'stage_entangle'):
+                        player.stage_entangle.clear()
+                    player.temp_hp_g2 = 0.0
+                    player.temp_atk_g2 = 0.0
+                    ish.participants.discard(player.player_id)
+                    prompt_manager.show("g2reset", "stage.leave_success",
+                                       player_name=player.name)
+                    # 空场检查
+                    remaining_real = [
+                        pid for pid in ish.participants
+                        if pid != ish.g2_owner_id
+                    ]
+                    if not remaining_real:
+                        ish.end_ish_bosheth("empty", self.state)
             # Terror 移动：额外消耗0.5额外HP
             if (player.talent and hasattr(player.talent, 'is_terror')
                     and player.talent.is_terror):
@@ -1311,6 +1630,31 @@ class ActionTurnManager:
                         self.state, player.player_id, killer_id=None)
                 return msg, "move", True
             msg = move.execute(player, dest, self.state)
+            # 到达舞台座位 → auto-find 该座位的所有人
+            ish2 = self.state.ish_bosheth
+            if (ish2 and ish2.phase in ("active", "duet")
+                    and (ish2.phase == "duet"
+                         or getattr(player, 'is_chorus', False)
+                         or "liberamente_vivace" in getattr(player, 'stage_statuses', set()))):
+                stage_locations = ish2.SEATS | {ish2.g2_home}
+                if dest in stage_locations:
+                    for pid in ish2.participants:
+                        p = self.state.get_player(pid)
+                        if (p and p.is_alive() and p.location == dest
+                                and p.player_id != player.player_id):
+                            self.state.markers.set_engaged(
+                                player.player_id, p.player_id)
+                    for c in ish2.chorus_list:
+                        if (c.is_alive() and c.location == dest
+                                and c.player_id != player.player_id):
+                            self.state.markers.set_engaged(
+                                player.player_id, c.player_id)
+                    # v2.0 duet: 按钮也在座位上，需 auto-engage
+                    for btn in getattr(ish2, 'duet_buttons', []):
+                        if (btn.location == dest
+                                and btn.player_id != player.player_id):
+                            self.state.markers.set_engaged(
+                                player.player_id, btn.player_id)
             if (self.state.police_engine
                     and self.state.police.reported_target_id == player.player_id
                     and self.state.police.report_phase == "dispatched"):
@@ -1356,6 +1700,27 @@ class ActionTurnManager:
             return self._execute_attack(parsed, player)        # 内部已改为三元组
 
         elif action == "special":
+            # G2 舞台内演唱：走 choose 流程
+            if (self.state.ish_bosheth
+                    and self.state.ish_bosheth.phase in ("active", "duet")
+                    and player.player_id == self.state.ish_bosheth.g2_owner_id
+                    and player.talent
+                    and hasattr(player.talent, 'execute_sing')):
+                msg = player.talent.execute_sing(player, self.state)
+                # 放弃：消耗回合，不触发重试；❌：失败，可重试
+                cancelled = isinstance(msg, str) and msg.startswith("放弃")
+                failed = isinstance(msg, str) and msg.startswith("❌")
+                # 成功+放弃都消耗回合，只有 ❌ 不消耗（与 G5 伴唱一致）
+                return msg, "special", not failed, not failed
+            # v2.0: G5 duet 伴唱
+            ish = self.state.ish_bosheth
+            if (ish and ish.phase == "duet"
+                    and player.player_id == ish.duet_g5_pid
+                    and player.talent
+                    and hasattr(player.talent, 'execute_harmonize')):
+                msg = player.talent.execute_harmonize(player, self.state)
+                consumes = not (isinstance(msg, str) and msg.startswith("❌"))
+                return msg, "special", consumes, consumes
             op = parsed["operation"]
             msg, consumes = special_op.execute(player, op, self.state)
             is_ok = not msg.startswith("❌")
@@ -1475,6 +1840,20 @@ class ActionTurnManager:
     # ================================================================
     #  攻击执行
     # ================================================================
+    # ── 物料牌效果处理器（v0.7: CARD_REGISTRY 分派）──────────────────
+
+    def _resolve_card_play(self, player, ish, card_name: str):
+        """v0.7: 通过 CARD_REGISTRY 分派物料牌效果。"""
+        from engine.cards import CARD_REGISTRY
+        for card_cls in CARD_REGISTRY:
+            if card_cls.name == card_name:
+                card = card_cls()
+                card.play(player, ish, self)
+                break
+        # 使用后进入弃牌区
+        if card_name != "改签票":
+            ish.deck.discard_pile.append(card_name)
+
     def _execute_attack(self, parsed, player, override_killer=None):
         """override_killer: 插入式笑话中传入 G6 玩家，
         使击杀归属、死亡显示、天赋通知都用 G6 的身份。"""
@@ -1488,6 +1867,9 @@ class ActionTurnManager:
         if weapon is None:
             display.show_info(f"❌ {player.name} 没有武器「{weapon_name}」")
             return f"❌ {player.name} 没有武器「{weapon_name}」", "attack", False
+
+        # v0.6: 声部锁定，Indifferenza 不再自动转 Accarezzevole
+        # Ind 攻击非 G2 真实玩家 → 被引擎拦截（在 _get_available_actions 中限制）
 
         from models.equipment import WeaponRange
         if weapon.weapon_range == WeaponRange.AREA:
@@ -1505,6 +1887,31 @@ class ActionTurnManager:
         is_failure = isinstance(msg, str) and msg.startswith("❌")
 
         if not is_failure:
+            # G2 破幕检查
+            if result.get("break_curtain") and self.state.ish_bosheth:
+                prompt_manager.show("g2reset", "stage.break_success")
+                # 破幕攻击仍按正常规则记录犯罪
+                if self.state.police_engine and target_id:
+                    target = self.state.get_player(target_id)
+                    if target and target.is_alive():
+                        self.state.police_engine.check_and_record_crime(
+                            player.player_id, "伤害玩家")
+                self.state.ish_bosheth.end_ish_bosheth("break", self.state,
+                                                       breaker_id=player.player_id)
+                return msg, "attack", True
+
+            # G2 非致命攻击 Regard -1（仅 normal 模式；duet 中 G2 被 PvP 位移
+            # 打伤是演出正常流程，不扣 Regard，避免惩罚正当的舞台互动）
+            if (self.state.ish_bosheth
+                    and self.state.ish_bosheth.phase == "active"
+                    and target_id == self.state.ish_bosheth.g2_owner_id
+                    and result.get("hp_damage", 0) > 0
+                    and not result.get("break_curtain")):
+                self.state.ish_bosheth.regard = max(
+                    0, self.state.ish_bosheth.regard - 1)
+                prompt_manager.show("g2reset", "stage.regard_minus_one",
+                                   regard=self.state.ish_bosheth.regard)
+
             if weapon.requires_charge and weapon.is_charged:
                 weapon.is_charged = False
             if "missile" in weapon.special_tags:
@@ -1515,12 +1922,17 @@ class ActionTurnManager:
 
             target = self.state.get_player(target_id)
             if result.get("killed") and target:
+                # G2 发动者真正死亡 → 舞台崩塌
+                if (self.state.ish_bosheth
+                        and self.state.ish_bosheth.phase in ("active", "duet")
+                        and target_id == self.state.ish_bosheth.g2_owner_id):
+                    self.state.ish_bosheth.end_ish_bosheth("death", self.state)
                 killer.kill_count += 1
                 self.state.markers.on_player_death(target_id)
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target_id)
                 display.show_death(target.name, f"被 {killer.name} 的 {weapon_name} 击杀")
-                # 新增：通知所有天赋（星野色彩计数等）
+                # 通知所有天赋（星野色彩计数等）
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
                     self.state, target_id, killer_id=killer.player_id)
@@ -1609,6 +2021,21 @@ class ActionTurnManager:
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
                     self.state, t.player_id, killer_id=killer.player_id)
+                # G2 发动者死亡 → 舞台崩塌（含 duet 模式）
+                # 注：范围攻击中延迟到 notify_all_talents + 撕票之后才清理，
+                # 避免中途 end_ish_bosheth 干扰循环中其余受害者的处理。
+                # 单目标攻击路径反之（L1885），因无需顾虑多目标循环。
+                if (self.state.ish_bosheth
+                        and self.state.ish_bosheth.phase in ("active", "duet")
+                        and t.player_id == self.state.ish_bosheth.g2_owner_id):
+                    self.state.ish_bosheth.end_ish_bosheth("death", self.state)
+                # 撕票：击杀 Acc 单位额外 Regard -0.5
+                if getattr(killer, '_card_tear_ticket_active', False):
+                    ish2 = getattr(self.state, 'ish_bosheth', None)
+                    if ish2 and getattr(t, 'emotion', None) == ACCAREZZEVOLE:
+                        ish2.adjust_regard(-0.5)
+                        display.show_info(f"🎫 撕票生效：击杀 Acc 单位 {t.name}，额外 Regard -0.5")
+                        killer._card_tear_ticket_active = False
 
         # ---- 范围攻击同时波及同地点警察 ----
         pe = self.state.police_engine
@@ -1653,3 +2080,79 @@ class ActionTurnManager:
         action_type = self._phase_t1(player)
         self._phase_t2(player, action_type)
         return action_type
+
+
+def _human_trade_choose(player, ish, game_state) -> Optional[tuple]:
+    """人类玩家换牌交互：选择交易对象→选自己的牌→选对方的牌。"""
+    hand = ish.deck.hands.get(player.player_id, [])
+    if len(hand) < 2:
+        display.show_info("⚠️ 手牌不足，无法发起换牌")
+        return None
+
+    # 1. 是否换牌
+    want_trade = player.controller.choose(
+        "是否进行换牌（1次，仅限同座位单位）？",
+        ["换牌", "不换"],
+        context={"phase": "T0", "situation": "g2_trade_init"},
+    )
+    if "不换" in want_trade:
+        return None
+
+    # 2. 同座位可选交易对象（需持牌才能参与交易）
+    my_seat = player.location
+    from controllers.ai.stage.target_filter import get_hand
+    partners = []
+    for pid in ish.participants:
+        p = game_state.get_player(pid)
+        if (p and p.is_alive() and p.player_id != player.player_id
+                and p.location == my_seat
+                and ish.deck.can_trade(p.player_id)
+                and get_hand(p, ish)
+                and getattr(p, 'controller', None) is not None):
+            partners.append(p)
+    for c in ish.chorus_list:
+        if (c.is_alive() and c.player_id != player.player_id
+                and c.location == my_seat
+                and ish.deck.can_trade(c.player_id)
+                and get_hand(c, ish)
+                and getattr(c, 'controller', None) is not None):
+            partners.append(c)
+    if not partners:
+        display.show_info("⚠️ 同座位无可交易单位")
+        return None
+
+    partner_names = [p.name for p in partners]
+    pchoice = player.controller.choose(
+        "选择交易对象：", partner_names + ["取消"],
+        context={"phase": "T0", "situation": "g2_trade_partner"},
+    )
+    partner = next((p for p in partners if p.name in pchoice), None)
+    if not partner:
+        return None
+
+    # 3. 选自己要给出的牌
+    my_choice = player.controller.choose(
+        "选择你要给出的牌：", hand,
+        context={"phase": "T0", "situation": "g2_trade_my_card"},
+    )
+    if my_choice not in hand:
+        return None
+
+    # 4. 选期望从对方获得的牌
+    p_hand = get_hand(partner, ish)
+    if not p_hand:
+        display.show_info("⚠️ 对方无手牌")
+        return None
+    their_choice = player.controller.choose(
+        f"选择期望获得的牌（{partner.name}的手牌）：", p_hand,
+        context={"phase": "T0", "situation": "g2_trade_their_card"},
+    )
+    if their_choice not in p_hand:
+        return None
+
+    if not ish.deck.propose_trade(
+            player.player_id, partner.player_id, my_choice, their_choice):
+        display.show_info("⚠️ 交易无效")
+        return None
+
+    return (partner, my_choice, their_choice)

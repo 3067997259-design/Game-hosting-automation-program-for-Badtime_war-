@@ -157,6 +157,33 @@ class Player:
         # 军事基地
         self.has_military_pass = False
 
+        # G2 舞台状态（ish-bosheth）
+        self.emotion: Optional[str] = None
+        self.stage_statuses: set = set()
+        self.encore_layers: int = 0
+        self.stage_entangle: list = []
+        self.temp_hp_g2: float = 0.0
+        self.temp_atk_g2: float = 0.0
+        # G2 v0.6 物料牌临时效果
+        self._card_extra_play: bool = False     # 本回合可额外打 1 张牌
+        self._card_d6_bonus_rounds: int = 0     # 跨声部小卡交换 D6+1 剩余轮次
+        self._card_damage_bonus: float = 0.0    # 本回合 attack +X（荧光棒等）
+        self._card_damage_bonus_target_id: Optional[str] = None  # 伤害加成限定目标玩家 ID
+        self._card_damage_bonus_voice_filter: Optional[str] = None  # 伤害加成限定声部
+        self._card_earplug: bool = False         # 耳塞：下次旋律/光色无视
+        self._card_debuff_damage_taken: float = 0.0  # 倒彩等：受到伤害 +X 至下个 R4
+        self._card_no_attack_until_r4: Optional[str] = None  # 调停：不能攻击的对方 id
+        self._card_temp_hp_until_r4: float = 0.0  # 花束等：临时 HP 至下个 R4
+        self._card_tear_ticket_active: bool = False  # 撕票：本回合击杀 Acc 额外 Regard -0.5
+        self._dog_tag_active: bool = False       # 24K钛合金狗牌：本回合攻击无视属性克制
+        self._photo_invitee_id: Optional[str] = None  # 聚光合影邀请的目标 id
+        # v2.0 G2×G5 duet 奖励属性
+        self._duet_d4_bonus: bool = False        # duet 谢幕后 D4+1
+        self._duet_d6_bonus: bool = False        # duet 谢幕后 D6+1
+        self._duet_damage_bonus: float = 0.0     # duet 谢幕后下次伤害+X
+        self._embrace_g2_buff: float = 0.0       # 拥抱 G2：下次攻击伤害+X
+        self._embrace_g5_buff: float = 0.0       # 拥抱 G5：下次被攻击免伤X
+
     def is_alive(self):
         return self.hp > 0
 
@@ -179,6 +206,17 @@ class Player:
         # V1.92: 锚定D4加成（由涟漪天赋直接设置在玩家对象上）
         if getattr(self, '_anchor_d4_bonus_rounds', 0) > 0:
             bonus += getattr(self, '_anchor_d4_bonus_amount', 0)
+        # G2 舞台法则 D4+1（非 G2 发动者的舞台参与者）
+        if 'liberamente_vivace' in getattr(self, 'stage_statuses', set()):
+            bonus += 1
+        # G2 废墟谢幕 D4+1 奖励
+        if getattr(self, '_g2_curtain_d4_bonus', False):
+            bonus += 1
+            self._g2_curtain_d4_bonus = False
+        # v2.0 duet 谢幕 D4+1 奖励
+        if self._duet_d4_bonus:
+            bonus += 1
+            self._duet_d4_bonus = False
         return bonus
 
     def get_d6_bonus(self):
@@ -186,6 +224,10 @@ class Player:
         if self.talent:
             talent_bonus = self.talent.on_d6_bonus(self) if hasattr(self.talent, 'on_d6_bonus') else 0
             bonus += talent_bonus
+        # v2.0 duet 谢幕 D6+1 奖励
+        if self._duet_d6_bonus:
+            bonus += 1
+            self._duet_d6_bonus = False
         return bonus
 
     def has_weapon(self, weapon_name):
@@ -212,6 +254,29 @@ class Player:
     def clear_all_vouchers(self):
         self.vouchers = 0
 
+    def _format_stage_status(self) -> str:
+        """格式化 G2 ish-bosheth 舞台状态（单行）。"""
+        parts = ["🎭 舞台中"]
+        if self.emotion:
+            emo_labels = {
+                "accarezzevole": "入戏", "indifferenza": "抽离", "strappando": "反抗"
+            }
+            parts.append(f"情绪={emo_labels.get(self.emotion, self.emotion)}")
+        ss = getattr(self, 'stage_statuses', set())
+        if "spotlight" in ss:
+            tmphp = getattr(self, 'temp_hp_g2', 0)
+            tmpatk = getattr(self, 'temp_atk_g2', 0)
+            parts.append(f"聚光灯(HP+{tmphp}/ATK+{tmpatk})")
+        if "imbalance" in ss:
+            parts.append("失衡")
+        if "moderation_lock" in ss:
+            parts.append("节制锁定")
+        if "sognando_lock" in ss:
+            parts.append("入戏锁定")
+        if self.encore_layers > 0:
+            parts.append(f"安可×{self.encore_layers}")
+        return " | ".join(parts)
+
     def describe_status(self):
         lines = []
         lines.append(f"  玩家：{self.name} ({self.player_id})")
@@ -221,6 +286,9 @@ class Player:
                 talent_status = self.talent.describe_status()
             lines.append(f"  天赋：{self.talent_name}" +
                          (f" ({talent_status})" if talent_status else ""))
+        # G2 舞台状态
+        if 'liberamente_vivace' in getattr(self, 'stage_statuses', set()):
+            lines.append(self._format_stage_status())
         if not self.is_awake:
             lines.append("  状态：💤 睡眠中")
             return "\n".join(lines)

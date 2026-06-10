@@ -1,7 +1,9 @@
 """伤害结算管线（Phase 4 完整版）：支持天赋参数、电磁步枪/陶瓷护甲特效"""
 
+import random as _random
 from utils.attribute import Attribute, is_effective
 from models.equipment import ArmorLayer, WeaponRange
+from cli import display
 from engine.prompt_manager import prompt_manager
 
 def _get_hologram_bonus(target, game_state):
@@ -76,7 +78,8 @@ def _record_hoshino_armor_break(target, armor_name):
 def _resolve_weaponless_damage(attacker, target, game_state, result,
                                 raw_damage, damage_attribute_str,
                                 is_talent_attack=False,
-                                is_love_poem=False):
+                                is_love_poem=False,
+                                is_embrace_damage=False):
     """
     无武器伤害结算（爱与记忆之诗等外部伤害源）。
     走护甲结算但不涉及武器天赋修正。
@@ -108,7 +111,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         damage=raw, attribute=damage_attribute_str
     ))
     # ---- 星野架盾：正面伤害过滤（无武器路径） ----
-    if (target.talent and hasattr(target.talent, 'shield_mode')
+    # 相拥伤害绕过架盾
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'shield_mode')
         and target.talent.shield_mode == "架盾"
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
@@ -144,7 +149,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                     return result
 
     # ---- 星野持盾：铁之荷鲁斯伤害减免（增强版） ----
-    if (target.talent and hasattr(target.talent, 'shield_mode')
+    # 相拥伤害绕过持盾
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'shield_mode')
         and target.talent.shield_mode == "持盾"
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
@@ -180,7 +187,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 return result
 
     # ---- 星野被动保护：非持盾/架盾时，铁之荷鲁斯作为无属性外层护甲 ----
-    if (target.talent and hasattr(target.talent, 'iron_horus_hp')
+    # 相拥伤害绕过被动保护
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'iron_horus_hp')
         and getattr(target.talent, 'shield_mode', None) is None  # 非持盾/架盾
         and target.talent.iron_horus_hp > 0
         and getattr(target.talent, 'fusion_shield_done', False)  # 已完成融合
@@ -196,7 +205,7 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         result["details"].append(
             prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
                 absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
-        if talent.iron_horus_hp <= 0 and would_break:
+        if talent.iron_horus_hp <= 0:
             active_halos = sum(1 for h in getattr(talent, 'halos', []) if h.get('active'))
             if active_halos > 0:
                 # ★ 保留0.5护甲值，溢出伤害由光环吸收
@@ -292,9 +301,11 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         )
 
     if remaining > 0:
-        if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-        and not getattr(target, '_mythland_talent_suppressed', False)):
-            remaining = target.talent.receive_damage_to_temp_hp(remaining)
+        if remaining > 0:
+            if (target.talent
+                    and not getattr(target, '_mythland_talent_suppressed', False)):
+                remaining = target.talent.receive_damage_to_temp_hp(
+                    remaining, is_embrace=is_embrace_damage)
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
@@ -331,11 +342,12 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-            # 解除石化额外0.5伤害（先让临时HP吸收）
-            petrify_remaining = 0.5
-            if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-                    and not getattr(target, '_mythland_talent_suppressed', False)):
-                petrify_remaining = target.talent.receive_damage_to_temp_hp(petrify_remaining)
+        # 解除石化额外0.5伤害（先让临时HP吸收）
+        petrify_remaining = 0.5
+        if (target.talent
+                and not getattr(target, '_mythland_talent_suppressed', False)):
+            petrify_remaining = target.talent.receive_damage_to_temp_hp(
+                petrify_remaining, is_embrace=False)
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
             absorbed = round(0.5 - petrify_remaining, 2)
@@ -426,7 +438,10 @@ def resolve_damage(attacker, target, weapon, game_state,
                    raw_damage_override=None,
                    damage_attribute_override=None,
                    is_talent_attack=False,
-                   is_love_poem=False):
+                   is_love_poem=False,
+                   is_embrace_damage=False,
+                   *,
+                   displacement_only=False):
     """
     完整伤害结算。
     新增参数（Phase 4）：
@@ -436,7 +451,78 @@ def resolve_damage(attacker, target, weapon, game_state,
       raw_damage_override: 无武器时的原始伤害值
       damage_attribute_override: 无武器时的伤害属性（字符串）
       is_love_poem: 是否为爱与记忆之诗伤害（穿透架盾）
+    新增参数（G2 Reset）：
+      is_embrace_damage: 相拥伤害（穿透天赋特殊防护，不穿透护甲）
+    新增参数（v2.0 G2×G5 TE）：
+      displacement_only: duet 模式下攻击只产生位移不产生 HP 伤害
     """
+    # G2 相拥伤害自动检测
+    if not is_embrace_damage and game_state and getattr(game_state, 'ish_bosheth', None):
+        ish = game_state.ish_bosheth
+        if (ish.phase == "active"
+                and attacker
+                and hasattr(attacker, 'stage_statuses')
+                and 'liberamente_vivace' in getattr(attacker, 'stage_statuses', set())
+                and getattr(attacker, 'player_id', None) != ish.g2_owner_id):
+            is_embrace_damage = True
+
+    # G2 Before light v0.6 伤害修正
+    if game_state and getattr(game_state, 'ish_bosheth', None):
+        ish = game_state.ish_bosheth
+        if ish.phase == "active" and ish.before_light:
+            target_voice = getattr(target, 'emotion', None)
+            attacker_voice = getattr(attacker, 'emotion', None) if attacker else None
+            if target_voice:
+                from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
+                if ish.before_light == "riposato":
+                    # v0.6 Riposato: Acc对Str伤害-0.5, Str攻击G2伤害-0.5
+                    if attacker_voice == ACCAREZZEVOLE and target_voice == STRAPPANDO:
+                        bonus_damage -= 0.5
+                    elif (attacker_voice == STRAPPANDO
+                          and getattr(target, 'player_id', None) == ish.g2_owner_id):
+                        bonus_damage -= 0.5
+                elif ish.before_light == "dolente":
+                    # v0.6 Dolente: Acc对Str伤害+0.5, Str对Acc/G2投影伤害+0.5, Ind受伤+0.5
+                    if attacker_voice == ACCAREZZEVOLE and target_voice == STRAPPANDO:
+                        bonus_damage += 0.5
+                    elif (attacker_voice == STRAPPANDO
+                          and (target_voice == ACCAREZZEVOLE
+                               or getattr(target, 'player_id', None) == ish.g2_owner_id)):
+                        bonus_damage += 0.5
+                    if target_voice == INDIFFERENZA:
+                        bonus_damage += 0.5
+
+    # v2.0 duet embrace buff: 拥抱 G2→伤害+X / 拥抱 G5→减伤X（一次性消耗）
+    if attacker and getattr(attacker, '_embrace_g2_buff', 0) > 0:
+        bonus_damage += attacker._embrace_g2_buff
+        attacker._embrace_g2_buff = 0
+    if getattr(target, '_embrace_g5_buff', 0) > 0:
+        bonus_damage -= target._embrace_g5_buff
+        target._embrace_g5_buff = 0
+
+    # v2.0 G2×G5 TE: duet 模式位移 PvP 早期退出
+    if displacement_only and game_state and getattr(game_state, 'ish_bosheth', None):
+        ish = game_state.ish_bosheth
+        if ish.phase == "duet":
+            raw = weapon.get_effective_damage() if weapon else (raw_damage_override or 0)
+            heat = min(raw, 10.0)  # 单次按钮伤害上限 10
+            result = {
+                "success": True,
+                "reason": "duet_displacement",
+                "heat_value": heat,
+                "displacement": {"from": target.location, "to": target.location},
+                "details": [],
+            }
+            # 按钮：直接记录热力
+            if getattr(target, 'is_button', False):
+                ish.record_heat(attacker, heat)
+                result["target_type"] = "button"
+                return result
+            # 玩家 PvP：执行位移
+            result["target_type"] = "player"
+            _duet_displace(target, attacker, raw, ish, game_state, result)
+            return result
+
     result = {
         "success": False,
         "reason": "",
@@ -446,6 +532,7 @@ def resolve_damage(attacker, target, weapon, game_state,
         "armor_broken": False,
         "hp_damage": 0,
         "target_hp": target.hp,
+        "target_hp_before": target.hp,
         "stunned": False,
         "shocked": False,
         "killed": False,
@@ -462,8 +549,10 @@ def resolve_damage(attacker, target, weapon, game_state,
     # ======== 无武器模式（爱与记忆之诗等外部伤害源） ========
     if weapon is None:
         # 六爻·元亨利贞：免疫伤害（无武器路径）
+        # 相拥伤害绕过金身免疫
         dmg_attr_str = damage_attribute_override or "普通"
-        if (target.talent and hasattr(target.talent, 'is_immune_to_damage')
+        if (not is_embrace_damage
+                and target.talent and hasattr(target.talent, 'is_immune_to_damage')
                 and not getattr(target, '_mythland_talent_suppressed', False)):
             if target.talent.is_immune_to_damage(dmg_attr_str):
                 result["final_damage"] = 0
@@ -489,10 +578,13 @@ def resolve_damage(attacker, target, weapon, game_state,
             dmg_attr_str,
             is_talent_attack=is_talent_attack,
             is_love_poem=is_love_poem,
+            is_embrace_damage=is_embrace_damage,
         )
 
     # ======== 六爻·元亨利贞：免疫伤害（有武器路径） ========
-    if (target.talent and hasattr(target.talent, 'is_immune_to_damage')
+    # 相拥伤害绕过金身免疫
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'is_immune_to_damage')
         and not getattr(target, '_mythland_talent_suppressed', False)):
         dmg_attr = damage_attribute_override or (getattr(weapon, 'attribute', '普通') if weapon else '普通')
         if target.talent.is_immune_to_damage(dmg_attr):
@@ -528,6 +620,10 @@ def resolve_damage(attacker, target, weapon, game_state,
             if "bonus_damage" in mod:
                 bonus_damage += mod["bonus_damage"]
 
+    # ---- 24K钛合金狗牌：无视属性克制 ----
+    if getattr(attacker, '_dog_tag_active', False):
+        ignore_counter = True
+
     # ---- 第1步：计算原始伤害 ----
     raw = weapon.get_effective_damage()
     raw = raw * damage_multiplier + bonus_damage
@@ -540,7 +636,9 @@ def resolve_damage(attacker, target, weapon, game_state,
     result["details"].append(raw_damage_text.format(damage=raw))
 
     # ---- 星野架盾：正面伤害过滤 ----
-    if (target.talent and hasattr(target.talent, 'shield_mode')
+    # 相拥伤害绕过架盾
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'shield_mode')
         and target.talent.shield_mode == "架盾"
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
@@ -580,7 +678,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                     return result
 
     # ---- 警察保护阈值减免（非AOE） ----
-    if weapon and weapon.weapon_range != WeaponRange.AREA and game_state:
+    # 相拥伤害绕过警察保护
+    if not is_embrace_damage and weapon and weapon.weapon_range != WeaponRange.AREA and game_state:
         pe = getattr(game_state, 'police_engine', None)
         if pe:
             threshold = pe.get_protection_threshold(target.player_id)
@@ -596,7 +695,9 @@ def resolve_damage(attacker, target, weapon, game_state,
                 result["details"].append(f"🚔 警察保护：吸收 {absorbed}，剩余 {raw}")
 
     # ---- 星野持盾：铁之荷鲁斯伤害减免（增强版） ----
-    if (target.talent and hasattr(target.talent, 'shield_mode')
+    # 相拥伤害绕过持盾
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'shield_mode')
         and target.talent.shield_mode == "持盾"
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
@@ -630,7 +731,9 @@ def resolve_damage(attacker, target, weapon, game_state,
                 return result
 
     # ---- 星野被动保护：非持盾/架盾时，铁之荷鲁斯作为无属性外层护甲 ----
-    if (target.talent and hasattr(target.talent, 'iron_horus_hp')
+    # 相拥伤害绕过被动保护
+    if (not is_embrace_damage
+        and target.talent and hasattr(target.talent, 'iron_horus_hp')
         and getattr(target.talent, 'shield_mode', None) is None  # 非持盾/架盾
         and target.talent.iron_horus_hp > 0
         and getattr(target.talent, 'fusion_shield_done', False)  # 已完成融合
@@ -737,9 +840,10 @@ def resolve_damage(attacker, target, weapon, game_state,
         remaining += hologram_remaining  # 溢出伤害加到总剩余中
 
     if remaining > 0:
-        if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-        and not getattr(target, '_mythland_talent_suppressed', False)):
-            remaining = target.talent.receive_damage_to_temp_hp(remaining)
+        if (target.talent
+                and not getattr(target, '_mythland_talent_suppressed', False)):
+            remaining = target.talent.receive_damage_to_temp_hp(
+                remaining, is_embrace=is_embrace_damage)
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
@@ -780,11 +884,12 @@ def resolve_damage(attacker, target, weapon, game_state,
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-            # 解除石化额外0.5伤害（先让临时HP吸收）
-            petrify_remaining = 0.5
-            if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-                    and not getattr(target, '_mythland_talent_suppressed', False)):
-                petrify_remaining = target.talent.receive_damage_to_temp_hp(petrify_remaining)
+        # 解除石化额外0.5伤害（先让临时HP吸收）
+        petrify_remaining = 0.5
+        if (target.talent
+                and not getattr(target, '_mythland_talent_suppressed', False)):
+            petrify_remaining = target.talent.receive_damage_to_temp_hp(
+                petrify_remaining, is_embrace=False)
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
             absorbed = round(0.5 - petrify_remaining, 2)
@@ -800,6 +905,38 @@ def resolve_damage(attacker, target, weapon, game_state,
             and not getattr(target, '_mythland_talent_suppressed', False)):
         is_limited = is_talent_attack and _is_limited_use_talent(attacker.talent)
         target.talent.on_being_attacked(attacker, weapon, is_limited)
+
+    # ---- G2 破幕判定 ----
+    if (target.hp <= 0
+            and game_state and getattr(game_state, 'ish_bosheth', None)
+            and game_state.ish_bosheth.phase == "active"
+            and getattr(target, 'player_id', None) == game_state.ish_bosheth.g2_owner_id):
+        from engine.ish_bosheth import STRAPPANDO
+        is_chorus_attacker = getattr(attacker, 'is_chorus', False)
+        is_strappando_real = (
+            not is_chorus_attacker
+            and getattr(attacker, 'emotion', None) == STRAPPANDO
+            and not getattr(attacker, 'is_chorus', False)
+        )
+        original_hp = result.get("target_hp_before", target.hp + result.get("hp_damage", 0))
+        if is_strappando_real and "imbalance" not in getattr(attacker, 'stage_statuses', set()):
+            # 破幕！G2 不死亡，HP 恢复攻击前数值
+            target.hp = round(original_hp, 2)
+            result["killed"] = False
+            result["hp_damage"] = 0
+            result["target_hp"] = target.hp
+            result["break_curtain"] = True
+            result["details"].append("🎭💥 破幕！G2 的结界被打破！")
+            return result
+        elif is_chorus_attacker:
+            # Chorus 不能破幕：G2 HP 降至 max(0.5, 当前)
+            target.hp = max(0.5, round(original_hp, 2))
+            result["killed"] = False
+            result["hp_damage"] = max(0, round(original_hp - target.hp, 2))
+            result["target_hp"] = target.hp
+            result["details"].append("🎭 Chorus 攻击无法破幕，G2 HP 保持最低 0.5")
+            game_state.ish_bosheth.adjust_regard(-1.0)
+            return result
 
     # ---- 第6步：眩晕/死亡判定 ----
     if target.hp <= 0:
@@ -1305,9 +1442,10 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
 
     # ---- 临时生命值结算 ----
     if remaining > 0:
-        if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
+        if (target.talent
                 and not getattr(target, '_mythland_talent_suppressed', False)):
-            remaining = target.talent.receive_damage_to_temp_hp(remaining)
+            remaining = target.talent.receive_damage_to_temp_hp(
+                remaining, is_embrace=False)
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
@@ -1334,11 +1472,12 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-            # 解除石化额外0.5伤害（先让临时HP吸收）
-            petrify_remaining = 0.5
-            if (target.talent and hasattr(target.talent, 'receive_damage_to_temp_hp')
-                    and not getattr(target, '_mythland_talent_suppressed', False)):
-                petrify_remaining = target.talent.receive_damage_to_temp_hp(petrify_remaining)
+        # 解除石化额外0.5伤害（先让临时HP吸收）
+        petrify_remaining = 0.5
+        if (target.talent
+                and not getattr(target, '_mythland_talent_suppressed', False)):
+            petrify_remaining = target.talent.receive_damage_to_temp_hp(
+                petrify_remaining, is_embrace=False)
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
             absorbed = round(0.5 - petrify_remaining, 2)
@@ -1414,3 +1553,90 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
         target.talent.on_being_attacked(attacker, None, False)
 
     return result
+
+
+def _duet_displace(target, attacker, damage: float, ish, game_state, result: dict):
+    """v2.0 G2×G5 TE: duet 模式 PvP 位移逻辑。
+
+    规则：
+    - damage ≤ 1.0: 50% 概率随机弹飞 / 50% 无事发生
+    - damage > 1.0: 50% 概率随机弹飞 / 50% 攻击者指定目的地
+    - 不造成 HP 伤害，仅改变 location。
+    """
+    # 位移免疫（拼接遗憾·Placido）
+    if target.player_id in getattr(ish, '_duet_displacement_immune', set()):
+        result["displacement"] = {"from": target.location, "to": target.location,
+                                  "reason": "immune"}
+        return
+    # 收集可用座位（排除目标当前位置）
+    available = sorted(s for s in ish.SEATS if s != target.location)
+    if not available:
+        result["displacement"] = {"from": target.location, "to": target.location, "reason": "no_seats"}
+        return
+
+    old_loc = target.location
+    new_loc = target.location
+
+    if damage <= 1.0:
+        # 低伤线：50% 随机弹飞
+        if _random.random() < 0.5 and available:
+            new_loc = _random.choice(available)
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.random",
+                    default="💨 {name} 被弹飞到 {seat}！"
+                ).format(name=target.name, seat=new_loc)
+            )
+        else:
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.resist",
+                    default="  🛡️ {name} 站稳了脚步，未被弹飞。"
+                ).format(name=target.name)
+            )
+    else:
+        # 高伤线：50% 随机 / 50% 攻击者指定
+        if _random.random() < 0.5:
+            new_loc = _random.choice(available)
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.random",
+                    default="💨 {name} 被弹飞到 {seat}！"
+                ).format(name=target.name, seat=new_loc)
+            )
+        elif attacker and hasattr(attacker, 'controller') and available:
+            chosen = attacker.controller.choose(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.choose_dest",
+                    default="选择 {target_name} 的位移目的地："
+                ).format(target_name=target.name),
+                available,
+                context={"phase": "duet_pvp", "situation": "displacement_choose"}
+            )
+            if chosen in available:
+                new_loc = chosen
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.chosen",
+                    default="🎯 {attacker} 将 {name} 推到了 {seat}！"
+                ).format(attacker=attacker.name, name=target.name, seat=new_loc)
+            )
+        else:
+            new_loc = _random.choice(available) if available else target.location
+
+    # 执行位移
+    if new_loc != old_loc:
+        target.location = new_loc
+        game_state.markers.on_player_move(target.player_id)
+        # 防御性检查：available 已过滤为 SEATS 子集，正常流程不可达，
+        # 保留以防未来代码变更导致非 SEATS 位置被传入
+        if new_loc not in ish.SEATS:
+            target.stage_statuses.discard('on_stage')
+            display.show_info(
+                prompt_manager.get_prompt(
+                    "duet", "displacement.oob",
+                    default="  ⚠️ {name} 被弹出舞台范围（{loc}），舞台状态已清除。"
+                ).format(name=target.name, loc=new_loc)
+            )
+
+    result["displacement"] = {"from": old_loc, "to": new_loc}

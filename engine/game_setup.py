@@ -81,7 +81,7 @@ TALENT_TABLE = [
     (8, "神代天赋-火萤IV型-完全燃烧", G1MythFire,
      "常驻+特殊技能：我的世界总是会被烧成一片焦土啊，那就烧吧。直至灰烬，浴火新生"),
     (9, "神代天赋-请一直注视着我", Hologram,
-     "主动1次：崩坏世界的最后一位歌姬，最后一次登上舞台歌唱，最后一次被人注视"),
+     "主动1次：展开 ish-bosheth 舞台结界。情绪系统+曲目演唱+Regard管理，Regard归零或8轮后谢幕"),
     (10, "神代天赋-神话之外", Mythland,
      "主动1次：同时以神明和囚徒的名义，于世界之外见证它如何走向注定的沉寂"),
     (11, "神代天赋-愿负世，照拂黎明", Savior,
@@ -249,7 +249,7 @@ def setup_game():
 
         # 问是否手动配置每个AI
         auto_ai = True
-        if game_mode == "mixed":
+        if game_mode in ("mixed", "all_ai"):
             while True:
                 raw = input("  是否自动配置AI？(y=自动随机/n=逐个配置，默认y)：").strip().lower()
                 if raw in ("", "y", "yes", "是"):

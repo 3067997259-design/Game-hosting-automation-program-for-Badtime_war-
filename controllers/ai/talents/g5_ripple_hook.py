@@ -13,6 +13,23 @@ class RippleAIHook(BaseTalentAIHook):
     def __init__(self, controller: Any):
         self._ctrl = controller
 
+    # ════════════════════════════════════════════════════════════════
+    #  v2.0: duet 候选覆盖（G5 上台后只能伴唱/放弃）
+    # ════════════════════════════════════════════════════════════════
+
+    def should_override_candidates(
+        self, player: Any, state: Any, available: List[str]
+    ) -> Optional[List[str]]:
+        """duet 模式中 G5 只能 special（伴唱）或 forfeit。"""
+        ish = getattr(state, 'ish_bosheth', None)
+        if not ish or ish.phase != "duet":
+            return None
+        if player.player_id != getattr(ish, 'duet_g5_pid', None):
+            return None
+        if "special" in available:
+            return ["special", "forfeit"]
+        return ["forfeit"]
+
     def handle_choose(
         self, player: Any, state: Any, situation: str,
         options: List[str], context: Dict,
@@ -122,6 +139,37 @@ class RippleAIHook(BaseTalentAIHook):
                     return result
             return options[0] if options else ""
         if situation == "poem_law_police_action":
+            return options[0] if options else ""
+
+        # ── v2.0 G2×G5 duet 决策 ──
+        if situation == "duet_vote":
+            # G5 自己当然赞成
+            for opt in options:
+                if "赞成" in opt:
+                    return opt
+            return options[0]
+
+        if situation == "duet_harmonize":
+            # 追忆够且伴唱不多时倾向伴唱
+            talent = getattr(player, 'talent', None)
+            budget = getattr(talent, 'reminiscence_budget', 0) if talent else 0
+            count = getattr(talent, 'harmonize_count', 0) if talent else 0
+            if budget >= 2 and count < 4:
+                for opt in options:
+                    if "伴唱" in opt or "harmonize" in opt.lower():
+                        return opt
+            return options[-1] if options else ""
+
+        if situation == "displacement_choose":
+            # 位移选择：优先选离按钮最远的座位
+            return options[-1] if options else options[0] if options else ""
+
+        if situation in ("pick_location", "pick_item"):
+            # 安可选择：G5 自身偏好军事基地/高斯步枪
+            if situation == "pick_location":
+                for loc in ["军事基地", "魔法所", "警察局"]:
+                    if loc in options:
+                        return loc
             return options[0] if options else ""
 
         return None

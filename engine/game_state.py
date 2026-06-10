@@ -50,6 +50,7 @@ class GameState:
         }
         # Phase 4: 朝阳好市民会添加更多
         self.active_barrier = None  # 神代3结界引用
+        self.ish_bosheth = None    # G2 ish-bosheth 舞台结界实例
 
         # 响应窗口
         self._response_window = ResponseWindowManager(self)
@@ -69,6 +70,14 @@ class GameState:
 
     def get_player(self, player_id):
         return self.players.get(player_id)
+
+    def register_chorus(self, unit):
+        """注册 Chorus 单位到 players dict（不加入 player_order）。"""
+        self.players[unit.player_id] = unit
+
+    def unregister_chorus(self, unit_id):
+        """从 players dict 移除 Chorus 单位。"""
+        self.players.pop(unit_id, None)
 
     def alive_players(self):
         return [p for p in self.players.values() if p.is_alive()]

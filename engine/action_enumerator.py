@@ -31,15 +31,20 @@ from engine.action_tables import (
 #  辅助函数（_normalize_location / _player_owned_names 已迁至 action_tables）
 # ══════════════════════════════════════════════════════════════════
 
-def _get_opponents(player: Player, game_state: GameState) -> List[Player]:
-    """获取所有存活对手列表（按 player_order 顺序，排除自身）"""
-    opponents: List[Player] = []
+def _get_opponents(player, game_state) -> list:
+    """获取所有存活对手列表（按 player_order 顺序，排除自身）。包含 Chorus。"""
+    opponents = []
     for pid in getattr(game_state, 'player_order', []):
         if pid == player.player_id:
             continue
         p = game_state.get_player(pid)
         if p and p.is_alive():
             opponents.append(p)
+    # Chorus 单位也可成为目标
+    if getattr(game_state, 'ish_bosheth', None) and game_state.ish_bosheth.phase == "active":
+        for c in game_state.ish_bosheth.chorus_list:
+            if c.is_alive() and c.player_id != getattr(player, 'player_id', None):
+                opponents.append(c)
     return opponents
 
 
@@ -77,6 +82,16 @@ def build_action_options(
     # ── 需要对手列表的 action type ────────────────────────────────
     opponents = _get_opponents(player, game_state)
     markers = game_state.markers
+
+    # G2 ish-bosheth 情绪限制：过滤合法对手
+    if getattr(game_state, 'ish_bosheth', None) and game_state.ish_bosheth.phase == "active":
+        from engine.ish_bosheth import STRAPPANDO, ACCAREZZEVOLE, INDIFFERENZA
+        attacker_emotion = getattr(player, 'emotion', None)
+        g2_owner_id = game_state.ish_bosheth.g2_owner_id
+        if attacker_emotion == STRAPPANDO:
+            opponents = [o for o in opponents if o.player_id == g2_owner_id]
+        elif attacker_emotion in (ACCAREZZEVOLE, INDIFFERENZA):
+            opponents = [o for o in opponents if o.player_id != g2_owner_id]
 
     # ── lock ──────────────────────────────────────────────────────
     if "lock" in name_set:

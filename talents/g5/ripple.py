@@ -89,6 +89,41 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         # === 爱愿系统 ===
         self.love_wish = {}  # {target_player_id: remaining_rounds}
 
+        # === v2.0: G2×G5 双人演出 TE ===
+        self.duet_joined: bool = False          # G5 是否已进入 duet 模式
+        self.reminiscence_budget: float = 12.0  # duet 中伴唱预算（12 追忆）
+        self.harmonize_count: int = 0           # duet 中已伴唱次数
+
+    # ================================================================
+    #  v2.0: G2×G5 duet 伴唱
+    # ================================================================
+
+    def execute_harmonize(self, player, game_state):
+        """G5 duet 伴唱：消耗追忆，本轮歌曲 Regard 花费 -50%。"""
+        ish = getattr(game_state, 'ish_bosheth', None)
+        if not ish or ish.phase != "duet":
+            return "❌ 当前不在双人演出模式"
+
+        if self.reminiscence_budget <= 0:
+            return "❌ 追忆预算已用完，无法伴唱"
+
+        if ish.harmonize_active:
+            return "❌ 本轮已伴唱，不可重复"
+
+        # 消耗追忆
+        cost = 2
+        self.reminiscence_budget = max(0, self.reminiscence_budget - cost)
+        self.harmonize_count += 1
+        ish.harmonize_active = True
+
+        display.show_info(
+            prompt_manager.get_prompt(
+                "duet", "harmonize.used",
+                default="🎤 {name} 伴唱！本轮歌曲花费减半。追忆预算：{budget}/12"
+            ).format(name=player.name, budget=self.reminiscence_budget)
+        )
+        return f"🎤 {player.name} 伴唱 —— 追忆预算 {self.reminiscence_budget}/12"
+
     # ================================================================
     #  V1.92+: 消耗使用次数
     # ================================================================
@@ -253,6 +288,8 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
             return None
         if self.anchor_active:
             return None
+        if self.duet_joined:
+            return None   # duet 中禁止锚定/献诗
         if self.reminiscence < self.activation_threshold:
             return None
 
@@ -301,7 +338,12 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
 
     def describe_status(self):
         parts = []
-        if self.anchor_active:
+        if self.duet_joined:
+            parts.append(f"🎤 双人演出中")
+            parts.append(f"追忆预算：{self.reminiscence_budget}/12")
+            if self.harmonize_count:
+                parts.append(f"伴唱×{self.harmonize_count}")
+        elif self.anchor_active:
             parts.append(f"🌊锚定中：{self.anchor_detail}")
             parts.append(f"剩余{self.anchor_rounds_left}轮")
             parts.append(
