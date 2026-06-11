@@ -58,24 +58,9 @@ def _legacy_controller():
     return controller
 
 
-class HoshinoTerrorLegacyFallbackTest(unittest.TestCase):
-    def test_legacy_arch_terror_attacks_before_generic_logic(self):
-        player = _terror_hoshino()
-        controller = _legacy_controller()
-
-        self.assertEqual(
-            controller._generate_candidates(player, _state(player), ["attack", "move"]),
-            ["attack"],
-        )
-
-    def test_legacy_arch_terror_forfeits_when_attack_unavailable(self):
-        player = _terror_hoshino()
-        controller = _legacy_controller()
-
-        self.assertEqual(
-            controller._generate_candidates(player, _state(player), ["move"]),
-            ["forfeit"],
-        )
+# C8: HoshinoTerrorLegacyFallbackTest 已移除
+# 原因：_generate_candidates（旧 waterfall 管道）已删除。
+# Terror fallback 行为现由 HoshinoAIHook.should_override_candidates() 覆盖。
 
 
 class HoshinoAmmoReloadSelectionTest(unittest.TestCase):
