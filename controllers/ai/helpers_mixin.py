@@ -1,4 +1,9 @@
-"""\n[FROZEN→DECOMMISSION] 旧架构 Mixin —— C4 重构后部分方法已委托到 evaluation 模块。\n旧管道（use_new_arch=False）在 C7 前仍需本文件的 MRO 存在，但方法体为单行委托。\n新逻辑请添加到对应的新架构模块（game_query / command_builder / evaluation）。\n\nHelpersMixin —— 装备查询、位置判断、工具方法\n"""
+"""
+[DECOMMISSION] 旧架构 Mixin —— 现为新架构的共享方法库，部分方法已委托到 evaluation 模块。
+新逻辑请添加到对应的新架构模块（game_query / command_builder / evaluation）。
+
+HelpersMixin —— 装备查询、位置判断、工具方法
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.evaluation import (
@@ -126,9 +131,7 @@ class HelpersMixin(_Base): # type: ignore
     # _hoshino_has_ammo, _hoshino_get_cost, _hoshino_get_form
     # 已统一定义在 hoshino_mixin.py 中
 
-    def _hoshino_shield_mode(self, player):
-        talent = getattr(player, 'talent', None)
-        return getattr(talent, 'shield_mode', None) if talent else None
+    # _hoshino_shield_mode 已移除：与 HoshinoImpl._hoshino_get_shield_mode 重复，统一走 impl
 
     def _hoshino_is_self_doubt(self, target) -> bool:
         talent = getattr(target, 'talent', None)

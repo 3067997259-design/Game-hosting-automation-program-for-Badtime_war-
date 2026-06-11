@@ -38,6 +38,9 @@ def _load() -> Dict[str, Any]:
 def get(*keys: str, default: Any = None) -> Any:
     """读取嵌套键对应的值。缺键时返回 default 并发出 warning。
 
+    注意：返回的是内部缓存的引用（dict/list 为可变对象），调用方**不得修改**
+    返回值——否则会污染整个进程的 balance 缓存。需要改动时先做拷贝。
+
     用法：
         from engine.balance import get as bget
         menu = bget("stage", "encore_reward_menu", default={})

@@ -49,18 +49,15 @@ class TestTableConsistency(unittest.TestCase):
     def test_location_items_consistent_with_item_locations(self):
         """LOCATION_ITEMS 中每个物品都应在 engine ITEM_LOCATIONS 中有记录。"""
         from engine.action_tables import ITEM_LOCATIONS
-        from controllers.ai.constants import LOCATION_ITEMS
-
-        # 别名映射（AI 用语 → 引擎规范名）
-        ai_to_engine = {"通行证": "办理通行证"}
-        # AI 层独有（非交互物品，特殊操作）
-        ai_only = {"释放病毒"}
+        from controllers.ai.constants import (
+            LOCATION_ITEMS, AI_TO_ENGINE_NAME, AI_ONLY_ITEMS,
+        )
 
         for loc, items in LOCATION_ITEMS.items():
             for item in items:
-                if item in ai_only:
+                if item in AI_ONLY_ITEMS:
                     continue
-                engine_item = ai_to_engine.get(item, item)
+                engine_item = AI_TO_ENGINE_NAME.get(item, item)
                 engine_locs = ITEM_LOCATIONS.get(engine_item)
                 self.assertIsNotNone(
                     engine_locs,
@@ -69,6 +66,32 @@ class TestTableConsistency(unittest.TestCase):
                 self.assertIn(
                     loc, engine_locs,
                     f"LOCATION_ITEMS 称 '{item}' 在 '{loc}'，但引擎记录为 {engine_locs}"
+                )
+
+    def test_need_providers_reference_valid_items_and_locations(self):
+        """NEED_PROVIDERS 引用的地点与物品都应在引擎信源中存在（防静默漂移）。"""
+        from engine.action_tables import ITEM_LOCATIONS, LOCATIONS as ENG_LOCATIONS
+        from controllers.ai.constants import (
+            NEED_PROVIDERS, AI_TO_ENGINE_NAME, AI_ONLY_ITEMS,
+        )
+
+        for need_key, providers in NEED_PROVIDERS.items():
+            for loc, item, _cost in providers:
+                self.assertIn(
+                    loc, ENG_LOCATIONS,
+                    f"NEED_PROVIDERS['{need_key}'] 引用了未知地点 '{loc}'"
+                )
+                if item in AI_ONLY_ITEMS:
+                    continue
+                engine_item = AI_TO_ENGINE_NAME.get(item, item)
+                engine_locs = ITEM_LOCATIONS.get(engine_item)
+                self.assertIsNotNone(
+                    engine_locs,
+                    f"NEED_PROVIDERS['{need_key}'] 的 '{item}' 在 ITEM_LOCATIONS 中不存在"
+                )
+                self.assertIn(
+                    loc, engine_locs,
+                    f"NEED_PROVIDERS['{need_key}'] 称 '{item}' 在 '{loc}'，但引擎记录为 {engine_locs}"
                 )
 
 

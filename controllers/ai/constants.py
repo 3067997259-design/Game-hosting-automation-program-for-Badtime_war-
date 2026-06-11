@@ -7,7 +7,6 @@
 - LOCATION_ITEMS → 硬编码顺序（AI 行为敏感），与 ITEM_LOCATIONS 一致性由模块级 assert 保证
 - EQUIPMENT_LOCATION / NEED_PROVIDERS / PERSONALITY_NEEDS / POLICE_AOE_WEAPONS → AI 层专属数据
 """
-from models.equipment import make_weapon
 from utils.attribute import Attribute, EFFECTIVE_AGAINST
 from engine.action_tables import (
     LOCATIONS, ITEM_LOCATIONS as _ENGINE_ITEM_LOCATIONS,
@@ -46,8 +45,8 @@ EQUIPMENT_LOCATION = {
 }
 
 # ── 信源归并：LOCATION_ITEMS 逆映射自 ITEM_LOCATIONS ──────────────────
+# LOCATIONS 直接来自顶部 import（engine.action_tables 同一对象），此处不再重复绑定。
 # 顺序为 AI 行为敏感（开发优先级），故硬编码；通过 assert 与引擎信源保持一致
-LOCATIONS: list = LOCATIONS  # 从 action_tables 重新导出（原地引用，与旧代码兼容）
 LOCATION_ITEMS = {
     "home": ["凭证", "小刀", "盾牌"],
     "商店": ["打工", "小刀", "磨刀石", "隐身衣", "热成像仪", "陶瓷护甲", "防毒面具"],
@@ -61,15 +60,15 @@ LOCATION_ITEMS = {
 }
 
 # ── 模块加载时一致性断言：LOCATION_ITEMS ⊆ ITEM_LOCATIONS + 已知补充 ──
-# 别名表（快捷名 → 引擎规范名）
-_AI_TO_ENGINE_NAME = {"通行证": "办理通行证"}
-# AI 层独有（非交互物品，或特殊操作）
-_AI_ONLY_ITEMS = {"释放病毒"}
+# 别名表（快捷名 → 引擎规范名），公开导出供测试复用
+AI_TO_ENGINE_NAME = {"通行证": "办理通行证"}
+# AI 层独有（非交互物品，或特殊操作），公开导出供测试复用
+AI_ONLY_ITEMS = {"释放病毒"}
 for _loc, _items in LOCATION_ITEMS.items():
     for _item in _items:
-        if _item in _AI_ONLY_ITEMS:
+        if _item in AI_ONLY_ITEMS:
             continue
-        _engine_item = _AI_TO_ENGINE_NAME.get(_item, _item)
+        _engine_item = AI_TO_ENGINE_NAME.get(_item, _item)
         _engine_locs = _ENGINE_ITEM_LOCATIONS.get(_engine_item)
         assert _engine_locs is not None, \
             f"LOCATION_ITEMS 中的 '{_item}' 在 engine.action_tables.ITEM_LOCATIONS 中不存在"

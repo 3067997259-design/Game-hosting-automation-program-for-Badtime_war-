@@ -1,4 +1,9 @@
-"""\n[FROZEN→DECOMMISSION] 旧架构 Mixin —— C4 重构后部分方法已委托到 evaluation 模块。\n旧管道（use_new_arch=False）在 C7 前仍需本文件的 MRO 存在，但方法体为单行委托。\n新逻辑请添加到对应的新架构模块（game_query / command_builder / evaluation）。\n\nEvaluationMixin —— 威胁评估、战力估算、阶段判定\n"""
+"""
+[DECOMMISSION] 旧架构 Mixin —— 现为新架构的共享方法库，部分方法已委托到 evaluation 模块。
+新逻辑请添加到对应的新架构模块（game_query / command_builder / evaluation）。
+
+EvaluationMixin —— 威胁评估、战力估算、阶段判定
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.constants import EFFECTIVE_AGAINST, debug_ai_basic, debug_ai_kill_opportunity

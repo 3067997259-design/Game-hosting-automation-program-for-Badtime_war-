@@ -16,8 +16,10 @@ import random
 from typing import TYPE_CHECKING, List, Optional, Set
 
 from cli import display
+from engine.balance import get as bget
 from engine.prompt_manager import prompt_manager
 from models.chorus import ChorusUnit, _ChorusArmorSlots
+from models.equipment import make_weapon, make_armor, make_item
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -900,8 +902,6 @@ class IshBosheth:
         )
 
         # 全员自选物品（两轮选择：地点 → 物品）
-        from models.equipment import make_weapon, make_armor, make_item
-        from engine.balance import get as bget
         # duet 安可奖励菜单 —— 首选 balance.json，回退到代码字面量
         _DEFAULT_ENCORE_MENU = {
             "商店": ["小刀", "盾牌", "陶瓷护甲", "隐身衣", "防毒面具", "通行证"],
