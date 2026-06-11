@@ -7,6 +7,9 @@ from controllers.ai.command_builder.develop_commands import DevelopCommandBuilde
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.game_query import GameQuery
 from controllers.ai.constants import debug_ai_basic
+from controllers.ai.evaluation import (
+    get_divinity, has_firefly_talent, is_in_savior_state, get_effective_hp,
+)
 
 
 class FireflyAIHook(BaseTalentAIHook):
@@ -164,7 +167,7 @@ class FireflyAIHook(BaseTalentAIHook):
         t_talent = getattr(target, 'talent', None)
         if t_talent and getattr(t_talent, 'name', '') == "愿负世，照拂黎明":
             if not getattr(t_talent, 'is_savior', False):
-                if self._ctrl._get_divinity(target) <= 6:
+                if get_divinity(target) <= 6:
                     s += 120
                 else:
                     s += 60
@@ -771,7 +774,7 @@ class SaviorAIHook(BaseTalentAIHook):
             return s
         divinity = getattr(t_talent, 'divinity', 0)
         if divinity >= 8:
-            if self._ctrl._has_firefly_talent(player):
+            if has_firefly_talent(player):
                 return base_score + 120
             return base_score - 40
         if divinity <= 4:
@@ -808,7 +811,7 @@ class SaviorAIHook(BaseTalentAIHook):
         self, player: Any, state: Any, available: List[str]
     ) -> Optional[List[str]]:
         """救世主状态：优先攻击"""
-        if not self._ctrl._is_in_savior_state(player) or self._ctrl._get_effective_hp(player) <= 0.5:
+        if not is_in_savior_state(player) or get_effective_hp(player) <= 0.5:
             return None
         debug_ai_basic(player.name, "救世主状态激活，优先攻击")
         last_attacker = self._ctrl._get_last_attacker(player, state)

@@ -1,13 +1,8 @@
-"""
-[FROZEN] 旧架构 Mixin —— 仅供 use_new_arch=False 时使用。
-新逻辑请添加到对应的新架构模块（game_query / command_builder / talents）。
-不要修改此文件，除非是修复旧架构专属的 bug。
-
-EvaluationMixin —— 威胁评估、战力估算、阶段判定
-"""
+"""\n[FROZEN→DECOMMISSION] 旧架构 Mixin —— C4 重构后部分方法已委托到 evaluation 模块。\n旧管道（use_new_arch=False）在 C7 前仍需本文件的 MRO 存在，但方法体为单行委托。\n新逻辑请添加到对应的新架构模块（game_query / command_builder / evaluation）。\n\nEvaluationMixin —— 威胁评估、战力估算、阶段判定\n"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any, Dict
 from controllers.ai.constants import EFFECTIVE_AGAINST, debug_ai_basic, debug_ai_kill_opportunity
+from controllers.ai.evaluation import get_effective_hp as _get_effective_hp_fn
 
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController
@@ -408,22 +403,8 @@ class EvaluationMixin(_Base):
     # ════════════════════════════════════════════════════════
 
     def _get_effective_hp(self, player) -> float:
-        """获取玩家的有效生命值（含天赋额外HP）
-        - 愿负世：救世主状态的临时HP
-        - 火萤IV型：炽愿层数 × 0.5
-        """
-        hp = player.hp
-        talent = getattr(player, 'talent', None)
-        if talent:
-            # 愿负世：救世主临时HP
-            temp_hp = getattr(talent, 'temp_hp', 0.0)
-            if temp_hp > 0:
-                hp += temp_hp
-            # 火萤IV型：炽愿额外HP
-            charges = getattr(talent, 'ardent_wish_charges', 0)
-            if charges > 0:
-                hp += charges * 0.5
-        return hp
+        """获取玩家的有效生命值（→ evaluation.get_effective_hp）"""
+        return _get_effective_hp_fn(player)
     def _estimate_power(self, player) -> float:
         """估算玩家战力"""
         power = 0.0

@@ -1751,12 +1751,9 @@ class BasicAIController(
 
     @staticmethod
     def _infer_aoe_weapon(destination: str) -> Optional[str]:
-        """根据目的地推断AI要去拿什么AOE武器"""
-        if destination == "军事基地":
-            return "电磁步枪"
-        if destination == "魔法所":
-            return "地动山摇"  # 优先升级版
-        return None
+        """根据目的地推断AI要去拿什么AOE武器（→ evaluation.infer_aoe_weapon）"""
+        from controllers.ai.evaluation import infer_aoe_weapon as _fn
+        return _fn(destination)
 
     @staticmethod
     def _pick_virus_cure_location(player: Any, state: Any) -> str:
