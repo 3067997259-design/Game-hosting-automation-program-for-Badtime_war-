@@ -1,6 +1,18 @@
-"""AI 控制器常量定义"""
+"""AI 控制器常量定义
+
+信源约定（2025-06 refactor）：
+- LOCATIONS → engine.action_tables（引擎唯一定义）
+- SPELL_PREREQUISITES → 从 action_tables 推导（引擎唯一定义）
+- EFFECTIVE_AGAINST → utils.attribute（属性层唯一定义）
+- LOCATION_ITEMS → 硬编码顺序（AI 行为敏感），与 ITEM_LOCATIONS 一致性由模块级 assert 保证
+- EQUIPMENT_LOCATION / NEED_PROVIDERS / PERSONALITY_NEEDS / POLICE_AOE_WEAPONS → AI 层专属数据
+"""
 from models.equipment import make_weapon
-from utils.attribute import Attribute
+from utils.attribute import Attribute, EFFECTIVE_AGAINST
+from engine.action_tables import (
+    LOCATIONS, ITEM_LOCATIONS as _ENGINE_ITEM_LOCATIONS,
+    SPELL_PREREQUISITES as _ENGINE_SPELL_PREREQUISITES,
+)
 from engine.debug_config import (
     debug_ai, debug_ai_basic, debug_ai_detailed, debug_ai_full,
     debug_ai_combat_state, debug_ai_kill_opportunity,
@@ -9,6 +21,18 @@ from engine.debug_config import (
     debug_ai_talent_selection, debug_system, debug_warning,
     debug_error, debug_info
 )
+
+# ── 信源归并：从 action_tables 推导 SPELL_PREREQUISITES ──────────────
+# action_tables 只记录有前置的法术（Dict[str,str]），AI 需要全量 Dict[str,List[str]]
+_MAGIC_ITEMS = {item for item, locs in _ENGINE_ITEM_LOCATIONS.items() if "魔法所" in locs}
+_SPELL_PREREQUISITES_RAW: dict = {}
+for _item in _MAGIC_ITEMS:
+    _prereq = _ENGINE_SPELL_PREREQUISITES.get(_item, "")
+    _SPELL_PREREQUISITES_RAW[_item] = [_prereq] if _prereq else []
+SPELL_PREREQUISITES = _SPELL_PREREQUISITES_RAW
+# 模块加载时验证与旧硬编码一致（防回退）
+assert set(SPELL_PREREQUISITES.keys()) == _MAGIC_ITEMS, \
+    f"SPELL_PREREQUISITES keys mismatch: {set(SPELL_PREREQUISITES.keys()) ^ _MAGIC_ITEMS}"
 
 
 EQUIPMENT_LOCATION = {
@@ -21,7 +45,9 @@ EQUIPMENT_LOCATION = {
     "AT力场": {"军事基地"},
 }
 
-LOCATIONS = ["home", "商店", "魔法所", "医院", "军事基地", "警察局"]
+# ── 信源归并：LOCATION_ITEMS 逆映射自 ITEM_LOCATIONS ──────────────────
+# 顺序为 AI 行为敏感（开发优先级），故硬编码；通过 assert 与引擎信源保持一致
+LOCATIONS: list = LOCATIONS  # 从 action_tables 重新导出（原地引用，与旧代码兼容）
 LOCATION_ITEMS = {
     "home": ["凭证", "小刀", "盾牌"],
     "商店": ["打工", "小刀", "磨刀石", "隐身衣", "热成像仪", "陶瓷护甲", "防毒面具"],
@@ -33,6 +59,22 @@ LOCATION_ITEMS = {
                "雷达", "隐形涂层"],
     "警察局": [],
 }
+
+# ── 模块加载时一致性断言：LOCATION_ITEMS ⊆ ITEM_LOCATIONS + 已知补充 ──
+# 别名表（快捷名 → 引擎规范名）
+_AI_TO_ENGINE_NAME = {"通行证": "办理通行证"}
+# AI 层独有（非交互物品，或特殊操作）
+_AI_ONLY_ITEMS = {"释放病毒"}
+for _loc, _items in LOCATION_ITEMS.items():
+    for _item in _items:
+        if _item in _AI_ONLY_ITEMS:
+            continue
+        _engine_item = _AI_TO_ENGINE_NAME.get(_item, _item)
+        _engine_locs = _ENGINE_ITEM_LOCATIONS.get(_engine_item)
+        assert _engine_locs is not None, \
+            f"LOCATION_ITEMS 中的 '{_item}' 在 engine.action_tables.ITEM_LOCATIONS 中不存在"
+        assert _loc in _engine_locs, \
+            f"LOCATION_ITEMS 声称 '{_item}' 在 '{_loc}'，但 engine 记录为 {_engine_locs}"
 
 NEED_PROVIDERS = {
     "weapon": [
@@ -87,26 +129,10 @@ NEED_PROVIDERS = {
 # 不可消耗的被动物品（消耗后会失去关键能力）
 PROTECTED_ITEMS = {"防毒面具", "隐身衣", "热成像仪", "隐形涂层", "雷达", "探测魔法"}
 
-# 属性克制：attacker_attr → 能有效打的 armor_attr 集合
-EFFECTIVE_AGAINST = {
-    Attribute.ORDINARY: {Attribute.ORDINARY, Attribute.MAGIC},
-    Attribute.MAGIC: {Attribute.MAGIC, Attribute.TECH},
-    Attribute.TECH: {Attribute.TECH, Attribute.ORDINARY},
-    Attribute.TRUE: {Attribute.ORDINARY, Attribute.MAGIC, Attribute.TECH},
-}
+# EFFECTIVE_AGAINST → 已归并：from utils.attribute import EFFECTIVE_AGAINST（上文）
+# SPELL_PREREQUISITES → 已归并：从 engine.action_tables 推导（上文）
 # 警察相关常量
 POLICE_AOE_WEAPONS = {"地震", "地动山摇", "电磁步枪", "天星"}
-# 法术前置
-SPELL_PREREQUISITES = {
-    "远程魔法弹幕": ["魔法弹幕"],
-    "地动山摇": ["地震"],
-    "地震": [],
-    "魔法弹幕": [],
-    "探测魔法": [],
-    "魔法护盾": [],
-    "封闭": [],
-    "隐身术": [],
-}
 
 # 人格 → 需求优先级列表（按重要性排序）
 # 每个元素是 (need_key, condition_fn_name)

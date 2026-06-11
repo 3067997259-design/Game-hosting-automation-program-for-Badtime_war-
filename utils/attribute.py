@@ -19,6 +19,10 @@ _EFFECTIVE = {
 }
 
 
+# 公开导出：与私有表同一对象，供 controllers/ai/constants.py 等引用
+EFFECTIVE_AGAINST = _EFFECTIVE
+
+
 def is_effective(weapon_attr: Attribute, armor_attr: Attribute) -> bool:
     """判定武器属性对护甲属性是否有效（True=能打，False=被克制无效）"""
     if weapon_attr == Attribute.TRUE:
