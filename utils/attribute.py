@@ -22,6 +22,17 @@ _EFFECTIVE = {
 # 公开导出：与私有表同一对象，供 controllers/ai/constants.py 等引用
 EFFECTIVE_AGAINST = _EFFECTIVE
 
+# 护甲属性 → 能克制它的异属性武器属性（同属性可打但不算克制）。
+# 程序化推导自 _EFFECTIVE，保证与克制规则永不漂移。
+# COUNTER_ATTRIBUTE 为枚举键；COUNTER_ATTRIBUTE_NAME 为中文名键（"普通"→"科技" 等）。
+COUNTER_ATTRIBUTE = {}
+COUNTER_ATTRIBUTE_NAME = {}
+for _armor in (Attribute.ORDINARY, Attribute.MAGIC, Attribute.TECH):
+    for _weapon in (Attribute.ORDINARY, Attribute.MAGIC, Attribute.TECH):
+        if _weapon is not _armor and _armor in _EFFECTIVE[_weapon]:
+            COUNTER_ATTRIBUTE[_armor] = _weapon
+            COUNTER_ATTRIBUTE_NAME[_armor.value] = _weapon.value
+
 
 def is_effective(weapon_attr: Attribute, armor_attr: Attribute) -> bool:
     """判定武器属性对护甲属性是否有效（True=能打，False=被克制无效）"""

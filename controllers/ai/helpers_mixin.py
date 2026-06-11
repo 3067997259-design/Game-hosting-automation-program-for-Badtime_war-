@@ -18,6 +18,7 @@ from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS, LOCATIONS,
     debug_ai_basic
 )
+from models.equipment import ArmorLayer
 
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController
@@ -152,28 +153,24 @@ class HelpersMixin(_Base): # type: ignore
         """统计玩家活跃的外层护甲数量"""
         armor = getattr(player, 'armor', None)
         if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
             return len(armor.get_active(ArmorLayer.OUTER))
         return 0
     def _count_inner_armor(self, player) -> int:
         """统计玩家活跃的内层护甲数量"""
         armor = getattr(player, 'armor', None)
         if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
             return len(armor.get_active(ArmorLayer.INNER))
         return 0
     def _get_outer_armor_attr(self, player) -> list:
         """获取玩家所有活跃外层护甲的属性列表"""
         armor = getattr(player, 'armor', None)
         if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
             return [a.attribute for a in armor.get_active(ArmorLayer.OUTER)]
         return []
     def _get_inner_armor_attr(self, player) -> list:
         """获取玩家所有活跃内层护甲的属性列表"""
         armor = getattr(player, 'armor', None)
         if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
             return [a.attribute for a in armor.get_active(ArmorLayer.INNER)]
         return []
     # ════════════════════════════════════════════════════════

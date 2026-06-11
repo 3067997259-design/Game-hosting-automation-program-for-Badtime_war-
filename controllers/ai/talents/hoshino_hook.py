@@ -17,6 +17,7 @@ from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.game_query import GameQuery
 from controllers.ai.constants import debug_ai_basic, PROTECTED_ITEMS
 from controllers.ai.talents.hoshino_impl import HoshinoImpl
+from utils.attribute import COUNTER_ATTRIBUTE_NAME
 
 
 class HoshinoAIHook(BaseTalentAIHook):
@@ -539,7 +540,7 @@ class HoshinoAIHook(BaseTalentAIHook):
         outer_attrs = self._hoshino._hoshino_get_target_outer_armor_attrs(target)
         if not outer_attrs:
             return None
-        counter_map = {"科技": "魔法", "普通": "科技", "魔法": "普通"}
+        counter_map = COUNTER_ATTRIBUTE_NAME  # 统一信源 utils.attribute
         needed_attrs = []
         for armor_attr in outer_attrs:
             counter_attr = counter_map.get(armor_attr)

@@ -7,6 +7,8 @@
 - LOCATION_ITEMS → 硬编码顺序（AI 行为敏感），与 ITEM_LOCATIONS 一致性由模块级 assert 保证
 - EQUIPMENT_LOCATION / NEED_PROVIDERS / PERSONALITY_NEEDS / POLICE_AOE_WEAPONS → AI 层专属数据
 """
+from typing import Dict, List
+
 from utils.attribute import Attribute, EFFECTIVE_AGAINST
 from engine.action_tables import (
     LOCATIONS, ITEM_LOCATIONS as _ENGINE_ITEM_LOCATIONS,
@@ -24,7 +26,7 @@ from engine.debug_config import (
 # ── 信源归并：从 action_tables 推导 SPELL_PREREQUISITES ──────────────
 # action_tables 只记录有前置的法术（Dict[str,str]），AI 需要全量 Dict[str,List[str]]
 _MAGIC_ITEMS = {item for item, locs in _ENGINE_ITEM_LOCATIONS.items() if "魔法所" in locs}
-_SPELL_PREREQUISITES_RAW: dict = {}
+_SPELL_PREREQUISITES_RAW: Dict[str, List[str]] = {}
 for _item in _MAGIC_ITEMS:
     _prereq = _ENGINE_SPELL_PREREQUISITES.get(_item, "")
     _SPELL_PREREQUISITES_RAW[_item] = [_prereq] if _prereq else []

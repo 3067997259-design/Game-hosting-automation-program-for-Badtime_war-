@@ -1,16 +1,18 @@
-"""
-[FROZEN] 旧架构 Mixin —— 仅供 use_new_arch=False 时使用。
-新逻辑请添加到对应的新架构模块（game_query / command_builder / talents）。
-不要修改此文件，除非是修复旧架构专属的 bug。
+"""HoshinoImpl —— 星野(G7)战术 AI 实现类（原 hoshino_mixin 整体迁入）。
 
-HoshinoImpl —— 神代天赋7 AI 专属逻辑
+纯组合类，不继承任何 Mixin；通过 _ctrl 引用回控制器访问共享方法与状态。
+供 hoshino_hook（直调）与 HoshinoMixin（单行委托，C7 后兼容层）共用。
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Optional, Any
+from typing import List, Optional, Any
 from controllers.ai.constants import PROTECTED_ITEMS, debug_ai_basic
+from utils.attribute import COUNTER_ATTRIBUTE_NAME
 
 
 class HoshinoImpl:
+
+    # 护甲属性 → 克制它的武器属性（信源：utils.attribute，程序化推导）
+    _COUNTER_MAP = COUNTER_ATTRIBUTE_NAME
 
     def __init__(self, controller: Any):
         self._ctrl = controller
@@ -42,7 +44,11 @@ class HoshinoImpl:
         return getattr(talent, 'shield_mode', None) if talent else None
 
     def _hoshino_has_ammo(self, player) -> bool:
-        """是否有子弹"""
+        """弹匣是否非空。
+
+        假设：talent.ammo 列表内元素均为合法弹药 dict（含 "attribute" 键），
+        由装填逻辑保证；本方法只判断列表非空，不校验元素有效性。
+        """
         talent = getattr(player, 'talent', None)
         return bool(talent and getattr(talent, 'ammo', []))
 
@@ -489,10 +495,8 @@ class HoshinoImpl:
         if not outer_armors:
             return True  # 无外层护甲
 
-        # 克制关系（护甲属性 → 克制它的武器属性）
-        # 规则：普通→魔法有效，魔法→科技有效，科技→普通有效
-        # 所以：魔法护甲需要普通武器，科技护甲需要魔法武器，普通护甲需要科技武器
-        counter_map = {"普通": "科技", "魔法": "普通", "科技": "魔法"}
+        # 克制关系（护甲属性 → 克制它的武器属性）→ 统一信源 utils.attribute
+        counter_map = self._COUNTER_MAP
 
         for armor in outer_armors:
             armor_attr = getattr(armor, 'attribute', '普通')
@@ -677,8 +681,8 @@ class HoshinoImpl:
         if not target_attrs:
             return list(range(1, len(ammo) + 1))  # 无甲，不需要排弹
 
-        # 克制关系
-        counter_map = {"普通": "科技", "魔法": "普通", "科技": "魔法"}
+        # 克制关系 → 统一信源 utils.attribute
+        counter_map = self._COUNTER_MAP
         # 找出需要的弹药属性（能克制目标任意外甲的属性）
         needed_attrs = set()
         for armor_attr in target_attrs:
@@ -714,7 +718,7 @@ class HoshinoImpl:
         if not target_attrs:
             return True  # 无甲，任何子弹都有效
 
-        counter_map = {"普通": "科技", "魔法": "普通", "科技": "魔法"}
+        counter_map = self._COUNTER_MAP  # 统一信源 utils.attribute
         ammo_attrs = set(b.get("attribute", "普通") for b in ammo)
 
         for armor_attr in target_attrs:
@@ -731,7 +735,7 @@ class HoshinoImpl:
         target_attrs = self._hoshino_get_target_outer_armor_attrs(target)
         if not target_attrs:
             return None
-        counter_map = {"普通": "科技", "魔法": "普通", "科技": "魔法"}
+        counter_map = self._COUNTER_MAP  # 统一信源 utils.attribute
         # 盾牌是普通属性且 priority 最高，优先处理
         if "普通" in target_attrs:
             return counter_map["普通"]  # 科技

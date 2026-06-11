@@ -924,14 +924,9 @@ class CombatMixin(_Base):
     # ════════════════════════════════════════════════════════
 
     def _pick_counter_attr(self, target_armor_attr) -> 'Attribute':
-        """根据目标护甲属性，选择克制它的武器属性"""
-        from utils.attribute import Attribute
-        counter_map = {
-            Attribute.ORDINARY: Attribute.TECH,    # 科技克普通
-            Attribute.MAGIC: Attribute.ORDINARY,    # 普通克魔法
-            Attribute.TECH: Attribute.MAGIC,        # 魔法克科技
-        }
-        return counter_map.get(target_armor_attr, Attribute.ORDINARY)
+        """根据目标护甲属性，选择克制它的武器属性（信源：utils.attribute）"""
+        from utils.attribute import Attribute, COUNTER_ATTRIBUTE
+        return COUNTER_ATTRIBUTE.get(target_armor_attr, Attribute.ORDINARY)
 
     def _target_has_emr_immunity(self, target) -> bool:
         """检查目标是否有对电磁步枪（电流武器）免疫眩晕的护甲

@@ -82,7 +82,6 @@ class BasicAIController(
     ):
         super().__init__()
         self.personality = personality
-        self._new_arch_enabled = True  # C7: 始终新架构，保留属性以兼容旧引用
         self.event_log: List[Dict] = []
         self._round_number = 0
 
@@ -142,62 +141,51 @@ class BasicAIController(
         # 初始化 DevelopMixin 所需的 fallback level 属性
         self._political_fallback_level = "none"
 
-        # ════════════════════════════════════════════════════════
-        #  新架构开关：通过构造函数参数 new_arch_enabled 控制
-        #  False时：不创建任何新模块，hasattr检查自然回退到旧行为
-        # ════════════════════════════════════════════════════════
-
         # 诊断收集器（显式启用诊断时创建，与架构无关）
         self._diag: Optional[DiagCollector] = (
             DiagCollector() if diag_enabled else None
         )
 
         # ════════════════════════════════════════════════════════
-        #  新架构模块：仅在 _new_arch_enabled=True 时创建
-        #  禁用时 hasattr 自然返回 False，所有代码回退到旧行为
+        #  新架构模块（C7 后唯一管道，无条件创建）
         # ════════════════════════════════════════════════════════
-        self._talent_hook_instances = {}
         self._decision_log: List[Dict] = []
-        if self._new_arch_enabled:
-            self._ai_state = AIState()
-            self._query = GameQuery()
-            self._police_mind = PoliceMind(debug_name="AI", query=self._query)
-            self._goal_stack = GoalStack(max_goals=5)
-            self._strategy = create_strategy(personality)
-            self._talent_hook_instances = {
-                "大叔我啊，剪短发了": HoshinoAIHook(self),
-                "请一直，注视着我": HologramAIHook(self),
-                "愿负世，照拂黎明": SaviorAIHook(self),
-                "火萤IV型-完全燃烧": FireflyAIHook(self),
-                "神话之外": MythlandAIHook(self),
-                "一刀缭断": OneSlashAIHook(self),
-                "天星": StarAIHook(self),
-                "六爻": HexagramAIHook(self),
-                "往世的涟漪": RippleAIHook(self),
-            }
-            self._terror_defense = TerrorDefenseAI(debug_name="AI")
-            self._ai_state.terror_defense = self._terror_defense
+        self._ai_state = AIState()
+        self._query = GameQuery()
+        self._police_mind = PoliceMind(debug_name="AI", query=self._query)
+        self._goal_stack = GoalStack(max_goals=5)
+        self._strategy = create_strategy(personality)
+        self._talent_hook_instances = {
+            "大叔我啊，剪短发了": HoshinoAIHook(self),
+            "请一直，注视着我": HologramAIHook(self),
+            "愿负世，照拂黎明": SaviorAIHook(self),
+            "火萤IV型-完全燃烧": FireflyAIHook(self),
+            "神话之外": MythlandAIHook(self),
+            "一刀缭断": OneSlashAIHook(self),
+            "天星": StarAIHook(self),
+            "六爻": HexagramAIHook(self),
+            "往世的涟漪": RippleAIHook(self),
+        }
+        self._terror_defense = TerrorDefenseAI(debug_name="AI")
+        self._ai_state.terror_defense = self._terror_defense
 
-            # ════════════════════════════════════════════════════════
-            #  ★ 新架构 DecisionOrchestrator：替代旧瀑布流的独立管道
-            #  包含所有 Mind 实例 + Orchestrator 编排器
-            # ════════════════════════════════════════════════════════
-            self._minds = [
-                PoliceMind(debug_name="AI", query=self._query),
-                ThreatMind(debug_name="AI", query=self._query),
-                DevelopMind(debug_name="AI", query=self._query),
-                CombatMind(debug_name="AI", query=self._query),
-            ]
-            self._orchestrator = DecisionOrchestrator(
-                strategy=self._strategy,
-                goal_stack=self._goal_stack,
-                talent_hooks=self._talent_hook_instances,
-                minds=self._minds,
-                controller=self,
-                ai_state=self._ai_state,
-                query=self._query,
-                personality=personality,
-            )
+        # DecisionOrchestrator：所有 Mind 实例 + 编排器
+        self._minds = [
+            PoliceMind(debug_name="AI", query=self._query),
+            ThreatMind(debug_name="AI", query=self._query),
+            DevelopMind(debug_name="AI", query=self._query),
+            CombatMind(debug_name="AI", query=self._query),
+        ]
+        self._orchestrator = DecisionOrchestrator(
+            strategy=self._strategy,
+            goal_stack=self._goal_stack,
+            talent_hooks=self._talent_hook_instances,
+            minds=self._minds,
+            controller=self,
+            ai_state=self._ai_state,
+            query=self._query,
+            personality=personality,
+        )
 
         # ════════════════════════════════════════════════════
         #  LLM 行为调整接口（由 AIChatModule 通过 [ADJUST] 写入）
@@ -483,7 +471,7 @@ class BasicAIController(
         # ★ 天赋AI钩子分发：天赋覆盖 choose() 决策
         # 返回非 None 时直接采用，返回 None 时走旧逻辑（super().choose() → ChooseMixin）
         talent_name = getattr(getattr(self._player, 'talent', None), 'name', '')
-        if talent_name and self._new_arch_enabled:
+        if talent_name:
             hook_instances = getattr(self, '_talent_hook_instances', {})
             hook = hook_instances.get(talent_name)
             if hook and hasattr(hook, 'handle_choose'):
