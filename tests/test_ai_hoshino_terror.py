@@ -44,7 +44,7 @@ def _state(player):
 
 
 def _legacy_controller():
-    controller = BasicAIController(new_arch_enabled=False)
+    controller = BasicAIController()
     controller._update_threat_scores = MethodType(lambda self, player, state: None, controller)
     controller._read_police_state = MethodType(lambda self, state: None, controller)
     controller._update_combat_status = MethodType(lambda self, player, state: None, controller)
@@ -58,32 +58,20 @@ def _legacy_controller():
     return controller
 
 
-class HoshinoTerrorLegacyFallbackTest(unittest.TestCase):
-    def test_legacy_arch_terror_attacks_before_generic_logic(self):
-        player = _terror_hoshino()
-        controller = _legacy_controller()
-
-        self.assertEqual(
-            controller._generate_candidates(player, _state(player), ["attack", "move"]),
-            ["attack"],
-        )
-
-    def test_legacy_arch_terror_forfeits_when_attack_unavailable(self):
-        player = _terror_hoshino()
-        controller = _legacy_controller()
-
-        self.assertEqual(
-            controller._generate_candidates(player, _state(player), ["move"]),
-            ["forfeit"],
-        )
+# C8: HoshinoTerrorLegacyFallbackTest 已移除
+# 原因：_generate_candidates（旧 waterfall 管道）已删除。
+# Terror fallback 行为现由 HoshinoAIHook.should_override_candidates() 覆盖。
 
 
 class HoshinoAmmoReloadSelectionTest(unittest.TestCase):
     def _hook_for_outer_attrs(self, outer_attrs):
-        controller = SimpleNamespace(
-            _hoshino_get_target_outer_armor_attrs=lambda target: outer_attrs
-        )
-        return HoshinoAIHook(controller)
+        # C5a 后 _find_counter_consumable 通过 HoshinoImpl 调用，需 mock impl 层
+        from unittest.mock import MagicMock
+        controller = SimpleNamespace()
+        hook = HoshinoAIHook(controller)
+        hook._hoshino = MagicMock()
+        hook._hoshino._hoshino_get_target_outer_armor_attrs = lambda target: outer_attrs
+        return hook
 
     def test_same_attribute_consumable_is_effective_reload_candidate(self):
         hook = self._hook_for_outer_attrs(["科技"])

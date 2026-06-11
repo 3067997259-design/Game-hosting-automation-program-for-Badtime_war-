@@ -35,29 +35,8 @@ class ChooseMixin(_Base):
     ) -> str:
         situation = (context or {}).get("situation", "")
 
-        # ════════════════════════════════════════════════════════
-        #  ★ 天赋AI钩子分发：天赋覆盖 choose() 决策
-        #  返回非 None 时直接采用，返回 None 时走旧逻辑
-        # ════════════════════════════════════════════════════════
-        talent_name = getattr(getattr(self._player, 'talent', None), 'name', '')
-        if talent_name and hasattr(self, '_new_arch_enabled') and self._new_arch_enabled:
-            hook_instances = getattr(self, '_talent_hook_instances', {})
-            hook = hook_instances.get(talent_name)
-            if hook and hasattr(hook, 'handle_choose'):
-                hook_ctx = {
-                    "situation": situation,
-                    "personality": getattr(self, 'personality', 'balanced'),
-                    "threat_scores": getattr(self, '_threat_scores', {}),
-                    "been_attacked_by": getattr(self, '_been_attacked_by', set()),
-                    "combat_target": getattr(self, '_combat_target', None),
-                    "danger_mode": getattr(self, '_danger_mode', False),
-                    "police_cache": getattr(self, '_police_cache', None),
-                    **(context or {}),
-                }
-                result = hook.handle_choose(
-                    self._player, self._game_state, situation, options, hook_ctx)
-                if result is not None:
-                    return result
+        # ★ 新架构 choose() 分发已提升到 BasicAIController.choose()
+        # 此处仅保留旧逻辑（situation 分发）
 
         # ---- 猜拳 ----
         if situation == "hexagram_my_choice":

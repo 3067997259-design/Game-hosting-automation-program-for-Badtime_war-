@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, List, Dict, Optional, Any
 from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS,
     debug_ai_basic, debug_ai_detailed,
-    make_weapon
 )
+from models.equipment import make_weapon
 from controllers.ai.game_query import GameQuery
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController

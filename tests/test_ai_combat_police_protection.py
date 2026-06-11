@@ -25,8 +25,9 @@ class _PoliceEngineStub:
 
 class CombatPoliceProtectionTest(unittest.TestCase):
     def _build_legacy_controller(self, estimated_damage, threshold=1.0):
-        controller = BasicAIController(new_arch_enabled=False)
-        self.assertFalse(hasattr(controller, "_police_mind"))
+        controller = BasicAIController()
+        # C7: 新架构始终启用 _police_mind
+        self.assertTrue(hasattr(controller, "_police_mind"))
 
         weapon = SimpleNamespace(name="高伤害步枪")
         player = SimpleNamespace(

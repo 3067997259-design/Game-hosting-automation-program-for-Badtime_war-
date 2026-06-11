@@ -4,6 +4,49 @@
 
 ---
 
+## G2 Reset v0.6（feat/g2-reset-v0.6，进行中）
+
+**神代天赋2「请一直，注视着我」完全重置：**
+
+将旧版「全息影像」重做为完整的 **ish-bosheth 舞台结界**系统。引入三声部阵营、物料牌、Regard 安定値、旋律、Chorus 观众、破幕、以及 G2×G5 二重唱 TE 等全套新机制。
+
+### 已完成 ✅
+
+| 子系统 | 说明 | 核心文件 |
+|--------|------|---------|
+| 舞台结界 | 分布式 5 座位、入场清理、强制起床、警察冻结、ma non troppo 2/2/2 分配 | `engine/ish_bosheth.py` |
+| 三声部系统 | Acc/Ind/Str 固定阵营 + Chorus 补齐，各自攻击限制 | `engine/ish_bosheth.py` |
+| Regard 安定値 | 初始公式 `3+P+0.5C+0.5N`、R4 变化（Ind 翻倍）、累计 ΔRegard 追踪 | `engine/ish_bosheth.py` |
+| 歌曲系统 | 3 首歌 × 6 节奏（Soave/Sognando/Placido/Zeffiroso/Riposato/Dolente） | `talents/g2_hologram.py` |
+| 旋律系统 | 累计 ΔRegard 解锁三间章、安定値公式（base+armor_mod）、双座位选目标、声部特效 | `engine/ish_bosheth.py` |
+| 物料牌系统 | 17 种牌（16 通用/倾向 + 改签票）、T0 摸牌/打出/拾取/换牌、声部限定 | `engine/material_deck.py` + `engine/cards/` |
+| 阵营结局 | Acc 狂热/Str 撕幕/Ind 完整谢幕/静默/空场/破幕 6 种结局 | `engine/ish_bosheth.py` |
+| 破幕 | Str 真实玩家 attack G2/投影破幕，Chorus 不可破幕 | `combat/damage_resolver.py` + `engine/action_turn.py` |
+| G2×G5 二重唱 TE | G5 献诗上台+全场投票、热力值竞争、大红按钮、位移 PvP、Duet 歌曲、G5 伴唱、排名谢幕、Embrace、安可 | `engine/ish_bosheth.py` + `talents/g5/poem_mixin.py` |
+| StageAI 决策 | Chorus/BasicAI 共用：T0 选牌/T1 行动/换牌/投票/姿态评估 | `controllers/ai/stage/` |
+| Chorus 控制器 | 物料牌效果、Sognando 指挥、T0/T1 StageAI 集成 | `controllers/chorus_controller.py` |
+| 换牌系统 | 同座位 T0 交易、`MaterialDeck.propose_trade/execute_trade`、人类/AI 双分支 | `engine/material_deck.py` + `engine/action_turn.py` |
+| 调试/测试 | AI 全程可运行 duet 模式，多轮 review 修复（26+ rounds） | `stats_runner.py` 批量测试 |
+
+### 草案计划但代码未完整实装 ⚠️
+
+| 内容 | 草案出处 | 现状 |
+|------|---------|------|
+| 安定値交互（Placido×0.5 / Zeffiroso×2 标记） | 草案 §9 | 字段 `_stability_armor_mult` 已定义，歌曲效果未设置 |
+| 反光板 + 耳返安定値临时标记 | 草案 §10.5/10.6 | 字段已定义，未完整接线 |
+| Embrace 自动标记（穿透特殊防护） | 草案 §12 | 待确认实现 |
+| 聚光合影"邀请后插入回合" | 草案 §10.1 | 待确认 |
+| StageAI 投票/歌曲/位移 MVP 占位 → 完整博弈推理 | 草案 §16.10 | 当前为简单启发式 |
+
+### 设计文档
+
+- 设计草案：`docs/g2_reset_draft_v0.7.md`（原 `G2重置草案.txt`）
+- 玩家手册：`docs/完全游玩手册.md` §神代天赋2·重置 (v0.6)
+- 机械规格：`docs/talents.md` §神代 2 Reset (v0.6)
+- 指令参考：`docs/commands.md` §四
+
+---
+
 ## Ver1.95
 
 **AI 架构升级（Orchestrator 新架构）：**

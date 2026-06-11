@@ -16,6 +16,8 @@ from typing import Dict, List, Optional, Any
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.game_query import GameQuery
 from controllers.ai.constants import debug_ai_basic, PROTECTED_ITEMS
+from controllers.ai.talents.hoshino_impl import HoshinoImpl
+from utils.attribute import COUNTER_ATTRIBUTE_NAME
 
 
 class HoshinoAIHook(BaseTalentAIHook):
@@ -23,6 +25,7 @@ class HoshinoAIHook(BaseTalentAIHook):
 
     def __init__(self, controller: Any):
         self._ctrl = controller
+        self._hoshino = HoshinoImpl(controller)
 
     def _get_threat_scores(self) -> Dict[str, float]:
         state = getattr(self._ctrl, '_ai_state', None)
@@ -210,33 +213,33 @@ class HoshinoAIHook(BaseTalentAIHook):
             return None
 
         # 1. Terror: 全图攻击
-        if self._ctrl._hoshino_is_terror(player):
-            return self._ctrl._hoshino_terror_command(player, state, available)
+        if self._hoshino._hoshino_is_terror(player):
+            return self._hoshino._hoshino_terror_command(player, state, available)
 
-        tactical_unlocked = self._ctrl._hoshino_tactical_unlocked(player)
+        tactical_unlocked = self._hoshino._hoshino_tactical_unlocked(player)
 
         # 2. 未解锁战术 → Hoshino专用发育路径（融合材料）
         if not tactical_unlocked:
             return self._get_development_commands(player, state, available)
 
         # 3. 已解锁 → 先检查是否能正常战斗
-        can_shoot = (self._ctrl._hoshino_has_ammo(player)
-                     or bool(self._ctrl._hoshino_find_consumable_for_reload(player)))
-        horus_ok = self._ctrl._hoshino_iron_horus_hp(player) > 0
+        can_shoot = (self._hoshino._hoshino_has_ammo(player)
+                     or bool(self._hoshino._hoshino_find_consumable_for_reload(player)))
+        horus_ok = self._hoshino._hoshino_iron_horus_hp(player) > 0
 
         # ════════════════════════════════════════════════════════
         #  盾牌死锁检测：持盾/架盾时无法interact
         #  必须在所有分支之前——弹药耗尽或荷鲁斯破损时先解除盾牌
         # ════════════════════════════════════════════════════════
-        shield_mode = self._ctrl._hoshino_shield_mode(player)
+        shield_mode = self._hoshino._hoshino_get_shield_mode(player)
         if shield_mode and (not can_shoot or not horus_ok) and "special" in available:
             self._ctrl._hoshino_macro_queue = ["取消", "terminal"]
             return ["special Hoshino", "forfeit"]
 
         # 3a. 肾上腺素（宏外免费行动）
         if "special" in available:
-            adr_target = self._ctrl._hoshino_find_target(player, state)
-            if adr_target and self._ctrl._hoshino_should_use_adrenaline(player, adr_target):
+            adr_target = self._hoshino._hoshino_find_target(player, state)
+            if adr_target and self._hoshino._hoshino_should_use_adrenaline(player, adr_target):
                 macro_cmds = self._build_macro_commands(player, state, available)
                 if macro_cmds:
                     return ["special 肾上腺素"] + macro_cmds
@@ -452,7 +455,7 @@ class HoshinoAIHook(BaseTalentAIHook):
                             return [f"move {target_loc}", "forfeit"]
 
         # 盾牌死锁检测
-        shield_mode = ctrl._hoshino_shield_mode(player)
+        shield_mode = self._hoshino._hoshino_get_shield_mode(player)
         can_shoot = ctrl._hoshino_has_ammo(player) or bool(ctrl._hoshino_find_consumable_for_reload(player))
         horus_ok = ctrl._hoshino_iron_horus_hp(player) > 0
         if shield_mode and (not can_shoot or not horus_ok) and "special" in available:
@@ -534,10 +537,10 @@ class HoshinoAIHook(BaseTalentAIHook):
         """找能有效打击目标外甲的装填消耗品。
         优先克制链：目标科技甲→找魔法属性物品，目标普通甲→找科技属性，目标魔法甲→找普通。
         若没有克制物品，同属性物品也可作为有效弹药。"""
-        outer_attrs = self._ctrl._hoshino_get_target_outer_armor_attrs(target)
+        outer_attrs = self._hoshino._hoshino_get_target_outer_armor_attrs(target)
         if not outer_attrs:
             return None
-        counter_map = {"科技": "魔法", "普通": "科技", "魔法": "普通"}
+        counter_map = COUNTER_ATTRIBUTE_NAME  # 统一信源 utils.attribute
         needed_attrs = []
         for armor_attr in outer_attrs:
             counter_attr = counter_map.get(armor_attr)
@@ -596,6 +599,6 @@ class HoshinoAIHook(BaseTalentAIHook):
         talent = player.talent
         tactical_unlocked = getattr(talent, 'tactical_unlocked', False)
         has_ammo = len(getattr(talent, 'ammo', [])) > 0
-        has_consumable = bool(self._ctrl._hoshino_find_consumable_for_reload(player))
+        has_consumable = bool(self._hoshino._hoshino_find_consumable_for_reload(player))
         iron_horus_hp = getattr(talent, 'iron_horus_hp', 0)
         return tactical_unlocked and (has_ammo or has_consumable) and iron_horus_hp > 0

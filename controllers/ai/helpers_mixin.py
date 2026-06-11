@@ -1,16 +1,24 @@
 """
-[FROZEN] 旧架构 Mixin —— 仅供 use_new_arch=False 时使用。
-新逻辑请添加到对应的新架构模块（game_query / command_builder / talents）。
-不要修改此文件，除非是修复旧架构专属的 bug。
+[DECOMMISSION] 旧架构 Mixin —— 现为新架构的共享方法库，部分方法已委托到 evaluation 模块。
+新逻辑请添加到对应的新架构模块（game_query / command_builder / evaluation）。
 
 HelpersMixin —— 装备查询、位置判断、工具方法
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Any, Dict
+from controllers.ai.evaluation import (
+    has_firefly_talent as _has_firefly_talent_fn,
+    is_in_savior_state as _is_in_savior_state_fn,
+    get_divinity as _get_divinity_fn,
+    get_location_str as _get_location_str_fn,
+    same_location as _same_location_fn,
+    get_same_location_targets as _get_same_location_targets_fn,
+)
 from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS, LOCATIONS,
     debug_ai_basic
 )
+from models.equipment import ArmorLayer
 
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController
@@ -41,11 +49,8 @@ class HelpersMixin(_Base): # type: ignore
     # ════════════════════════════════════════════════════════
 
     def _has_firefly_talent(self, player) -> bool:
-        """检查玩家是否持有火萤IV型天赋"""
-        talent = getattr(player, 'talent', None)
-        if talent and hasattr(talent, 'name') and talent.name == "火萤IV型-完全燃烧":
-            return True
-        return False
+        """检查玩家是否持有火萤IV型天赋（→ evaluation.has_firefly_talent）"""
+        return _has_firefly_talent_fn(player)
     def _firefly_debuff_active(self, player) -> bool:
         """检查火萤IV型的 debuff 是否已生效"""
         talent = getattr(player, 'talent', None)
@@ -53,20 +58,16 @@ class HelpersMixin(_Base): # type: ignore
             return talent.debuff_started
         return False
     def _is_in_savior_state(self, player) -> bool:
-        """检查玩家是否处于救世主状态"""
-        talent = getattr(player, 'talent', None)
-        if talent and hasattr(talent, 'is_savior'):
-            return talent.is_savior
-        return False
+        """检查玩家是否处于救世主状态（→ evaluation.is_in_savior_state）"""
+        return _is_in_savior_state_fn(player)
     def _has_savior_talent(self, player) -> bool:
         """检查玩家是否持有愿负世天赋（不论是否在救世主状态）"""
         talent = getattr(player, 'talent', None)
         return bool(talent and hasattr(talent, 'name') and talent.name == "愿负世，照拂黎明")
 
     def _get_divinity(self, player) -> int:
-        """获取愿负世持有者的当前火种数"""
-        talent = getattr(player, 'talent', None)
-        return getattr(talent, 'divinity', 0) if talent else 0
+        """获取愿负世持有者的当前火种数（→ evaluation.get_divinity）"""
+        return _get_divinity_fn(player)
 
     def _target_is_firefly(self, player) -> bool:
         """检查目标是否持有火萤IV型天赋"""
@@ -131,9 +132,7 @@ class HelpersMixin(_Base): # type: ignore
     # _hoshino_has_ammo, _hoshino_get_cost, _hoshino_get_form
     # 已统一定义在 hoshino_mixin.py 中
 
-    def _hoshino_shield_mode(self, player):
-        talent = getattr(player, 'talent', None)
-        return getattr(talent, 'shield_mode', None) if talent else None
+    # _hoshino_shield_mode 已移除：与 HoshinoImpl._hoshino_get_shield_mode 重复，统一走 impl
 
     def _hoshino_is_self_doubt(self, target) -> bool:
         talent = getattr(target, 'talent', None)
@@ -154,28 +153,24 @@ class HelpersMixin(_Base): # type: ignore
         """统计玩家活跃的外层护甲数量"""
         armor = getattr(player, 'armor', None)
         if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
             return len(armor.get_active(ArmorLayer.OUTER))
         return 0
     def _count_inner_armor(self, player) -> int:
         """统计玩家活跃的内层护甲数量"""
         armor = getattr(player, 'armor', None)
         if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
             return len(armor.get_active(ArmorLayer.INNER))
         return 0
     def _get_outer_armor_attr(self, player) -> list:
         """获取玩家所有活跃外层护甲的属性列表"""
         armor = getattr(player, 'armor', None)
         if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
             return [a.attribute for a in armor.get_active(ArmorLayer.OUTER)]
         return []
     def _get_inner_armor_attr(self, player) -> list:
         """获取玩家所有活跃内层护甲的属性列表"""
         armor = getattr(player, 'armor', None)
         if armor and hasattr(armor, 'get_active'):
-            from models.equipment import ArmorLayer
             return [a.attribute for a in armor.get_active(ArmorLayer.INNER)]
         return []
     # ════════════════════════════════════════════════════════
@@ -316,15 +311,8 @@ class HelpersMixin(_Base): # type: ignore
     # ════════════════════════════════════════════════════════
 
     def _get_location_str(self, player) -> str:
-        """获取玩家位置字符串"""
-        loc = getattr(player, 'location', None)
-        if loc is None:
-            return "unknown"
-        if isinstance(loc, str):
-            return loc
-        if hasattr(loc, 'name'):
-            return loc.name
-        return str(loc)
+        """获取玩家位置字符串（→ evaluation.get_location_str）"""
+        return _get_location_str_fn(player)
 
     def _is_at_home(self, player) -> bool:
         """是否在自己家"""
@@ -333,21 +321,12 @@ class HelpersMixin(_Base): # type: ignore
         return loc == "home" or loc == f"home_{pid}" or "家" in loc
 
     def _same_location(self, player1, player2) -> bool:
-        """两个玩家是否在同一地点"""
-        loc1 = self._get_location_str(player1)
-        loc2 = self._get_location_str(player2)
-        return loc1 == loc2 and loc1 != "unknown"
+        """两个玩家是否在同一地点（→ evaluation.same_location）"""
+        return _same_location_fn(player1, player2)
 
     def _get_same_location_targets(self, player, state) -> List[Any]:
-        """获取同地点的敌方玩家"""
-        result = []
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            target = state.get_player(pid)
-            if target and target.is_alive() and self._same_location(player, target):
-                result.append(target)
-        return result
+        """获取同地点的敌方玩家（→ evaluation.get_same_location_targets）"""
+        return _get_same_location_targets_fn(player, state)
 
     def _find_nearest_enemy_location(self, player, state) -> Optional[str]:
             """找到威胁度最大的敌人所在位置（因为这游戏没有距离概念啦）

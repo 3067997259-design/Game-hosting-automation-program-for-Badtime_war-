@@ -216,6 +216,210 @@
 - 「无法锁定/找到」属于行动类型禁用，不影响被动承受伤害/状态结算
 - 影像消失时，所有「由影像产生的被锁定/面对面标记」一并清除
 
+
+---
+
+### 神代 2 Reset (v0.6) ——实验性重置
+
+> **以代码实现为准。** 数值与公式已基于 `talents/g2_hologram.py`、`engine/ish_bosheth.py`、`engine/material_deck.py` 核实。
+> 来源文件：`talents/g2_hologram.py`（天赋入口+歌曲效果）、`engine/ish_bosheth.py`（舞台状态管理器）、`engine/material_deck.py`（物料牌系统）、`controllers/ai/stage/`（AI 决策模块）。
+
+#### 发动条件
+
+**使用次数**：1 次 。**启动时机**：T0。**成本**：消耗一个行动回合。**目标**：全场。
+
+**冷却公式**（`_calc_min_round()`）：
+```text
+最早发动轮次 = 10 + 2 × (len(player_order) - 2)
+```
+调试期间临时返回 1。
+
+#### 结界展开（`IshBosheth.open()`）
+
+1. G2 传送至 `home_{G2}`（舞台中心）
+2. 收集参与者：排除 G3 结界内、已死亡玩家
+3. 强制起床（未醒者）
+4. 清除隐身
+5. 清除即时关系（find/lock/engage）+ 导弹控制权
+6. 终止星野架盾/持盾
+7. 座位分配：`SEATS = {"商店","魔法所","警察局","医院","军事基地"}`
+8. 警察 Submerged 冻结
+9. 声部选择 → `ma_non_troppo()` 分配 2/2/2
+10. Chorus 补齐至总观众 ≥6
+11. 创建 `MaterialDeck` → 开场发牌
+12. 初始 Regard = `max(4, min(8, 3 + P + 0.5×C + 0.5×N))`
+
+#### Regard（`IshBosheth.adjust_regard()`）
+
+**初始值**：`clamp(3 + P + 0.5×C + 0.5×N, 4, 8)`，P=真实观众, C=Chorus, N=Submerged 单位。
+
+**R4 变化**（`on_r4()`）：
+```text
+ΔRegard = -1.0
+        + 1.0 × (Ind 真实观众存活数)      # v0.7 翻倍（原 0.5）
+        + 0.5 × (Ind Chorus 存活数)       # v0.7 翻倍（原 0.25）
+        - 0.5 × (Str 真实观众存活数)
+        - 0.25 × (Str Chorus 存活数)
+```
+Acc 声部不影响 Regard。每次变化通过 `adjust_regard(delta)` 追踪 `cumulative_delta_regard += |actual_delta|`。
+
+**谢幕触发**：`regard ≤ 0` 或 `r4_count ≥ 8` → `phase = "pending_curtain"` → 下个 R0 触发谢幕。
+
+#### 歌曲系统（`get_available_songs()` / `execute_sing()`）
+
+三首歌六个节奏，由 `_get_rhythms_for_song()` 返回：
+
+| 歌曲 | 节奏 | duet_key | 消耗(Regard) |
+|------|------|----------|-------------|
+| 追寻那道光 | Soave (温柔) | soave | 1 |
+| 追寻那道光 | Sognando (追寻) | sognando | 2 (需 Regard≥2) |
+| 拼接遗憾 | Placido (平静) | placido | 1 |
+| 拼接遗憾 | Zeffiroso (遗憾) | zeffiroso | 2 (需 Regard≥2) |
+| Before light | Riposato (休息) | riposato | 1 |
+| Before light | Dolente (悲伤) | dolente | 2 (需 Regard≥2) |
+
+**正常模式歌曲效果**（`g2_hologram.py` `_execute_*_v06` 方法）：
+- **Soave**：`spotlight` + 摸 1 牌 + 可额外打 1 牌。Acc: +0.5 temp_atk。Ind: 重置换牌冷却。Str: 手牌保持公开。
+- **Sognando**：同上 + 摸 2 弃至 3 + Chorus 被指挥攻击。
+- **Placido**：+0.5 temp_hp（Chorus +1.0）+ 可选换 1 张牌。
+- **Zeffiroso**：选两人交换各 1 张牌 + 若有 Chorus 则 Regard +0.5 + 复活 1 名死 Chorus（HP=1.0，分配至最少声部）。
+- **Riposato/Dolente**：设置 `before_light` 标志（pivot 覆盖为 5.0/2.0）`[草案计划：安定値交互待完整接线]`。
+
+**旋律解锁**（独立于常规歌曲，Regard 花费 0）：
+```text
+MELODY_1_THRESHOLD = 3.0   → 旋律·第一音节 [1.0,0.5,0.5,0.5]
+MELODY_2_THRESHOLD = 7.0   → 旋律·第二间章 [1.0,1.0,0.5,0.5]
+MELODY_3_THRESHOLD = 11.0  → 旋律·第三间章 [2.0,2.0,1.0,1.0]
+```
+各旋律仅能使用 1 次（`melody_1/2/3_used` 追踪）。序曲开幕免费（不计入 `melody_1_used`）。
+
+**安定値公式**（`_calc_stability()` / `_calc_melody_damage()`）：
+```text
+base = clamp(cumulative_delta_regard / 6.0 - 0.5, -0.5, +1.5)
+total_def = get_total_defense_hp(unit) + _stability_defense_offset
+pivot = _pivot_override or 3.5    # Riposato→5.0, Dolente→2.0
+armor_mod = (total_def - pivot) × 0.4
+stability = (base + armor_mod) × _stability_armor_mult × decay_factor
+raw = base_dmg × (1.0 + stability)
+raw > 0 → 伤害（最少 0.5）；raw ≤ 0 → 治疗
+```
+衰减序列：`[1.0, 0.6, 0.4, 0.2]`（第 1-4 目标）。
+旋律伤害为"无视属性克制"，调用 `resolve_damage(raw_damage_override=...)` 管线。
+
+**声部特效**（`_apply_melody_voice_effect()`）：
+- Acc → `MARK_FERVOR`：下次攻击 Str 伤害 +0.5
+- Ind → 摸 1 张牌
+- Str → `MARK_CRACK`：Regard -0.25 + 下次攻击 G2 伤害 +0.5
+
+#### 物料牌系统（`engine/material_deck.py`）
+
+**牌定义**（`_CARD_DEFS`，17 种含改签票）：
+
+| 牌名 | 数量 | 声部限定 | 效果简述 |
+|------|------|---------|---------|
+| 前排票 | 2 | — | 移动到任意座位 + engage |
+| 小卡交换 | 2 | — | 摸 2，必须交出 1 张 |
+| 空白票根 | 2 | — | 摸 1 牌 / 清牵连 / 清安可 |
+| 耳塞 | 2 | — | 下次旋律/BL 无视 + 清牵连 |
+| 聚光合影 | 2 | — | 邀请观众到你座位 + 额外回合 |
+| 荧光棒 | 2 | — | attack+0.5（对 Str+1.0） |
+| 24K钛合金狗牌 | 2 | Acc | 本回合攻击无视属性克制 |
+| 应援连呼 | 1 | Acc | Acc 单位 +0.5 tempHP，Chorus 立刻攻击 |
+| 和弦谱 | 2 | Acc | 累计 ΔRegard +1.5 |
+| 后台通行证 | 2 | Str | 生成 G2 投影，攻击投影=破幕 |
+| 撕票 | 1 | Str | Regard -0.5，击杀 Acc 额外 -0.5 |
+| 倒彩 | 2 | — | Acc 目标至下 R4 受伤 +0.5 |
+| 花束 | 2 | — | +0.5 tempHP（Chorus 额外 +0.5） |
+| 调停 | 2 | Ind | 1 Acc+1 Str 停火至下 R4 |
+| 场刊整理 | 2 | — | 双方各摸 1，不同声部可令弃 1 |
+| 反光板 | 2 | Ind | 目标下次旋律 decay=1.0 `[草案计划，代码未完整接线]` |
+| 耳返 | 2 | — | 下次旋律 total_defense-2 `[草案计划]` |
+| 改签票 | 1 | — | 改变声部，使用后移出游戏 |
+
+**手牌规则**：上限 3（`MAX_HAND_SIZE = 3`），公开。Chorus 持 1 张（`chorus_slots`）。每 T0：摸 1 + 拾取 1 + 最多打出 1。每轮最多 1 次换牌。死亡/离场掉落在座位。
+
+> **注意**：`_CARD_DEFS`（供 `build_deck` / `get_card_info` / `is_playable` 查询）与 `engine/cards/` 下的 `CARD_REGISTRY`（供 `_resolve_card_play()` 分派 `play()`）维护了两套并行的牌定义，过渡期并存。新增牌时需同时更新两处。
+
+#### 阵营结局（`_check_faction_victory()` / `on_r0_curtain()` / `end_ish_bosheth()`）
+
+| 结局常量 | 条件 | 奖励 |
+|----------|------|------|
+| `END_ACC_WIN` | Acc 存活 + Str 全灭 | Acc 全员 D4/D6+1，下次伤害+0.5 |
+| `END_STR_WIN` | Str 存活 + Acc 全灭；或破幕 | Str 全员 D4/D6+1，清标记；破幕者额外 D4+1 |
+| `END_IND_WIN` | Acc+Str 均存活 + 持续 8 R4 | Ind 全员 D4/D6+1，回 0.5 HP；G2 隐身 + Chorus 存活率奖励 |
+| `END_SILENT` | Acc+Str 均不存在 + Ind 存在 | Ind D4+1；G2 隐身 |
+| `END_EMPTY` | 无真实非 G2 玩家存活 | 无奖励；G2 隐身 |
+| `END_BREAK` | Str 真实玩家破幕 | G2 不死亡，结界 break 结束 |
+| `END_DUET` | 二重唱谢幕 | 热力排名 + Embrace 奖励 |
+| `END_CURTAIN` | 废墟谢幕 | 聚光灯/安可受众受 0.5 伤害；可能破幕未遂 D4+1 |
+
+#### 破幕（`damage_resolver.py` / `action_turn.py`）
+
+- 仅 Strappando **真实玩家**可通过 attack G2（含致命伤害）或攻击 G2 投影破幕
+- Chorus 攻击 G2 不能破幕：HP 降至 `max(0.5, 攻击前)`，Regard -1
+- 破幕时 G2 免疫死亡（HP 恢复），结界以 `END_BREAK` 结束
+
+#### G2×G5 二重唱 TE（`enter_duet()`）
+
+**触发**：G5 `_poem_light_duet_attempt()` → 全场投票（权重：真人 1, Chorus 1, G2+1, G5+1）→ 赞成 ≥50% 通过。
+
+**状态变量**（`IshBosheth` 实例属性）：
+```text
+duet_g5_pid: str | None          # 上台的 G5 玩家 ID
+duet_heat: {voice: total_heat}   # 累计热力值
+duet_round: int                  # 当前轮次 (1-8)
+duet_buttons: list[ButtonDummy]  # 当前按钮实体
+duet_encores: int                # 安可触发次数
+harmonize_active: bool           # G5 本轮是否伴唱
+duet_curtain_triggered: bool     # 谢幕是否已触发
+_duet_voice_button_mult: dict    # {voice: multiplier}
+_duet_displacement_immune: set   # player_ids
+_duet_pooled_heat: bool          # Riposato 公共池
+_duet_heat_conversion_mult: float  # Riposato ×1.5
+_duet_button_dmg_mult: float     # Dolente ×1.3
+```
+
+**热力转化**（`_duet_on_r4()`）：
+```text
+当轮热力增量 = duet_heat[voice] - _duet_prev_heat[voice]  (每 voice)
+转化率 CONVERSION = 0.5
+Regard += total_round × 0.5 × _duet_heat_conversion_mult
+```
+
+**按钮**（`ButtonDummy`）：HP=999，永不死亡。`_spawn_duet_buttons()` 每 R0 生成 2 个在随机座位，`_despawn_duet_buttons()` 每 R3 末清理。
+
+**G5 伴唱**：`harmonize_active = True` → G2 演唱时 cost = `max(0, ceil(cost/2))`。消耗 2 追忆（`reminiscence_budget = max(0, budget - 2)`）。
+
+**安可**（`_check_duet_encore()`）：第 8 轮 + G5 追忆全满 12 → 全员自选物品（两轮选择：地点 → 具体物品）。
+
+**热力排名奖励**（`_award_duet_rank_rewards()`）：
+- 第 1 声部：D4/D6+1，下次伤害+0.5
+- 第 2 声部：D4/D6+1，tempHP+0.5
+- 第 3 声部：D4+1
+- 提前结束乘数：6-7 轮×0.75, 4-5 轮×0.5, ≤3 轮×0.25
+
+**Embrace**（`_duet_embrace_phase()`）：G2/G5 自动互相拥抱（×2.0 buff），其余按热力排名倍率（×2.0/×1.0/×0.5）。
+
+#### StageAI 决策系统（`controllers/ai/stage/`）
+
+- `stage_ai.py`：统一入口 `assess()` / `decide_t0()` / `get_command()` / `choose()` / `decide_trade()` / `decide_trade_accept()`
+- `duet_mode.py`：`assess_duet_stance()`（cooperate/compete/mixed 三姿态）、`decide_duet_action()`、`decide_t0_duet()`、`_pick_pvp_target()`
+- `normal_mode.py`：`rank_targets()`（威胁/可击杀/同地点/破幕加成/反击风险 五维评分）、`decide_normal_action()`、`decide_t0_normal()`、`_decide_normal_move()`
+- `target_filter.py`：`get_legal_normal_targets()`、`get_opponents()`、`get_teammates()`、`get_hand()`、`pick_best_weapon()`
+
+#### Chorus 控制器（`controllers/chorus_controller.py`）
+
+- `get_command()`：T0 走 `StageAI.assess()` + `StageAI.decide_t0()`；T1 走 `StageAI.get_command()`
+- `_apply_card_effect()`：处理荧光棒/聚光合影(+0.5 伤害)、耳塞(清牵连)、后台通行证(Regard-1)、花束/反光板/场刊整理/和弦谱(offer_heat 1.0)、前排票(移往按钮座)、空白票根(摸牌)
+- Sognando 指挥：`_g2_commanded_target_id` 指定 Chorus 攻击目标
+
+#### 编码规范提示
+
+- **用户可见文本**：走 `data/prompts.json`（`g2reset.*` / `duet.*` 命名空间）
+- **过渡期注意**：`_CARD_DEFS` 与 `CARD_REGISTRY` 两套牌定义并存，后续应统一
+- **调试输出**：`[Stg]` / `[Stg·]` / `[Stg··]` 三级标签（`StageAI._dbg(level, player, msg)`）
+
+
 ---
 
 ### 神代 3.「神话之外」

@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Any
 import random
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.constants import debug_ai_basic
+from controllers.ai.evaluation import get_same_location_targets
 
 
 class MythlandAIHook(BaseTalentAIHook):
@@ -102,7 +103,7 @@ class MythlandAIHook(BaseTalentAIHook):
                     return opt
             return options[-1] if options else None
 
-        same_loc = self._ctrl._get_same_location_targets(player, state)
+        same_loc = get_same_location_targets(player, state)
         if not same_loc:
             for opt in options:
                 if "不发动" in opt or "正常" in opt:

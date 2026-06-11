@@ -47,8 +47,7 @@ def parse_args():
                    help="调试级别 0=关闭 1=基本 2=详细 3=完整")
     p.add_argument("--log-file", type=str, default="",
                    help="日志保存路径（留空则输出到stdout）")
-    p.add_argument("--new-arch", type=int, default=1, choices=[0, 1],
-                   help="1=启用新架构 0=旧行为")
+    # --new-arch 已移除（C7 后仅保留新架构 DecisionOrchestrator）
     p.add_argument("--ai", action="append", default=[],
                    help="指定AI配置, 格式: name:talent:personality (可多次使用)")
     p.add_argument("--force-talent", type=str, default="",
@@ -156,8 +155,7 @@ def setup_game_cli(args) -> GameState:
             personality = random.choice(AI_PERSONALITIES)
 
         pid = f"p{player_index}"
-        new_arch = bool(args.new_arch)
-        controller = BasicAIController(personality=personality, new_arch_enabled=new_arch)
+        controller = BasicAIController(personality=personality)
         player = Player(pid, ai_name, controller=controller)
         game_state.add_player(player)
 
@@ -199,8 +197,7 @@ def setup_game_cli(args) -> GameState:
                     taken_talents.add(n)
 
         short = TALENT_REVERSE.get(player.talent_name or "", "")
-        arch_tag = "[新]" if new_arch else "[旧]"
-        print(f"  {pid}: {ai_name:8s} [{short or player.talent_name or '无':6s}] 人格={personality:12s} {arch_tag}")
+        print(f"  {pid}: {ai_name:8s} [{short or player.talent_name or '无':6s}] 人格={personality:12s}")
         player_index += 1
 
     random.shuffle(game_state.player_order)
@@ -219,24 +216,14 @@ def setup_game_interactive(args) -> GameState:
     from engine.game_setup import setup_game as _orig_setup
     # 调用原版交互式流程
     state = _orig_setup()
-    # 如果指定了 new_arch，覆盖所有 AI controller
-    if args.new_arch == 0:
-        for pid in state.player_order:
-            p = state.get_player(pid)
-            if p and hasattr(p.controller, '_new_arch_enabled'):
-                p.controller._new_arch_enabled = False
 
-    # 打印所有 AI 玩家的架构信息
-    print("\n  ═══ 架构信息 ═══")
-    arch_active = args.new_arch != 0
-    arch_label = "[新架构 DecisionOrchestrator]" if arch_active else "[旧架构 Mixin瀑布流]"
-    print(f"  全局架构: {arch_label}")
+    # 打印所有 AI 玩家的信息
+    print("\n  ═══ AI 玩家信息 ═══")
     for pid in state.player_order:
         p = state.get_player(pid)
-        if p and hasattr(p.controller, '_new_arch_enabled'):
+        if p and hasattr(p.controller, 'personality'):
             ctrl = p.controller
             pers = getattr(ctrl, 'personality', '?')
-            arch = "[新]" if getattr(ctrl, '_new_arch_enabled', False) else "[旧]"
             talent_name = getattr(p, 'talent_name', '') or '无'
             # 缩写天赋名
             short = TALENT_REVERSE.get(talent_name, '')
@@ -283,8 +270,7 @@ def main():
     if args.debug_level > 0:
         enable_debug(args.debug_level)
         if args.mode:
-            arch_tag = "[新架构]" if args.new_arch else "[旧架构]"
-            print(f"  调试级别: {args.debug_level} {arch_tag}")
+            print(f"  调试级别: {args.debug_level} [新架构 DecisionOrchestrator]")
             if args.log_file:
                 print(f"  日志文件: {args.log_file}")
 
@@ -303,17 +289,9 @@ def main():
     else:
         game_state = setup_game_interactive(args)
 
-    # 诊断：打印架构信息（读取实际 controller 状态，而非仅 CLI 参数）
-    arch_active = True
-    for pid in game_state.player_order:
-        p = game_state.get_player(pid)
-        if p and hasattr(p.controller, '_new_arch_enabled'):
-            if not p.controller._new_arch_enabled:
-                arch_active = False
-            break
-    arch_tag = "新架构 DecisionOrchestrator" if arch_active else "旧架构 Mixin瀑布流"
+    # 诊断：确认新架构激活（C7 后仅新架构）
     print(f"\n{'='*52}")
-    print(f"  起闯战争 — {arch_tag}")
+    print(f"  起闯战争 — 新架构 DecisionOrchestrator")
     print(f"{'='*52}")
 
     # 运行游戏

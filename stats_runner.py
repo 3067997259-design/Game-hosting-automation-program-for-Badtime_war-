@@ -151,7 +151,6 @@ COL_PERS = 14      # 人格列宽
 
 
 def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random",
-                    new_arch_enabled: bool = True, shadow_mode: bool = False,
                     diag_mode: bool = False) -> dict[str, Any]:
     """Run a single game (all-AI, or with one RL seat) and return results."""
     game_state = GameState()
@@ -181,10 +180,8 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         pid = f"p{i + 1 + start_idx}"
         controller = BasicAIController(
             personality=personality,
-            new_arch_enabled=new_arch_enabled,
             diag_enabled=diag_mode,
         )
-        controller._shadow_mode = shadow_mode
         player = Player(pid, ai_name, controller=controller)
         game_state.add_player(player)
         ai_players_info.append((pid, ai_name, personality))
@@ -326,16 +323,8 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         "crash_traceback": crash_traceback,
         "talent_nums_picked": list(taken),  # 本局选了哪些天赋
         "max_rounds": game_state.max_rounds,
-        "shadow_logs": {},  # {pid: [decision_log]}
         "players": [],
     }
-    # 收集所有控制器的shadow日志
-    for pid in game_state.player_order:
-        p = game_state.get_player(pid)
-        if p and hasattr(p.controller, 'dump_shadow_log'):
-            logs = p.controller.dump_shadow_log()
-            if logs:
-                results["shadow_logs"][pid] = logs
 
     # 诊断数据收集
     diag_data = {}
@@ -484,7 +473,6 @@ def _fmt_count_pct(count: int, total: int) -> str:
 # ── Main batch runner ──
 
 def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mode: str = "random",
-              new_arch_enabled: bool = True, shadow_mode: bool = False,
               diag_mode: bool = False, diag_output: str = "logs/diag_report.json") -> None:
     """Run multiple games and collect statistics."""
 
@@ -507,8 +495,6 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
 
     # 平局原因统计
     draw_reasons: dict[str, int] = defaultdict(int)  # key → count
-    # Shadow统计
-    shadow_summary: dict[str, Any] = {}
     # 诊断报告
     diag_report = None
     if diag_mode:
@@ -537,8 +523,6 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
 
         try:
             result = run_single_game(num_players, rl_controller, rl_talent_mode,
-                                     new_arch_enabled=new_arch_enabled,
-                                     shadow_mode=shadow_mode,
                                      diag_mode=diag_mode)
         except Exception:
             errors += 1
@@ -560,17 +544,6 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
         # 诊断数据收集
         if diag_report is not None:
             diag_report.add_game(game_idx, result)
-
-        # shadow模式：保存前N局的详细决策日志
-        if shadow_mode and game_idx < 50:
-            shadow_logs = result.get("shadow_logs", {})
-            if shadow_logs:
-                shadow_summary[f"game_{game_idx + 1}"] = {
-                    "rounds": result["rounds"],
-                    "winner": result["winner_pid"],
-                    "talents": result.get("talent_nums_picked", []),
-                    "decisions": shadow_logs,
-                }
 
         for p in result["players"]:
             if p.get("is_rl"):
@@ -610,8 +583,6 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
                   talent_stats, personality_stats,
                   draw_reasons=draw_reasons, draw_labels=DRAW_LABELS,
                   crash_log=crash_log,
-                  shadow_summary=shadow_summary,
-                  shadow_mode_tag="new" if new_arch_enabled else "old",
                   rl_games=rl_games, rl_wins=rl_wins,
                   rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins,
                   rl_talent_usage=rl_talent_usage)
@@ -636,8 +607,6 @@ def print_results(
     draw_reasons: Optional[dict[str, int]] = None,
     draw_labels: Optional[dict[str, str]] = None,
     crash_log: Optional[list[dict[str, Any]]] = None,
-    shadow_summary: Optional[dict[str, Any]] = None,
-    shadow_mode_tag: str = "new",
     rl_games: int = 0,
     rl_wins: int = 0,
     rl_talent_picks: Optional[dict[int, int]] = None,
@@ -706,21 +675,6 @@ def print_results(
             for line in tb_lines[-5:]:
                 if line.strip():
                     print(f"    {line.strip()[:120]}")
-    # ── Shadow日志保存 ──
-    if shadow_summary:
-        import json
-        shadow_path = f"logs/shadow_decisions_{shadow_mode_tag}.json"
-        os.makedirs("logs", exist_ok=True)
-        with open(shadow_path, "w", encoding="utf-8") as f:
-            json.dump(shadow_summary, f, ensure_ascii=False, indent=2, default=str)
-        game_count = len(shadow_summary)
-        total_decisions = sum(
-            sum(len(v.get("decisions", {}).get(pid, [])) for pid in v.get("decisions", {}))
-            for v in shadow_summary.values()
-        )
-        print(f"\n  ── Shadow日志已保存 ──")
-        print(f"  文件: {shadow_path}")
-        print(f"  覆盖 {game_count} 局, {total_decisions} 个决策点")
     print(f"{'=' * 80}")
 
     # ── RL 统计表（仅在 RL 参与时显示）──
@@ -991,12 +945,8 @@ def main():
                         help="RL 天赋选择模式：'model'=模型自选, 'random'=均匀随机14天赋, 数字=指定天赋编号, '0'=无天赋")
     parser.add_argument("--n-stack", type=int, default=30,
                         help="RL 帧堆叠数量（需与训练时一致）")
-    parser.add_argument("--disable-new-arch", action="store_true",
-                        help="关闭新架构模块，运行纯旧行为（用于基线对比）")
-    parser.add_argument("--compare", action="store_true",
-                        help="开启决策级对比模式（记录新旧候选命令差异）")
-    parser.add_argument("--shadow", action="store_true",
-                        help="开启shadow模式：记录每轮决策上下文用于新旧对比分析")
+    # C7: --disable-new-arch 已移除（仅新架构）
+    # C8: --shadow / --compare 已移除（旧架构对比已无意义）
     parser.add_argument("--diag", action="store_true",
                         help="启用诊断模式：收集 forfeit/fallback/draw 的结构化数据")
     parser.add_argument("--diag-output", type=str, default="logs/diag_report.json",
@@ -1008,10 +958,6 @@ def main():
         sys.exit(1)
 
     print(f"  起闯战争 自动胜率统计")
-    if args.disable_new_arch:
-        print(f"  ⚠ 新架构已禁用（纯旧行为基线）")
-    if args.compare:
-        print(f"  🔍 决策级对比模式")
     print(f"  {args.players}人局 × {args.games}局")
 
     rl_controller = None
@@ -1025,7 +971,6 @@ def main():
     print()
 
     run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
-              new_arch_enabled=not args.disable_new_arch, shadow_mode=args.shadow,
               diag_mode=args.diag, diag_output=args.diag_output)
 
 
