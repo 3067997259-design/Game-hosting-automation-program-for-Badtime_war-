@@ -77,12 +77,11 @@ class BasicAIController(
     def __init__(
         self,
         personality: str = "balanced",
-        new_arch_enabled: bool = True,
         diag_enabled: bool = False,
     ):
         super().__init__()
         self.personality = personality
-        self._new_arch_enabled = new_arch_enabled
+        self._new_arch_enabled = True  # C7: 始终新架构，保留属性以兼容旧引用
         self.event_log: List[Dict] = []
         self._round_number = 0
 
@@ -286,49 +285,29 @@ class BasicAIController(
     #  新旧架构事件入口分发
     # ════════════════════════════════════════════════════════
 
-    def _uses_new_arch_events(self) -> bool:
-        return bool(getattr(self, '_new_arch_enabled', False) and hasattr(self, '_ai_state'))
+    # C7: 事件路径统一为新架构（_on_*_new），旧 EventsMixin 路径已移除
 
     def on_event(self, event: Dict) -> None:
-        if self._uses_new_arch_events():
-            self._on_event_new(event)
-        else:
-            EventsMixin.on_event(self, event)
+        self._on_event_new(event)
 
     def on_round_start(self, player, state, round_number: int):
-        if self._uses_new_arch_events():
-            self._on_round_start_new(player, state, round_number)
-        else:
-            EventsMixin.on_round_start(self, player, state, round_number)
+        self._on_round_start_new(player, state, round_number)
 
     def on_round_end(self, player, state, round_number: int):
-        if self._uses_new_arch_events():
-            self._on_round_end_new(player, state, round_number)
-        else:
-            EventsMixin.on_round_end(self, player, state, round_number)
+        self._on_round_end_new(player, state, round_number)
 
     def on_damaged(self, player, attacker_name: str, damage: float):
-        if self._uses_new_arch_events():
-            self._on_damaged_new(player, attacker_name, damage)
-        else:
-            EventsMixin.on_damaged(self, player, attacker_name, damage)
+        self._on_damaged_new(player, attacker_name, damage)
 
     def on_player_killed(self, player, killed_name: str, killer_name: str):
-        if self._uses_new_arch_events():
-            self._on_player_killed_new(player, killed_name, killer_name)
-        else:
-            EventsMixin.on_player_killed(self, player, killed_name, killer_name)
+        self._on_player_killed_new(player, killed_name, killer_name)
 
     def respond_to_event(self, player, state, event_type: str,
                          event_data: dict) -> Optional[str]:
-        if self._uses_new_arch_events():
-            return self._respond_to_event_new(player, state, event_type, event_data)
-        return EventsMixin.respond_to_event(self, player, state, event_type, event_data)
+        return self._respond_to_event_new(player, state, event_type, event_data)
 
     def get_debug_info(self, player) -> dict:
-        if self._uses_new_arch_events():
-            return self._get_debug_info_new(player)
-        return EventsMixin.get_debug_info(self, player)
+        return self._get_debug_info_new(player)
 
 
     # ════════════════════════════════════════════════════════
@@ -432,26 +411,18 @@ class BasicAIController(
             return cmd
 
         if attempt == 1:
-            # ════════════════════════════════════════════════════════
-            #  ★ 管道选择：新架构 Orchestrator vs 旧架构 waterfall
-            #  new_arch_enabled=True 时走新管道，False 时走旧管道
-            # ════════════════════════════════════════════════════════
-            if hasattr(self, '_orchestrator') and self._new_arch_enabled:
-                self._candidates = self._orchestrator.generate(
-                    player, game_state, available_actions,
-                    getattr(game_state, 'current_round', 0)
-                )
-                if hasattr(self, '_ai_state'):
-                    self._threat_scores = self._ai_state.threat_scores
-                    self._been_attacked_by = self._ai_state.been_attacked_by
-                    self._players_who_attacked = self._ai_state.players_who_attacked
-                    self._in_combat = self._ai_state.in_combat
-                    self._combat_target = self._ai_state.combat_target
-                    self._danger_mode = self._ai_state.danger_mode
-            else:
-                self._candidates = self._generate_candidates(
-                    player, game_state, available_actions
-                )
+            # C7: 始终走新架构 Orchestrator
+            self._candidates = self._orchestrator.generate(
+                player, game_state, available_actions,
+                getattr(game_state, 'current_round', 0)
+            )
+            if hasattr(self, '_ai_state'):
+                self._threat_scores = self._ai_state.threat_scores
+                self._been_attacked_by = self._ai_state.been_attacked_by
+                self._players_who_attacked = self._ai_state.players_who_attacked
+                self._in_combat = self._ai_state.in_combat
+                self._combat_target = self._ai_state.combat_target
+                self._danger_mode = self._ai_state.danger_mode
             self._attempt_index = 0
             debug_ai_candidate_commands(self._pname(),
                 [f"候选命令列表（共{len(self._candidates)}条）"])
