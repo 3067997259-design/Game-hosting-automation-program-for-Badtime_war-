@@ -5,6 +5,9 @@ from controllers.ai.evaluation import (
     has_firefly_talent as _has_firefly_talent_fn,
     is_in_savior_state as _is_in_savior_state_fn,
     get_divinity as _get_divinity_fn,
+    get_location_str as _get_location_str_fn,
+    same_location as _same_location_fn,
+    get_same_location_targets as _get_same_location_targets_fn,
 )
 from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS, LOCATIONS,
@@ -308,15 +311,8 @@ class HelpersMixin(_Base): # type: ignore
     # ════════════════════════════════════════════════════════
 
     def _get_location_str(self, player) -> str:
-        """获取玩家位置字符串"""
-        loc = getattr(player, 'location', None)
-        if loc is None:
-            return "unknown"
-        if isinstance(loc, str):
-            return loc
-        if hasattr(loc, 'name'):
-            return loc.name
-        return str(loc)
+        """获取玩家位置字符串（→ evaluation.get_location_str）"""
+        return _get_location_str_fn(player)
 
     def _is_at_home(self, player) -> bool:
         """是否在自己家"""
@@ -325,21 +321,12 @@ class HelpersMixin(_Base): # type: ignore
         return loc == "home" or loc == f"home_{pid}" or "家" in loc
 
     def _same_location(self, player1, player2) -> bool:
-        """两个玩家是否在同一地点"""
-        loc1 = self._get_location_str(player1)
-        loc2 = self._get_location_str(player2)
-        return loc1 == loc2 and loc1 != "unknown"
+        """两个玩家是否在同一地点（→ evaluation.same_location）"""
+        return _same_location_fn(player1, player2)
 
     def _get_same_location_targets(self, player, state) -> List[Any]:
-        """获取同地点的敌方玩家"""
-        result = []
-        for pid in state.player_order:
-            if pid == player.player_id:
-                continue
-            target = state.get_player(pid)
-            if target and target.is_alive() and self._same_location(player, target):
-                result.append(target)
-        return result
+        """获取同地点的敌方玩家（→ evaluation.get_same_location_targets）"""
+        return _get_same_location_targets_fn(player, state)
 
     def _find_nearest_enemy_location(self, player, state) -> Optional[str]:
             """找到威胁度最大的敌人所在位置（因为这游戏没有距离概念啦）

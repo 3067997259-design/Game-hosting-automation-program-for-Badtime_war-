@@ -66,3 +66,38 @@ def infer_aoe_weapon(destination: str) -> Optional[str]:
     if destination == "魔法所":
         return "地动山摇"
     return None
+
+
+# ════════════════════════════════════════════════════════
+#  位置查询（原 helpers_mixin）
+# ════════════════════════════════════════════════════════
+
+def get_location_str(player: Any) -> str:
+    """获取玩家位置的归一化字符串。"""
+    loc = getattr(player, 'location', None)
+    if loc is None:
+        return "unknown"
+    if isinstance(loc, str):
+        return loc
+    if hasattr(loc, 'name'):
+        return loc.name
+    return "unknown"
+
+
+def same_location(player1: Any, player2: Any) -> bool:
+    """两个玩家是否在同一地点。"""
+    loc1 = get_location_str(player1)
+    loc2 = get_location_str(player2)
+    return loc1 == loc2 and loc1 != "unknown"
+
+
+def get_same_location_targets(player: Any, state: Any) -> List[Any]:
+    """获取与玩家同地点的所有存活敌人。"""
+    result: List[Any] = []
+    for pid in state.player_order:
+        if pid == player.player_id:
+            continue
+        target = state.get_player(pid)
+        if target and target.is_alive() and same_location(player, target):
+            result.append(target)
+    return result
