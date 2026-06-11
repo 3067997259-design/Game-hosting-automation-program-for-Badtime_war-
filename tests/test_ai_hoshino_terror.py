@@ -80,10 +80,13 @@ class HoshinoTerrorLegacyFallbackTest(unittest.TestCase):
 
 class HoshinoAmmoReloadSelectionTest(unittest.TestCase):
     def _hook_for_outer_attrs(self, outer_attrs):
-        controller = SimpleNamespace(
-            _hoshino_get_target_outer_armor_attrs=lambda target: outer_attrs
-        )
-        return HoshinoAIHook(controller)
+        # C5a 后 _find_counter_consumable 通过 HoshinoImpl 调用，需 mock impl 层
+        from unittest.mock import MagicMock
+        controller = SimpleNamespace()
+        hook = HoshinoAIHook(controller)
+        hook._hoshino = MagicMock()
+        hook._hoshino._hoshino_get_target_outer_armor_attrs = lambda target: outer_attrs
+        return hook
 
     def test_same_attribute_consumable_is_effective_reload_candidate(self):
         hook = self._hook_for_outer_attrs(["科技"])
