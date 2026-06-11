@@ -1245,8 +1245,8 @@ class HoshinoImpl:
             # 接近宏执行完毕（terminal）：设置下一轮全力射击标记
             # 用于肾上腺素路径：构建时未设置标记，在此处补设
             if (cmd == "terminal"
-                    and getattr(self, '_hoshino_anti_captain_target_id', None)
-                    and not getattr(self, '_hoshino_anti_captain_approached', False)):
+                    and getattr(self._ctrl, '_hoshino_anti_captain_target_id', None)
+                    and not getattr(self._ctrl, '_hoshino_anti_captain_approached', False)):
                 self._ctrl._hoshino_anti_captain_approached = True
             return cmd
         return "terminal"

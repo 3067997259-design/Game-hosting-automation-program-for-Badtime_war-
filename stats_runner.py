@@ -182,7 +182,6 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
             personality=personality,
             diag_enabled=diag_mode,
         )
-        # C8: shadow_mode 已移除
         player = Player(pid, ai_name, controller=controller)
         game_state.add_player(player)
         ai_players_info.append((pid, ai_name, personality))
@@ -546,4 +545,434 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
         if diag_report is not None:
             diag_report.add_game(game_idx, result)
 
-        # shadow模式：保存前N局的详细决策日志
+        for p in result["players"]:
+            if p.get("is_rl"):
+                rl_games += 1
+                rl_talent_picks[p["talent_num"]] += 1
+                if p["is_winner"]:
+                    rl_wins += 1
+                    rl_talent_wins[p["talent_num"]] += 1
+                rl_talent_usage[p["talent_num"]].append(p["talent_usage"])
+                continue  # RL 不计入 talent_stats 和 personality_stats
+
+            talent_num: int = p["talent_num"]
+            personality: str = p["personality"]
+
+            ts = talent_stats[talent_num]
+            ts.picks += 1
+            ts.picks_by_personality[personality] += 1
+
+            ps = personality_stats[personality]
+            ps.games += 1
+
+            if p["is_winner"]:
+                ts.wins += 1
+                ts.wins_by_personality[personality] += 1
+                ps.wins += 1
+
+            ts.usage_samples.append(p["talent_usage"])
+
+    _restore_prompt_manager()
+    _restore_display()
+
+    elapsed = time.time() - start_time
+    completed = num_games - errors
+    print(f"\r  完成: {num_games} 局, 耗时 {elapsed:.1f}秒 ({num_games / max(elapsed, 0.01):.1f} 局/秒)    ")
+
+    print_results(num_players, num_games, completed, total_rounds, total_draws, errors,
+                  talent_stats, personality_stats,
+                  draw_reasons=draw_reasons, draw_labels=DRAW_LABELS,
+                  crash_log=crash_log,
+                  rl_games=rl_games, rl_wins=rl_wins,
+                  rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins,
+                  rl_talent_usage=rl_talent_usage)
+
+    # 诊断报告输出
+    if diag_report is not None:
+        diag_report.print_forfeit_summary()
+        diag_report.print_fallback_summary()
+        diag_report.print_draw_analysis()
+        diag_report.save_raw(diag_output)
+
+
+def print_results(
+    num_players: int,
+    num_games: int,
+    completed: int,
+    total_rounds: int,
+    total_draws: int,
+    errors: int,
+    talent_stats: dict[int, TalentStats],
+    personality_stats: dict[str, PersonalityStats],
+    draw_reasons: Optional[dict[str, int]] = None,
+    draw_labels: Optional[dict[str, str]] = None,
+    crash_log: Optional[list[dict[str, Any]]] = None,
+    rl_games: int = 0,
+    rl_wins: int = 0,
+    rl_talent_picks: Optional[dict[int, int]] = None,
+    rl_talent_wins: Optional[dict[int, int]] = None,
+    rl_talent_usage: Optional[dict[int, list[dict[str, Any]]]] = None,
+) -> None:
+    """Print all result tables with CJK-aware alignment."""
+
+    # ── Summary ──
+    print(f"\n{'=' * 80}")
+    print(f"  自动胜率统计结果")
+    print(f"  {num_players}人局 × {num_games}局")
+    print(f"  平均轮次: {total_rounds / max(completed, 1):.1f}")
+    print(f"  平局率: {total_draws}/{num_games} ({total_draws / max(num_games, 1) * 100:.1f}%)")
+    if errors > 0:
+        print(f"  错误/崩溃: {errors}")
+    # ── 平局原因分解 ──
+    if draw_reasons and total_draws > 0:
+        print(f"\n  ── 平局原因分解 ──")
+        labels = draw_labels or {}
+        for reason_key in ("terror_mutual", "max_rounds", "all_dead_no_g7", "crash", "other", ""):
+            count = draw_reasons.get(reason_key, 0)
+            if count == 0:
+                continue
+            label = labels.get(reason_key, reason_key or "未归类")
+            pct = count / total_draws * 100
+            flag = ""
+            if reason_key == "terror_mutual":
+                flag = "  ← 正常（Terror机制预期行为）"
+            elif reason_key == "max_rounds":
+                flag = "  ← 异常：AI僵持/警察体系僵局"
+            elif reason_key == "crash":
+                flag = "  ← 严重：引擎bug"
+            elif reason_key == "all_dead_no_g7":
+                flag = "  ← 罕见：非Terror的AOE互杀"
+            print(f"    {label}: {count}/{total_draws} ({pct:.1f}%){flag}")
+    # ── 崩溃详情（如有）──
+    if crash_log:
+        print(f"\n  ── 崩溃详情（最近{min(10, len(crash_log))}次）──")
+        # 按异常类型分组统计
+        from collections import Counter
+        error_types = Counter()
+        for entry in crash_log:
+            tb = entry.get("traceback", "")
+            # 提取最后一行的异常类型
+            for line in tb.split("\n"):
+                line = line.strip()
+                if line and not line.startswith("File ") and not line.startswith("..."):
+                    if "Error" in line or "Exception" in line:
+                        error_types[line[:80]] += 1
+                        break
+        if error_types:
+            print(f"    异常类型分布:")
+            for err, cnt in error_types.most_common(5):
+                print(f"      {cnt}次: {err}")
+        # 显示最近几次的详细traceback
+        for entry in crash_log[-3:]:
+            print(f"\n    ─ 游戏#{entry['game_idx']} (第{entry['rounds']}轮) ─")
+            talents = entry.get("talents", [])
+            if talents:
+                talent_names = [TALENT_NUM_TO_NAME.get(t, f"#{t}") for t in talents]
+                print(f"    天赋: {', '.join(talent_names[:6])}")
+            tb = entry.get("traceback", "")
+            # 只显示最后几行（最关键的错误信息）
+            tb_lines = tb.split("\n")
+            for line in tb_lines[-5:]:
+                if line.strip():
+                    print(f"    {line.strip()[:120]}")
+    print(f"{'=' * 80}")
+
+    # ── RL 统计表（仅在 RL 参与时显示）──
+    if rl_games > 0:
+        print(f"\n{'=' * 80}")
+        print(f"  RL 模型统计")
+        print(f"{'=' * 80}")
+        rl_wr = rl_wins / rl_games * 100 if rl_games > 0 else 0
+        random_baseline = 1.0 / num_players * 100
+        print(f"  总局数: {rl_games} | 胜场: {rl_wins} | 胜率: {rl_wr:.1f}% (随机基线: {random_baseline:.1f}%)")
+        print()
+        print(f"  RL 各天赋胜率:")
+        _print_table_header([
+            ("编号", COL_NUM), ("天赋名", COL_NAME),
+            ("Pick数", COL_PICKS), ("胜场", COL_WINS), ("胜率", COL_RATE),
+        ])
+        if rl_talent_picks:
+            sorted_rl = sorted(
+                rl_talent_picks.items(),
+                key=lambda x: (rl_talent_wins or {}).get(x[0], 0) / max(x[1], 1),
+                reverse=True,
+            )
+            for talent_num, picks in sorted_rl:
+                name = TALENT_NUM_TO_NAME.get(talent_num, "无天赋")
+                wins = (rl_talent_wins or {}).get(talent_num, 0)
+                wr = wins / picks * 100 if picks > 0 else 0
+                row = "  "
+                row += pad(str(talent_num), COL_NUM)
+                row += pad(name, COL_NAME)
+                row += pad(str(picks), COL_PICKS)
+                row += pad(str(wins), COL_WINS)
+                row += pad(f"{wr:.1f}%", COL_RATE)
+                print(row)
+
+        # RL 天赋选择偏好
+        if rl_talent_picks and rl_games > 0:
+            print()
+            print(f"  RL 天赋选择偏好:")
+            uniform_pct = 100.0 / len(TALENT_NUM_TO_NAME) if TALENT_NUM_TO_NAME else 0
+            _print_table_header([
+                ("编号", COL_NUM), ("天赋名", COL_NAME),
+                ("Pick数", COL_PICKS), ("Pick率", COL_RATE),
+                ("偏好度", COL_RATE),
+            ])
+            sorted_by_picks = sorted(rl_talent_picks.items(), key=lambda x: x[1], reverse=True)
+            for talent_num, picks in sorted_by_picks:
+                name = TALENT_NUM_TO_NAME.get(talent_num, "无天赋")
+                pick_rate = picks / rl_games * 100
+                preference = pick_rate / uniform_pct if uniform_pct > 0 else 0
+                row = "  "
+                row += pad(str(talent_num), COL_NUM)
+                row += pad(name, COL_NAME)
+                row += pad(str(picks), COL_PICKS)
+                row += pad(f"{pick_rate:.1f}%", COL_RATE)
+                row += pad(f"{preference:.2f}x", COL_RATE)
+                print(row)
+            print(f"  （偏好度 = Pick率 / 均匀基线{uniform_pct:.1f}%，>1.0 表示偏好，<1.0 表示回避）")
+
+        # RL 天赋使用统计
+        if rl_talent_usage:
+            print()
+            print(f"  RL 天赋使用详情:")
+            print(f"  {_sep(76)}")
+            for talent_num in sorted(rl_talent_usage.keys()):
+                samples = rl_talent_usage[talent_num]
+                if not samples:
+                    continue
+                name = TALENT_NUM_TO_NAME.get(talent_num, "无")
+
+                used_count = sum(1 for s in samples if s.get("used", False))
+                activated_counts = [s.get("times_activated", 0) for s in samples if "times_activated" in s]
+
+                info_parts = [f"{name}(#{talent_num})", f"样本数{len(samples)}"]
+                if activated_counts:
+                    avg_act = sum(activated_counts) / len(activated_counts)
+                    info_parts.append(f"平均发动{avg_act:.2f}次")
+                if used_count > 0:
+                    info_parts.append(f"使用率{used_count}/{len(samples)}({used_count / len(samples) * 100:.0f}%)")
+
+                debuff_counts = [s for s in samples if s.get("debuff_started")]
+                if debuff_counts:
+                    info_parts.append(f"debuff触发{len(debuff_counts)}/{len(samples)}")
+
+                savior_counts = [s for s in samples if s.get("savior_triggered")]
+                if savior_counts:
+                    info_parts.append(f"救世主触发{len(savior_counts)}/{len(samples)}")
+
+                anchor_counts = [s for s in samples if s.get("anchor_used")]
+                if anchor_counts:
+                    info_parts.append(f"锚定使用{len(anchor_counts)}/{len(samples)}")
+
+                print(f"  {' | '.join(info_parts)}")
+
+    total_picks = sum(ts.picks for ts in talent_stats.values())
+    sorted_talents = sorted(
+        talent_stats.items(),
+        key=lambda x: x[1].wins / max(x[1].picks, 1),
+        reverse=True,
+    )
+    personalities_list = sorted(personality_stats.keys())
+
+    # Compute personality baselines for adjusted win rate
+    pers_baseline: dict[str, float] = {}
+    overall_baseline = sum(ts.wins for ts in talent_stats.values()) / max(total_picks, 1)
+    for p_name in personalities_list:
+        ps = personality_stats[p_name]
+        pers_baseline[p_name] = ps.wins / ps.games if ps.games > 0 else overall_baseline
+
+    # ── Table 1: Talent overview ──
+    print(f"\n{_sep()}")
+    print(f"  天赋统计")
+    print(f"{_sep()}")
+    _print_table_header([
+        ("编号", COL_NUM), ("天赋名", COL_NAME), ("Pick数", COL_PICKS),
+        ("Pick率", COL_RATE), ("胜场", COL_WINS), ("胜率", COL_RATE),
+        ("校正胜率", COL_RATE),
+    ])
+
+    for talent_num, ts in sorted_talents:
+        name = TALENT_NUM_TO_NAME.get(talent_num, "无天赋")
+        pick_rate = ts.picks / total_picks * 100 if total_picks > 0 else 0.0
+        win_rate = ts.wins / ts.picks * 100 if ts.picks > 0 else 0.0
+        adj_rate = _calc_adjusted_winrate(ts, pers_baseline, overall_baseline) * 100
+
+        row = "  "
+        row += pad(str(talent_num), COL_NUM)
+        row += pad(name, COL_NAME)
+        row += pad(str(ts.picks), COL_PICKS)
+        row += pad(f"{pick_rate:.1f}%", COL_RATE)
+        row += pad(str(ts.wins), COL_WINS)
+        row += pad(f"{win_rate:.1f}%", COL_RATE)
+        row += pad(f"{adj_rate:.1f}%", COL_RATE)
+        print(row)
+
+    # ── Table 2: Per-personality pick rate ──
+    print(f"\n{_sep()}")
+    print(f"  各人格 × 天赋 Pick率")
+    print(f"{_sep()}")
+
+    cols: list[tuple[str, int]] = [("天赋", COL_NAME)]
+    for p_name in personalities_list:
+        cols.append((p_name, COL_PERS))
+    _print_table_header(cols)
+
+    for talent_num, ts in sorted_talents:
+        name = TALENT_NUM_TO_NAME.get(talent_num, "无")
+        row = "  " + pad(name, COL_NAME)
+        for pers in personalities_list:
+            count = ts.picks_by_personality.get(pers, 0)
+            total_pers = personality_stats[pers].games
+            cell = _fmt_count_pct(count, total_pers)
+            row += pad(cell, COL_PERS)
+        print(row)
+
+    # ── Table 3: Per-personality win rate ──
+    print(f"\n{_sep()}")
+    print(f"  各人格 × 天赋 胜率")
+    print(f"{_sep()}")
+    _print_table_header(cols)  # same header as pick rate table
+
+    for talent_num, ts in sorted_talents:
+        name = TALENT_NUM_TO_NAME.get(talent_num, "无")
+        row = "  " + pad(name, COL_NAME)
+        for pers in personalities_list:
+            wins = ts.wins_by_personality.get(pers, 0)
+            picks = ts.picks_by_personality.get(pers, 0)
+            cell = _fmt_pct(wins, picks)
+            row += pad(cell, COL_PERS)
+        print(row)
+
+    # ── Table 4: Personality overall ──
+    print(f"\n{_sep()}")
+    print(f"  人格总体胜率")
+    print(f"{_sep()}")
+    for pers in personalities_list:
+        ps = personality_stats[pers]
+        rate = ps.wins / ps.games * 100 if ps.games > 0 else 0.0
+        print(f"  {pad(pers, 14)}{ps.wins}/{ps.games} ({rate:.1f}%)")
+
+    # ── Table 5: Talent usage summary ──
+    print(f"\n{_sep()}")
+    print(f"  BasicAI 天赋使用次数统计（限定使用次数的天赋）")
+    print(f"{_sep()}")
+
+    for talent_num, ts in sorted_talents:
+        name = TALENT_NUM_TO_NAME.get(talent_num, "无")
+        samples = ts.usage_samples
+        if not samples:
+            continue
+
+        used_count = sum(1 for s in samples if s.get("used", False))
+        activated_counts = [s.get("times_activated", 0) for s in samples if "times_activated" in s]
+
+        info_parts = [f"{name}(#{talent_num})"]
+        if activated_counts:
+            avg_act = sum(activated_counts) / len(activated_counts)
+            info_parts.append(f"平均发动{avg_act:.2f}次")
+        if used_count > 0:
+            info_parts.append(f"使用率{used_count}/{len(samples)}({used_count / len(samples) * 100:.0f}%)")
+
+        debuff_counts = [s for s in samples if s.get("debuff_started")]
+        if debuff_counts:
+            info_parts.append(f"debuff触发{len(debuff_counts)}/{len(samples)}")
+
+        savior_counts = [s for s in samples if s.get("savior_triggered")]
+        if savior_counts:
+            info_parts.append(f"救世主触发{len(savior_counts)}/{len(samples)}")
+
+        print(f"  {' | '.join(info_parts)}")
+
+    # ── Table 6: Adjusted win rate explanation ──
+    print(f"\n{_sep()}")
+    print(f"  校正胜率说明")
+    print(f"{_sep()}")
+    print(f"  校正胜率 = 消除人格强度差异后的天赋纯粹胜率估计")
+    print(f"  算法：对每个天赋，计算其在各人格下的胜率与该人格基准胜率的差值，")
+    print(f"        取加权平均后加上全局基准胜率。样本<5的人格组合不参与计算。")
+    print(f"  人格基准胜率:")
+    for p_name in personalities_list:
+        print(f"    {pad(p_name, 14)}{pers_baseline[p_name] * 100:.1f}%")
+
+
+def _calc_adjusted_winrate(
+    ts: TalentStats,
+    pers_baseline: dict[str, float],
+    overall_baseline: float,
+) -> float:
+    """
+    Calculate personality-adjusted win rate for a talent.
+
+    For each personality that picked this talent >= 5 times:
+      excess = (talent win rate in that personality) - (personality baseline win rate)
+    Adjusted = overall_baseline + weighted_average(excess, weighted by picks)
+
+    This removes the effect of strong/weak personalities inflating/deflating
+    a talent's raw win rate.
+    """
+    if ts.picks == 0:
+        return 0.0
+
+    weighted_excess = 0.0
+    weight_total = 0
+
+    for p_name, p_picks in ts.picks_by_personality.items():
+        if p_picks < 5:
+            continue
+        p_wins = ts.wins_by_personality.get(p_name, 0)
+        talent_rate = p_wins / p_picks
+        baseline = pers_baseline.get(p_name, overall_baseline)
+        excess = talent_rate - baseline
+        weighted_excess += excess * p_picks
+        weight_total += p_picks
+
+    if weight_total == 0:
+        # Not enough data in any personality, fall back to raw
+        return ts.wins / ts.picks
+
+    return overall_baseline + weighted_excess / weight_total
+
+
+def main():
+    parser = argparse.ArgumentParser(description="起闯战争 自动胜率统计")
+    parser.add_argument("--players", type=int, default=6, help="每局玩家人数 (2-6)")
+    parser.add_argument("--games", type=int, default=5000, help="总局数")
+    parser.add_argument("--model", type=str, default=None,
+                        help="RL 模型路径（.zip），启用后一个 AI 席位替换为 RL")
+    parser.add_argument("--rl-talent", type=str, default="random",
+                        help="RL 天赋选择模式：'model'=模型自选, 'random'=均匀随机14天赋, 数字=指定天赋编号, '0'=无天赋")
+    parser.add_argument("--n-stack", type=int, default=30,
+                        help="RL 帧堆叠数量（需与训练时一致）")
+    # C7: --disable-new-arch 已移除（仅新架构）
+    # C8: --shadow / --compare 已移除（旧架构对比已无意义）
+    parser.add_argument("--diag", action="store_true",
+                        help="启用诊断模式：收集 forfeit/fallback/draw 的结构化数据")
+    parser.add_argument("--diag-output", type=str, default="logs/diag_report.json",
+                        help="诊断原始数据保存路径")
+    args = parser.parse_args()
+
+    if not 2 <= args.players <= 6:
+        print("玩家人数必须在 2-6 之间")
+        sys.exit(1)
+
+    print(f"  起闯战争 自动胜率统计")
+    print(f"  {args.players}人局 × {args.games}局")
+
+    rl_controller = None
+    if args.model:
+        if not _rl_available:
+            print("错误：RL 模块不可用，请确保 rl/ 目录和依赖已安装")
+            sys.exit(1)
+        print(f"  加载 RL 模型: {args.model}")
+        rl_controller = OpponentRLController(model_path=args.model, n_stack=args.n_stack)
+        print(f"  RL 天赋模式: {args.rl_talent}")
+    print()
+
+    run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
+              diag_mode=args.diag, diag_output=args.diag_output)
+
+
+if __name__ == "__main__":
+    main()

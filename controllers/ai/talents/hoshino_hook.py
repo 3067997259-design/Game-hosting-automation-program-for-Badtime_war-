@@ -230,7 +230,8 @@ class HoshinoAIHook(BaseTalentAIHook):
         #  盾牌死锁检测：持盾/架盾时无法interact
         #  必须在所有分支之前——弹药耗尽或荷鲁斯破损时先解除盾牌
         # ════════════════════════════════════════════════════════
-        shield_mode = self._hoshino._hoshino_shield_mode(player)
+        # 注意：_hoshino_shield_mode 定义在 helpers_mixin（controller 上），impl 里是 _hoshino_get_shield_mode
+        shield_mode = self._hoshino._hoshino_get_shield_mode(player)
         if shield_mode and (not can_shoot or not horus_ok) and "special" in available:
             self._ctrl._hoshino_macro_queue = ["取消", "terminal"]
             return ["special Hoshino", "forfeit"]

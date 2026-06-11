@@ -924,7 +924,7 @@ class IshBosheth:
                 locations,
                 context={"phase": "duet_encore", "situation": "pick_location"}
             )
-            if loc_choice not in ENCORE_REWARD_MENU:
+            if loc_choice not in locations:
                 loc_choice = locations[0]
             # 第二轮：选物品
             items = ENCORE_REWARD_MENU.get(loc_choice, ["小刀"])

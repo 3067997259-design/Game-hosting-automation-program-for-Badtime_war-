@@ -145,7 +145,6 @@ class BasicAIController(
         #  新架构开关：通过构造函数参数 new_arch_enabled 控制
         #  False时：不创建任何新模块，hasattr检查自然回退到旧行为
         # ════════════════════════════════════════════════════════
-        self._shadow_mode = False
 
         # 诊断收集器（显式启用诊断时创建，与架构无关）
         self._diag: Optional[DiagCollector] = (
@@ -285,6 +284,10 @@ class BasicAIController(
     # ════════════════════════════════════════════════════════
 
     # C7: 事件路径统一为新架构（_on_*_new），旧 EventsMixin 路径已移除
+
+    def _uses_new_arch_events(self) -> bool:
+        """C7 后恒为 True；保留方法因 _llm_* property 与 cutaway 路径仍引用。"""
+        return hasattr(self, '_ai_state')
 
     def on_event(self, event: Dict) -> None:
         self._on_event_new(event)
@@ -886,9 +889,6 @@ class BasicAIController(
             if vouchers < 1:
                 return False
         return True
-    def dump_shadow_log(self) -> List[Dict]:
-        return []
-
 
     @staticmethod
     def _infer_aoe_weapon(destination: str) -> Optional[str]:
@@ -1360,7 +1360,7 @@ def create_ai_controller(personality: str = "balanced",
 
     controller_kwargs = {
         key: kwargs[key]
-        for key in ("new_arch_enabled", "diag_enabled")
+        for key in ("diag_enabled",)
         if key in kwargs
     }
     controller = BasicAIController(personality=personality, **controller_kwargs) # type: ignore
