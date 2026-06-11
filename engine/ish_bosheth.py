@@ -901,8 +901,9 @@ class IshBosheth:
 
         # 全员自选物品（两轮选择：地点 → 物品）
         from models.equipment import make_weapon, make_armor, make_item
-        # duet 安可奖励菜单（未来迁 balance.json；与 AI 层 LOCATION_ITEMS 目的不同，非重复）
-        ENCORE_REWARD_MENU = {
+        from engine.balance import get as bget
+        # duet 安可奖励菜单 —— 首选 balance.json，回退到代码字面量
+        _DEFAULT_ENCORE_MENU = {
             "商店": ["小刀", "盾牌", "陶瓷护甲", "隐身衣", "防毒面具", "通行证"],
             "警察局": ["警棍", "防毒面具"],
             "军事基地": ["高斯步枪", "电磁步枪", "导弹", "AT力场", "热成像仪"],
@@ -910,7 +911,8 @@ class IshBosheth:
             "医院": ["防毒面具"],
             "家": ["小刀", "磨刀石", "通行证"],
         }
-        locations = list(ENCORE_REWARD_MENU.keys())
+        ENCORE_REWARD_MENU = bget("stage", "encore_reward_menu", default=_DEFAULT_ENCORE_MENU)
+        locations = [k for k in ENCORE_REWARD_MENU if not str(k).startswith("_")]
 
         for pid in list(self.participants):
             p = game_state.get_player(pid)
