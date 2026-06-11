@@ -151,7 +151,7 @@ COL_PERS = 14      # 人格列宽
 
 
 def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random",
-                    new_arch_enabled: bool = True, shadow_mode: bool = False,
+                    shadow_mode: bool = False,
                     diag_mode: bool = False) -> dict[str, Any]:
     """Run a single game (all-AI, or with one RL seat) and return results."""
     game_state = GameState()
@@ -181,7 +181,6 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         pid = f"p{i + 1 + start_idx}"
         controller = BasicAIController(
             personality=personality,
-            new_arch_enabled=new_arch_enabled,
             diag_enabled=diag_mode,
         )
         controller._shadow_mode = shadow_mode
@@ -484,7 +483,7 @@ def _fmt_count_pct(count: int, total: int) -> str:
 # ── Main batch runner ──
 
 def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mode: str = "random",
-              new_arch_enabled: bool = True, shadow_mode: bool = False,
+              shadow_mode: bool = False,
               diag_mode: bool = False, diag_output: str = "logs/diag_report.json") -> None:
     """Run multiple games and collect statistics."""
 
@@ -537,7 +536,6 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
 
         try:
             result = run_single_game(num_players, rl_controller, rl_talent_mode,
-                                     new_arch_enabled=new_arch_enabled,
                                      shadow_mode=shadow_mode,
                                      diag_mode=diag_mode)
         except Exception:
@@ -611,7 +609,7 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
                   draw_reasons=draw_reasons, draw_labels=DRAW_LABELS,
                   crash_log=crash_log,
                   shadow_summary=shadow_summary,
-                  shadow_mode_tag="new" if new_arch_enabled else "old",
+                  shadow_mode_tag="new",
                   rl_games=rl_games, rl_wins=rl_wins,
                   rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins,
                   rl_talent_usage=rl_talent_usage)
@@ -991,8 +989,7 @@ def main():
                         help="RL 天赋选择模式：'model'=模型自选, 'random'=均匀随机14天赋, 数字=指定天赋编号, '0'=无天赋")
     parser.add_argument("--n-stack", type=int, default=30,
                         help="RL 帧堆叠数量（需与训练时一致）")
-    parser.add_argument("--disable-new-arch", action="store_true",
-                        help="关闭新架构模块，运行纯旧行为（用于基线对比）")
+    # C7: --disable-new-arch 已移除（仅新架构）
     parser.add_argument("--compare", action="store_true",
                         help="开启决策级对比模式（记录新旧候选命令差异）")
     parser.add_argument("--shadow", action="store_true",
@@ -1008,8 +1005,6 @@ def main():
         sys.exit(1)
 
     print(f"  起闯战争 自动胜率统计")
-    if args.disable_new_arch:
-        print(f"  ⚠ 新架构已禁用（纯旧行为基线）")
     if args.compare:
         print(f"  🔍 决策级对比模式")
     print(f"  {args.players}人局 × {args.games}局")
@@ -1025,7 +1020,7 @@ def main():
     print()
 
     run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
-              new_arch_enabled=not args.disable_new_arch, shadow_mode=args.shadow,
+              shadow_mode=args.shadow,
               diag_mode=args.diag, diag_output=args.diag_output)
 
 

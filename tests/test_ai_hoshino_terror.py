@@ -44,7 +44,7 @@ def _state(player):
 
 
 def _legacy_controller():
-    controller = BasicAIController(new_arch_enabled=False)
+    controller = BasicAIController()
     controller._update_threat_scores = MethodType(lambda self, player, state: None, controller)
     controller._read_police_state = MethodType(lambda self, state: None, controller)
     controller._update_combat_status = MethodType(lambda self, player, state: None, controller)

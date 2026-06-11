@@ -86,8 +86,8 @@ def _is_anchored(player, state):
 
 
 class ThreatEvaluationTest(unittest.TestCase):
-    def _evaluate_target_score(self, target_talent, *, new_arch_enabled=False):
-        controller = BasicAIController(new_arch_enabled=new_arch_enabled)
+    def _evaluate_target_score(self, target_talent):
+        controller = BasicAIController()
         player = _player("Observer", "p1")
         target = _player("Hoshino", "p2", target_talent)
         controller._estimate_power = MethodType(lambda self, target: 100.0, controller)
@@ -97,7 +97,7 @@ class ThreatEvaluationTest(unittest.TestCase):
         return controller._threat_scores[target.name]
 
     def _legacy_captain_critical(self, player, state, police_cache=None):
-        controller = BasicAIController(new_arch_enabled=False)
+        controller = BasicAIController()
         controller._strategy = _FalseCaptainDangerStrategy()
         controller._police_cache = police_cache or {}
 
@@ -135,7 +135,7 @@ class ThreatEvaluationTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            self._evaluate_target_score(talent, new_arch_enabled=False),
+            self._evaluate_target_score(talent),
             60.0,
         )
 
@@ -149,7 +149,7 @@ class ThreatEvaluationTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            self._evaluate_target_score(talent, new_arch_enabled=False),
+            self._evaluate_target_score(talent),
             50.0,
         )
 
@@ -163,7 +163,7 @@ class ThreatEvaluationTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            self._evaluate_target_score(talent, new_arch_enabled=True),
+            self._evaluate_target_score(talent),
             60.0,
         )
 

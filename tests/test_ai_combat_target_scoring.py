@@ -75,7 +75,7 @@ class RecordingAggressiveStrategy(AggressiveStrategy):
 
 class CombatTargetScoringTest(unittest.TestCase):
     def test_aggressive_strategy_does_not_receive_legacy_passive_bonus(self):
-        controller = BasicAIController(personality="aggressive", new_arch_enabled=True)
+        controller = BasicAIController(personality="aggressive")
         target = _target("Passive", "p2")
         player = SimpleNamespace(player_id="p1", name="Attacker", weapons=[])
         strategy = RecordingAggressiveStrategy()
@@ -88,7 +88,7 @@ class CombatTargetScoringTest(unittest.TestCase):
         self.assertEqual(strategy.base_scores, [0])
 
     def test_aggressive_legacy_passive_bonus_remains_without_strategy(self):
-        controller = BasicAIController(personality="aggressive", new_arch_enabled=False)
+        controller = BasicAIController(personality="aggressive")
         active = _target("Active", "p2")
         passive = _target("Passive", "p3")
         player = SimpleNamespace(player_id="p1", name="Attacker", weapons=[])
