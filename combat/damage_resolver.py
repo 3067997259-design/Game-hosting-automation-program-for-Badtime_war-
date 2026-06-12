@@ -1081,6 +1081,15 @@ def resolve_damage(attacker, target, weapon, game_state,
                     and not getattr(target, '_mythland_talent_suppressed', False)):
                 prevent_shock = target.talent.prevent_stun(target)
 
+            # hp20：电磁震荡走抗性两层制（电流来源 tag——陶瓷免疫编译为抗性 100）
+            if not prevent_shock and _hp20_mode():
+                from utils.status_resistance import apply_control
+                ctrl = apply_control(target, "shock", game_state,
+                                     source_tags=["electric"] if weapon.is_electric else None)
+                if not ctrl["applied"]:
+                    prevent_shock = True
+                    result["details"].append(f"🛡️ {ctrl['message']}")
+
             if not prevent_shock:
                 result["shocked"] = True
                 target.is_shocked = True

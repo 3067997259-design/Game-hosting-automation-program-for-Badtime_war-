@@ -29,6 +29,23 @@ class VirusSystem:
         self.countdown += 1
         return self.countdown >= 5
 
+    def tick_hp20(self):
+        """hp20 病毒重做（v2.0 §2.5）：处决器 → 压力钟。
+
+        轮次结束时调用。返回本轮是否处于伤害期
+        （潜伏 incubation_rounds 轮后，每轮末对未免疫者扣固定 HP）。
+        """
+        if not self.is_active:
+            return False
+        self.countdown += 1
+        from engine.balance import get as bget
+        return self.countdown > bget("virus", "incubation_rounds", default=2)
+
+    def get_damage_per_round(self):
+        """hp20：每轮病毒伤害。"""
+        from engine.balance import get as bget
+        return bget("virus", "damage_per_round", default=3)
+
     def get_dead_players(self, players):
         """返回本次应判死的玩家列表（未免疫且存活）"""
         dead = []

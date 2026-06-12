@@ -2019,10 +2019,23 @@ class ActionTurnManager:
                 elif t.talent and hasattr(t.talent, 'is_immune_to_debuff') and t.talent.is_immune_to_debuff("shock"):
                     lines.append(f"      ☯️ {t.name} 的「元亨利贞」免疫了震荡！")
                 else:
-                    t.is_shocked = True
-                    t.is_stunned = True
-                    self.state.markers.on_shock(t.player_id)
-                    lines.append(f"      ⚡ {t.name} 进入震荡状态！")
+                    from engine import experiments as _exp
+                    if _exp.is_enabled("hp20"):
+                        # hp20：震荡走抗性两层制（v2.0 §2.5.1）
+                        from utils.status_resistance import apply_control
+                        ctrl = apply_control(t, "shock", self.state)
+                        if ctrl["applied"]:
+                            t.is_shocked = True
+                            t.is_stunned = True
+                            self.state.markers.on_shock(t.player_id)
+                            lines.append(f"      ⚡ {t.name} 进入震荡状态！")
+                        else:
+                            lines.append(f"      🛡️ {ctrl['message']}")
+                    else:
+                        t.is_shocked = True
+                        t.is_stunned = True
+                        self.state.markers.on_shock(t.player_id)
+                        lines.append(f"      ⚡ {t.name} 进入震荡状态！")
 
             if res.get("killed"):
                 killer.kill_count += 1

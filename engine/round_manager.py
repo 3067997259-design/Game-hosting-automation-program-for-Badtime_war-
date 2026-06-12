@@ -512,7 +512,46 @@ class RoundManager:
             return
 
         # R4-2: 病毒
-        if self.state.virus.is_active:
+        if self.state.virus.is_active and experiments.is_enabled("hp20"):
+            # hp20 病毒重做（v2.0 §2.5）：潜伏期后每轮 -N HP（压力钟，非即死）
+            in_damage_phase = self.state.virus.tick_hp20()
+            display.show_virus_status(self.state)
+            if in_damage_phase:
+                dmg = self.state.virus.get_damage_per_round()
+                for pid in self.state.player_order:
+                    p = self.state.get_player(pid)
+                    if not p or not p.is_alive():
+                        continue
+                    if self.state.virus._is_immune(p):
+                        continue
+                    p.hp = max(0, p.hp - dmg)
+                    display.show_info(f"🦠 {p.name} 受病毒侵蚀 -{dmg} HP（{p.hp}/{p.max_hp}）")
+                    if p.hp <= 0:
+                        # 天赋免死链照常（先自己后他人）
+                        prevented = False
+                        if p.talent:
+                            dr = p.talent.on_death_check(p, None)
+                            if dr and dr.get("prevent_death"):
+                                p.hp = dr.get("new_hp", 1)
+                                prevented = True
+                        if not prevented:
+                            for pid2 in self.state.player_order:
+                                p2 = self.state.get_player(pid2)
+                                if p2 and p2.talent and p2.player_id != p.player_id:
+                                    dr = p2.talent.on_death_check(p, None)
+                                    if dr and dr.get("prevent_death"):
+                                        p.hp = dr.get("new_hp", 1)
+                                        prevented = True
+                                        break
+                        if not prevented:
+                            self.state.markers.on_player_death(p.player_id)
+                            if self.state.police_engine:
+                                self.state.police_engine.on_player_death(p.player_id)
+                            self.state.log_event("death", player=p.player_id, cause="virus")
+                            display.show_death(p.name, "病毒侵蚀")
+                            RoundManager.notify_all_talents_of_death(
+                                self.state, p.player_id, killer_id=None)
+        elif self.state.virus.is_active:
             is_lethal = self.state.virus.tick()
             display.show_virus_status(self.state)
             if is_lethal:
