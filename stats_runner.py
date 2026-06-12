@@ -151,8 +151,11 @@ COL_PERS = 14      # 人格列宽
 
 
 def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random",
-                    diag_mode: bool = False) -> dict[str, Any]:
-    """Run a single game (all-AI, or with one RL seat) and return results."""
+                    diag_mode: bool = False, collect_digest: bool = False) -> dict[str, Any]:
+    """Run a single game (all-AI, or with one RL seat) and return results.
+
+    collect_digest: True 时结果附带 event_digest（golden 回放用，常规批跑不开省内存）。
+    """
     game_state = GameState()
 
     available_names = list(AI_NAME_POOL)
@@ -326,6 +329,10 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         "players": [],
     }
 
+    if collect_digest:
+        from engine.replay_digest import digest_event_log
+        results["event_digest"] = digest_event_log(game_state.event_log)
+
     # 诊断数据收集
     diag_data = {}
     for pid in game_state.player_order:
@@ -474,12 +481,33 @@ def _fmt_count_pct(count: int, total: int) -> str:
 
 def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mode: str = "random",
               diag_mode: bool = False, diag_output: str = "logs/diag_report.json",
-              seed: Optional[int] = None) -> None:
+              seed: Optional[int] = None,
+              golden_record: Optional[str] = None,
+              golden_check: Optional[str] = None) -> None:
     """Run multiple games and collect statistics.
 
     seed: 基准随机种子。提供时第 i 局（0-based）使用 random.seed(seed + i)，
           串行单线程下保证逐局可复现（golden 回放的前提）。None = 不固定。
+    golden_record: 把每局事件摘要写入该路径（JSON-lines，一局一行）。需要 seed。
+    golden_check: 读取该路径的 golden 存档，逐局比对，第一处分歧打印并以
+                  非零码退出。需要 seed（应与录制时相同，逐局 seed 会校验）。
     """
+    import json as _json
+    from engine.replay_digest import digest_game, diff_games
+
+    golden_mode = bool(golden_record or golden_check)
+    if golden_mode and seed is None:
+        raise ValueError("golden record/check 需要 --seed（无种子的摘要不可复现，没有意义）")
+
+    golden_expected: list[dict[str, Any]] = []
+    if golden_check:
+        with open(golden_check, "r", encoding="utf-8") as f:
+            golden_expected = [_json.loads(line) for line in f if line.strip()]
+        if len(golden_expected) != num_games:
+            print(f"  ⚠️ golden 存档共 {len(golden_expected)} 局，"
+                  f"本次 --games {num_games}，按较小值比对")
+    golden_recorded: list[dict[str, Any]] = []
+    golden_failures: list[tuple[int, list[str]]] = []
 
     talent_stats: dict[int, TalentStats] = defaultdict(TalentStats)
     personality_stats: dict[str, PersonalityStats] = defaultdict(PersonalityStats)
@@ -531,12 +559,21 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
 
         try:
             result = run_single_game(num_players, rl_controller, rl_talent_mode,
-                                     diag_mode=diag_mode)
+                                     diag_mode=diag_mode, collect_digest=golden_mode)
         except Exception:
             errors += 1
             continue
 
         result["seed"] = (seed + game_idx) if seed is not None else None
+
+        if golden_mode:
+            record = digest_game(result, result.pop("event_digest", []))
+            if golden_record:
+                golden_recorded.append(record)
+            if golden_check and game_idx < len(golden_expected):
+                problems = diff_games(golden_expected[game_idx], record)
+                if problems:
+                    golden_failures.append((game_idx, problems))
 
         total_rounds += result["rounds"]
         if result["draw"]:
@@ -603,6 +640,29 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
         diag_report.print_fallback_summary()
         diag_report.print_draw_analysis()
         diag_report.save_raw(diag_output)
+
+    # ── golden 回放收尾 ──
+    if golden_record:
+        out_dir = os.path.dirname(golden_record)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        with open(golden_record, "w", encoding="utf-8", newline="\n") as f:
+            for record in golden_recorded:
+                f.write(_json.dumps(record, ensure_ascii=False,
+                                    sort_keys=True) + "\n")
+        print(f"\n  📼 golden 存档已写入: {golden_record}（{len(golden_recorded)} 局）")
+
+    if golden_check:
+        checked = min(num_games, len(golden_expected))
+        if golden_failures:
+            print(f"\n  ❌ golden 校验失败: {len(golden_failures)}/{checked} 局有分歧")
+            first_idx, first_problems = golden_failures[0]
+            print(f"  首处分歧 @ 第 {first_idx + 1} 局:")
+            for line in first_problems:
+                print(f"    {line}")
+            sys.exit(2)
+        else:
+            print(f"\n  ✅ golden 校验通过: {checked} 局全等")
 
 
 def print_results(
@@ -965,7 +1025,15 @@ def main():
                         help="基准随机种子：第 i 局使用 seed+i，固定后逐局可复现")
     parser.add_argument("--experiment", action="append", default=[],
                         help="启用实验开关（可多次使用），如 --experiment k_action_quota")
+    parser.add_argument("--golden-record", type=str, default=None,
+                        help="录制 golden 存档到该路径（JSON-lines），需要 --seed")
+    parser.add_argument("--golden-check", type=str, default=None,
+                        help="与 golden 存档逐局比对，分歧则非零退出，需要 --seed")
     args = parser.parse_args()
+
+    if (args.golden_record or args.golden_check) and args.seed is None:
+        print("错误：--golden-record / --golden-check 需要 --seed")
+        sys.exit(1)
 
     from engine import experiments
     for exp_name in args.experiment:
@@ -996,7 +1064,8 @@ def main():
     print()
 
     run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
-              diag_mode=args.diag, diag_output=args.diag_output, seed=args.seed)
+              diag_mode=args.diag, diag_output=args.diag_output, seed=args.seed,
+              golden_record=args.golden_record, golden_check=args.golden_check)
 
 
 if __name__ == "__main__":
