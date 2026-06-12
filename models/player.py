@@ -230,6 +230,16 @@ class Player:
             self._duet_d6_bonus = False
         return bonus
 
+    def get_initiative_bonus(self):
+        """先攻修正（K 常量行动制，experiment: k_initiative）。
+
+        = D4 加成 + D6 加成之和：天赋的 on_d4_bonus/on_d6_bonus 钩子语义不变，
+        统一折算为先攻修正（v2.0 §1.4）。K 模式下 no_action_streak 恒为 0
+        （未行动保底已退役），故 get_d4_bonus 的 streak 分支不会掺入。
+        注意：两个方法内的自消耗 flag（duet/curtain 等）每轮只应读取一次。
+        """
+        return self.get_d4_bonus() + self.get_d6_bonus()
+
     def has_weapon(self, weapon_name):
         return any(getattr(w, 'name', None) == weapon_name for w in self.weapons)
 

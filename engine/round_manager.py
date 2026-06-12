@@ -4,6 +4,8 @@ from utils.dice import roll_d4, roll_d6
 from cli import display
 from engine.action_turn import ActionTurnManager
 from engine.police_system import PoliceEngine
+from engine import experiments
+from engine.balance import get as bget
 
 
 class RoundManager:
@@ -82,9 +84,11 @@ class RoundManager:
                 p.talent.on_round_start(self.state.current_round)
 
     # ============================================
-    # R1: D4 争夺行动权
+    # R1: D4 争夺行动权（v1）/ 先攻判定（k_initiative）
     # ============================================
     def _phase_r1(self):
+        if experiments.is_enabled("k_initiative"):
+            return self._phase_r1_initiative()
         self.state.current_phase = "r1_d4"
         display.show_phase("🎲 D4 争夺行动权")
 
@@ -157,11 +161,79 @@ class RoundManager:
         winner_names = [pid_to_name[pid] for pid in self.state.round_winners]
         display.show_d4_results(display_names, bonus_names, winner_names)
 
+    def _phase_r1_initiative(self):
+        """K 常量行动制先攻判定（v2.0 §1.1，experiment: k_initiative）。
+
+        全员掷 D6 + 先攻修正，降序排名前 K 名获得行动权（K = max(1, 存活数 - 坐牢数)）。
+        同点 tiebreak：补掷 D6 → 先攻修正高者 → player_order 序（确定性兜底）。
+        舞台模式（ish-bosheth active/duet）全员行动不坐牢，G2 仍由 R3 现有逻辑置顶。
+        """
+        self.state.current_phase = "r1_initiative"
+        display.show_phase("🎲 先攻判定")
+
+        # v1 字段清空（保持消费方语义：K 模式下 d4_results 恒为空）
+        self.state.d4_results.clear()
+        self.state.d4_bonuses.clear()
+        self.state.round_winners.clear()
+
+        stage_active = (self.state.ish_bosheth
+                        and self.state.ish_bosheth.phase in ("active", "duet"))
+
+        # 参与者收集：存活玩家 + 舞台模式的 Chorus
+        entrants = []  # (pid, name, bonus_fn)
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and p.is_alive():
+                entrants.append((pid, p.name, p.get_initiative_bonus()))
+        if stage_active:
+            for c in self.state.ish_bosheth.chorus_list:
+                if c.is_alive() and c.location:
+                    entrants.append((c.player_id, c.name, 0))  # Chorus 无修正
+
+        # 掷骰 + 排序键：(总值, 补掷, 修正, -原始序) 全部降序
+        order_map = {pid: i for i, pid in enumerate(self.state.player_order)}
+        rolls = {}
+        entries = []
+        for pid, name, bonus in entrants:
+            roll = roll_d6()
+            total = roll + bonus
+            tiebreak = roll_d6()  # 补掷（仅同点时有意义，统一掷保证消耗序稳定）
+            rolls[pid] = (roll, bonus, total)
+            entries.append((total, tiebreak, bonus, -order_map.get(pid, 99), pid, name))
+        entries.sort(reverse=True)
+
+        # 配额：K = max(1, 存活玩家数 - 坐牢数)；舞台模式全员行动
+        sitout_count = bget("action_system", "k_sitout_count", default=1)
+        if stage_active:
+            quota = len(entries)
+        else:
+            quota = max(1, len(entries) - max(0, int(sitout_count)))
+
+        actors = [e[4] for e in entries[:quota]]
+        sitout = [e[4] for e in entries[quota:]]
+        self.state.round_winners = actors
+        self.state.initiative_results = rolls  # K 模式专属（动态属性，消费方用 getattr）
+
+        # 展示
+        roll_names = {}
+        bonus_names = {}
+        pid_to_name = {e[4]: e[5] for e in entries}
+        for pid, (roll, bonus, total) in rolls.items():
+            roll_names[pid_to_name[pid]] = total
+            bonus_names[pid_to_name[pid]] = bonus
+        display.show_initiative_results(
+            roll_names, bonus_names,
+            [pid_to_name[pid] for pid in actors],
+            [pid_to_name[pid] for pid in sitout],
+        )
+
     # ============================================
     # R2: 先后手判定
     # ============================================
     def _phase_r2(self):
         self.state.current_phase = "r2_priority"
+        if experiments.is_enabled("k_initiative"):
+            return  # 先攻序已全局有序，同地点冲突 D6 判定过时（v2.0 §1.1）
         if len(self.state.round_winners) <= 1:
             return
         conflict = set()
@@ -320,7 +392,10 @@ class RoundManager:
         if ish and ish.phase == "duet":
             ish._despawn_duet_buttons(self.state)
 
-        # 未行动保底
+        # 未行动保底（K 模式退役：坐牢是常态非惩罚，不积累 streak——
+        # acted_this_round 语义保留，G6 笑点照常从「未行动」事件获得）
+        if experiments.is_enabled("k_initiative"):
+            return
         initial_count = len(self.state.player_order)
         alive_count = len([pid for pid in self.state.player_order
                    if self.state.get_player(pid) and self.state.get_player(pid).is_alive()])

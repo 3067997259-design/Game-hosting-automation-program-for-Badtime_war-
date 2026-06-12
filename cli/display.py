@@ -41,6 +41,46 @@ def show_phase(phase_name):
     print(phase_text)
 
 
+def show_initiative_results(totals, bonuses, actors, sitout):
+    """显示先攻判定结果（K 常量行动制，experiment: k_initiative）。
+
+    totals: {name: D6+修正后总值}；bonuses: {name: 修正值}；
+    actors: 获得行动权的名字列表（按先攻序）；sitout: 坐牢者名字列表。
+    """
+    title = prompt_manager.get_prompt(
+        "game", "initiative_results", default="\n🎲 先攻判定（D6 + 修正）：")
+    print(title)
+
+    for name, total in totals.items():
+        bonus = bonuses.get(name, 0)
+        bonus_str = f"（修正 {'+' if bonus >= 0 else ''}{bonus}）" if bonus else ""
+        line = prompt_manager.get_prompt(
+            "game", "initiative_player_result",
+            default="  {name}: 先攻 {total}{bonus_str}")
+        if isinstance(line, str):
+            try:
+                print(line.format(name=name, total=total, bonus_str=bonus_str))
+            except (KeyError, ValueError):
+                print(line)
+
+    order_text = prompt_manager.get_prompt(
+        "game", "initiative_order", default="  ⚔️ 行动顺序：{order}")
+    if isinstance(order_text, str):
+        try:
+            print(order_text.format(order=" → ".join(actors)))
+        except (KeyError, ValueError):
+            print(order_text)
+
+    if sitout:
+        sitout_text = prompt_manager.get_prompt(
+            "game", "initiative_sitout", default="  💤 本轮无法行动：{names}")
+        if isinstance(sitout_text, str):
+            try:
+                print(sitout_text.format(names=", ".join(sitout)))
+            except (KeyError, ValueError):
+                print(sitout_text)
+
+
 def show_d4_results(results, bonuses, winners):
     """显示D4投掷结果"""
     # 标题

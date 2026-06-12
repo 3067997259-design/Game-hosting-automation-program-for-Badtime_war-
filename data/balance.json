@@ -1,6 +1,12 @@
 {
     "_comment": "Badtime War 数值配置单一信源。V2.0 EXP 动工后逐步迁移 v1 硬编码数值。",
-    "_version": "0.1.0",
+    "_version": "0.2.0",
+
+    "action_system": {
+        "_comment": "K 常量行动制（experiment: k_initiative）。K = max(1, 存活数 - k_sitout_count)；0 = 全员行动，存活数-1 = 旧模型行动饥荒",
+        "k_sitout_count": 1,
+        "initiative_die": 6
+    },
 
     "weapons": {
         "_comment": "武器基础数值（V2.0 迁移后启用）",
