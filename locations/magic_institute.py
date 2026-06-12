@@ -117,6 +117,7 @@ def _apply_learned_spell(player, spell_name, game_state):
 
     elif spell_name == "隐身术":
         player.is_invisible = True
+        player.grant_visibility_item("隐身术")
         if game_state:
             game_state.markers.on_player_go_invisible(
                 player.player_id, list(game_state.players.values()))
@@ -124,6 +125,7 @@ def _apply_learned_spell(player, spell_name, game_state):
 
     elif spell_name == "探测魔法":
         player.has_detection = True
+        player.grant_visibility_item("探测魔法")
         return f"✨ {player.name} 学会了探测魔法！可以发现隐身目标。🔍"
 
     return f"✨ {player.name} 学会了「{spell_name}」！"

@@ -138,10 +138,12 @@ def do_interact(player, item_name, game_state=None):
     elif item_name == "雷达":
         player.add_item(make_item("雷达"))
         player.has_detection = True
+        player.grant_visibility_item("雷达")
         return f"📡 {player.name} 获得了雷达并改造完成！获得探测能力。"
 
     elif item_name == "隐形涂层":
         player.is_invisible = True
+        player.grant_visibility_item("隐形涂层")
         if game_state:
             game_state.markers.on_player_go_invisible(
                 player.player_id, list(game_state.players.values()))

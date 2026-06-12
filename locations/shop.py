@@ -124,6 +124,7 @@ def do_interact(player, item_name, game_state=None):
     elif item_name == "隐身衣":
         player.add_item(make_item("隐身衣"))
         player.is_invisible = True
+        player.grant_visibility_item("隐身衣")
         if game_state:
             game_state.markers.on_player_go_invisible(
                 player.player_id, list(game_state.players.values()))
@@ -132,6 +133,7 @@ def do_interact(player, item_name, game_state=None):
     elif item_name == "热成像仪":
         player.add_item(make_item("热成像仪"))
         player.has_detection = True
+        player.grant_visibility_item("热成像仪")
         return f"{player.name} 获得了热成像仪，可以发现隐身目标！🔍"
 
     elif item_name == "陶瓷护甲":

@@ -122,6 +122,11 @@ class Player:
         self.general_resistance: int = 0   # 负面效果通用抗性 0-100（§2.5.1）
         self.resist_pulse_rounds: int = 0  # 韧性脉冲剩余轮数
 
+        # M3 命中/闪避与属性分轨字段（v1 路径下空值零副作用，v2.0 §2.7）
+        self.stealth_attrs: set = set()    # 隐身覆盖的属性（隐身衣=普/隐身术=魔/隐形涂层=科）
+        self.detection_attrs: set = set()  # 探测覆盖的属性（热成像=普/探测魔法=魔/雷达=科）
+        self.moved_this_round: bool = False  # 本轮主动移动（移动闪避来源，每轮重置）
+
         # 位置
         self.location = None
 
@@ -256,6 +261,23 @@ class Player:
                 self._resist_degrade_penalty = 0
                 bonus += degrade
         return bonus
+
+    def grant_visibility_item(self, item_name):
+        """M3 属性分轨：隐身/探测道具按 balance visibility 表写入属性集。
+
+        仅 m3_accuracy 开关下生效（v1 的 is_invisible/has_detection 布尔
+        机制由调用方照旧维护，两套并行互不干扰）。
+        """
+        from engine import experiments as _exp
+        if not _exp.is_enabled("m3_accuracy"):
+            return
+        from engine.balance import get as _bget
+        stealth_map = _bget("visibility", "stealth_items", default={}) or {}
+        detect_map = _bget("visibility", "detection_items", default={}) or {}
+        if item_name in stealth_map:
+            self.stealth_attrs.add(stealth_map[item_name])
+        if item_name in detect_map:
+            self.detection_attrs.add(detect_map[item_name])
 
     def get_initiative_bonus(self):
         """先攻修正（K 常量行动制，experiment: k_initiative）。
