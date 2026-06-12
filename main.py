@@ -9,7 +9,6 @@
 日志系统：
   --debug-level 0-3 控制调试输出详细度
   --log-file 指定日志保存路径
-  --new-arch 0/1 控制是否启用新架构
 """
 
 import argparse
@@ -210,7 +209,7 @@ def setup_game_cli(args) -> GameState:
 # ════════════════════════════════════════════════════════════
 
 def setup_game_interactive(args) -> GameState:
-    """原有的交互式 setup_game，但支持 --new-arch 和 --debug-level"""
+    """原有的交互式 setup_game，但支持 --debug-level"""
     if args.debug_level > 0:
         enable_debug(args.debug_level)
     from engine.game_setup import setup_game as _orig_setup
@@ -228,7 +227,7 @@ def setup_game_interactive(args) -> GameState:
             # 缩写天赋名
             short = TALENT_REVERSE.get(talent_name, '')
             talent_str = short if short else talent_name
-            print(f"    {pid}: {p.name:8s} | 人格={pers:12s} | 天赋={talent_str:6s} | {arch}")
+            print(f"    {pid}: {p.name:8s} | 人格={pers:12s} | 天赋={talent_str:6s}")
     print("  ════════════════\n")
     return state
 
