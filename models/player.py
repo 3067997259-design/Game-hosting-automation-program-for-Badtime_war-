@@ -142,6 +142,12 @@ class Player:
         self.armor = ArmorSlots()
         self.items = []
         self._armor_gained_this_round = False
+        if _exp.is_enabled("m4_gear"):
+            # 弓是起始装备（人手一份的跨地点武器，v2.0 §2.8）
+            from models.equipment import make_bow
+            from engine.balance import get as _bget_bow
+            self.weapons.append(make_bow())
+            self.arrows = _bget_bow("bow", "initial_arrows", default=3)
 
         # 经济
         self.vouchers = 0

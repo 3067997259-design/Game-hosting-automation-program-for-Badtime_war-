@@ -106,6 +106,20 @@ def make_weapon(name):
     return weapon
 
 
+def make_bow():
+    """弓（M4，experiment: m4_gear）：人手一份的跨地点武器。
+
+    RANGED 但带 no_lock_required tag——锁定不是前置只是命中加成
+    （未锁定吃 accuracy.unlocked_ranged_penalty）。伤害/属性按已装
+    模块在 shoot 路径动态换算，此处只是基础形态。
+    """
+    from engine.balance import get as bget
+    return Weapon("弓", Attribute.ORDINARY,
+                  bget("bow", "damage", default=3),
+                  WeaponRange.RANGED,
+                  special_tags=["bow", "no_lock_required"])
+
+
 def _make_weapon_v1(name):
     """v1 武器定义（hp20 关闭时的原始路径，逐字节不变）"""
     table = {
