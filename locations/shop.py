@@ -18,12 +18,22 @@ SHOP_MENU = {
     "防毒面具": "免疫病毒（本来是免费的，为了针对某不知名RL的毒警体系改了）",
 }
 
+# m4_gear 追加菜单（信用点经济专属服务，get_menu 动态合并）
+M4_SHOP_MENU = {
+    "修理陶瓷护甲": "修理服务：陶瓷护甲耐久 +6（1 信用点）",
+    "箭矢补给":     "补充 2 支箭（1 信用点，上限 6）",
+}
+
 # 不需要凭证的项目
 FREE_ITEMS = {"打工"}
 
 
 def get_menu():
-    return dict(SHOP_MENU)
+    menu = dict(SHOP_MENU)
+    from engine.economy import m4_enabled
+    if m4_enabled():
+        menu.update(M4_SHOP_MENU)
+    return menu
 
 
 def _is_virus_active(game_state):
@@ -36,11 +46,26 @@ def can_interact(player, item_name, game_state=None):
     注意：这个函数签名比home多一个game_state参数，
     interact.py 在调用时会传入。
     """
-    if item_name not in SHOP_MENU:
-        return False, f"商店没有「{item_name}」"
-
     from engine.economy import m4_enabled, can_afford
     _m4 = m4_enabled()
+
+    valid_items = set(SHOP_MENU) | (set(M4_SHOP_MENU) if _m4 else set())
+    if item_name not in valid_items:
+        return False, f"商店没有「{item_name}」"
+
+    # m4 专属服务的前置
+    if item_name == "修理陶瓷护甲":
+        ceramic = next((a for a in getattr(player.armor, 'outer', []) or []
+                        if a.name == "陶瓷护甲"), None)
+        if ceramic is None:
+            return False, "你没有装备陶瓷护甲"
+        if ceramic.durability >= ceramic.max_durability:
+            return False, f"陶瓷护甲耐久已满（{ceramic.durability}/{ceramic.max_durability}）"
+    if item_name == "箭矢补给":
+        from engine.balance import get as _bget
+        max_arrows = _bget("bow", "max_arrows", default=6)
+        if getattr(player, 'arrows', 0) >= max_arrows:
+            return False, f"箭袋已满（{player.arrows}/{max_arrows}）"
 
     # 打工：v1 已有凭证时不允许；m4 信用点可累积无此限制
     if item_name == "打工" and not _m4 and player.vouchers >= 1:
@@ -161,6 +186,24 @@ def do_interact(player, item_name, game_state=None):
             return f"{player.name} 装备了陶瓷护甲（外层普通护盾1，免疫电流）。"
         else:
             return f"{player.name} 无法装备陶瓷护甲：{reason}"
+
+    elif item_name == "修理陶瓷护甲":
+        # m4 经济战核心回路：防御的经常性开支（费用已在链前扣除）
+        ceramic = next((a for a in getattr(player.armor, 'outer', []) or []
+                        if a.name == "陶瓷护甲"), None)
+        if ceramic is None:
+            return "❌ 你没有陶瓷护甲"
+        amount = 6  # 与魔法护盾/AT 重吟唱增量一致（[待风洞]）
+        ceramic.durability = min(ceramic.max_durability, ceramic.durability + amount)
+        return (f"🔧 {player.name} 修理了陶瓷护甲，耐久 +{amount} "
+                f"→ {ceramic.durability}/{ceramic.max_durability}")
+
+    elif item_name == "箭矢补给":
+        from engine.balance import get as _bget
+        amount = _bget("economy", "arrow_supply_amount", default=2)
+        max_arrows = _bget("bow", "max_arrows", default=6)
+        player.arrows = min(max_arrows, getattr(player, 'arrows', 0) + amount)
+        return f"🏹 {player.name} 补充了箭矢 → {player.arrows}/{max_arrows}"
 
     elif item_name == "防毒面具":
         player.add_item(make_item("防毒面具"))

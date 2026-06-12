@@ -14,6 +14,24 @@ class TurtleBotController(ScriptBotController):
 
     BOT_NAME = "turtle"
 
+    @staticmethod
+    def _lacks_funds(player: Any, item: str) -> bool:
+        """资金检查：v1 凭证资格 / m4 信用点价格表。"""
+        from engine.economy import m4_enabled, price
+        if m4_enabled():
+            from engine.balance import get as _bget
+            cost = price(item)
+            if item.endswith("手术"):
+                cost = _bget("economy", "surgery_min_cost", default=4)
+            return player.credits < cost
+        return player.vouchers < 1
+
+    def _crystal_skin_done(self, player: Any) -> bool:
+        """晶化皮肤完成判定：v1 内甲 piece / hp20 surgeries_done。"""
+        if "晶化皮肤" in getattr(player, 'surgeries_done', set()):
+            return True
+        return self.has_armor_named(player, "晶化皮肤")
+
     def decide(self, player: Any, game_state: Any) -> str:
         home = self.my_home(player)
 
@@ -23,23 +41,36 @@ class TurtleBotController(ScriptBotController):
                 return f"move {home}"
             return "interact 盾牌"
 
-        # 2. 第二件外甲：陶瓷护甲（商店，需凭证）
+        # 2. 第二件外甲：陶瓷护甲（商店）
         if not self.has_armor_named(player, "陶瓷护甲"):
             if player.location != "商店":
                 return "move 商店"
-            if player.vouchers < 1:
+            if self._lacks_funds(player, "陶瓷护甲"):
                 return "interact 打工"
             return "interact 陶瓷护甲"
 
-        # 3. 内甲：晶化皮肤手术（医院，需凭证，手术清空凭证）
-        if not self.has_armor_named(player, "晶化皮肤"):
+        # 3. 内甲：晶化皮肤手术（医院）
+        if not self._crystal_skin_done(player):
             if player.location != "医院":
                 return "move 医院"
-            if player.vouchers < 1:
+            if self._lacks_funds(player, "晶化皮肤手术"):
                 return "interact 打工"
             return "interact 晶化皮肤手术"
 
-        # 4. 发育完成：回家蹲点，永不攻击
+        # 4. m4 龟缩经济压力测试腿：耐久受损则去商店修理（钱包烧给修甲）
+        from engine.economy import m4_enabled
+        if m4_enabled():
+            ceramic = next((a for a in getattr(player.armor, 'outer', []) or []
+                            if a.name == "陶瓷护甲"
+                            and getattr(a, 'durability', 1) < getattr(a, 'max_durability', 1)), None)
+            if ceramic is not None:
+                if player.location != "商店":
+                    return "move 商店"
+                if self._lacks_funds(player, "修理陶瓷护甲"):
+                    return "interact 打工"
+                return "interact 修理陶瓷护甲"
+
+        # 5. 发育完成：回家蹲点，永不攻击
         if player.location != home:
             return f"move {home}"
         return "forfeit"

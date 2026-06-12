@@ -166,6 +166,17 @@ def try_force_entry(player, game_state):
     """
     if player.has_military_pass:
         return True, "已有通行证"
+    from engine.economy import m4_enabled, pay_all
+    if m4_enabled():
+        # m4 财产税：强买 = 全部信用点（下限 force_pass_min_cost）
+        ok, paid = pay_all(player, "force_pass_min_cost")
+        if not ok:
+            return False, "信用点不足，无法强买通行证。请先花1回合办理通行证。"
+        player.has_military_pass = True
+        if game_state:
+            game_state.log_event("military_pass", player=player.player_id,
+                                 method="force_buy", credits_spent=paid)
+        return True, f"🪪 {player.name} 支付了全部信用点（{paid}），强买通行证！"
     if player.vouchers < 1:
         return False, "你没有购买凭证，无法强买通行证。请先花1回合办理通行证。"
     old = player.vouchers
