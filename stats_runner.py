@@ -963,7 +963,13 @@ def main():
                         help="诊断原始数据保存路径")
     parser.add_argument("--seed", type=int, default=None,
                         help="基准随机种子：第 i 局使用 seed+i，固定后逐局可复现")
+    parser.add_argument("--experiment", action="append", default=[],
+                        help="启用实验开关（可多次使用），如 --experiment k_action_quota")
     args = parser.parse_args()
+
+    from engine import experiments
+    for exp_name in args.experiment:
+        experiments.enable(exp_name)
 
     if not 2 <= args.players <= 6:
         print("玩家人数必须在 2-6 之间")
@@ -971,6 +977,8 @@ def main():
 
     print(f"  起闯战争 自动胜率统计")
     print(f"  {args.players}人局 × {args.games}局")
+    if experiments.active():
+        print(f"  ⚗️ 实验开关: {', '.join(experiments.active())}")
     if args.seed is not None:
         print(f"  随机种子: {args.seed}（第 i 局 = seed+i）")
         if os.environ.get("PYTHONHASHSEED", "random") in ("", "random"):
