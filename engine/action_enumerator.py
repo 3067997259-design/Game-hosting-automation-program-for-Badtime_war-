@@ -314,10 +314,8 @@ def _enumerate_lock(
             opp.player_id, "LOCKED_BY", player.player_id)
         if already_locked:
             continue
-        visible = markers.is_visible_to(
-            opp.player_id, player.player_id,
-            getattr(player, 'has_detection', False))
-        if visible:
+        from engine.visibility import can_see_m
+        if can_see_m(player, opp, markers):
             result.append(f"lock {opp.name}")
     return result
 
@@ -336,10 +334,8 @@ def _enumerate_find(
             player.player_id, "ENGAGED_WITH", opp.player_id)
         if already_engaged:
             continue
-        visible = markers.is_visible_to(
-            opp.player_id, player.player_id,
-            getattr(player, 'has_detection', False))
-        if visible:
+        from engine.visibility import can_see_m
+        if can_see_m(player, opp, markers):
             result.append(f"find {opp.name}")
     return result
 

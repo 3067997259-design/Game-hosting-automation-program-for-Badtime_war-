@@ -315,14 +315,12 @@ def validate_lock(player, target_str, game_state):
         if game_state.markers.has(target_id, "INVISIBLE"):
             game_state.markers.remove(target_id, "INVISIBLE")
 
-    visible = game_state.markers.is_visible_to(
-        target_id, player.player_id, player.has_detection)
-    if not visible:
+    from engine.visibility import can_see, mark_detected_if_seen
+    if not can_see(player, target, game_state):
         return False, f"{target.name} 对你不可见"
 
-    # 探测能力发现隐身目标：添加 DETECTED_BY 关系
-    if player.has_detection and game_state.markers.has(target_id, "INVISIBLE"):
-        game_state.markers.on_player_detected(player.player_id, target_id)
+    # 看穿隐身目标：添加 DETECTED_BY 关系（之后恒可见）
+    mark_detected_if_seen(player, target, game_state)
 
     already = game_state.markers.has_relation(
         target_id, "LOCKED_BY", player.player_id)
@@ -367,14 +365,12 @@ def validate_find(player, target_str, game_state):
         if game_state.markers.has(target_id, "INVISIBLE"):
             game_state.markers.remove(target_id, "INVISIBLE")
 
-    visible = game_state.markers.is_visible_to(
-        target_id, player.player_id, player.has_detection)
-    if not visible:
+    from engine.visibility import can_see, mark_detected_if_seen
+    if not can_see(player, target, game_state):
         return False, f"{target.name} 对你不可见"
 
-    # 探测能力发现隐身目标：添加 DETECTED_BY 关系
-    if player.has_detection and game_state.markers.has(target_id, "INVISIBLE"):
-        game_state.markers.on_player_detected(player.player_id, target_id)
+    # 看穿隐身目标：添加 DETECTED_BY 关系（之后恒可见）
+    mark_detected_if_seen(player, target, game_state)
 
     already = game_state.markers.has_relation(
         player.player_id, "ENGAGED_WITH", target_id)

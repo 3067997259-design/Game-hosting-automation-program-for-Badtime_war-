@@ -902,10 +902,11 @@ class GameQuery:
                 return False
         if GameQuery.has_love_wish_for(player.player_id, target):
             return False
-        if getattr(target, 'is_invisible', False) and not getattr(player, 'has_detection', False):
+        if getattr(target, 'is_invisible', False):
             markers_obj = getattr(state, 'markers', None)
             if markers_obj and hasattr(markers_obj, 'is_visible_to'):
-                if not markers_obj.is_visible_to(target.player_id, player.player_id, player.has_detection):
+                from engine.visibility import can_see_m
+                if not can_see_m(player, target, markers_obj):
                     return False
         return True
 
