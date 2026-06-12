@@ -67,6 +67,7 @@ class RoundManager:
             p = self.state.get_player(pid)
             if p:
                 p._armor_gained_this_round = False
+                p.moved_this_round = False  # M3 移动闪避按轮重置
                 if hp20 and p.is_alive():
                     # 不老泉每轮再生（v2.0 §2.4，不超上限）
                     regen = getattr(p, 'regen_per_round', 0)

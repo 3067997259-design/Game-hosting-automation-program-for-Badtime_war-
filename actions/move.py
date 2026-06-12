@@ -220,6 +220,8 @@ def execute(player, destination, game_state):
         return f"⚡ {player.name} 在脱离交战时被截住，移动中止！"
 
     player.location = destination
+    if destination != old_location:
+        player.moved_this_round = True  # M3 移动闪避来源（每轮 R0 重置）
 
     # 半进入玩家移动到其他地点：清除半进入标记，从正面移除
     if (destination != old_location
