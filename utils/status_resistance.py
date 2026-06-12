@@ -62,13 +62,24 @@ def apply_control(target: Any, effect: str, game_state: Any = None,
         return result
 
     if resist > 0 and random.randint(1, 100) <= resist:
-        # 抗性生效 → 降级不归零：下轮先攻惩罚（自消耗 flag，get_d6_bonus 消费）
+        # 抗性生效 → 降级不归零（零产出禁令的控制版）
         result["applied"] = False
         result["degraded"] = True
-        penalty = bget("status_resistance", "degraded_initiative_penalty", default=-2)
-        target._resist_degrade_penalty = penalty
-        result["message"] = (f"{getattr(target, 'name', '?')} 抵抗了控制"
-                             f"（降级：下轮先攻 {penalty}）")
+        from engine import experiments as _exp
+        if _exp.is_enabled("m3_accuracy"):
+            # M3 起：降级 = 命中惩罚（自消耗 flag，accuracy.compute_hit_chance 消费）
+            penalty = -abs(int(bget("accuracy", "degraded_shock_hit_penalty",
+                                    default=20)))
+            target._resist_degrade_hit_penalty = penalty
+            result["message"] = (f"{getattr(target, 'name', '?')} 抵抗了控制"
+                                 f"（降级：下次攻击命中 {penalty}）")
+        else:
+            # M2 临时映射：先攻惩罚（自消耗 flag，get_d6_bonus 消费）
+            penalty = bget("status_resistance", "degraded_initiative_penalty",
+                           default=-2)
+            target._resist_degrade_penalty = penalty
+            result["message"] = (f"{getattr(target, 'name', '?')} 抵抗了控制"
+                                 f"（降级：下轮先攻 {penalty}）")
         return result
 
     # 全额生效 → 触发韧性脉冲（防连锁）

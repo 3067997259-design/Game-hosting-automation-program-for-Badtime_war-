@@ -464,7 +464,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                    is_love_poem=False,
                    is_embrace_damage=False,
                    *,
-                   displacement_only=False):
+                   displacement_only=False,
+                   is_opportunity_attack=False):
     """
     完整伤害结算。
     新增参数（Phase 4）：
@@ -811,8 +812,28 @@ def resolve_damage(attacker, target, weapon, game_state,
             from engine.balance import get as _bget
             raw_int += _bget("hp20", "severe_injury_aoe_bonus", default=1)
             result["details"].append("💢 重伤目标受 AOE 伤害 +1")
+
+        # ---- M3 命中层（experiment: m3_accuracy，v2.0 §2.7） ----
+        # 闪避成功 ≠ 落空 = 擦伤：按保底结算且不触发武器附带效果（零产出禁令）
+        grazed_by_evasion = False
+        from engine import experiments as _m3exp
+        if _m3exp.is_enabled("m3_accuracy"):
+            from combat.accuracy import compute_hit_chance, roll_hit as _roll_hit
+            chance, _breakdown = compute_hit_chance(
+                attacker, target, weapon, game_state,
+                is_aoo=is_opportunity_attack)
+            if chance < 100:
+                was_hit, roll = _roll_hit(chance)
+                if was_hit:
+                    result["details"].append(f"🎯 命中 {chance} → 掷 {roll}：命中！")
+                else:
+                    grazed_by_evasion = True
+                    result["grazed_by_evasion"] = True
+                    result["details"].append(
+                        f"🎯 命中 {chance} → 掷 {roll}：被闪避！擦伤结算")
+
         hit = resolve_hit(target, raw_int, weapon.attribute.value,
-                          force_min=police_force_min)
+                          force_min=police_force_min or grazed_by_evasion)
         result["final_damage"] = hit["damage"]
         result["success"] = True
         remaining = hit["damage"]
@@ -1072,7 +1093,8 @@ def resolve_damage(attacker, target, weapon, game_state,
     # 震荡和眩晕不能叠加，其中一个被解除，另一个随即解除
     # 注意：只有攻击成功且目标未死亡时才施加震荡
     if (weapon.special_tags and "stun_on_hit" in weapon.special_tags
-            and result["success"] and not result["killed"]):
+            and result["success"] and not result["killed"]
+            and not result.get("grazed_by_evasion", False)):  # 擦伤不触发附带效果
         already_cc = pre_attack_stunned or pre_attack_shocked
         if not already_cc:
             prevent_shock = electric_stun_immune

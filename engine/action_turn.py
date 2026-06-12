@@ -1987,7 +1987,8 @@ class ActionTurnManager:
         shock_targets = []
         if "shock_2_targets" in weapon.special_tags and results:
             alive_hit = [r for r in results
-                         if r["target"].is_alive() and r["result"]["success"]]
+                         if r["target"].is_alive() and r["result"]["success"]
+                         and not r["result"].get("grazed_by_evasion", False)]  # 擦伤不触发附带效果
             if alive_hit:
                 names = [r["target"].name for r in alive_hit]
                 lines.append(f"   可选震荡目标（最多2个）：{', '.join(names)}")

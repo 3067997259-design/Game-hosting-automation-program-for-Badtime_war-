@@ -84,7 +84,8 @@ def _resolve_opportunity_attacks(player, old_location, destination, game_state):
         opp._aoo_used_round = rnd
         from combat.damage_resolver import resolve_damage
         result = resolve_damage(attacker=opp, target=player,
-                                weapon=weapon, game_state=game_state)
+                                weapon=weapon, game_state=game_state,
+                                is_opportunity_attack=True)
         msg = prompt_manager.get_prompt(
             "combat", "opportunity_attack",
             default="⚡ {attacker} 对试图脱离交战的 {mover} 发动借机攻击！")
