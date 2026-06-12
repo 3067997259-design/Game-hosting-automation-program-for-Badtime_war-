@@ -100,9 +100,15 @@ class ActionTurnManager:
         # ---- 眩晕苏醒 ----
         if player.is_stunned and not self.state.markers.has(player.player_id, "SHOCKED"):
             player.is_stunned = False
-            player.hp = min(1.0, player.max_hp)
-            self.state.markers.on_stun_recover(player.player_id)
-            display.show_info(f"{player.name} 从眩晕中苏醒！HP恢复至 {player.hp}")
+            from engine import experiments as _exp
+            if _exp.is_enabled("hp20"):
+                # hp20：苏醒不回血（v2.0 §2.5——v1 僵局的心脏，废除 hp 刷新）
+                self.state.markers.on_stun_recover(player.player_id)
+                display.show_info(f"{player.name} 从眩晕中苏醒。（HP {player.hp}/{player.max_hp}）")
+            else:
+                player.hp = min(1.0, player.max_hp)
+                self.state.markers.on_stun_recover(player.player_id)
+                display.show_info(f"{player.name} 从眩晕中苏醒！HP恢复至 {player.hp}")
 
         # ---- 天赋被动T0（如萤火0.5血自愈） ----
         if (player.talent and hasattr(player.talent, 'on_turn_start')
@@ -151,7 +157,13 @@ class ActionTurnManager:
                 if choice.startswith("解除"):
                     self.state.markers.on_petrify_recover(player.player_id)
                     player.is_petrified = False
-                    remaining = 0.5
+                    from engine import experiments as _exp
+                    if _exp.is_enabled("hp20"):
+                        from engine.balance import get as _bget
+                        petrify_dmg = _bget("hp20", "petrify_release_damage", default=2)
+                    else:
+                        petrify_dmg = 0.5
+                    remaining = petrify_dmg
                     # 让天赋的临时HP（光环、炽愿等）先吸收
                     if (player.talent
                             and not getattr(player, '_mythland_talent_suppressed', False)):
@@ -159,19 +171,20 @@ class ActionTurnManager:
                             remaining, is_embrace=False)
                     if remaining > 0:
                         player.hp = round(max(0, player.hp - remaining), 2)
-                    absorbed = round(0.5 - remaining, 2)
-                    actual = round(0.5 - absorbed, 2)
+                    absorbed = round(petrify_dmg - remaining, 2)
+                    actual = round(petrify_dmg - absorbed, 2)
                     if absorbed > 0:
                         display.show_info(f"🗿→✨ {player.name} 解除石化！受{actual}伤害（临时HP吸收{absorbed}） → HP: {player.hp}")
                     else:
-                        display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
+                        display.show_info(f"🗿→✨ {player.name} 解除石化！受{petrify_dmg}伤害 → HP: {player.hp}")
                     # 死亡判定
                     if player.hp <= 0:
                         self.state.markers.on_player_death(player.player_id)
                         display.show_death(player.name, "石化解除伤害")
                         return "petrify_death"
-                    # 眩晕判定
-                    if player.hp <= 0.5 and not player.is_stunned:
+                    # 眩晕判定（hp20：眩晕不再由 HP 触发）
+                    if (not _exp.is_enabled("hp20")
+                            and player.hp <= 0.5 and not player.is_stunned):
                         player.is_stunned = True
                         self.state.markers.add(player.player_id, "STUNNED")
                         display.show_info(f"💫 {player.name} 进入眩晕！")

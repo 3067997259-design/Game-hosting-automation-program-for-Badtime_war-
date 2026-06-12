@@ -6,6 +6,12 @@ from models.equipment import ArmorLayer, WeaponRange
 from cli import display
 from engine.prompt_manager import prompt_manager
 
+
+def _hp20_mode():
+    """HP20 整数数值模型开关（experiment: hp20，v2.0 §2）。"""
+    from engine import experiments
+    return experiments.is_enabled("hp20")
+
 def _get_hologram_bonus(target, game_state):
     """检查所有玩家天赋，看目标是否在全息影像中"""
     if not game_state:
@@ -31,6 +37,17 @@ def quantize_damage(damage):
     if abs(frac_part) < 1e-9:
         return float(int_part)
     return int_part + 0.5
+
+
+def _remove_broken_hp20_armor(target, armor_name):
+    """HP20：耐久归零的外甲从槽位移除（可重新拿取/重吟唱）。"""
+    armor = getattr(target, 'armor', None)
+    outer = getattr(armor, 'outer', None) if armor else None
+    if outer:
+        for piece in list(outer):
+            if piece.name == armor_name and getattr(piece, 'durability', 1) <= 0:
+                outer.remove(piece)
+                break
 
 
 def _check_electric_immunity(target):
@@ -342,8 +359,12 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-        # 解除石化额外0.5伤害（先让临时HP吸收）
-        petrify_remaining = 0.5
+        # 解除石化额外伤害（先让临时HP吸收）；hp20 = 2 点穿甲（v2.0 §11.3）
+        if _hp20_mode():
+            from engine.balance import get as _bget
+            petrify_remaining = _bget("hp20", "petrify_release_damage", default=2)
+        else:
+            petrify_remaining = 0.5
         if (target.talent
                 and not getattr(target, '_mythland_talent_suppressed', False)):
             petrify_remaining = target.talent.receive_damage_to_temp_hp(
@@ -395,7 +416,9 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
                 target.talent.on_player_death_check(target)
 
-    elif target.hp <= 0.5 and not target.is_stunned and not color_10_triggered:
+    elif (not _hp20_mode()
+          and target.hp <= 0.5 and not target.is_stunned and not color_10_triggered):
+        # hp20：眩晕不再由 HP 触发（HP≤0 直接死亡，眩晕只来自震荡/石化/天赋）
         prevent = False
         if (target.talent and hasattr(target.talent, 'prevent_stun')
                 and not getattr(target, '_mythland_talent_suppressed', False)):
@@ -677,13 +700,19 @@ def resolve_damage(attacker, target, weapon, game_state,
                             prompt_manager.get_prompt("talent", "g7hoshino.shield_horus_zero"))
                     return result
 
-    # ---- 警察保护阈值减免（非AOE） ----
+    # ---- 警察保护（非AOE）：v1 阈值减免 / hp20 强制保底（v2.0 §2.6） ----
     # 相拥伤害绕过警察保护
+    police_force_min = False
     if not is_embrace_damage and weapon and weapon.weapon_range != WeaponRange.AREA and game_state:
         pe = getattr(game_state, 'police_engine', None)
         if pe:
             threshold = pe.get_protection_threshold(target.player_id)
-            if threshold > 0 and raw <= threshold:
+            if _hp20_mode():
+                # hp20：受保护 = 强制按保底结算（连续化，阈值悬崖蒸发），照常记罪
+                if threshold > 0:
+                    police_force_min = True
+                    result["details"].append("🚔 警察保护：攻击被强制压至保底伤害")
+            elif threshold > 0 and raw <= threshold:
                 result["details"].append(f"🚔 警察保护：伤害 {raw} ≤ 阈值 {threshold}，完全无效化")
                 result["final_damage"] = 0
                 result["success"] = False
@@ -770,53 +799,84 @@ def resolve_damage(attacker, target, weapon, game_state,
             )
             result["details"].append(damage_reduced_text.format(damage=raw))
 
-    # ---- 第2步：选择攻击目标层和属性 ----
-    armor_piece = _select_armor_target(target, target_layer, target_armor_attr)
+    # ---- 第2-5步：v1（选层/克制/量化/扣甲） vs hp20（减法防御+耐久磨损+保底） ----
+    if _hp20_mode():
+        # HP20 整数体系（v2.0 §2.1）：硬克制废除（属性差异由防御表表达）、
+        # 量化废除（整数）、护甲选层废除（防御汇总），全部收口 numeric_v2
+        from combat.numeric_v2 import resolve_hit, is_severely_injured
+        raw_int = max(0, int(round(raw)))
+        # 重伤目标受 AOE 伤害 +1（v2.0 §2.5）
+        if (weapon.weapon_range == WeaponRange.AREA
+                and is_severely_injured(target)):
+            from engine.balance import get as _bget
+            raw_int += _bget("hp20", "severe_injury_aoe_bonus", default=1)
+            result["details"].append("💢 重伤目标受 AOE 伤害 +1")
+        hit = resolve_hit(target, raw_int, weapon.attribute.value,
+                          force_min=police_force_min)
+        result["final_damage"] = hit["damage"]
+        result["success"] = True
+        remaining = hit["damage"]
+        if hit["defense"] > 0:
+            result["details"].append(
+                f"{raw_int}(裸伤) − {hit['defense']}(防御) "
+                f"{'→ 保底' if hit['grazed'] else ''}= {hit['damage']} 伤害")
+        else:
+            result["details"].append(f"{raw_int}(裸伤) 无防御直击 = {hit['damage']} 伤害")
+        if hit["absorbed"] > 0:
+            result["details"].append(f"护甲吸收 {hit['absorbed']} → 耐久消耗")
+        for broken_name in hit["broken"]:
+            result["armor_broken"] = True
+            result["armor_hit"] = broken_name
+            result["details"].append(f"💥 护甲「{broken_name}」耐久归零，碎裂！")
+            _remove_broken_hp20_armor(target, broken_name)
+    else:
+        # ---- 第2步：选择攻击目标层和属性 ----
+        armor_piece = _select_armor_target(target, target_layer, target_armor_attr)
 
-    # ---- 第3步：克制判定 ----
-    if armor_piece is not None:
-        if not ignore_counter and not ignore_element:
-            if not is_effective(weapon.attribute, armor_piece.attribute):
-                weapon_countered_text = prompt_manager.get_prompt(
-                    "combat", "weapon_countered",
-                    default="武器「{weapon_attr}」被护甲「{armor_name}({armor_attr})」克制，无效！"
-                )
-                result["reason"] = weapon_countered_text.format(
-                    weapon_attr=weapon.attribute.value,
-                    armor_name=armor_piece.name,
-                    armor_attr=armor_piece.attribute.value
-                )
-                result["details"].append(result["reason"])
-                return result
+        # ---- 第3步：克制判定 ----
+        if armor_piece is not None:
+            if not ignore_counter and not ignore_element:
+                if not is_effective(weapon.attribute, armor_piece.attribute):
+                    weapon_countered_text = prompt_manager.get_prompt(
+                        "combat", "weapon_countered",
+                        default="武器「{weapon_attr}」被护甲「{armor_name}({armor_attr})」克制，无效！"
+                    )
+                    result["reason"] = weapon_countered_text.format(
+                        weapon_attr=weapon.attribute.value,
+                        armor_name=armor_piece.name,
+                        armor_attr=armor_piece.attribute.value
+                    )
+                    result["details"].append(result["reason"])
+                    return result
 
-        attack_target_text = prompt_manager.get_prompt(
-            "combat", "attack_target_armor",
-            default="攻击目标护甲：{armor_piece}"
+            attack_target_text = prompt_manager.get_prompt(
+                "combat", "attack_target_armor",
+                default="攻击目标护甲：{armor_piece}"
+            )
+            result["details"].append(attack_target_text.format(
+                armor_piece=armor_piece
+            ))
+
+        # ---- 第4步：伤害量化 ----
+        final_damage = quantize_damage(raw)
+        result["final_damage"] = final_damage
+
+        quantized_text = prompt_manager.get_prompt(
+            "combat", "quantized_damage",
+            default="量化后伤害：{damage}"
         )
-        result["details"].append(attack_target_text.format(
-            armor_piece=armor_piece
-        ))
+        result["details"].append(quantized_text.format(damage=final_damage))
 
-    # ---- 第4步：伤害量化 ----
-    final_damage = quantize_damage(raw)
-    result["final_damage"] = final_damage
+        # ---- 第5步：扣减护甲/生命 ----
+        remaining = final_damage
+        result["success"] = True
 
-    quantized_text = prompt_manager.get_prompt(
-        "combat", "quantized_damage",
-        default="量化后伤害：{damage}"
-    )
-    result["details"].append(quantized_text.format(damage=final_damage))
-
-    # ---- 第5步：扣减护甲/生命 ----
-    remaining = final_damage
-    result["success"] = True
-
-    if armor_piece is not None:
-        remaining = _apply_damage_to_armor(
-            target, armor_piece, remaining,
-            ignore_last_inner_absorb, result,
-            None if (ignore_counter or ignore_element) else weapon.attribute
-        )
+        if armor_piece is not None:
+            remaining = _apply_damage_to_armor(
+                target, armor_piece, remaining,
+                ignore_last_inner_absorb, result,
+                None if (ignore_counter or ignore_element) else weapon.attribute
+            )
 
     # ---- 全息影像：额外无视属性克制伤害（护甲结算后独立施加） ----
     hologram_bonus = _get_hologram_bonus(target, game_state)
@@ -829,15 +889,19 @@ def resolve_damage(attacker, target, weapon, game_state,
             hologram_bonus=hologram_bonus
         ))
         # 无视属性克制：直接对最外层护甲造成伤害
-        hologram_remaining = hologram_bonus
-        hologram_armor = _select_armor_target(target, None, None)
-        if hologram_armor is not None:
-            hologram_remaining = _apply_damage_to_armor(
-                target, hologram_armor, hologram_remaining,
-                False, result,
-                None  # weapon_attribute=None → 无视属性克制
-            )
-        remaining += hologram_remaining  # 溢出伤害加到总剩余中
+        if _hp20_mode():
+            # hp20：天赋附加伤害量纲属 M7 迁移范围，过渡期直接计入 HP 伤害
+            remaining += hologram_bonus
+        else:
+            hologram_remaining = hologram_bonus
+            hologram_armor = _select_armor_target(target, None, None)
+            if hologram_armor is not None:
+                hologram_remaining = _apply_damage_to_armor(
+                    target, hologram_armor, hologram_remaining,
+                    False, result,
+                    None  # weapon_attribute=None → 无视属性克制
+                )
+            remaining += hologram_remaining  # 溢出伤害加到总剩余中
 
     if remaining > 0:
         if (target.talent
@@ -884,8 +948,12 @@ def resolve_damage(attacker, target, weapon, game_state,
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-        # 解除石化额外0.5伤害（先让临时HP吸收）
-        petrify_remaining = 0.5
+        # 解除石化额外伤害（先让临时HP吸收）；hp20 = 2 点穿甲（v2.0 §11.3）
+        if _hp20_mode():
+            from engine.balance import get as _bget
+            petrify_remaining = _bget("hp20", "petrify_release_damage", default=2)
+        else:
+            petrify_remaining = 0.5
         if (target.talent
                 and not getattr(target, '_mythland_talent_suppressed', False)):
             petrify_remaining = target.talent.receive_damage_to_temp_hp(
@@ -970,7 +1038,9 @@ def resolve_damage(attacker, target, weapon, game_state,
             if target.talent and hasattr(target.talent, 'on_player_death_check'):
                 target.talent.on_player_death_check(target)
 
-    elif target.hp <= 0.5 and not target.is_stunned and not color_10_triggered:
+    elif (not _hp20_mode()
+          and target.hp <= 0.5 and not target.is_stunned and not color_10_triggered):
+        # hp20：眩晕不再由 HP 触发（HP≤0 直接死亡，眩晕只来自震荡/石化/天赋）
         prevent = False
         if (target.talent and hasattr(target.talent, 'prevent_stun')
                 and not getattr(target, '_mythland_talent_suppressed', False)):
@@ -1472,8 +1542,12 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             target.is_petrified = False
             if game_state:
                 game_state.markers.on_petrify_recover(target.player_id)
-        # 解除石化额外0.5伤害（先让临时HP吸收）
-        petrify_remaining = 0.5
+        # 解除石化额外伤害（先让临时HP吸收）；hp20 = 2 点穿甲（v2.0 §11.3）
+        if _hp20_mode():
+            from engine.balance import get as _bget
+            petrify_remaining = _bget("hp20", "petrify_release_damage", default=2)
+        else:
+            petrify_remaining = 0.5
         if (target.talent
                 and not getattr(target, '_mythland_talent_suppressed', False)):
             petrify_remaining = target.talent.receive_damage_to_temp_hp(
@@ -1533,7 +1607,9 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
                 and not getattr(attacker, '_mythland_talent_suppressed', False)):
                 attacker.talent.on_kill(attacker, target)
 
-    elif target.hp <= 0.5 and not target.is_stunned and not color_10_triggered:
+    elif (not _hp20_mode()
+          and target.hp <= 0.5 and not target.is_stunned and not color_10_triggered):
+        # hp20：眩晕不再由 HP 触发（HP≤0 直接死亡，眩晕只来自震荡/石化/天赋）
         prevent = False
         if (target.talent and hasattr(target.talent, 'prevent_stun')
                 and not getattr(target, '_mythland_talent_suppressed', False)):

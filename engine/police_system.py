@@ -386,6 +386,20 @@ class PoliceEngine:
         hologram_bonus = self._get_hologram_bonus_for_unit(unit)
         if hologram_bonus > 0:
             raw_damage += hologram_bonus
+
+        # ---- hp20：警察无甲，整数直击，无量化无克制（v2.0 §2.6） ----
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            dmg = max(0, int(round(raw_damage)))
+            unit.hp = max(0, unit.hp - dmg)
+            if weapon is not None and weapon.special_tags and "stun_on_hit" in weapon.special_tags:
+                if unit.is_alive() and not (unit.is_stunned or getattr(unit, 'is_shocked', False)):
+                    unit.is_shocked = True
+                    return f"⚡ {unit.unit_id} 受 {dmg} 伤害并进入震荡！HP: {unit.hp}"
+            if unit.hp <= 0:
+                return f"💀 {unit.unit_id} 被击杀！"
+            return f"受 {dmg} 伤害 → HP: {unit.hp}"
+
         final_damage = quantize_damage(raw_damage)
         remaining = final_damage
 

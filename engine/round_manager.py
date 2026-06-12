@@ -62,10 +62,19 @@ class RoundManager:
     # ============================================
     def _phase_r0(self):
         self.state.current_phase = "r0_start"
+        hp20 = experiments.is_enabled("hp20")
         for pid in self.state.player_order:
             p = self.state.get_player(pid)
             if p:
                 p._armor_gained_this_round = False
+                if hp20 and p.is_alive():
+                    # 不老泉每轮再生（v2.0 §2.4，不超上限）
+                    regen = getattr(p, 'regen_per_round', 0)
+                    if regen > 0 and p.hp < p.max_hp:
+                        p.hp = min(p.max_hp, p.hp + regen)
+                    # 韧性脉冲轮数衰减（v2.0 §2.5.1）
+                    if getattr(p, 'resist_pulse_rounds', 0) > 0:
+                        p.resist_pulse_rounds -= 1
 
         # ish-bosheth 废墟谢幕（pending_curtain → 清理）
         if (self.state.ish_bosheth

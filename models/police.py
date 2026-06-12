@@ -100,20 +100,29 @@ class PoliceUnit:
             "killed_by_petrify": False,
         }
 
+        # hp20 量纲（石化解除伤害 / 唤醒回满值）
+        if getattr(self, '_hp20', False):
+            from engine.balance import get as _bget
+            petrify_dmg = _bget("hp20", "petrify_release_damage", default=2)
+            full_hp = _bget("police", "hp", default=12)
+        else:
+            petrify_dmg = 0.5
+            full_hp = 1.0
+
         # 1. 石化状态额外扣血
         if self.is_petrified and self.is_alive():
             result["was_petrified"] = True
-            result["petrified_damage"] = 0.5
+            result["petrified_damage"] = petrify_dmg
             result["old_hp"] = self.hp
-            self.hp = max(0, self.hp - 0.5)
+            self.hp = max(0, self.hp - petrify_dmg)
 
         # 2. 清除所有debuff
         self.clear_all_debuffs()
 
-        # 3. 如果仍然存活，恢复HP至1.0；否则标记死亡
+        # 3. 如果仍然存活，恢复HP至满；否则标记死亡
         if self.is_alive():
-            self.hp = 1.0
-            result["new_hp"] = 1.0
+            self.hp = full_hp
+            result["new_hp"] = full_hp
         else:
             result["new_hp"] = 0
             result["killed_by_petrify"] = True
