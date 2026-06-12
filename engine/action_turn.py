@@ -595,6 +595,11 @@ class ActionTurnManager:
                 is_blinded = False
         observable = (FilteredGameState(self.state, player.player_id)
                       if is_blinded else self.state)
+        # M3 行动隐匿：未致盲时叠加可见性代理（致盲快照优先，语义更强）
+        from engine import experiments as _vis_exp
+        if not is_blinded and _vis_exp.is_enabled("m3_accuracy"):
+            from engine.visibility_proxy import VisibilityProxy
+            observable = VisibilityProxy(self.state, player.player_id)
 
         # 为 bot_bridge 分层枚举预计算参数化选项
         import logging as _enum_log
@@ -827,6 +832,11 @@ class ActionTurnManager:
         is_blinded = getattr(player, '_hoshino_blinded', False)
         observable = (FilteredGameState(self.state, player.player_id)
                       if is_blinded else self.state)
+        # M3 行动隐匿：未致盲时叠加可见性代理（致盲快照优先，语义更强）
+        from engine import experiments as _vis_exp2
+        if not is_blinded and _vis_exp2.is_enabled("m3_accuracy"):
+            from engine.visibility_proxy import VisibilityProxy
+            observable = VisibilityProxy(self.state, player.player_id)
 
         # 为 bot_bridge 分层枚举预计算参数化选项
         try:

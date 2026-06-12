@@ -120,10 +120,22 @@ class GameState:
             **kwargs
         }
         self.event_log.append(event)
+        # M3 行动隐匿：事件 actor 对某观察者隐匿则不推送（event_log 本体
+        # 始终存全量——golden 回放与日志不受广播过滤影响）
+        actor = None
+        from engine import experiments as _exp
+        if _exp.is_enabled("m3_accuracy"):
+            actor_id = kwargs.get("player") or kwargs.get("attacker")
+            if isinstance(actor_id, str):
+                actor = self.get_player(actor_id)
         # 广播事件到所有玩家控制器
         for pid in self.player_order:
             p = self.get_player(pid)
             if p and hasattr(p, 'controller') and p.controller:
+                if actor is not None and pid != actor.player_id:
+                    from engine.visibility import can_see
+                    if not can_see(p, actor, self):
+                        continue  # 行动隐匿：该观察者看不到此行动
                 try:
                     p.controller.on_event(event)
                 except Exception:
