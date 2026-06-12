@@ -27,6 +27,82 @@ def get_all_valid_locations(game_state):
     return locations
 
 
+def _best_melee_weapon(player):
+    """借机攻击选武器：伤害最高的可用近战武器（蓄力未满/被封印的跳过）。"""
+    from models.equipment import WeaponRange
+    best = None
+    for w in player.weapons:
+        if w is None or w.weapon_range != WeaponRange.MELEE:
+            continue
+        if getattr(w, '_hexagram_disabled', False):
+            continue
+        if (getattr(w, 'requires_charge', False)
+                and getattr(w, 'charge_mandatory', True)
+                and not getattr(w, 'is_charged', False)):
+            continue
+        if best is None or w.base_damage > best.base_damage:
+            best = w
+    return best
+
+
+def _resolve_opportunity_attacks(player, old_location, destination, game_state):
+    """借机攻击（v2.0 §1.3，experiment: k_initiative）。
+
+    交战中（ENGAGED_WITH）主动移动离开地点 → 每名同地点交战对手获得
+    1 次免费近战攻击（每名对手每轮限 1 次）。被动位移（六爻放逐 / G5
+    强制位移 / 最后一曲吸引）豁免。返回 True 表示移动中止（mover 被
+    打死或眩晕，留在原地）。
+    """
+    from engine import experiments
+    if not experiments.is_enabled("k_initiative"):
+        return False
+    if destination == old_location:
+        return False
+    # 被动位移豁免（与架盾阻碍同一套豁免标记）
+    if (getattr(player, '_hexagram_forced_move', False)
+            or getattr(player, '_ripple_forced_move', False)
+            or getattr(player, '_hologram_pull', False)):
+        return False
+
+    from cli import display
+    from engine.prompt_manager import prompt_manager
+
+    engaged = game_state.markers.get_related(player.player_id, "ENGAGED_WITH")
+    rnd = game_state.current_round
+    for opp_id in sorted(engaged):  # 排序迭代保证确定性
+        opp = game_state.get_player(opp_id)
+        if (not opp or not opp.is_alive()
+                or not getattr(opp, 'is_awake', False)
+                or opp.location != old_location):
+            continue
+        if getattr(opp, '_aoo_used_round', 0) == rnd:
+            continue
+        weapon = _best_melee_weapon(opp)
+        if weapon is None:
+            continue
+
+        opp._aoo_used_round = rnd
+        from combat.damage_resolver import resolve_damage
+        result = resolve_damage(attacker=opp, target=player,
+                                weapon=weapon, game_state=game_state)
+        msg = prompt_manager.get_prompt(
+            "combat", "opportunity_attack",
+            default="⚡ {attacker} 对试图脱离交战的 {mover} 发动借机攻击！")
+        if isinstance(msg, str):
+            try:
+                display.show_info(msg.format(attacker=opp.name, mover=player.name))
+            except (KeyError, ValueError):
+                display.show_info(msg)
+        for detail in result.get("details", []):
+            display.show_info(f"   {detail}")
+        game_state.log_event("opportunity_attack", attacker=opp_id,
+                             target=player.player_id, weapon=weapon.name,
+                             result=result)
+        if not player.is_alive() or result.get("stunned"):
+            return True
+    return False
+
+
 def get_location_display_name(loc_id, game_state):
     """将地点ID转为显示名"""
     if loc_id.startswith("home_"):
@@ -138,6 +214,11 @@ def execute(player, destination, game_state):
                         # 已经花过一回合，清除标记，允许移动
                         delattr(player, delay_key)
                         break
+
+    # K 模式借机攻击：在位置变更与 engagement 清除之前结算
+    if _resolve_opportunity_attacks(player, old_location, destination, game_state):
+        return f"⚡ {player.name} 在脱离交战时被截住，移动中止！"
+
     player.location = destination
 
     # 半进入玩家移动到其他地点：清除半进入标记，从正面移除

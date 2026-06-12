@@ -51,6 +51,7 @@ from engine.game_setup import (
 
 _DISPLAY_FUNCS = [
     "show_banner", "show_round_header", "show_phase", "show_d4_results",
+    "show_initiative_results",
     "show_action_turn_header", "show_player_status", "show_available_actions",
     "show_result", "show_error", "show_info", "show_victory", "show_death",
     "show_police_status", "show_virus_status", "show_police_enforcement",

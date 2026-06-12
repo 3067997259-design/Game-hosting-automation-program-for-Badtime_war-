@@ -32,6 +32,7 @@
     "validate_terror_no_interact": "⚠️ Terror 降临，所有地点交互已被封锁。"
   },
   "combat": {
+    "opportunity_attack": " ⚡ {attacker} 对试图脱离交战的 {mover} 发动借机攻击！",
     "attack_hit": " 🗡️ {attacker} 使用 {weapon} 攻击 {target}！",
     "attack_miss": " 🛡️ {attacker} 的攻击被 {target} 的护甲克制，无效！",
     "damage_calc": " 💥 造成 {damage} 点伤害！",

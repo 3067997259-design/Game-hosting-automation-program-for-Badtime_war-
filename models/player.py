@@ -152,6 +152,8 @@ class Player:
         self.total_action_turns = 0
         self.kill_count = 0
         self.last_action_type = None
+        # K 模式借机攻击：本轮已使用的轮次号（每轮限 1 次，v2.0 §1.3）
+        self._aoo_used_round = 0
         self.acted_this_round = False
 
         # 军事基地
