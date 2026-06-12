@@ -58,6 +58,10 @@ class GameState:
         # 事件日志
         self.event_log = []
 
+        # 每局确定性边界：重置跨局漂移的模块级计数器（M0 种子复现要求）
+        from models.chorus import reset_chorus_counter
+        reset_chorus_counter()
+
         # 游戏状态
         self.game_over = False
         self.winner: Optional[str] = None

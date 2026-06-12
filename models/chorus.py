@@ -26,6 +26,16 @@ def _next_chorus_id() -> str:
     return f"chorus_{_chorus_counter}"
 
 
+def reset_chorus_counter() -> None:
+    """重置 Chorus 编号计数器（每局开始时由 GameState 调用）。
+
+    不重置会导致同进程多局间 id 漂移（局 1 是 chorus_1..3、局 2 变 chorus_4..6），
+    id 字符串进入 set/dict 后迭代序不同 → 破坏同种子复现（M0 确定性要求）。
+    """
+    global _chorus_counter
+    _chorus_counter = 0
+
+
 class _ChorusArmorSlots:
     """最小化护甲槽位，兼容 damage_resolver 的 target.armor 访问。"""
 

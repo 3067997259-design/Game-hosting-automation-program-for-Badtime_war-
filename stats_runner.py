@@ -473,8 +473,13 @@ def _fmt_count_pct(count: int, total: int) -> str:
 # ── Main batch runner ──
 
 def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mode: str = "random",
-              diag_mode: bool = False, diag_output: str = "logs/diag_report.json") -> None:
-    """Run multiple games and collect statistics."""
+              diag_mode: bool = False, diag_output: str = "logs/diag_report.json",
+              seed: Optional[int] = None) -> None:
+    """Run multiple games and collect statistics.
+
+    seed: 基准随机种子。提供时第 i 局（0-based）使用 random.seed(seed + i)，
+          串行单线程下保证逐局可复现（golden 回放的前提）。None = 不固定。
+    """
 
     talent_stats: dict[int, TalentStats] = defaultdict(TalentStats)
     personality_stats: dict[str, PersonalityStats] = defaultdict(PersonalityStats)
@@ -521,12 +526,17 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
             rate = (game_idx + 1) / elapsed if elapsed > 0 else 0
             print(f"\r  进度: {game_idx + 1}/{num_games} ({rate:.1f} 局/秒)", end="", flush=True)
 
+        if seed is not None:
+            random.seed(seed + game_idx)
+
         try:
             result = run_single_game(num_players, rl_controller, rl_talent_mode,
                                      diag_mode=diag_mode)
         except Exception:
             errors += 1
             continue
+
+        result["seed"] = (seed + game_idx) if seed is not None else None
 
         total_rounds += result["rounds"]
         if result["draw"]:
@@ -951,6 +961,8 @@ def main():
                         help="启用诊断模式：收集 forfeit/fallback/draw 的结构化数据")
     parser.add_argument("--diag-output", type=str, default="logs/diag_report.json",
                         help="诊断原始数据保存路径")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="基准随机种子：第 i 局使用 seed+i，固定后逐局可复现")
     args = parser.parse_args()
 
     if not 2 <= args.players <= 6:
@@ -959,6 +971,11 @@ def main():
 
     print(f"  起闯战争 自动胜率统计")
     print(f"  {args.players}人局 × {args.games}局")
+    if args.seed is not None:
+        print(f"  随机种子: {args.seed}（第 i 局 = seed+i）")
+        if os.environ.get("PYTHONHASHSEED", "random") in ("", "random"):
+            print("  ⚠️  PYTHONHASHSEED 未固定——set 迭代序可能随进程变化，"
+                  "跨进程复现/golden 回放请先设置 PYTHONHASHSEED=0")
 
     rl_controller = None
     if args.model:
@@ -971,7 +988,7 @@ def main():
     print()
 
     run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
-              diag_mode=args.diag, diag_output=args.diag_output)
+              diag_mode=args.diag, diag_output=args.diag_output, seed=args.seed)
 
 
 if __name__ == "__main__":

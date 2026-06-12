@@ -481,8 +481,10 @@ class IshBosheth:
             lines.append(f"  {c.name} 最终声部 → {VOICE_LABELS.get(c.emotion, '?')}。")
 
         # 11. 创建物料牌系统
+        # rng 必须从全局 random 流派生：默认的 random.Random() 用 OS 熵自播，
+        # 会让物料牌序游离在种子体系外，破坏同种子复现（M0 确定性要求）
         from engine.material_deck import MaterialDeck
-        self.deck = MaterialDeck()
+        self.deck = MaterialDeck(rng=random.Random(random.getrandbits(64)))
         real_participants = [game_state.get_player(pid) for pid in self.participants
                             if game_state.get_player(pid) and game_state.get_player(pid).is_alive()]
         self.deck.opening_deal(real_participants, self.chorus_list, self.seat_assignments)
