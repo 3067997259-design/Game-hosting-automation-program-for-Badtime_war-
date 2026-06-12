@@ -358,6 +358,14 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
     results["combat_rounds"] = len({
         e.get("round") for e in game_state.event_log if e.get("type") == "attack"
     })
+    # M3 擦伤率分子/分母（attack 事件中被闪避擦伤的占比，v0.2 §9）
+    attack_events = [e for e in game_state.event_log
+                     if e.get("type") in ("attack", "opportunity_attack")]
+    results["total_attacks"] = len(attack_events)
+    results["grazed_attacks"] = sum(
+        1 for e in attack_events
+        if isinstance(e.get("result"), dict)
+        and e["result"].get("grazed_by_evasion"))
 
     # 诊断数据收集
     diag_data = {}
@@ -549,6 +557,8 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
 
     total_rounds = 0
     total_combat_rounds = 0
+    total_attacks = 0
+    total_grazed = 0
     total_draws = 0
     errors = 0
 
@@ -607,6 +617,8 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
 
         total_rounds += result["rounds"]
         total_combat_rounds += result.get("combat_rounds", 0)
+        total_attacks += result.get("total_attacks", 0)
+        total_grazed += result.get("grazed_attacks", 0)
         if result["draw"]:
             total_draws += 1
             reason = result.get("draw_reason", "")
@@ -662,6 +674,7 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
                   draw_reasons=draw_reasons, draw_labels=DRAW_LABELS,
                   crash_log=crash_log,
                   total_combat_rounds=total_combat_rounds,
+                  total_attacks=total_attacks, total_grazed=total_grazed,
                   rl_games=rl_games, rl_wins=rl_wins,
                   rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins,
                   rl_talent_usage=rl_talent_usage)
@@ -715,6 +728,8 @@ def print_results(
     rl_talent_wins: Optional[dict[int, int]] = None,
     rl_talent_usage: Optional[dict[int, list[dict[str, Any]]]] = None,
     total_combat_rounds: int = 0,
+    total_attacks: int = 0,
+    total_grazed: int = 0,
 ) -> None:
     """Print all result tables with CJK-aware alignment."""
 
@@ -725,6 +740,9 @@ def print_results(
     print(f"  平均轮次: {total_rounds / max(completed, 1):.1f}")
     print(f"  战斗轮占比: {total_combat_rounds / max(total_rounds, 1) * 100:.1f}%"
           f"（{total_combat_rounds}/{total_rounds} 轮发生过攻击）")
+    if total_grazed > 0:
+        print(f"  擦伤率: {total_grazed / max(total_attacks, 1) * 100:.1f}%"
+              f"（{total_grazed}/{total_attacks} 次攻击被闪避擦伤）")
     print(f"  平局率: {total_draws}/{num_games} ({total_draws / max(num_games, 1) * 100:.1f}%)")
     if errors > 0:
         print(f"  错误/崩溃: {errors}")
