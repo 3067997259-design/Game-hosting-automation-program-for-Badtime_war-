@@ -152,6 +152,10 @@ def validate(parsed, player, game_state):
         return validate_find(player, parsed.get("target"), game_state)
     elif action == "attack":
         return validate_attack(player, parsed, game_state)
+    elif action == "shoot":
+        return validate_shoot(player, parsed.get("target"), game_state)
+    elif action == "hook":
+        return validate_hook(player, parsed, game_state)
     elif action == "special":
         return validate_special(player, parsed.get("operation"), game_state)
     elif action == "report":
@@ -176,6 +180,89 @@ def validate(parsed, player, game_state):
         return True, ""
     else:
         return False, f"未知的行动类型：{action}"
+
+
+# ============================================
+#  M4 校验：射箭 / 钩锁（experiment: m4_gear）
+# ============================================
+
+def validate_shoot(player, target_str, game_state):
+    from engine.economy import m4_enabled
+    if not m4_enabled():
+        return False, "未知的行动类型：shoot"
+    if not player.is_awake:
+        return False, "你还没起床！"
+    ok, reason = _check_not_disabled(player, game_state)
+    if not ok:
+        return False, reason
+    if not player.has_weapon("弓"):
+        return False, "你没有弓"
+    from engine.bow_modules import compute_shot
+    if not compute_shot(player)["infinite"] and getattr(player, 'arrows', 0) < 1:
+        return False, "箭袋空了（商店可补给，find 可拾取落箭）"
+    if not target_str:
+        return False, "请指定射击目标。"
+    target_id = resolve_player_target(target_str, game_state)
+    if not target_id:
+        return False, f"找不到玩家「{target_str}」"
+    target = game_state.get_player(target_id)
+    if not target or not target.is_alive():
+        return False, f"{target_str} 已死亡"
+    if target_id == player.player_id:
+        return False, "不能射自己"
+    if not getattr(target, 'is_awake', False) or target.location is None:
+        return False, f"{target.name} 不在地图上"
+    if _check_love_wish_block(player.player_id, target_id, game_state):
+        return False, f"💝「爱愿」生效中：你无法攻击 {target.name}"
+    from engine.visibility import can_see
+    if not can_see(player, target, game_state):
+        return False, f"{target.name} 对你不可见"
+    return True, ""
+
+
+def validate_hook(player, parsed, game_state):
+    from engine.economy import m4_enabled
+    if not m4_enabled():
+        return False, "未知的行动类型：hook"
+    if not player.is_awake:
+        return False, "你还没起床！"
+    ok, reason = _check_not_disabled(player, game_state)
+    if not ok:
+        return False, reason
+    if not any(getattr(i, 'name', '') == "钩锁" for i in getattr(player, 'items', [])):
+        return False, "你没有钩锁"
+    from engine.balance import get as _bget
+    cooldown = _bget("hook", "cooldown_rounds", default=2)
+    ready_round = getattr(player, '_last_hook_round', -99) + cooldown
+    if game_state.current_round < ready_round:
+        return False, f"钩锁冷却中（第 {ready_round} 轮就绪）"
+    if parsed.get("mode") == "self":
+        dest = parsed.get("destination")
+        from actions.move import get_all_valid_locations
+        if dest not in get_all_valid_locations(game_state):
+            return False, f"无效目的地「{dest}」"
+        if dest == player.location:
+            return False, "你已经在这里了"
+        return True, ""
+    target_str = parsed.get("target")
+    target_id = resolve_player_target(target_str, game_state)
+    if not target_id:
+        return False, f"找不到玩家「{target_str}」"
+    target = game_state.get_player(target_id)
+    if not target or not target.is_alive():
+        return False, f"{target_str} 已死亡"
+    if target_id == player.player_id:
+        return False, "拉自己请用 hook self <地点>"
+    if not getattr(target, 'is_awake', False) or target.location is None:
+        return False, f"{target.name} 不在地图上"
+    if target.location == player.location:
+        return False, f"{target.name} 已经和你同地点"
+    if _check_love_wish_block(player.player_id, target_id, game_state):
+        return False, f"💝「爱愿」生效中：你无法攻击 {target.name}"
+    from engine.visibility import can_see
+    if not can_see(player, target, game_state):
+        return False, f"{target.name} 对你不可见"
+    return True, ""
 
 
 # ============================================

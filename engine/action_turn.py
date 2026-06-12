@@ -1703,6 +1703,30 @@ class ActionTurnManager:
             msg = find_target.execute(player, target_id, self.state)
             return msg, "find", not msg.startswith("❌")      # CHANGED
 
+        elif action == "shoot":
+            # M4 弓：射箭（validator 已校验，目标必然可解析）
+            target_id = resolve_player_target(parsed["target"], self.state)
+            if not target_id:
+                return "❌ 找不到目标玩家", "shoot", False
+            target = self.state.get_player(target_id)
+            from actions import shoot as shoot_action
+            msg, result = shoot_action.execute(player, target, self.state)
+            if result.get("killed"):
+                player.kill_count += 1
+                self.state.markers.on_player_death(target_id)
+                if self.state.police_engine:
+                    self.state.police_engine.on_player_death(target_id)
+                display.show_death(target.name, f"被 {player.name} 射杀")
+                from engine.round_manager import RoundManager
+                RoundManager.notify_all_talents_of_death(
+                    self.state, target_id, killer_id=player.player_id)
+            return msg, "shoot", True
+
+        elif action == "hook":
+            from actions import hook as hook_action
+            msg, ok = hook_action.execute(player, parsed, self.state)
+            return msg, "hook", ok
+
         elif action == "attack":
             # Terror 攻击：走特殊逻辑
             if (player.talent and hasattr(player.talent, 'is_terror')

@@ -82,6 +82,12 @@ def compute_hit_chance(attacker: Any, target: Any, weapon: Any,
             chance += degrade  # degrade 为负值
             breakdown.append(f"震荡降级 {degrade}")
 
+    # ── 武器自带命中加成（M4 魔导模块等，挂在武器对象上）──
+    weapon_bonus = getattr(weapon, "_bow_hit_bonus", 0) if weapon else 0
+    if weapon_bonus:
+        chance += weapon_bonus
+        breakdown.append(f"制导 +{weapon_bonus}")
+
     return max(0, min(100, chance)), breakdown
 
 

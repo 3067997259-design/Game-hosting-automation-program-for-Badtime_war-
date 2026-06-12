@@ -28,4 +28,20 @@ def execute(player, target_id, game_state):
             and not getattr(target, '_mythland_talent_suppressed', False)):
         target.talent.on_found_by_someone(target, player.player_id)
 
-    return f"👊 {player.name} 找到了 {target.name}！双方进入面对面关系。"
+    msg = f"👊 {player.name} 找到了 {target.name}！双方进入面对面关系。"
+
+    # ---- M4：find 顺带拾取本地点箭堆（风险换弹药，v2.0 §2.8） ----
+    from engine.economy import m4_enabled
+    if m4_enabled():
+        piles = getattr(game_state, 'arrow_piles', {})
+        ground = piles.get(player.location, 0)
+        if ground > 0 and player.has_weapon("弓"):
+            from engine.balance import get as _bget
+            max_arrows = _bget("bow", "max_arrows", default=6)
+            take = min(ground, max_arrows - player.arrows)
+            if take > 0:
+                player.arrows += take
+                piles[player.location] = ground - take
+                msg += f"\n   🏹 顺带拾起地上的 {take} 支箭（{player.arrows}/{max_arrows}）"
+
+    return msg

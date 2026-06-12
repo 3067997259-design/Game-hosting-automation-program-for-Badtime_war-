@@ -59,6 +59,20 @@ def parse(raw_input, player_id):
             return None
         return {"action": "find", "target": parts[1]}
 
+    # ---- 射箭（M4 弓） ----
+    if cmd in ("shoot", "射箭", "射"):
+        if len(parts) < 2:
+            return None
+        return {"action": "shoot", "target": parts[1]}
+
+    # ---- 钩锁（M4） ----
+    if cmd in ("hook", "钩锁", "钩"):
+        if len(parts) < 2:
+            return None
+        if parts[1] in ("self", "自己") and len(parts) >= 3:
+            return {"action": "hook", "mode": "self", "destination": parts[2]}
+        return {"action": "hook", "mode": "pull", "target": parts[1]}
+
     # ---- 攻击 ----
     if cmd in ("attack", "攻击", "atk", "打"):
         target = parts[1] if len(parts) >= 2 else None
