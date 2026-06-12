@@ -41,16 +41,25 @@ def can_interact(player, item_name, game_state=None):
     if item_name not in HOSPITAL_MENU:
         return False, f"医院没有「{item_name}」"
 
-    # 打工：已有凭证时不允许（凭证是资格开关，有1张就够了）
-    if item_name == "打工" and player.vouchers >= 1:
+    from engine.economy import m4_enabled
+    from engine.balance import get as _bget
+    _m4 = m4_enabled()
+
+    # 打工：v1 已有凭证时不允许；m4 信用点可累积无此限制
+    if item_name == "打工" and not _m4 and player.vouchers >= 1:
         return False, "你已经有购买凭证了，不需要再打工。"
 
     if item_name in FREE_ITEMS:
         return True, ""
 
-    # 手术需要凭证
+    # 手术需要凭证（v1）/ 信用点财产税下限（m4）
     if item_name in SURGERY_ITEMS:
-        if player.vouchers < 1:
+        if _m4:
+            min_cost = _bget("economy", "surgery_min_cost", default=4)
+            if getattr(player, 'credits', 0) < min_cost:
+                return False, (f"手术费 = 你的全部信用点（下限 {min_cost}）。"
+                               f"你只有 {player.credits}，不足以支付。")
+        elif player.vouchers < 1:
             return False, "手术需要至少1张购买凭证！（手术会消耗你所有凭证）"
         # hp20：手术=永久身体改造，终身一次（无内甲 piece 可查重，走 surgeries_done）
         from engine import experiments as _exp
@@ -81,6 +90,9 @@ def can_interact(player, item_name, game_state=None):
         items = getattr(player, 'items', [])
         if any(getattr(i, 'name', '') == "防毒面具" for i in items):
             return False, "你已经有防毒面具了"
+        if _m4:
+            from engine.economy import can_afford
+            return can_afford(player, "防毒面具")
         if player.vouchers < 1:
             return False, "防毒面具需要购买凭证（不消耗凭证）。"
         return True, ""
@@ -103,12 +115,19 @@ def can_interact(player, item_name, game_state=None):
 
 def do_interact(player, item_name, game_state=None):
     """执行医院交互"""
+    from engine.economy import m4_enabled, charge, work_income
 
     if item_name == "打工":
+        if m4_enabled():
+            income = work_income()
+            player.credits += income
+            return f"{player.name} 在医院打工，获得 {income} 信用点。当前：{player.credits}"
         player.vouchers += 1
         return f"{player.name} 在医院打工，获得1张购买凭证。当前：{player.vouchers}张"
 
     elif item_name == "防毒面具":
+        if m4_enabled():
+            charge(player, "防毒面具")
         player.add_item(make_item("防毒面具"))
         return f"{player.name} 获得了防毒面具，免疫病毒！😷"
 
@@ -156,8 +175,17 @@ def _do_surgery_hp20(player, surgery_name, game_state):
     if not isinstance(spec, dict):
         return f"❌ 系统错误：手术「{surgery_name}」无数值定义"
 
-    old_vouchers = player.vouchers
-    player.clear_all_vouchers()
+    from engine.economy import m4_enabled, pay_all
+    if m4_enabled():
+        # m4 财产税：手术费 = 全部信用点（下限已在 can_interact 拦截）
+        ok, paid = pay_all(player, "surgery_min_cost")
+        if not ok:
+            return f"❌ 信用点不足，无法进行{surgery_name}手术。"
+        cost_note = f"\n   手术费：全部信用点（{paid} → 0）"
+    else:
+        old_vouchers = player.vouchers
+        player.clear_all_vouchers()
+        cost_note = f"\n   消耗了所有购买凭证（{old_vouchers}张→0张）"
     player.surgeries_done.add(surgery_name)
 
     if surgery_name == "额外心脏":
@@ -178,9 +206,8 @@ def _do_surgery_hp20(player, surgery_name, game_state):
 
     if game_state:
         game_state.log_event("surgery", player=player.player_id,
-                             surgery=surgery_name, vouchers_spent=old_vouchers)
-    return (f"🏥 {player.name} 完成了{surgery_name}手术！{effect}"
-            f"\n   消耗了所有购买凭证（{old_vouchers}张→0张）")
+                             surgery=surgery_name)
+    return f"🏥 {player.name} 完成了{surgery_name}手术！{effect}{cost_note}"
 
 
 def _do_surgery(player, surgery_name, armor_piece, game_state):

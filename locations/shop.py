@@ -39,8 +39,11 @@ def can_interact(player, item_name, game_state=None):
     if item_name not in SHOP_MENU:
         return False, f"商店没有「{item_name}」"
 
-    # 打工：已有凭证时不允许（凭证是资格开关，有1张就够了）
-    if item_name == "打工" and player.vouchers >= 1:
+    from engine.economy import m4_enabled, can_afford
+    _m4 = m4_enabled()
+
+    # 打工：v1 已有凭证时不允许；m4 信用点可累积无此限制
+    if item_name == "打工" and not _m4 and player.vouchers >= 1:
         return False, "你已经有购买凭证了，不需要再打工。"
 
     # 免费项目直接通过
@@ -93,11 +96,15 @@ def can_interact(player, item_name, game_state=None):
         if getattr(player, 'has_detection', False):
             return False, "你已经有探测能力了"
 
-    # 病毒期间免费（跳过凭证检查，但重复物品检查已在上方完成）
+    # 病毒期间免费（跳过凭证/付费检查，但重复物品检查已在上方完成）
     if game_state and _is_virus_active(game_state):
         return True, ""
 
-    # 需要凭证
+    # m4：信用点真扣费（资格开关退役）
+    if _m4:
+        return can_afford(player, item_name)
+
+    # v1：需要凭证（资格开关，不消耗）
     if player.vouchers < 1:
         return False, "你没有购买凭证（山姆会员）！请先获取凭证。"
 
@@ -106,8 +113,19 @@ def can_interact(player, item_name, game_state=None):
 
 def do_interact(player, item_name, game_state=None):
     """执行商店交互"""
+    from engine.economy import m4_enabled, charge, work_income
+
+    # m4：付费项先扣费（打工不在 sinks 表中 price=0 不扣；病毒期间保持免费语义）
+    # 注意必须在 if/elif 链之前——插在链中会断链
+    if (m4_enabled() and item_name not in FREE_ITEMS
+            and not (game_state and _is_virus_active(game_state))):
+        charge(player, item_name)
 
     if item_name == "打工":
+        if m4_enabled():
+            income = work_income()
+            player.credits += income
+            return f"{player.name} 在商店打工，获得 {income} 信用点。当前：{player.credits}"
         player.vouchers += 1
         return f"{player.name} 在商店打工，获得1张购买凭证。当前：{player.vouchers}张"
 

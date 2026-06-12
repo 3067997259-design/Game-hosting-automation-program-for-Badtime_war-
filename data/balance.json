@@ -60,6 +60,58 @@
         "damage_per_round": 3
     },
 
+    "economy": {
+        "_comment": "信用点经济（experiment: m4_gear，v0.2 §6，[待风洞]）。faucets=收入 sinks=支出；手术/强买=财产税（全部，含下限）",
+        "faucets": {
+            "打工": 2
+        },
+        "sinks": {
+            "小刀": 1,
+            "磨刀石": 2,
+            "隐身衣": 3,
+            "热成像仪": 3,
+            "陶瓷护甲": 3,
+            "防毒面具": 2,
+            "箭矢补给": 1,
+            "修理陶瓷护甲": 1,
+            "力量模块": 3,
+            "无限模块": 4,
+            "钩锁": 2
+        },
+        "surgery_min_cost": 4,
+        "force_pass_min_cost": 2,
+        "arrow_supply_amount": 2
+    },
+
+    "bow": {
+        "_comment": "弓系统（v0.2 §2.8，[待风洞]）。人手一份的跨地点武器；锁定只是命中加成非前置",
+        "damage": 3,
+        "initial_arrows": 3,
+        "max_arrows": 6
+    },
+
+    "bow_modules": {
+        "_comment": "弓升级模块：双槽，全图份数稀缺 ×2（无限 ×1 独占双槽），同名双装强化。死亡回流供应池",
+        "力量": {"location": "商店", "supply": 2, "damage_bonus": 2, "damage_bonus_x2": 4},
+        "火矢": {"location": "魔法所", "supply": 2, "attribute": "魔法", "burn_stacks": 1, "burn_stacks_x2": 2},
+        "魔导": {"location": "魔法所", "supply": 2, "hit_bonus": 15, "hit_bonus_x2": 30},
+        "穿甲": {"location": "军事基地", "supply": 2, "attribute": "科技", "armor_pierce": 0.5, "armor_pierce_x2": 0.25},
+        "冲击": {"location": "军事基地", "supply": 2, "knockback": true, "knockback_x2_initiative": -2},
+        "无限": {"location": "医院", "supply": 1, "infinite_ammo": true, "exclusive": true}
+    },
+
+    "hook": {
+        "_comment": "钩锁（v0.2 §2.9）：神器×1 军事基地，科技属性，位移三件套之「拉」",
+        "damage": 2,
+        "cooldown_rounds": 2
+    },
+
+    "burn": {
+        "_comment": "灼烧通用层（v0.2 §11.3）：G1/燃烧瓶/火矢共用实现（G1 接入归 M7）",
+        "damage_per_stack": 1,
+        "max_stacks": 3
+    },
+
     "accuracy": {
         "_comment": "命中/闪避体系（experiment: m3_accuracy，v0.2 §2.7，[待风洞]）。默认命中 100，概率只来自投资；闪避封顶=零产出禁令",
         "base": 100,

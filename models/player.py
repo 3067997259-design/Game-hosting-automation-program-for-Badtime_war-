@@ -127,6 +127,13 @@ class Player:
         self.detection_attrs: set = set()  # 探测覆盖的属性（热成像=普/探测魔法=魔/雷达=科）
         self.moved_this_round: bool = False  # 本轮主动移动（移动闪避来源，每轮重置）
 
+        # M4 消耗层字段（experiment: m4_gear，v1 路径下零副作用，v2.0 §2.8/§6）
+        self.credits: int = 0              # 信用点（凭证退役后的经济通货，占位名）
+        self.arrows: int = 0               # 箭矢（弓弹药，上限见 balance bow.max_arrows）
+        self.bow_modules: list = []        # 已安装弓模块名（双槽）
+        self.burn_stacks: int = 0          # 灼烧层数（R4 每层 1 伤，获甲扑灭 1 层）
+        self._last_hook_round: int = -99   # 钩锁共享冷却（拉人/拉己同钟）
+
         # 位置
         self.location = None
 
