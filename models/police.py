@@ -12,12 +12,23 @@ class PoliceUnit:
 
     def __init__(self, unit_id):
         self.unit_id = unit_id
-        self.hp = 1.0
+        # hp20：HP12 无甲（v0.2 §2.6——v1 盾对全部合法反警武器无效，虚假资产）
+        from engine import experiments as _exp
+        self._hp20 = _exp.is_enabled("hp20")
+        if self._hp20:
+            from engine.balance import get as _bget
+            self.hp = _bget("police", "hp", default=12)
+        else:
+            self.hp = 1.0
         self.weapon_name = "警棍"   # 可被队长更换
 
         # 护甲槽位：最多1件外层 + 1件内层，新装备替换旧的同层护甲
-        self.outer_armor_name = "盾牌"
-        self.outer_armor: Optional[ArmorPiece] = make_armor("盾牌")
+        if self._hp20:
+            self.outer_armor_name = None
+            self.outer_armor: Optional[ArmorPiece] = None
+        else:
+            self.outer_armor_name = "盾牌"
+            self.outer_armor: Optional[ArmorPiece] = make_armor("盾牌")
         self.inner_armor_name: str | None = None
         self.inner_armor: Optional[ArmorPiece] = None                  # 内层，初始无
 

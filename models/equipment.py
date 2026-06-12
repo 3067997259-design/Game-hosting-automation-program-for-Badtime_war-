@@ -48,7 +48,8 @@ class Weapon:
 
 class ArmorPiece:
     def __init__(self, name, attribute, layer, max_hp,
-                 priority=0, can_regen=False, special_tags=None):
+                 priority=0, can_regen=False, special_tags=None,
+                 defense_map=None, durability=0):
         self.name = name
         self.attribute = attribute
         self.layer = layer
@@ -58,8 +59,15 @@ class ArmorPiece:
         self.priority = priority
         self.can_regen = can_regen
         self.special_tags = special_tags or []
+        # HP20 数值模型字段（experiment: hp20，v2.0 §2.3）——v1 路径不使用
+        self.defense_map = defense_map or {}   # 属性中文名 → 防御值（主防/副防）
+        self.durability = durability           # 耐久；归零即碎
+        self.max_durability = durability
 
     def __repr__(self):
+        if self.defense_map:  # hp20 形态
+            defs = "/".join(f"{k}-{v}" for k, v in self.defense_map.items())
+            return f"{self.name}({defs} 耐久{self.durability}/{self.max_durability})"
         status = "破碎" if self.is_broken else f"{self.current_hp}/{self.max_hp}"
         return f"{self.name}({self.attribute.value} {self.layer.value} {status})"
 
@@ -79,8 +87,27 @@ class Item:
 from utils.attribute import Attribute
 
 
+def _hp20_enabled():
+    from engine import experiments
+    return experiments.is_enabled("hp20")
+
+
 def make_weapon(name):
-    """根据名称创建标准武器"""
+    """根据名称创建标准武器。hp20 开关下伤害从 balance.json weapons 表读取。"""
+    weapon = _make_weapon_v1(name)
+    if weapon is not None and _hp20_enabled():
+        from engine.balance import get as bget
+        spec = bget("weapons", name, default=None)
+        if isinstance(spec, dict):
+            weapon.base_damage = spec.get("damage", weapon.base_damage)
+            if weapon.charged_damage is not None:
+                weapon.charged_damage = spec.get("charged_damage",
+                                                 weapon.charged_damage)
+    return weapon
+
+
+def _make_weapon_v1(name):
+    """v1 武器定义（hp20 关闭时的原始路径，逐字节不变）"""
     table = {
         "拳击": lambda: Weapon("拳击", Attribute.ORDINARY, 0.5, WeaponRange.MELEE),
         "小刀": lambda: Weapon("小刀", Attribute.ORDINARY, 1.0, WeaponRange.MELEE),
@@ -105,7 +132,25 @@ def make_weapon(name):
 
 
 def make_armor(name):
-    """根据名称创建标准护甲"""
+    """根据名称创建标准护甲。hp20 开关下外甲附加 defense_map/durability。
+
+    注意：hp20 下医院内甲（晶化皮肤/额外心脏/不老泉）不再作为 ArmorPiece
+    创建——改为玩家永久属性（locations/hospital.py 的 hp20 分支），
+    本工厂仅在 v1 路径下产出它们。
+    """
+    piece = _make_armor_v1(name)
+    if piece is not None and _hp20_enabled() and piece.layer == ArmorLayer.OUTER:
+        from engine.balance import get as bget
+        spec = bget("armor", name, default=None)
+        if isinstance(spec, dict):
+            piece.defense_map = dict(spec.get("defense", {}))
+            piece.durability = spec.get("durability", 0)
+            piece.max_durability = piece.durability
+    return piece
+
+
+def _make_armor_v1(name):
+    """v1 护甲定义（hp20 关闭时的原始路径，逐字节不变）"""
     table = {
         "盾牌": lambda: ArmorPiece(
             "盾牌", Attribute.ORDINARY, ArmorLayer.OUTER, 1.0,

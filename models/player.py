@@ -104,10 +104,23 @@ class Player:
             controller = HumanController()
         self.controller: PlayerController = controller
 
-        # 基础属性
-        self.hp = 1.0
-        self.max_hp = 1.0
+        # 基础属性（hp20 实验开关下为 20 整数量纲，v2.0 §2.1）
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            from engine.balance import get as _bget
+            self.hp = _bget("hp20", "player_max_hp", default=20)
+            self.max_hp = self.hp
+        else:
+            self.hp = 1.0
+            self.max_hp = 1.0
         self.base_attack = 0.5
+
+        # HP20 数值模型字段（v1 路径下保持空值无副作用）
+        self.inner_defense: dict = {}      # 晶化皮肤等永久身体改造（属性名→防御）
+        self.regen_per_round: int = 0      # 不老泉每轮再生
+        self.surgeries_done: set = set()   # 终身一次手术记录（hp20 下无内甲 piece 可查重）
+        self.general_resistance: int = 0   # 负面效果通用抗性 0-100（§2.5.1）
+        self.resist_pulse_rounds: int = 0  # 韧性脉冲剩余轮数
 
         # 位置
         self.location = None
@@ -230,6 +243,18 @@ class Player:
         if self._duet_d6_bonus:
             bonus += 1
             self._duet_d6_bonus = False
+        # hp20 重伤状态：先攻惩罚（经 get_initiative_bonus 同时覆盖 K 模式）
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            from combat.numeric_v2 import is_severely_injured
+            from engine.balance import get as _bget
+            if is_severely_injured(self):
+                bonus += _bget("hp20", "severe_injury_initiative_penalty", default=-2)
+            # 抗性降级的先攻惩罚（自消耗 flag，M2 临时映射，M3 改命中）
+            degrade = getattr(self, '_resist_degrade_penalty', 0)
+            if degrade:
+                self._resist_degrade_penalty = 0
+                bonus += degrade
         return bonus
 
     def get_initiative_bonus(self):

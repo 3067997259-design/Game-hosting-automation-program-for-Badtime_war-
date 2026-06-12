@@ -94,9 +94,15 @@ class ChorusUnit:
         self.player_id: str = _next_chorus_id()
         self.name: str = name or f"Chorus_{self.player_id.split('_')[1]}"
 
-        # 基础属性
-        self.hp: float = 1.0
-        self.max_hp: float = 1.0
+        # 基础属性（hp20 下按非玩家单位轻型档 HP8，v0.2 §11.0）
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            from engine.balance import get as _bget
+            self.hp = float(_bget("npc", "light_hp", default=8))
+            self.max_hp = self.hp
+        else:
+            self.hp = 1.0
+            self.max_hp = 1.0
         self.base_attack: float = 0.5
         self.location: Optional[str] = None
 

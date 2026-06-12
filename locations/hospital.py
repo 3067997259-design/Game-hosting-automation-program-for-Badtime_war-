@@ -52,7 +52,14 @@ def can_interact(player, item_name, game_state=None):
     if item_name in SURGERY_ITEMS:
         if player.vouchers < 1:
             return False, "手术需要至少1张购买凭证！（手术会消耗你所有凭证）"
-        # 检查是否已有该内层护甲（同名护甲不能重复装备）
+        # hp20：手术=永久身体改造，终身一次（无内甲 piece 可查重，走 surgeries_done）
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            surgery_name = item_name.replace("手术", "")
+            if surgery_name in getattr(player, 'surgeries_done', set()):
+                return False, f"{surgery_name}手术终身只能进行一次。"
+            return True, ""
+        # v1：检查是否已有该内层护甲（同名护甲不能重复装备）
         armor_name_map = {
             "晶化皮肤手术": "晶化皮肤",
             "额外心脏手术": "额外心脏",
@@ -106,16 +113,25 @@ def do_interact(player, item_name, game_state=None):
         return f"{player.name} 获得了防毒面具，免疫病毒！😷"
 
     elif item_name == "晶化皮肤手术":
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            return _do_surgery_hp20(player, "晶化皮肤", game_state)
         return _do_surgery(player, "晶化皮肤",
                            ArmorPiece("晶化皮肤", Attribute.TECH, ArmorLayer.INNER, 1.0),
                            game_state)
 
     elif item_name == "额外心脏手术":
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            return _do_surgery_hp20(player, "额外心脏", game_state)
         return _do_surgery(player, "额外心脏",
                            ArmorPiece("额外心脏", Attribute.ORDINARY, ArmorLayer.INNER, 1.0),
                            game_state)
 
     elif item_name == "不老泉手术":
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            return _do_surgery_hp20(player, "不老泉", game_state)
         return _do_surgery(player, "不老泉",
                            ArmorPiece("不老泉", Attribute.MAGIC, ArmorLayer.INNER, 1.0),
                            game_state)
@@ -127,6 +143,44 @@ def do_interact(player, item_name, game_state=None):
         return f"💊 {player.name} 获得了药物「{item_name}」！（当前持有 {count}/2）"
 
     return "❌ 未知项目"
+
+
+def _do_surgery_hp20(player, surgery_name, game_state):
+    """HP20 手术：永久身体改造而非内甲 piece（v2.0 §2.4，外层不破不打内层规则随之消失）。"""
+    from engine.balance import get as bget
+
+    if surgery_name in player.surgeries_done:
+        return f"❌ {surgery_name}手术终身只能进行一次。（凭证未消耗）"
+
+    spec = bget("surgery", surgery_name, default=None)
+    if not isinstance(spec, dict):
+        return f"❌ 系统错误：手术「{surgery_name}」无数值定义"
+
+    old_vouchers = player.vouchers
+    player.clear_all_vouchers()
+    player.surgeries_done.add(surgery_name)
+
+    if surgery_name == "额外心脏":
+        player.max_hp += spec.get("max_hp_bonus", 4)
+        player.hp = min(player.hp + spec.get("heal_on_surgery", 4), player.max_hp)
+        effect = f"生命上限 +{spec.get('max_hp_bonus', 4)}（当前 {player.hp}/{player.max_hp}）"
+    elif surgery_name == "晶化皮肤":
+        for attr_name, value in spec.get("inner_defense", {}).items():
+            player.inner_defense[attr_name] = (
+                player.inner_defense.get(attr_name, 0) + value)
+        defs = "/".join(f"{k}-{v}" for k, v in spec.get("inner_defense", {}).items())
+        effect = f"永久防御 {defs}（不可破坏）"
+    elif surgery_name == "不老泉":
+        player.regen_per_round += spec.get("regen_per_round", 1)
+        effect = f"每轮再生 {player.regen_per_round} HP"
+    else:
+        effect = "？"
+
+    if game_state:
+        game_state.log_event("surgery", player=player.player_id,
+                             surgery=surgery_name, vouchers_spent=old_vouchers)
+    return (f"🏥 {player.name} 完成了{surgery_name}手术！{effect}"
+            f"\n   消耗了所有购买凭证（{old_vouchers}张→0张）")
 
 
 def _do_surgery(player, surgery_name, armor_piece, game_state):
