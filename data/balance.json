@@ -60,6 +60,30 @@
         "damage_per_round": 3
     },
 
+    "accuracy": {
+        "_comment": "命中/闪避体系（experiment: m3_accuracy，v0.2 §2.7，[待风洞]）。默认命中 100，概率只来自投资；闪避封顶=零产出禁令",
+        "base": 100,
+        "move_evasion": 15,
+        "stealth_evasion": 25,
+        "unlocked_ranged_penalty": 15,
+        "evasion_cap": 60,
+        "degraded_shock_hit_penalty": 20
+    },
+
+    "visibility": {
+        "_comment": "隐身/探测属性分轨（v0.2 §2.7 对位表）：闪避三角 + 命中三角。份数稀缺 ×2 归 M4",
+        "stealth_items": {
+            "隐身衣": "普通",
+            "隐身术": "魔法",
+            "隐形涂层": "科技"
+        },
+        "detection_items": {
+            "热成像仪": "普通",
+            "探测魔法": "魔法",
+            "雷达": "科技"
+        }
+    },
+
     "status_resistance": {
         "_comment": "负面效果抗性两层制（v0.2 §2.5.1，[待风洞]）。降级先攻惩罚为 M2 临时映射，M3 改 -20 命中",
         "resilience_pulse": 40,
