@@ -154,6 +154,12 @@ def execute(player, op_name, game_state):
 
 
 def _do_sharpen(player, game_state):
+    from engine import experiments as _exp
+    if _exp.is_enabled("hp20"):
+        from engine.balance import get as _bget
+        sharpened = _bget("weapons", "磨刀小刀", default={}).get("damage", 7)
+    else:
+        sharpened = 2.0
     stone = None
     for i, item in enumerate(player.items):
         if item.name == "磨刀石":
@@ -163,35 +169,51 @@ def _do_sharpen(player, game_state):
         return "❌ 你没有磨刀石"
     knife = None
     for w in player.weapons:
-        if w.name == "小刀" and w.base_damage < 2:
+        if w.name == "小刀" and w.base_damage < sharpened:
             knife = w
             break
     if knife is None:
         return "❌ 你没有可以磨的小刀"
     player.items.pop(stone)
-    knife.base_damage = 2.0
+    knife.base_damage = sharpened
     game_state.log_event("sharpen", player=player.player_id)
-    return f"🔪 {player.name} 磨了刀！小刀伤害提升至 2。"
+    return f"🔪 {player.name} 磨了刀！小刀伤害提升至 {sharpened}。"
+
+
+def _repair_or_recreate(player, armor_name, verb):
+    """hp20 修复增量制（v2.0 §2.3）：已持有 → +repair_amount 耐久（不超上限）；
+    未持有 → 重新创建。废除 v1「1 行动满血复活」修复平价。"""
+    from engine import experiments as _exp
+    if _exp.is_enabled("hp20"):
+        from engine.balance import get as _bget
+        existing = None
+        for piece in getattr(player.armor, 'outer', []) or []:
+            if piece.name == armor_name:
+                existing = piece
+                break
+        if existing is not None:
+            amount = _bget("armor", armor_name, default={}).get("repair_amount", 6)
+            if existing.durability >= existing.max_durability:
+                return f"❌「{armor_name}」耐久已满（{existing.durability}/{existing.max_durability}）"
+            existing.durability = min(existing.max_durability,
+                                      existing.durability + amount)
+            return (f"🛡️ {player.name} {verb}，「{armor_name}」耐久 +{amount} "
+                    f"→ {existing.durability}/{existing.max_durability}")
+    armor = make_armor(armor_name)
+    if armor is None:
+        return "❌ 系统错误"
+    success, reason = player.add_armor(armor)
+    if success:
+        return f"🛡️ {player.name} {verb}了{armor_name}！"
+    return f"❌ 无法装备{armor_name}：{reason}"
 
 
 def _do_regen_magic_shield(player, game_state):
-    armor = make_armor("魔法护盾")
-    if armor is None:
-        return "❌ 系统错误"
-    success, reason = player.add_armor(armor)
-    if success:
-        return f"🛡️ {player.name} 重新吟唱了魔法护盾！"
-    return f"❌ 无法装备魔法护盾：{reason}"
+    return _repair_or_recreate(player, "魔法护盾", "重新吟唱")
 
 
 def _do_regen_at_field(player, game_state):
-    armor = make_armor("AT力场")
-    if armor is None:
-        return "❌ 系统错误"
-    success, reason = player.add_armor(armor)
-    if success:
-        return f"🛡️ {player.name} 重新展开了AT力场！"
-    return f"❌ 无法装备AT力场：{reason}"
+    return _repair_or_recreate(player, "AT力场", "重新展开")
 
 
 def _do_charge(player, weapon_name, game_state):

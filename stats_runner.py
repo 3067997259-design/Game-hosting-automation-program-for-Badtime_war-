@@ -153,12 +153,15 @@ COL_PERS = 14      # 人格列宽
 
 def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random",
                     diag_mode: bool = False, collect_digest: bool = False,
-                    lineup: Optional[list[str]] = None) -> dict[str, Any]:
+                    lineup: Optional[list[str]] = None,
+                    no_talents: bool = False) -> dict[str, Any]:
     """Run a single game (all-AI, or with one RL seat) and return results.
 
     collect_digest: True 时结果附带 event_digest（golden 回放用，常规批跑不开省内存）。
     lineup: 每个席位的控制器名列表（长度 = AI 席位数）。名字命中 BOT_REGISTRY
             则创建风洞 bot（不选天赋），否则视为 BasicAI 人格名。None = 随机人格。
+    no_talents: True 时全员不分配天赋——M2~M6 风洞主通道（天赋量纲 M7 才迁移，
+                带天赋的 hp20 局数据无效）。
     """
     game_state = GameState()
 
@@ -281,8 +284,8 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
                 rl_controller.set_player_ref(player, game_state)
             continue
 
-        # 风洞 bot 不选天赋（测机制不测天赋）
-        if pid in bot_pids:
+        # 风洞 bot 不选天赋（测机制不测天赋）；--no-talents 全员跳过
+        if pid in bot_pids or no_talents:
             continue
 
         # AI 玩家天赋分配（原有逻辑）
@@ -507,7 +510,8 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
               seed: Optional[int] = None,
               golden_record: Optional[str] = None,
               golden_check: Optional[str] = None,
-              lineup: Optional[list[str]] = None) -> None:
+              lineup: Optional[list[str]] = None,
+              no_talents: bool = False) -> None:
     """Run multiple games and collect statistics.
 
     seed: 基准随机种子。提供时第 i 局（0-based）使用 random.seed(seed + i)，
@@ -585,7 +589,7 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
         try:
             result = run_single_game(num_players, rl_controller, rl_talent_mode,
                                      diag_mode=diag_mode, collect_digest=golden_mode,
-                                     lineup=lineup)
+                                     lineup=lineup, no_talents=no_talents)
         except Exception:
             errors += 1
             continue
@@ -1063,6 +1067,8 @@ def main():
     parser.add_argument("--lineup", type=str, default=None,
                         help="逗号分隔的席位配置（bot 名或人格名），数量须等于 AI 席位数。"
                              "如 --players 2 --lineup turtle,rush")
+    parser.add_argument("--no-talents", action="store_true",
+                        help="全员不分配天赋（M2~M6 风洞主通道：天赋量纲 M7 才迁移）")
     args = parser.parse_args()
 
     if (args.golden_record or args.golden_check) and args.seed is None:
@@ -1113,10 +1119,13 @@ def main():
         print(f"  RL 天赋模式: {args.rl_talent}")
     print()
 
+    if args.no_talents:
+        print("  🚫 天赋系统：本批次全员禁用（--no-talents）")
+
     run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
               diag_mode=args.diag, diag_output=args.diag_output, seed=args.seed,
               golden_record=args.golden_record, golden_check=args.golden_check,
-              lineup=lineup)
+              lineup=lineup, no_talents=args.no_talents)
 
 
 if __name__ == "__main__":
