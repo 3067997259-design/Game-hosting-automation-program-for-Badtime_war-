@@ -151,10 +151,13 @@ COL_PERS = 14      # 人格列宽
 
 
 def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random",
-                    diag_mode: bool = False, collect_digest: bool = False) -> dict[str, Any]:
+                    diag_mode: bool = False, collect_digest: bool = False,
+                    lineup: Optional[list[str]] = None) -> dict[str, Any]:
     """Run a single game (all-AI, or with one RL seat) and return results.
 
     collect_digest: True 时结果附带 event_digest（golden 回放用，常规批跑不开省内存）。
+    lineup: 每个席位的控制器名列表（长度 = AI 席位数）。名字命中 BOT_REGISTRY
+            则创建风洞 bot（不选天赋），否则视为 BasicAI 人格名。None = 随机人格。
     """
     game_state = GameState()
 
@@ -176,15 +179,25 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
     else:
         start_idx = 0
 
+    from controllers.bots import BOT_REGISTRY
+
+    bot_pids: set[str] = set()
     ai_count = num_players - (1 if rl_controller else 0)
     for i in range(ai_count):
         ai_name = available_names[i] if i < len(available_names) else f"AI_{i+1}"
-        personality = random.choice(AI_PERSONALITIES)
         pid = f"p{i + 1 + start_idx}"
-        controller = BasicAIController(
-            personality=personality,
-            diag_enabled=diag_mode,
-        )
+        slot = lineup[i] if lineup and i < len(lineup) else None
+        if slot in BOT_REGISTRY:
+            controller = BOT_REGISTRY[slot]()
+            personality = controller.personality  # = bot 名，复用统计分桶
+            ai_name = f"{slot}_{pid}"
+            bot_pids.add(pid)
+        else:
+            personality = slot if slot else random.choice(AI_PERSONALITIES)
+            controller = BasicAIController(
+                personality=personality,
+                diag_enabled=diag_mode,
+            )
         player = Player(pid, ai_name, controller=controller)
         game_state.add_player(player)
         ai_players_info.append((pid, ai_name, personality))
@@ -265,6 +278,10 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
             # 设置 player_ref（天赋分配后，确保后续 choose/get_command 能用）
             if rl_controller is not None:
                 rl_controller.set_player_ref(player, game_state)
+            continue
+
+        # 风洞 bot 不选天赋（测机制不测天赋）
+        if pid in bot_pids:
             continue
 
         # AI 玩家天赋分配（原有逻辑）
@@ -483,7 +500,8 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
               diag_mode: bool = False, diag_output: str = "logs/diag_report.json",
               seed: Optional[int] = None,
               golden_record: Optional[str] = None,
-              golden_check: Optional[str] = None) -> None:
+              golden_check: Optional[str] = None,
+              lineup: Optional[list[str]] = None) -> None:
     """Run multiple games and collect statistics.
 
     seed: 基准随机种子。提供时第 i 局（0-based）使用 random.seed(seed + i)，
@@ -559,7 +577,8 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
 
         try:
             result = run_single_game(num_players, rl_controller, rl_talent_mode,
-                                     diag_mode=diag_mode, collect_digest=golden_mode)
+                                     diag_mode=diag_mode, collect_digest=golden_mode,
+                                     lineup=lineup)
         except Exception:
             errors += 1
             continue
@@ -1029,11 +1048,30 @@ def main():
                         help="录制 golden 存档到该路径（JSON-lines），需要 --seed")
     parser.add_argument("--golden-check", type=str, default=None,
                         help="与 golden 存档逐局比对，分歧则非零退出，需要 --seed")
+    parser.add_argument("--lineup", type=str, default=None,
+                        help="逗号分隔的席位配置（bot 名或人格名），数量须等于 AI 席位数。"
+                             "如 --players 2 --lineup turtle,rush")
     args = parser.parse_args()
 
     if (args.golden_record or args.golden_check) and args.seed is None:
         print("错误：--golden-record / --golden-check 需要 --seed")
         sys.exit(1)
+
+    lineup: Optional[list] = None
+    if args.lineup:
+        lineup = [s.strip() for s in args.lineup.split(",") if s.strip()]
+        ai_seats = args.players - (1 if args.model else 0)
+        if len(lineup) != ai_seats:
+            print(f"错误：--lineup 共 {len(lineup)} 个席位，但 AI 席位数为 {ai_seats}")
+            sys.exit(1)
+        from controllers.bots import BOT_REGISTRY
+        from engine.game_setup import AI_PERSONALITIES as _PERS
+        unknown = [s for s in lineup if s not in BOT_REGISTRY and s not in _PERS]
+        if unknown:
+            print(f"错误：未知席位名 {unknown}；可用 bot: {sorted(BOT_REGISTRY)}，"
+                  f"可用人格: {_PERS}")
+            sys.exit(1)
+        print(f"  🤖 席位配置: {', '.join(lineup)}")
 
     from engine import experiments
     for exp_name in args.experiment:
@@ -1065,7 +1103,8 @@ def main():
 
     run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
               diag_mode=args.diag, diag_output=args.diag_output, seed=args.seed,
-              golden_record=args.golden_record, golden_check=args.golden_check)
+              golden_record=args.golden_record, golden_check=args.golden_check,
+              lineup=lineup)
 
 
 if __name__ == "__main__":
