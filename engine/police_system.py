@@ -512,6 +512,13 @@ class PoliceEngine:
 
     def get_protection_threshold(self, player_id):
         """返回警察保护的伤害无效化阈值。0 = 无保护。"""
+        # M5 警察分级坠落：黄昏起撤保护（留执法），v2.0 §3
+        from engine import experiments
+        if experiments.is_enabled("m5_clock"):
+            from engine import world_clock
+            if world_clock.active_value(self.state, "police_protection",
+                                        default=True) is False:
+                return 0.0
         if not self.is_protected_by_police(player_id):
             return 0.0
         player = self.state.get_player(player_id)
@@ -1194,6 +1201,14 @@ class PoliceEngine:
         """
         if self.police.permanently_disabled:
             return []
+
+        # M5 警察分级坠落：终焉全停（秩序彻底崩塌），v2.0 §3
+        from engine import experiments
+        if experiments.is_enabled("m5_clock"):
+            from engine import world_clock
+            if world_clock.active_value(self.state, "police_disabled",
+                                        default=False) is True:
+                return []
 
         messages = []
         # [FIX] 用局部集合代替临时属性 _just_arrived

@@ -103,5 +103,34 @@ class PhaseEffectTest(unittest.TestCase):
             self.assertEqual(state.get_player(pid).hp, before[pid] - 2)
 
 
+class PoliceFalloffTest(unittest.TestCase):
+    """警察分级坠落：黄昏撤保护、终焉全停。"""
+
+    def setUp(self):
+        experiments.reset()
+        for f in ("k_initiative", "hp20", "m4_gear", "m5_clock"):
+            experiments.enable(f)
+
+    def tearDown(self):
+        experiments.reset()
+
+    def test_dusk_removes_protection(self):
+        from engine.police_system import PoliceEngine
+        state = _state(6)
+        pe = PoliceEngine(state)
+        state.police_engine = pe
+        state.current_round = 25  # 黄昏
+        # 黄昏阶段保护阈值恒 0（不论是否被保护）
+        self.assertEqual(pe.get_protection_threshold("p1"), 0.0)
+
+    def test_apocalypse_disables_enforcement(self):
+        from engine.police_system import PoliceEngine
+        state = _state(6)
+        pe = PoliceEngine(state)
+        state.police_engine = pe
+        state.current_round = 40  # 终焉
+        self.assertEqual(pe.process_end_of_round(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
