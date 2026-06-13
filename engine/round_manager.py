@@ -527,6 +527,36 @@ class RoundManager:
                     RoundManager.notify_all_talents_of_death(
                         self.state, p.player_id, killer_id=None)
 
+    def _process_apocalypse_damage(self):
+        """M5 终焉真伤（v2.0 §3）：每轮末全体 −N 真伤，叙事级豁免无效——
+        直扣 HP 不走任何减免（秩序崩塌的最后压力），死亡走免死天赋链。"""
+        from engine import world_clock
+        dmg = world_clock.active_value(
+            self.state, "end_of_round_true_damage", default=0)
+        if not dmg:
+            return
+        display.show_info(f"🌑 终焉降临：全体承受 {dmg} 点真实伤害")
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            p.hp = max(0, p.hp - dmg)
+            if p.hp <= 0:
+                prevented = False
+                if p.talent:
+                    dr = p.talent.on_death_check(p, None)
+                    if dr and dr.get("prevent_death"):
+                        p.hp = dr.get("new_hp", 1)
+                        prevented = True
+                if not prevented:
+                    self.state.markers.on_player_death(p.player_id)
+                    if self.state.police_engine:
+                        self.state.police_engine.on_player_death(p.player_id)
+                    self.state.log_event("death", player=p.player_id, cause="apocalypse")
+                    display.show_death(p.name, "终焉真伤")
+                    RoundManager.notify_all_talents_of_death(
+                        self.state, p.player_id, killer_id=None)
+
     @staticmethod
     def notify_all_talents_of_death(game_state, victim_id, killer_id=None):
         """
@@ -574,6 +604,12 @@ class RoundManager:
         # R4-1.6: M4 通用灼烧结算（火矢/燃烧瓶共用，G1 接入归 M7；v2.0 §11.3）
         if experiments.is_enabled("m4_gear"):
             self._process_burn_stacks_m4()
+        if self.state.check_victory():
+            return
+
+        # R4-1.7: M5 终焉每轮末全体真伤（叙事级豁免无效，v2.0 §3）
+        if experiments.is_enabled("m5_clock"):
+            self._process_apocalypse_damage()
         if self.state.check_victory():
             return
 

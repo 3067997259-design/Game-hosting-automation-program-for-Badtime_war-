@@ -812,6 +812,16 @@ def resolve_damage(attacker, target, weapon, game_state,
             from engine.balance import get as _bget
             raw_int += _bget("hp20", "severe_injury_aoe_bonus", default=1)
             result["details"].append("💢 重伤目标受 AOE 伤害 +1")
+        # M5 黄昏/终焉：全体造成伤害 +1（v2.0 §3，experiment: m5_clock）
+        from engine import experiments as _m5exp
+        if _m5exp.is_enabled("m5_clock") and game_state is not None:
+            from engine import world_clock
+            dmg_bonus = world_clock.active_value(
+                game_state, "global_damage_bonus", default=0)
+            if dmg_bonus:
+                raw_int += dmg_bonus
+                result["details"].append(
+                    f"🌆 {world_clock.label(world_clock.current_phase(game_state))}：伤害 +{dmg_bonus}")
 
         # ---- M3 命中层（experiment: m3_accuracy，v2.0 §2.7） ----
         # 闪避成功 ≠ 落空 = 擦伤：按保底结算且不触发武器附带效果（零产出禁令）

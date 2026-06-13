@@ -61,5 +61,47 @@ class PhaseBoundaryTest(unittest.TestCase):
             world_clock.phase_value(world_clock.APOCALYPSE, "end_of_round_true_damage"), 2)
 
 
+class PhaseEffectTest(unittest.TestCase):
+    """阶段效果：构造指定轮数直接断言修正生效。"""
+
+    def setUp(self):
+        experiments.reset()
+        for f in ("k_initiative", "hp20", "m3_accuracy", "m4_gear", "m5_clock"):
+            experiments.enable(f)
+
+    def tearDown(self):
+        experiments.reset()
+
+    def test_dusk_damage_bonus(self):
+        """黄昏全体伤害 +1。"""
+        from combat.damage_resolver import resolve_damage
+        from models.equipment import make_weapon
+        state = _state(6)
+        state.current_round = 25  # 黄昏
+        a, t = state.get_player("p1"), state.get_player("p2")
+        result = resolve_damage(a, t, make_weapon("小刀"), state)
+        self.assertEqual(result["final_damage"], 5)  # 小刀 4 + 黄昏 1
+
+    def test_dawn_no_bonus(self):
+        from combat.damage_resolver import resolve_damage
+        from models.equipment import make_weapon
+        state = _state(6)
+        state.current_round = 5  # 黎明
+        a, t = state.get_player("p1"), state.get_player("p2")
+        result = resolve_damage(a, t, make_weapon("小刀"), state)
+        self.assertEqual(result["final_damage"], 4)
+
+    def test_apocalypse_true_damage(self):
+        """终焉每轮末全体 −2 真伤。"""
+        from engine.round_manager import RoundManager
+        state = _state(6)
+        state.current_round = 40  # 终焉
+        rm = RoundManager(state)
+        before = {pid: state.get_player(pid).hp for pid in state.player_order}
+        rm._process_apocalypse_damage()
+        for pid in state.player_order:
+            self.assertEqual(state.get_player(pid).hp, before[pid] - 2)
+
+
 if __name__ == "__main__":
     unittest.main()
