@@ -33,10 +33,26 @@ NEED_PASS = {"AT力场", "电磁步枪", "高斯步枪", "导弹控制权", "雷
 
 
 def get_menu():
-    return dict(MILITARY_MENU)
+    menu = dict(MILITARY_MENU)
+    from engine.economy import m4_enabled
+    if m4_enabled():
+        from engine.bow_modules import menu_entries
+        menu.update(menu_entries("军事基地"))
+    return menu
 
 
 def can_interact(player, item_name, game_state=None):
+    from engine.economy import m4_enabled
+    _m4 = m4_enabled()
+
+    # m4 弓模块（穿甲/冲击，军基走通行证权限，免信用点）
+    if _m4:
+        from engine.bow_modules import is_module_item, check_purchase, base_name
+        if is_module_item(item_name):
+            if not player.has_military_pass:
+                return False, "军事基地的弓模块需要通行证"
+            return check_purchase(player, base_name(item_name), game_state)
+
     if item_name not in MILITARY_MENU:
         return False, f"军事基地没有「{item_name}」"
 
@@ -94,6 +110,12 @@ def can_interact(player, item_name, game_state=None):
 
 def do_interact(player, item_name, game_state=None):
     """执行军事基地交互"""
+    from engine.economy import m4_enabled
+    # m4 弓模块（穿甲/冲击）：委托 do_purchase
+    if m4_enabled():
+        from engine.bow_modules import is_module_item, do_purchase, base_name
+        if is_module_item(item_name):
+            return do_purchase(player, base_name(item_name), game_state)
 
     if item_name == "办理通行证":
         player.has_military_pass = True

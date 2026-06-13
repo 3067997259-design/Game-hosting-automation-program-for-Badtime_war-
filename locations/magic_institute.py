@@ -38,10 +38,22 @@ PREREQUISITES = {
 
 
 def get_menu():
-    return dict(MAGIC_MENU)
+    menu = dict(MAGIC_MENU)
+    from engine.economy import m4_enabled
+    if m4_enabled():
+        from engine.bow_modules import menu_entries
+        menu.update(menu_entries("魔法所"))
+    return menu
 
 
 def can_interact(player, item_name, game_state=None):
+    from engine.economy import m4_enabled
+    # m4 弓模块（火矢/魔导，魔法所走学习1回合=普通 interact 回合成本，免信用点）
+    if m4_enabled():
+        from engine.bow_modules import is_module_item, check_purchase, base_name
+        if is_module_item(item_name):
+            return check_purchase(player, base_name(item_name), game_state)
+
     if item_name not in MAGIC_MENU:
         return False, f"魔法所没有「{item_name}」"
 
@@ -59,6 +71,13 @@ def can_interact(player, item_name, game_state=None):
 
 def do_interact(player, item_name, game_state=None):
     """执行学习。使用进度系统。"""
+    from engine.economy import m4_enabled
+    # m4 弓模块（火矢/魔导）：即时安装（学习成本由本行动回合体现，免信用点）
+    if m4_enabled():
+        from engine.bow_modules import is_module_item, do_purchase, base_name
+        if is_module_item(item_name):
+            return do_purchase(player, base_name(item_name), game_state)
+
     required = LEARN_TURNS.get(item_name, 1)
     progress_key = f"learn_{item_name}"
 
