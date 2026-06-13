@@ -63,6 +63,19 @@ class RoundManager:
     def _phase_r0(self):
         self.state.current_phase = "r0_start"
         hp20 = experiments.is_enabled("hp20")
+
+        # M5 世界时钟：阶段变化播报（experiment: m5_clock）
+        if experiments.is_enabled("m5_clock"):
+            from engine import world_clock
+            phase = world_clock.current_phase(self.state)
+            if phase != getattr(self.state, "_last_world_phase", None):
+                self.state._last_world_phase = phase
+                self.state.log_event("world_phase", phase=phase)
+                display.show_info(f"🌅 世界进入「{world_clock.label(phase)}」")
+            # 限量营业/首攻嫌疑 per-round 容器重置（M5e）
+            self.state._rationing_used = set()
+            self.state._first_attack_done = set()
+
         for pid in self.state.player_order:
             p = self.state.get_player(pid)
             if p:

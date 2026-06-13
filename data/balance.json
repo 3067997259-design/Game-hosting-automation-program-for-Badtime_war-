@@ -8,6 +8,37 @@
         "initiative_die": 6
     },
 
+    "world_clock": {
+        "_comment": "白昼世界时钟（experiment: m5_clock，v0.2 §3，全 [待风洞]）。段长=segment_base+初始人数；黄昏/终焉是破僵局压力阀",
+        "segment_base": 6,
+        "dawn": {},
+        "day": {
+            "first_attack_suspicion": true,
+            "rationing": true,
+            "kill_drop": true
+        },
+        "dusk": {
+            "global_damage_bonus": 1,
+            "heal_cost_multiplier": 2,
+            "shop_price_multiplier": 0.5,
+            "stun_extra_rounds": 1,
+            "police_protection": false,
+            "kill_drop": true
+        },
+        "apocalypse": {
+            "global_damage_bonus": 1,
+            "end_of_round_true_damage": 2,
+            "police_disabled": true,
+            "kill_drop": true
+        }
+    },
+
+    "hospital": {
+        "_comment": "M5 治疗条目（v0.2 §2.5）：1 行动 + heal_cost 信用点 → +heal_amount HP",
+        "heal_amount": 6,
+        "heal_cost": 2
+    },
+
     "hp20": {
         "_comment": "HP20 整数数值模型核心（experiment: hp20，v0.2 §2.1/§2.5）。全部 [待风洞]",
         "player_max_hp": 20,
