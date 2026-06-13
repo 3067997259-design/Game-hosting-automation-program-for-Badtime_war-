@@ -477,6 +477,43 @@ class RoundManager:
                     attacker.player_id, "伤害玩家")
             break
 
+    def _process_burn_stacks_m4(self):
+        """M4 通用灼烧 R4 结算（v2.0 §11.3）：每层 1 伤直扣 HP，上限内；
+        本轮获甲可扑灭 1 层（复用 _armor_gained_this_round）。DoT 不受抗性管辖。"""
+        per_stack = bget("burn", "damage_per_stack", default=1)
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if not p or not p.is_alive():
+                continue
+            stacks = getattr(p, 'burn_stacks', 0)
+            if stacks <= 0:
+                continue
+            # 本轮获甲扑灭 1 层
+            if getattr(p, '_armor_gained_this_round', False) and stacks > 0:
+                stacks -= 1
+                p.burn_stacks = stacks
+                display.show_info(f"🛡️🔥 {p.name} 获甲扑灭 1 层灼烧（剩 {stacks} 层）")
+                if stacks <= 0:
+                    continue
+            dmg = stacks * per_stack
+            p.hp = max(0, p.hp - dmg)
+            display.show_info(f"🔥 {p.name} 灼烧 {stacks} 层造成 {dmg} 伤害（{p.hp}/{p.max_hp}）")
+            if p.hp <= 0:
+                prevented = False
+                if p.talent:
+                    dr = p.talent.on_death_check(p, None)
+                    if dr and dr.get("prevent_death"):
+                        p.hp = dr.get("new_hp", 1)
+                        prevented = True
+                if not prevented:
+                    self.state.markers.on_player_death(p.player_id)
+                    if self.state.police_engine:
+                        self.state.police_engine.on_player_death(p.player_id)
+                    self.state.log_event("death", player=p.player_id, cause="burn")
+                    display.show_death(p.name, "灼烧")
+                    RoundManager.notify_all_talents_of_death(
+                        self.state, p.player_id, killer_id=None)
+
     @staticmethod
     def notify_all_talents_of_death(game_state, victim_id, killer_id=None):
         """
@@ -518,6 +555,12 @@ class RoundManager:
             if p and p.is_alive() and p.talent:
                 if hasattr(p.talent, 'process_burn_damage'):
                     p.talent.process_burn_damage(self.state.current_round)
+        if self.state.check_victory():
+            return
+
+        # R4-1.6: M4 通用灼烧结算（火矢/燃烧瓶共用，G1 接入归 M7；v2.0 §11.3）
+        if experiments.is_enabled("m4_gear"):
+            self._process_burn_stacks_m4()
         if self.state.check_victory():
             return
 
