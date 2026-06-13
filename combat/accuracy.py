@@ -51,27 +51,34 @@ def compute_hit_chance(attacker: Any, target: Any, weapon: Any,
 
     # ── 闪避来源（受封顶约束的部分）──
     evasion = 0
+    # 擦钩：本轮被钩锁擦中 → 全部闪避加成失效（零产出禁令，钩头挂了一下）
+    hook_no_evasion = (game_state is not None
+                       and getattr(target, "_hook_no_evasion_round", None)
+                       == getattr(game_state, "current_round", -1))
 
-    if not is_aoo and getattr(target, "moved_this_round", False):
-        move_ev = _acc("move_evasion", 15)
-        evasion += move_ev
-        breakdown.append(f"目标本轮移动 −{move_ev}")
+    if not hook_no_evasion:
+        if not is_aoo and getattr(target, "moved_this_round", False):
+            move_ev = _acc("move_evasion", 15)
+            evasion += move_ev
+            breakdown.append(f"目标本轮移动 −{move_ev}")
 
-    # 隐身属性对位：攻击属性 ∈ 目标隐身集，且攻击者无对应探测
-    weapon_attr = getattr(getattr(weapon, "attribute", None), "value", None)
-    if weapon_attr:
-        target_stealth = getattr(target, "stealth_attrs", None) or set()
-        attacker_detect = (getattr(attacker, "detection_attrs", None) or set()) \
-            if attacker else set()
-        if weapon_attr in target_stealth and weapon_attr not in attacker_detect:
-            stealth_ev = _acc("stealth_evasion", 25)
-            evasion += stealth_ev
-            breakdown.append(f"隐身（{weapon_attr}）−{stealth_ev}")
+        # 隐身属性对位：攻击属性 ∈ 目标隐身集，且攻击者无对应探测
+        weapon_attr = getattr(getattr(weapon, "attribute", None), "value", None)
+        if weapon_attr:
+            target_stealth = getattr(target, "stealth_attrs", None) or set()
+            attacker_detect = (getattr(attacker, "detection_attrs", None) or set()) \
+                if attacker else set()
+            if weapon_attr in target_stealth and weapon_attr not in attacker_detect:
+                stealth_ev = _acc("stealth_evasion", 25)
+                evasion += stealth_ev
+                breakdown.append(f"隐身（{weapon_attr}）−{stealth_ev}")
 
-    cap = _acc("evasion_cap", 60)
-    if evasion > cap:
-        breakdown.append(f"闪避封顶 {cap}（原 {evasion}）")
-        evasion = cap
+        cap = _acc("evasion_cap", 60)
+        if evasion > cap:
+            breakdown.append(f"闪避封顶 {cap}（原 {evasion}）")
+            evasion = cap
+    elif breakdown is not None:
+        breakdown.append("擦钩：闪避失效")
     chance -= evasion
 
     # ── 攻击者震荡降级（自消耗 flag，不计入闪避封顶——是攻方 debuff 非守方投资）──

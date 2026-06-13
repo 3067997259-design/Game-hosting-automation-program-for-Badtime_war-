@@ -68,6 +68,7 @@ class GameState:
             from engine.bow_modules import init_supply
             init_supply(self)
             self.arrow_piles = {}
+            self.hook_taken = False  # 钩锁神器全图唯一
 
         # 游戏状态
         self.game_over = False

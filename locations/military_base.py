@@ -38,6 +38,7 @@ def get_menu():
     if m4_enabled():
         from engine.bow_modules import menu_entries
         menu.update(menu_entries("军事基地"))
+        menu["钩锁"] = "神器·钩锁（通行证+信用点，全图唯一）：拉人/拉己位移"
     return menu
 
 
@@ -52,6 +53,16 @@ def can_interact(player, item_name, game_state=None):
             if not player.has_military_pass:
                 return False, "军事基地的弓模块需要通行证"
             return check_purchase(player, base_name(item_name), game_state)
+        # 钩锁（神器×1）
+        if item_name == "钩锁":
+            if not player.has_military_pass:
+                return False, "钩锁需要通行证"
+            if getattr(game_state, 'hook_taken', False):
+                return False, "钩锁是全图唯一神器，已被取走"
+            if any(getattr(i, 'name', '') == "钩锁" for i in getattr(player, 'items', [])):
+                return False, "你已经持有钩锁"
+            from engine.economy import can_afford
+            return can_afford(player, "钩锁")
 
     if item_name not in MILITARY_MENU:
         return False, f"军事基地没有「{item_name}」"
@@ -116,6 +127,13 @@ def do_interact(player, item_name, game_state=None):
         from engine.bow_modules import is_module_item, do_purchase, base_name
         if is_module_item(item_name):
             return do_purchase(player, base_name(item_name), game_state)
+        if item_name == "钩锁":
+            from engine.economy import charge
+            from models.equipment import Item
+            charge(player, "钩锁")
+            player.add_item(Item("钩锁", "tool"))
+            game_state.hook_taken = True
+            return f"🪝 {player.name} 取得了全图唯一神器·钩锁！"
 
     if item_name == "办理通行证":
         player.has_military_pass = True
