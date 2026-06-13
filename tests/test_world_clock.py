@@ -103,6 +103,49 @@ class PhaseEffectTest(unittest.TestCase):
             self.assertEqual(state.get_player(pid).hp, before[pid] - 2)
 
 
+class RationingSuspicionTest(unittest.TestCase):
+    """限量营业 + 白昼首攻嫌疑。"""
+
+    def setUp(self):
+        experiments.reset()
+        for f in ("k_initiative", "hp20", "m3_accuracy", "m4_gear", "m5_clock"):
+            experiments.enable(f)
+
+    def tearDown(self):
+        experiments.reset()
+
+    def test_rationing_blocks_second_take(self):
+        from cli.validator import validate_interact
+        state = _state(6)
+        state.current_round = 13  # 白昼（限量营业）
+        state._rationing_used = set()
+        p = state.get_player("p1")
+        p.location = "商店"
+        p.credits = 20
+        # 首次打工放行
+        ok1, _ = validate_interact(p, "打工", state)
+        self.assertTrue(ok1)
+        # 标记本轮该地点该条目已用
+        state._rationing_used.add(("商店", "打工"))
+        ok2, reason = validate_interact(p, "打工", state)
+        self.assertFalse(ok2)
+        self.assertIn("限量", reason)
+
+    def test_first_attack_suspicion_not_crime(self):
+        from engine.round_manager import RoundManager
+        state = _state(6)
+        state.current_round = 13  # 白昼
+        state._first_attack_done = set()
+        rm = RoundManager(state)
+        attacker = state.get_player("p1")
+        # 伪造一条本轮成功攻击事件
+        state.log_event("attack", attacker="p1",
+                        result={"success": True, "final_damage": 4})
+        rm._check_attack_crime(attacker)
+        self.assertTrue(attacker.is_suspect)
+        self.assertFalse(getattr(attacker, "is_criminal", False))
+
+
 class PoliceFalloffTest(unittest.TestCase):
     """警察分级坠落：黄昏撤保护、终焉全停。"""
 

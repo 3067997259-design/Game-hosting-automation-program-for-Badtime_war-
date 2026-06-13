@@ -133,6 +133,7 @@ class Player:
         self.bow_modules: list = []        # 已安装弓模块名（双槽）
         self.burn_stacks: int = 0          # 灼烧层数（R4 每层 1 伤，获甲扑灭 1 层）
         self._last_hook_round: int = -99   # 钩锁共享冷却（拉人/拉己同钟）
+        self.is_suspect: bool = False      # M5 白昼首攻嫌疑（不记罪但留痕）
 
         # 位置
         self.location = None

@@ -486,6 +486,20 @@ class RoundManager:
                                 display.show_info(msg)
                             attacker.crime_extra_turn = True
 
+                # M5 白昼：每人首次攻击记「嫌疑」不记罪（v2.0 §3）
+                from engine import world_clock as _wc
+                if (experiments.is_enabled("m5_clock")
+                        and _wc.active_value(
+                            self.state, "first_attack_suspicion", default=False)):
+                    done = getattr(self.state, "_first_attack_done", set())
+                    if attacker.player_id not in done:
+                        done.add(attacker.player_id)
+                        self.state._first_attack_done = done
+                        attacker.is_suspect = True
+                        self.state.log_event("suspicion", player=attacker.player_id)
+                        display.show_info(f"🕵️ {attacker.name} 引起嫌疑（白昼首攻不记罪）")
+                        break
+
                 self.police_engine.check_and_record_crime(
                     attacker.player_id, "伤害玩家")
             break

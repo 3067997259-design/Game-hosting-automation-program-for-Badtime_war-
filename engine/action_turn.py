@@ -1713,7 +1713,16 @@ class ActionTurnManager:
         elif action == "interact":
             item = parsed["item"]
             msg = interact.execute(player, item, self.state)
-            return msg, "interact", not msg.startswith("❌")  # CHANGED
+            ok = not msg.startswith("❌")
+            # M5 限量营业：成功取用后标记本轮该地点该条目已用
+            from engine import experiments as _m5exp
+            if ok and _m5exp.is_enabled("m5_clock"):
+                from engine import world_clock
+                if world_clock.active_value(self.state, "rationing", default=False):
+                    if not hasattr(self.state, "_rationing_used"):
+                        self.state._rationing_used = set()
+                    self.state._rationing_used.add((player.location, item))
+            return msg, "interact", ok  # CHANGED
 
         elif action == "lock":
             target_id = resolve_player_target(parsed["target"], self.state)

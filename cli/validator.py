@@ -361,6 +361,14 @@ def validate_interact(player, item_name, game_state):
     can, reason = loc_module.can_interact(player, item_name, game_state)
     if not can:
         return False, reason
+    # M5 白昼限量营业：每地点每条目每轮 1 次（先攻争夺，先到先得）
+    from engine import experiments
+    if experiments.is_enabled("m5_clock"):
+        from engine import world_clock
+        if world_clock.active_value(game_state, "rationing", default=False):
+            key = (player.location, item_name)
+            if key in getattr(game_state, "_rationing_used", set()):
+                return False, f"「{item_name}」本轮已被取用（限量营业，下轮再来）"
     return True, ""
 
 def validate_lock(player, target_str, game_state):
