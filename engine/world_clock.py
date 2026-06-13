@@ -44,8 +44,17 @@ def is_phase(game_state: Any, phase: str) -> bool:
 
 
 def phase_value(phase: str, *keys: str, default: Any = None) -> Any:
-    """读 balance world_clock 的阶段子键（如 phase_value("dusk","global_damage_bonus")）。"""
-    return bget("world_clock", phase, *keys, default=default)
+    """读 balance world_clock 的阶段子键（如 phase_value("dusk","global_damage_bonus")）。
+
+    静默读取——每个阶段只定义自己有的键，缺键是常态（黎明无任何修正），
+    不走 bget 的缺键 warning。
+    """
+    node = bget("world_clock", phase, default={}) or {}
+    for k in keys:
+        if not isinstance(node, dict) or k not in node:
+            return default
+        node = node[k]
+    return node
 
 
 def active_value(game_state: Any, *keys: str, default: Any = None) -> Any:

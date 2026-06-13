@@ -39,7 +39,20 @@ def get_menu():
     if m4_enabled():
         from engine.bow_modules import menu_entries
         menu.update(menu_entries("医院"))
+        menu["治疗"] = "恢复 HP（信用点；黄昏阶段费用翻倍）"
     return menu
+
+
+def _heal_cost(game_state):
+    """治疗信用点费用（黄昏阶段 ×heal_cost_multiplier，v2.0 §3）。"""
+    from engine.balance import get as _bget
+    cost = _bget("hospital", "heal_cost", default=2)
+    from engine import experiments
+    if game_state is not None and experiments.is_enabled("m5_clock"):
+        from engine import world_clock
+        cost = int(cost * world_clock.active_value(
+            game_state, "heal_cost_multiplier", default=1))
+    return cost
 
 
 def can_interact(player, item_name, game_state=None):
@@ -52,6 +65,15 @@ def can_interact(player, item_name, game_state=None):
         from engine.bow_modules import is_module_item, check_purchase, base_name
         if is_module_item(item_name):
             return check_purchase(player, base_name(item_name), game_state)
+
+    # m4 治疗条目（§2.5，动态菜单不在 HOSPITAL_MENU）
+    if _m4 and item_name == "治疗":
+        if player.hp >= player.max_hp:
+            return False, "你的 HP 已满"
+        cost = _heal_cost(game_state)
+        if getattr(player, 'credits', 0) < cost:
+            return False, f"治疗需要 {cost} 信用点，你只有 {player.credits}"
+        return True, ""
 
     if item_name not in HOSPITAL_MENU:
         return False, f"医院没有「{item_name}」"
@@ -133,6 +155,17 @@ def do_interact(player, item_name, game_state=None):
         from engine.bow_modules import is_module_item, do_purchase, base_name
         if is_module_item(item_name):
             return do_purchase(player, base_name(item_name), game_state)
+
+    # m4 治疗（§2.5：+heal_amount HP，黄昏费用×2）
+    if m4_enabled() and item_name == "治疗":
+        from engine.balance import get as _bget
+        amount = _bget("hospital", "heal_amount", default=6)
+        cost = _heal_cost(game_state)
+        player.credits -= cost
+        before = player.hp
+        player.hp = min(player.max_hp, player.hp + amount)
+        return (f"💉 {player.name} 接受治疗，HP {before}→{player.hp}"
+                f"（花费 {cost} 信用点）")
 
     if item_name == "打工":
         if m4_enabled():

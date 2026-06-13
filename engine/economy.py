@@ -28,8 +28,17 @@ def work_income() -> int:
     return int(bget("economy", "faucets", "打工", default=2))
 
 
-def can_afford(player: Any, item_name: str) -> Tuple[bool, str]:
-    cost = price(item_name)
+def effective_price(item_name: str, multiplier: float = 1.0) -> int:
+    """实际售价 = 基础价 × 乘数（地点阶段折扣用，如黄昏商店半价）。⌈⌉ 向上取整。"""
+    import math
+    base = price(item_name)
+    if base <= 0 or multiplier == 1.0:
+        return base
+    return max(1, math.ceil(base * multiplier))
+
+
+def can_afford(player: Any, item_name: str, multiplier: float = 1.0) -> Tuple[bool, str]:
+    cost = effective_price(item_name, multiplier)
     if cost <= 0:
         return True, ""
     if getattr(player, "credits", 0) < cost:
@@ -37,12 +46,22 @@ def can_afford(player: Any, item_name: str) -> Tuple[bool, str]:
     return True, ""
 
 
-def charge(player: Any, item_name: str) -> int:
-    """扣费并返回实付金额（调用方先过 can_afford）。"""
-    cost = price(item_name)
+def charge(player: Any, item_name: str, multiplier: float = 1.0) -> int:
+    """扣费并返回实付金额（调用方先过 can_afford）。multiplier 供阶段折扣。"""
+    cost = effective_price(item_name, multiplier)
     if cost > 0:
         player.credits -= cost
     return cost
+
+
+def shop_multiplier(game_state: Any) -> float:
+    """M5 商店阶段价格乘数（黄昏半价，v2.0 §3）。"""
+    from engine import experiments
+    if game_state is None or not experiments.is_enabled("m5_clock"):
+        return 1.0
+    from engine import world_clock
+    return float(world_clock.active_value(
+        game_state, "shop_price_multiplier", default=1.0))
 
 
 def pay_all(player: Any, min_cost_key: str) -> Tuple[bool, int]:

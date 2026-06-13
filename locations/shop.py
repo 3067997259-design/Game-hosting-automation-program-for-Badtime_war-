@@ -133,9 +133,10 @@ def can_interact(player, item_name, game_state=None):
     if game_state and _is_virus_active(game_state):
         return True, ""
 
-    # m4：信用点真扣费（资格开关退役）
+    # m4：信用点真扣费（资格开关退役）；m5 黄昏商店半价
     if _m4:
-        return can_afford(player, item_name)
+        from engine.economy import shop_multiplier
+        return can_afford(player, item_name, shop_multiplier(game_state))
 
     # v1：需要凭证（资格开关，不消耗）
     if player.vouchers < 1:
@@ -155,10 +156,11 @@ def do_interact(player, item_name, game_state=None):
             return do_purchase(player, base_name(item_name), game_state)
 
     # m4：付费项先扣费（打工不在 sinks 表中 price=0 不扣；病毒期间保持免费语义）
-    # 注意必须在 if/elif 链之前——插在链中会断链
+    # 注意必须在 if/elif 链之前——插在链中会断链。m5 黄昏商店半价
     if (m4_enabled() and item_name not in FREE_ITEMS
             and not (game_state and _is_virus_active(game_state))):
-        charge(player, item_name)
+        from engine.economy import shop_multiplier
+        charge(player, item_name, shop_multiplier(game_state))
 
     if item_name == "打工":
         if m4_enabled():

@@ -92,6 +92,21 @@ class ActionTurnManager:
         self._phase_t2(player, action_type)
         return action_type
 
+    def _dusk_extend_control(self, player):
+        """M5 黄昏：行动剥夺类控制 +1 轮（v2.0 §3）。每次控制只延长一次
+        （_control_extended flag 防止无限延长）。返回 True = 本回合保持控制。"""
+        from engine import experiments
+        if not experiments.is_enabled("m5_clock"):
+            return False
+        if getattr(player, '_control_extended', False):
+            return False
+        from engine import world_clock
+        extra = world_clock.active_value(self.state, "stun_extra_rounds", default=0)
+        if extra and extra > 0:
+            player._control_extended = True
+            return True
+        return False
+
     # ================================================================
     #  T0：眩晕苏醒 → 天赋被动T0 → 震荡 → 石化 → 天赋T0选项
     # ================================================================
@@ -99,7 +114,12 @@ class ActionTurnManager:
 
         # ---- 眩晕苏醒 ----
         if player.is_stunned and not self.state.markers.has(player.player_id, "SHOCKED"):
+            if self._dusk_extend_control(player):
+                # M5 黄昏：眩晕 +1 轮（每次只延长一次）
+                display.show_info(f"🌆 黄昏延长了 {player.name} 的眩晕，再持续一轮。")
+                return "stun_extended"
             player.is_stunned = False
+            player._control_extended = False
             from engine import experiments as _exp
             if _exp.is_enabled("hp20"):
                 # hp20：苏醒不回血（v2.0 §2.5——v1 僵局的心脏，废除 hp 刷新）
@@ -127,11 +147,17 @@ class ActionTurnManager:
                 player.is_stunned = False
                 player.is_shocked = False
                 self.state.markers.on_shock_recover(player.player_id)
+                player._control_extended = False
                 display.show_info(f"🌀 {player.name} 在结界内免疫震荡，自动解除！")
+            elif self._dusk_extend_control(player):
+                # M5 黄昏：眩晕来源效果 +1 轮（每次控制只延长一次）
+                display.show_info(f"🌆 黄昏延长了 {player.name} 的震荡，再持续一轮。")
+                return "shock_recover"
             else:
                 display.show_info(f"{player.name} 处于震荡状态，本回合用于苏醒。")
                 player.is_stunned = False
                 player.is_shocked = False
+                player._control_extended = False
                 self.state.markers.on_shock_recover(player.player_id)
                 display.show_result(f"⚡ {player.name} 从震荡中苏醒！")
                 return "shock_recover"
