@@ -193,16 +193,19 @@ def _do_surgery_hp20(player, surgery_name, game_state):
         return f"❌ 系统错误：手术「{surgery_name}」无数值定义"
 
     from engine.economy import m4_enabled, pay_all
+    log_kwargs = {}
     if m4_enabled():
         # m4 财产税：手术费 = 全部信用点（下限已在 can_interact 拦截）
         ok, paid = pay_all(player, "surgery_min_cost")
         if not ok:
             return f"❌ 信用点不足，无法进行{surgery_name}手术。"
         cost_note = f"\n   手术费：全部信用点（{paid} → 0）"
+        log_kwargs["credits_spent"] = paid
     else:
         old_vouchers = player.vouchers
         player.clear_all_vouchers()
         cost_note = f"\n   消耗了所有购买凭证（{old_vouchers}张→0张）"
+        log_kwargs["vouchers_spent"] = old_vouchers  # 保持与 hp20 golden 锚点一致
     player.surgeries_done.add(surgery_name)
 
     if surgery_name == "额外心脏":
@@ -223,7 +226,7 @@ def _do_surgery_hp20(player, surgery_name, game_state):
 
     if game_state:
         game_state.log_event("surgery", player=player.player_id,
-                             surgery=surgery_name)
+                             surgery=surgery_name, **log_kwargs)
     return f"🏥 {player.name} 完成了{surgery_name}手术！{effect}{cost_note}"
 
 

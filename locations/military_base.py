@@ -32,10 +32,16 @@ HOSHINO_TACTICAL = {"破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃�
 NEED_PASS = {"AT力场", "电磁步枪", "高斯步枪", "导弹控制权", "雷达", "隐形涂层"} | HOSHINO_TACTICAL
 
 
+# m4 退役：导弹生态位由弓继承，攻城/反龟缩职责移交钩锁（v2.0 §2.2 处决名单）
+_M4_RETIRED = {"导弹控制权"}
+
+
 def get_menu():
     menu = dict(MILITARY_MENU)
     from engine.economy import m4_enabled
     if m4_enabled():
+        for r in _M4_RETIRED:
+            menu.pop(r, None)
         from engine.bow_modules import menu_entries
         menu.update(menu_entries("军事基地"))
         menu["钩锁"] = "神器·钩锁（通行证+信用点，全图唯一）：拉人/拉己位移"
@@ -66,6 +72,10 @@ def can_interact(player, item_name, game_state=None):
 
     if item_name not in MILITARY_MENU:
         return False, f"军事基地没有「{item_name}」"
+
+    # m4 退役武器：断新增（已持有者不剥夺）
+    if _m4 and item_name in _M4_RETIRED:
+        return False, f"「{item_name}」已退役（远程交给弓，攻城交给钩锁）"
 
     # 办理通行证不需要已有通行证
     if item_name == "办理通行证":

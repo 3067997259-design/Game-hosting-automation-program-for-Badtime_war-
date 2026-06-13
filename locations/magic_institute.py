@@ -37,10 +37,16 @@ PREREQUISITES = {
 }
 
 
+# m4 退役武器（弓接管远程，地动震荡让位电磁唯一性；v2.0 §2.2 处决名单）
+_M4_RETIRED = {"远程魔法弹幕", "地动山摇"}
+
+
 def get_menu():
     menu = dict(MAGIC_MENU)
     from engine.economy import m4_enabled
     if m4_enabled():
+        for r in _M4_RETIRED:
+            menu.pop(r, None)
         from engine.bow_modules import menu_entries
         menu.update(menu_entries("魔法所"))
     return menu
@@ -56,6 +62,10 @@ def can_interact(player, item_name, game_state=None):
 
     if item_name not in MAGIC_MENU:
         return False, f"魔法所没有「{item_name}」"
+
+    # m4 退役武器：断新增（已习得者不剥夺）
+    if m4_enabled() and item_name in _M4_RETIRED:
+        return False, f"「{item_name}」已退役（弓接管远程 / 震荡归电磁）"
 
     # 检查是否已学会
     if item_name in player.learned_spells:

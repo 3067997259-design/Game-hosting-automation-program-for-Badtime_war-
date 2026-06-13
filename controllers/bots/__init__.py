@@ -7,15 +7,17 @@ from controllers.bots.script_bot import ScriptBotController
 from controllers.bots.turtle_bot import TurtleBotController
 from controllers.bots.rush_bot import RushBotController
 from controllers.bots.dodge_bot import DodgeBotController
+from controllers.bots.archer_bot import ArcherBotController
 
 # stats_runner --lineup 名称注册表
 BOT_REGISTRY = {
     "turtle": TurtleBotController,
     "rush": RushBotController,
     "dodge": DodgeBotController,
+    "archer": ArcherBotController,
 }
 
 __all__ = [
     "ScriptBotController", "TurtleBotController", "RushBotController",
-    "DodgeBotController", "BOT_REGISTRY",
+    "DodgeBotController", "ArcherBotController", "BOT_REGISTRY",
 ]
