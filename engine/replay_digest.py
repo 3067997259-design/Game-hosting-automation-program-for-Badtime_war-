@@ -51,7 +51,7 @@ def digest_event_log(event_log: List[Dict[str, Any]]) -> List[str]:
 def digest_game(result: Dict[str, Any],
                 digest_lines: List[str]) -> Dict[str, Any]:
     """单局 golden 记录：种子 + 结局指纹 + 事件摘要。"""
-    return {
+    record = {
         "seed": result.get("seed"),
         "winner_pid": result.get("winner_pid"),
         "rounds": result.get("rounds"),
@@ -59,6 +59,11 @@ def digest_game(result: Dict[str, Any],
         "draw_reason": result.get("draw_reason", ""),
         "digest": digest_lines,
     }
+    # M6：终分组件（仅 m6 局非空，按 pid 排序稳定）
+    scores = result.get("final_scores")
+    if scores:
+        record["final_scores"] = {k: scores[k] for k in sorted(scores)}
+    return record
 
 
 def diff_games(expected: Dict[str, Any], actual: Dict[str, Any]) -> List[str]:

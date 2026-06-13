@@ -21,21 +21,43 @@ class RoundManager:
             winner_id = self.state.check_victory()
             if winner_id:
                 self.state.game_over = True
-                self.state.winner = winner_id
-                if winner_id == "nobody":
-                    display.show_info("所有玩家都已死亡……无人获胜。")
-                else:
-                    winner = self.state.get_player(winner_id)
-                    display.show_victory(winner.name if winner else winner_id)
+                self.state.survival_winner = winner_id  # 存活轨（老指标）
+                self.state.winner = self._finalize_winner(winner_id)
+                self._announce_winner(winner_id)
                 return
 
             # 最大轮数安全网
             if self.state.is_max_rounds_reached():
                 self.state.game_over = True
-                self.state.winner = "nobody"
-                display.show_info(
-                    f"⚠️ 达到最大轮数限制（{self.state.max_rounds}轮），游戏判定平局。")
+                self.state.survival_winner = "nobody"
+                self.state.winner = self._finalize_winner("nobody")
+                if self.state.winner == "nobody":
+                    display.show_info(
+                        f"⚠️ 达到最大轮数限制（{self.state.max_rounds}轮），游戏判定平局。")
+                else:
+                    self._announce_winner(self.state.winner)
                 return
+
+    def _finalize_winner(self, survival_winner):
+        """M6 终分制：胜者重定义为终分最高者（非最后存活）。
+        非 m6 时返回 survival_winner（存活轨）。"""
+        if not experiments.is_enabled("m6_scoring"):
+            return survival_winner
+        from engine import scoring
+        scores = scoring.compute_all(self.state)
+        self.state.final_scores = scores
+        if not scores:
+            return survival_winner
+        # 终分第一（并列时按 player_order 稳定取首个，确定性）
+        order = {pid: i for i, pid in enumerate(self.state.player_order)}
+        return max(scores, key=lambda pid: (scores[pid], -order.get(pid, 99)))
+
+    def _announce_winner(self, winner_id):
+        if winner_id == "nobody":
+            display.show_info("所有玩家都已死亡……无人获胜。")
+        else:
+            w = self.state.get_player(winner_id)
+            display.show_victory(w.name if w else winner_id)
 
     def run_one_round(self):
         self.state.current_round += 1

@@ -318,8 +318,11 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         import traceback
         crash_traceback = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
 
+    # M6 双轨：winner_pid = 终分第一（m6 下）/ 存活者（非 m6）；
+    # survival_winner = 存活轨（老平局语义，draw_reason 用它分类）
     winner_pid = game_state.winner or "nobody"
-    is_draw = winner_pid == "nobody"
+    survival_winner = getattr(game_state, "survival_winner", winner_pid) or "nobody"
+    is_draw = survival_winner == "nobody"  # 平局/僵局按存活轨判定
 
     # ── 区分平局原因 ──
     draw_reason = ""
@@ -327,6 +330,7 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         is_draw = True
         draw_reason = "crash"
         winner_pid = "nobody"
+        survival_winner = "nobody"
     elif is_draw:
         # 检查是否达到最大轮数
         if (game_state.max_rounds is not None
@@ -340,6 +344,8 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
             draw_reason = "other"
     results: dict[str, Any] = {
         "winner_pid": winner_pid,
+        "survival_winner": survival_winner,
+        "final_scores": dict(getattr(game_state, "final_scores", {})),
         "rounds": game_state.current_round,
         "draw": is_draw,
         "draw_reason": draw_reason,
@@ -418,10 +424,12 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
             "personality": "RL" if pid == rl_pid else personality,
             "talent_num": talent_num,
             "talent_name": player.talent_name or "无",
-            "is_winner": pid == winner_pid,
+            "is_winner": pid == winner_pid,           # 终分轨（m6 下=终分第一）
+            "is_survival_winner": pid == survival_winner,  # 存活轨（老指标）
             "is_rl": pid == rl_pid,
             "alive": player.is_alive(),
             "kill_count": player.kill_count,
+            "final_score": results["final_scores"].get(pid),
             "talent_usage": talent_usage,
         })
 
@@ -561,6 +569,10 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
     total_grazed = 0
     total_draws = 0
     errors = 0
+    # M6 双轨：终分胜 vs 存活胜（per-personality）
+    score_wins: dict[str, int] = defaultdict(int)
+    survival_wins: dict[str, int] = defaultdict(int)
+    dualtrack_games = 0
 
     # 崩溃详情收集
     crash_log: list[dict[str, Any]] = []
@@ -635,6 +647,15 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
         if diag_report is not None:
             diag_report.add_game(game_idx, result)
 
+        # M6 双轨：终分胜 vs 存活胜（per-personality，仅 m6 局有 final_scores）
+        if result.get("final_scores"):
+            dualtrack_games += 1
+            for p in result["players"]:
+                if p["is_winner"]:
+                    score_wins[p["personality"]] += 1
+                if p.get("is_survival_winner"):
+                    survival_wins[p["personality"]] += 1
+
         for p in result["players"]:
             if p.get("is_rl"):
                 rl_games += 1
@@ -678,6 +699,17 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
                   rl_games=rl_games, rl_wins=rl_wins,
                   rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins,
                   rl_talent_usage=rl_talent_usage)
+
+    # M6 双轨指标：终分胜率 vs 存活率（仅 m6 局）
+    if dualtrack_games > 0:
+        print(f"\n  ── M6 评价体系双轨（{dualtrack_games} 局有终分）──")
+        print(f"  {'人格':12s} {'终分胜率':>14s} {'存活率':>14s}")
+        allp = sorted(set(score_wins) | set(survival_wins))
+        for pers in allp:
+            sw = score_wins.get(pers, 0)
+            vw = survival_wins.get(pers, 0)
+            print(f"  {pers:12s} {sw:>14d} {vw:>14d}")
+        print("  （终分胜 = 终分第一；存活胜 = 活到最后。两者背离即评价体系转向生效）")
 
     # 诊断报告输出
     if diag_report is not None:
