@@ -81,6 +81,8 @@ def _pull_target(player: Any, target_str: str, game_state: Any) -> Tuple[str, bo
             game_state.police_engine.on_player_death(target_id)
         from cli import display
         display.show_death(target.name, f"被 {player.name} 钩锁拽杀")
+        from engine import applause as _applause
+        _applause.check_kill_applause(game_state, player, target)
         from engine.round_manager import RoundManager
         RoundManager.notify_all_talents_of_death(
             game_state, target_id, killer_id=player.player_id)

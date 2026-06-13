@@ -1752,6 +1752,11 @@ class ActionTurnManager:
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target_id)
                 display.show_death(target.name, f"被 {player.name} 射杀")
+                # M6 喝彩机检（含最后一箭击杀：射后 arrows 余量）
+                from engine import applause as _applause
+                _applause.check_kill_applause(
+                    self.state, player, target,
+                    weapon_arrows_left=getattr(player, "arrows", None))
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
                     self.state, target_id, killer_id=player.player_id)
@@ -2014,6 +2019,9 @@ class ActionTurnManager:
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target_id)
                 display.show_death(target.name, f"被 {killer.name} 的 {weapon_name} 击杀")
+                # M6 喝彩机检（首杀/重伤反杀/终焉击杀）
+                from engine import applause as _applause
+                _applause.check_kill_applause(self.state, killer, target)
                 # 通知所有天赋（星野色彩计数等）
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
