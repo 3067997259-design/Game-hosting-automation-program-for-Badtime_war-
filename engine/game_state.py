@@ -69,11 +69,50 @@ class GameState:
             init_supply(self)
             self.arrow_piles = {}
             self.hook_taken = False  # 钩锁神器全图唯一
+            # M5 击杀掉落：地面物品（location → {credits, arrows, items, weapons}）
+            self.ground_loot = {}
 
         # 游戏状态
         self.game_over = False
         self.winner: Optional[str] = None
         self.logger: Optional[GameLogger] = None  # 游戏日志记录器
+
+    def drop_loot_on_death(self, player):
+        """M5 击杀掉落（v2.0 §3/§6.4）：死者的 credits/箭/可掉落装备/模块掉到
+        所在地点。白昼起阶段才启用。幂等——掉落后清空死者携带（轮末扫描重复
+        调用无害）。死者 location 此时仍在（markers 只清标记）。"""
+        from engine import experiments, world_clock
+        if not experiments.is_enabled("m5_clock"):
+            return
+        if getattr(player, "_loot_dropped", False):
+            return  # 幂等：轮末扫描重复调用只掉落一次
+        if not world_clock.active_value(self, "kill_drop", default=False):
+            return
+        loc = getattr(player, "location", None)
+        if loc is None:
+            return
+        player._loot_dropped = True
+        pile = self.ground_loot.setdefault(
+            loc, {"credits": 0, "arrows": 0, "items": [], "weapons": []})
+        # 钱包
+        credits = getattr(player, "credits", 0)
+        if credits > 0:
+            pile["credits"] += credits
+            player.credits = 0
+        # 箭
+        arrows = getattr(player, "arrows", 0)
+        if arrows > 0:
+            pile["arrows"] += arrows
+            player.arrows = 0
+        # 非起始装备（弓/拳击不掉，避免基础装备污染地面）
+        for w in list(getattr(player, "weapons", [])):
+            if w and w.name not in ("拳击", "弓", "小刀"):
+                pile["weapons"].append(w.name)
+        # 可拾取物品（防毒面具/磨刀石等，钩锁神器回归"未取走"由 hook_taken 另管）
+        for it in list(getattr(player, "items", [])):
+            nm = getattr(it, "name", "")
+            if nm and nm != "钩锁":
+                pile["items"].append(nm)
 
     def add_player(self, player):
         self.players[player.player_id] = player

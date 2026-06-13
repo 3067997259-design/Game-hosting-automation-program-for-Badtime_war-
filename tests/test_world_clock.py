@@ -146,6 +146,68 @@ class RationingSuspicionTest(unittest.TestCase):
         self.assertFalse(getattr(attacker, "is_criminal", False))
 
 
+class KillLootTest(unittest.TestCase):
+    """击杀掉落：死者 credits/箭/装备入地面，find 拾取。"""
+
+    def setUp(self):
+        experiments.reset()
+        for f in ("k_initiative", "hp20", "m3_accuracy", "m4_gear", "m5_clock"):
+            experiments.enable(f)
+
+    def tearDown(self):
+        experiments.reset()
+
+    def test_loot_drops_on_death(self):
+        state = _state(6)
+        state.current_round = 13  # 白昼（kill_drop 启用）
+        victim = state.get_player("p2")
+        victim.location = "商店"
+        victim.credits = 7
+        victim.arrows = 2
+        victim.hp = 0  # 死亡
+        state.drop_loot_on_death(victim)
+        pile = state.ground_loot.get("商店")
+        self.assertIsNotNone(pile)
+        self.assertEqual(pile["credits"], 7)
+        self.assertEqual(pile["arrows"], 2)
+        self.assertEqual(victim.credits, 0)
+
+    def test_loot_idempotent(self):
+        state = _state(6)
+        state.current_round = 13
+        victim = state.get_player("p2")
+        victim.location = "商店"
+        victim.credits = 5
+        victim.hp = 0
+        state.drop_loot_on_death(victim)
+        state.drop_loot_on_death(victim)  # 重复
+        self.assertEqual(state.ground_loot["商店"]["credits"], 5)
+
+    def test_no_drop_in_dawn(self):
+        state = _state(6)
+        state.current_round = 5  # 黎明（kill_drop 未启用）
+        victim = state.get_player("p2")
+        victim.location = "商店"
+        victim.credits = 5
+        victim.hp = 0
+        state.drop_loot_on_death(victim)
+        self.assertNotIn("商店", state.ground_loot)
+
+    def test_find_picks_up_loot(self):
+        from actions.find_target import execute as find_exec
+        state = _state(6)
+        state.current_round = 13
+        finder = state.get_player("p1")
+        finder.location = "商店"
+        finder.credits = 0
+        target = state.get_player("p2")
+        target.location = "商店"
+        state.ground_loot = {"商店": {"credits": 9, "arrows": 0,
+                                       "items": [], "weapons": []}}
+        find_exec(finder, "p2", state)
+        self.assertEqual(finder.credits, 9)
+
+
 class PoliceFalloffTest(unittest.TestCase):
     """警察分级坠落：黄昏撤保护、终焉全停。"""
 
