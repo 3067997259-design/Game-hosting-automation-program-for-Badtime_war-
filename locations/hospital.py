@@ -34,16 +34,27 @@ HOSHINO_MEDICINES = {"EPO", "海豚巧克力", "肾上腺素"}
 
 
 def get_menu():
-    return dict(HOSPITAL_MENU)
+    menu = dict(HOSPITAL_MENU)
+    from engine.economy import m4_enabled
+    if m4_enabled():
+        from engine.bow_modules import menu_entries
+        menu.update(menu_entries("医院"))
+    return menu
 
 
 def can_interact(player, item_name, game_state=None):
-    if item_name not in HOSPITAL_MENU:
-        return False, f"医院没有「{item_name}」"
-
     from engine.economy import m4_enabled
     from engine.balance import get as _bget
     _m4 = m4_enabled()
+
+    # m4 弓模块（无限）：委托 bow_modules
+    if _m4:
+        from engine.bow_modules import is_module_item, check_purchase, base_name
+        if is_module_item(item_name):
+            return check_purchase(player, base_name(item_name), game_state)
+
+    if item_name not in HOSPITAL_MENU:
+        return False, f"医院没有「{item_name}」"
 
     # 打工：v1 已有凭证时不允许；m4 信用点可累积无此限制
     if item_name == "打工" and not _m4 and player.vouchers >= 1:
@@ -116,6 +127,12 @@ def can_interact(player, item_name, game_state=None):
 def do_interact(player, item_name, game_state=None):
     """执行医院交互"""
     from engine.economy import m4_enabled, charge, work_income
+
+    # m4 弓模块（无限）：委托 do_purchase
+    if m4_enabled():
+        from engine.bow_modules import is_module_item, do_purchase, base_name
+        if is_module_item(item_name):
+            return do_purchase(player, base_name(item_name), game_state)
 
     if item_name == "打工":
         if m4_enabled():

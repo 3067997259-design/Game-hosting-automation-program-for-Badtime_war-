@@ -79,6 +79,58 @@ def release_on_death(player: Any, game_state: Any) -> None:
     player.bow_modules = []
 
 
+def is_module_item(item_name: str) -> bool:
+    """菜单项是否为弓模块（地点 can/do_interact 委托判定用）。"""
+    return item_name.endswith("模块") and item_name[:-2] in module_specs()
+
+
+def base_name(item_name: str) -> str:
+    """菜单名「力量模块」→ 裸模块名「力量」。"""
+    return item_name[:-2] if item_name.endswith("模块") else item_name
+
+
+def modules_at(location: str) -> List[str]:
+    """该地点供应的模块名列表（菜单合并用）。"""
+    return [name for name, spec in module_specs().items()
+            if spec.get("location") == location]
+
+
+def menu_entries(location: str) -> Dict[str, str]:
+    """地点模块菜单条目（name → 描述）。"""
+    entries = {}
+    for name in modules_at(location):
+        spec = module_specs()[name]
+        cost = price_of(name)
+        cost_str = f"{cost}信用点" if cost > 0 else ("通行证" if location == "军事基地" else "学习1回合")
+        entries[f"{name}模块"] = f"弓升级模块·{name}（{cost_str}，全图×{spec.get('supply', 2)}）"
+    return entries
+
+
+def price_of(name: str) -> int:
+    """模块信用点售价（商店/医院走信用点；魔法所/军基走时间/权限免信用点）。"""
+    sinks = bget("economy", "sinks", default={}) or {}
+    return int(sinks.get(f"{name}模块", 0))
+
+
+def check_purchase(player: Any, module_name: str, game_state: Any) -> Tuple[bool, str]:
+    """模块购买校验（份数/双槽/无限独占/信用点；军基通行证由地点自查）。"""
+    ok, reason = can_install(player, module_name, game_state)
+    if not ok:
+        return False, reason
+    cost = price_of(module_name)
+    if cost > 0 and getattr(player, "credits", 0) < cost:
+        return False, f"信用点不足：「{module_name}」需要 {cost}，你有 {player.credits}"
+    return True, ""
+
+
+def do_purchase(player: Any, module_name: str, game_state: Any) -> str:
+    """执行模块购买（调用方已过 check_purchase 与地点经济校验）。"""
+    cost = price_of(module_name)
+    if cost > 0:
+        player.credits -= cost
+    return install(player, module_name, game_state)
+
+
 def compute_shot(player: Any) -> Dict[str, Any]:
     """按已装模块换算本次射击的武器形态与附带效果。
 

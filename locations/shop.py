@@ -33,6 +33,8 @@ def get_menu():
     from engine.economy import m4_enabled
     if m4_enabled():
         menu.update(M4_SHOP_MENU)
+        from engine.bow_modules import menu_entries
+        menu.update(menu_entries("商店"))
     return menu
 
 
@@ -48,6 +50,12 @@ def can_interact(player, item_name, game_state=None):
     """
     from engine.economy import m4_enabled, can_afford
     _m4 = m4_enabled()
+
+    # m4 弓模块购买（统一委托 bow_modules）
+    if _m4:
+        from engine.bow_modules import is_module_item, check_purchase, base_name
+        if is_module_item(item_name):
+            return check_purchase(player, base_name(item_name), game_state)
 
     valid_items = set(SHOP_MENU) | (set(M4_SHOP_MENU) if _m4 else set())
     if item_name not in valid_items:
@@ -139,6 +147,12 @@ def can_interact(player, item_name, game_state=None):
 def do_interact(player, item_name, game_state=None):
     """执行商店交互"""
     from engine.economy import m4_enabled, charge, work_income
+
+    # m4 弓模块：委托 do_purchase（自带扣费），先于通用 charge 拦截防双扣
+    if m4_enabled():
+        from engine.bow_modules import is_module_item, do_purchase, base_name
+        if is_module_item(item_name):
+            return do_purchase(player, base_name(item_name), game_state)
 
     # m4：付费项先扣费（打工不在 sinks 表中 price=0 不扣；病毒期间保持免费语义）
     # 注意必须在 if/elif 链之前——插在链中会断链

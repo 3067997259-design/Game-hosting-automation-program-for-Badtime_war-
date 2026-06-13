@@ -62,6 +62,13 @@ class GameState:
         from models.chorus import reset_chorus_counter
         reset_chorus_counter()
 
+        # M4 弓模块全图供应池 + 箭堆（experiment: m4_gear）
+        from engine import experiments as _exp
+        if _exp.is_enabled("m4_gear"):
+            from engine.bow_modules import init_supply
+            init_supply(self)
+            self.arrow_piles = {}
+
         # 游戏状态
         self.game_over = False
         self.winner: Optional[str] = None

@@ -8,6 +8,13 @@ def get_available_specials(player, game_state):
     """获取当前可用的特殊操作列表"""
     specials = []
 
+    # M4 拆卸弓模块（1 行动随处可做，拍板 §13-16）
+    from engine.economy import m4_enabled
+    if m4_enabled() and getattr(player, 'bow_modules', None):
+        for mod in dict.fromkeys(player.bow_modules):
+            specials.append({"name": f"拆卸{mod}",
+                             "description": f"拆下弓模块「{mod}」（回流市场）"})
+
     # 磨刀
     has_stone = any(i.name == "磨刀石" for i in player.items)
     has_unsharpened = any(w.name == "小刀" and w.base_damage < 2 for w in player.weapons)
@@ -88,6 +95,12 @@ def execute(player, op_name, game_state):
     统一返回 (msg, consumes_turn) 二元组。
     consumes_turn=True 表示消耗行动回合，False 表示不消耗。
     """
+    if op_name.startswith("拆卸") and len(op_name) > 2:
+        mod = op_name[2:]
+        from engine.bow_modules import uninstall
+        ok, msg = uninstall(player, mod, game_state)
+        return msg, ok
+
     if op_name == "磨刀":
         return _do_sharpen(player, game_state), True
     elif op_name == "吟唱魔法护盾":
