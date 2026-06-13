@@ -814,6 +814,13 @@ def resolve_damage(attacker, target, weapon, game_state,
             from engine.balance import get as _bget
             raw_int += _bget("hp20", "severe_injury_aoe_bonus", default=1)
             result["details"].append("💢 重伤目标受 AOE 伤害 +1")
+        # M6 喝彩消耗·伤害+2（buff flag，自消耗）
+        if attacker is not None and getattr(attacker, "_applause_damage_bonus", 0):
+            bonus = attacker._applause_damage_bonus
+            attacker._applause_damage_bonus = 0
+            raw_int += bonus
+            result["details"].append(f"👏 喝彩加成：伤害 +{bonus}")
+
         # M5 黄昏/终焉：全体造成伤害 +1（v2.0 §3，experiment: m5_clock）
         from engine import experiments as _m5exp
         if _m5exp.is_enabled("m5_clock") and game_state is not None:

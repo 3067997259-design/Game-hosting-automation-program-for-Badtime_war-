@@ -59,6 +59,12 @@ def parse(raw_input, player_id):
             return None
         return {"action": "find", "target": parts[1]}
 
+    # ---- 喝彩消耗（M6） ----
+    if cmd in ("applause", "喝彩", "cheer"):
+        if len(parts) < 2:
+            return None
+        return {"action": "applause_spend", "use": parts[1]}
+
     # ---- 射箭（M4 弓） ----
     if cmd in ("shoot", "射箭", "射"):
         if len(parts) < 2:

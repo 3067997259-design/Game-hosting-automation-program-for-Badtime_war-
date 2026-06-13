@@ -152,6 +152,8 @@ def validate(parsed, player, game_state):
         return validate_find(player, parsed.get("target"), game_state)
     elif action == "attack":
         return validate_attack(player, parsed, game_state)
+    elif action == "applause_spend":
+        return validate_applause_spend(player, parsed.get("use"), game_state)
     elif action == "shoot":
         return validate_shoot(player, parsed.get("target"), game_state)
     elif action == "hook":
@@ -185,6 +187,21 @@ def validate(parsed, player, game_state):
 # ============================================
 #  M4 校验：射箭 / 钩锁（experiment: m4_gear）
 # ============================================
+
+def validate_applause_spend(player, use, game_state):
+    from engine import experiments
+    if not experiments.is_enabled("m6_scoring"):
+        return False, "未知的行动类型：applause_spend"
+    if not player.is_awake:
+        return False, "你还没起床！"
+    from actions.applause_spend import cost_of
+    cost = cost_of(use)
+    if cost <= 0:
+        return False, f"未知喝彩用途「{use}」"
+    if getattr(player, "applause", 0) < cost:
+        return False, f"喝彩点不足（需 {cost}，有 {player.applause}）"
+    return True, ""
+
 
 def validate_shoot(player, target_str, game_state):
     from engine.economy import m4_enabled

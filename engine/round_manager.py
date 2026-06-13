@@ -241,6 +241,13 @@ class RoundManager:
         entries = []
         for pid, name, bonus in entrants:
             roll = roll_d6()
+            # M6 喝彩消耗·重掷先攻（自消耗 flag）
+            p_obj = self.state.get_player(pid)
+            if p_obj is not None and getattr(p_obj, "_applause_reroll_initiative", False):
+                p_obj._applause_reroll_initiative = False
+                reroll = roll_d6()
+                if reroll > roll:
+                    roll = reroll
             total = roll + bonus
             tiebreak = roll_d6()  # 补掷（仅同点时有意义，统一掷保证消耗序稳定）
             rolls[pid] = (roll, bonus, total)

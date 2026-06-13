@@ -1767,6 +1767,11 @@ class ActionTurnManager:
             msg, ok = hook_action.execute(player, parsed, self.state)
             return msg, "hook", ok
 
+        elif action == "applause_spend":
+            from actions import applause_spend
+            msg, consumes = applause_spend.execute(player, parsed.get("use"), self.state)
+            return msg, "applause_spend" if consumes else "status", consumes
+
         elif action == "attack":
             # Terror 攻击：走特殊逻辑
             if (player.talent and hasattr(player.talent, 'is_terror')
