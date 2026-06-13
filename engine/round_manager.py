@@ -248,6 +248,10 @@ class RoundManager:
                 reroll = roll_d6()
                 if reroll > roll:
                     roll = reroll
+            # M6 往世层·拨弄命运（星光行动给的先攻 ±1，自消耗）
+            if p_obj is not None and getattr(p_obj, "_star_fate_bonus", 0):
+                bonus += p_obj._star_fate_bonus
+                p_obj._star_fate_bonus = 0
             total = roll + bonus
             tiebreak = roll_d6()  # 补掷（仅同点时有意义，统一掷保证消耗序稳定）
             rolls[pid] = (roll, bonus, total)
@@ -570,6 +574,23 @@ class RoundManager:
                     RoundManager.notify_all_talents_of_death(
                         self.state, p.player_id, killer_id=None)
 
+    def _process_starlight(self):
+        """M6 往世层星光阶段（v2.0 §5）：死者成星每轮 +1 星光（上限），
+        星光够则做星光行动（用原 controller 选目标，每轮 1 次）。"""
+        from engine import world_clock  # noqa（balance 读取无需，保持一致）
+        gain = bget("afterlife", "starlight_per_round", default=1)
+        cap = bget("afterlife", "starlight_cap", default=3)
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if not p or p.is_alive() or not getattr(p, "is_star", False):
+                continue
+            p.starlight = min(cap, getattr(p, "starlight", 0) + gain)
+            from actions import starlight
+            if starlight.available_actions(p):
+                msg = starlight.perform(p, self.state)
+                if msg:
+                    display.show_info(msg)
+
     def _process_apocalypse_damage(self):
         """M5 终焉真伤（v2.0 §3）：每轮末全体 −N 真伤，叙事级豁免无效——
         直扣 HP 不走任何减免（秩序崩塌的最后压力），死亡走免死天赋链。"""
@@ -635,6 +656,9 @@ class RoundManager:
                     # M6 死亡登记：记死于第几轮（存活系数用），幂等
                     if m6 and getattr(p, 'death_round', 0) == 0:
                         p.death_round = self.state.current_round
+                        # 往世层：死者成星（被锚定击杀者不能成星，v2.0 §5）
+                        if not getattr(p, '_anchor_killed', False):
+                            p.is_star = True
 
         # R4-1: 警察执法
         police_msgs = self.police_engine.process_end_of_round()
@@ -751,6 +775,10 @@ class RoundManager:
             self.state.ish_bosheth.on_r4(self.state)
         if self.state.check_victory():
             return
+
+        # R4-2.7: M6 往世层星光阶段（死者挣星光 + 星光行动，v2.0 §5）
+        if m6:
+            self._process_starlight()
 
         # R4-3: 天赋轮次结束钩子
         for pid in self.state.player_order:

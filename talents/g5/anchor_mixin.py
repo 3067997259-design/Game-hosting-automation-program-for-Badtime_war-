@@ -1212,6 +1212,7 @@ class AnchorMixin:
             target = self.state.get_player(self.anchor_target_id)
             if target and target.is_alive():
                 target.hp = 0
+                target._anchor_killed = True  # M6：被锚定击杀者不能成星（§5）
                 self.state.markers.on_player_death(target.player_id)
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target.player_id)

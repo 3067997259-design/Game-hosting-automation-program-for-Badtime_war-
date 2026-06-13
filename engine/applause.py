@@ -45,6 +45,11 @@ def award(game_state: Any, player: Any, event_key: str,
     if points <= 0:
         return False
 
+    # M6 往世层·加冕：下一个喝彩事件分值 ×2（自消耗）
+    if getattr(player, "_coronation_active", False):
+        player._coronation_active = False
+        points *= 2
+
     used.add(dedup_key)
     player.applause = getattr(player, "applause", 0) + points
     game_state.log_event("applause", player=player.player_id,
