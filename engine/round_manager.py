@@ -590,18 +590,22 @@ class RoundManager:
         self.state.current_phase = "r4_end"
         display.show_phase("📋 轮次结束结算")
 
-        # M4 弓模块回流 + M5 击杀掉落：轮末扫描死亡玩家（幂等）。
-        # 模块回供应池（稀缺资源全局可重购，§0.5），credits/箭/装备掉地面（§6.4）。
-        if experiments.is_enabled("m4_gear"):
-            from engine.bow_modules import release_on_death
+        # M4 弓模块回流 + M5 击杀掉落 + M6 死亡登记：轮末扫描死亡玩家（幂等）。
+        m6 = experiments.is_enabled("m6_scoring")
+        if experiments.is_enabled("m4_gear") or m6:
+            m4 = experiments.is_enabled("m4_gear")
             m5 = experiments.is_enabled("m5_clock")
             for pid in self.state.player_order:
                 p = self.state.get_player(pid)
                 if p and not p.is_alive():
-                    if getattr(p, 'bow_modules', None):
+                    if m4 and getattr(p, 'bow_modules', None):
+                        from engine.bow_modules import release_on_death
                         release_on_death(p, self.state)
-                    if m5:
+                    if m4 and m5:
                         self.state.drop_loot_on_death(p)
+                    # M6 死亡登记：记死于第几轮（存活系数用），幂等
+                    if m6 and getattr(p, 'death_round', 0) == 0:
+                        p.death_round = self.state.current_round
 
         # R4-1: 警察执法
         police_msgs = self.police_engine.process_end_of_round()

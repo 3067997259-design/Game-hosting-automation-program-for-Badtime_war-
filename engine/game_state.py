@@ -72,10 +72,31 @@ class GameState:
             # M5 击杀掉落：地面物品（location → {credits, arrows, items, weapons}）
             self.ground_loot = {}
 
+        # M6 评分制：谁对谁造成过伤害（反合谋三闸用）+ per-game 喝彩去重
+        if _exp.is_enabled("m6_scoring"):
+            self.damage_relations = {}      # victim_id → set(attacker_id)
+            self._applause_events_used = set()  # per-game 喝彩事件去重
+            self.final_scores = {}          # 终局揭晓的玩家终分
+
         # 游戏状态
         self.game_over = False
         self.winner: Optional[str] = None
         self.logger: Optional[GameLogger] = None  # 游戏日志记录器
+
+    def record_combat_damage(self, attacker, victim, amount):
+        """M6：回写战果分累计伤害 + 伤害关系（反合谋用）。仅玩家→玩家有效伤害。"""
+        from engine import experiments
+        if not experiments.is_enabled("m6_scoring"):
+            return
+        if amount <= 0 or attacker is None or victim is None:
+            return
+        if getattr(attacker, "is_chorus", False) or not hasattr(victim, "player_id"):
+            return
+        if not hasattr(attacker, "player_id"):
+            return  # 警察等非玩家攻击者不计战果
+        attacker.damage_dealt = getattr(attacker, "damage_dealt", 0) + int(amount)
+        rel = self.damage_relations.setdefault(victim.player_id, set())
+        rel.add(attacker.player_id)
 
     def drop_loot_on_death(self, player):
         """M5 击杀掉落（v2.0 §3/§6.4）：死者的 credits/箭/可掉落装备/模块掉到

@@ -326,6 +326,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
+            if game_state:
+                game_state.record_combat_damage(attacker, target, remaining)
 
             hp_damage_text = prompt_manager.get_prompt(
                 "combat", "hp_damage_detailed",
@@ -942,6 +944,8 @@ def resolve_damage(attacker, target, weapon, game_state,
         if remaining > 0:
             result["hp_damage"] = remaining
             target.hp = round(max(0, target.hp - remaining), 2)
+            if game_state:
+                game_state.record_combat_damage(attacker, target, remaining)
             hp_damage_text = prompt_manager.get_prompt(
                 "combat", "hp_damage_detailed",
                 default="生命受到 {damage} 伤害 → HP: {current_hp}/{max_hp}"

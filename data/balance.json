@@ -8,6 +8,42 @@
         "initiative_die": 6
     },
 
+    "scoring": {
+        "_comment": "综合评分制（experiment: m6_scoring，v0.2 §4，全 [待风洞]）。终分=(剧情+喝彩+战果)×存活+往世",
+        "kill_score": 3,
+        "damage_per_point": 20,
+        "damage_cap": 5,
+        "survival_alive": 1.5,
+        "survival_floor": 0.5,
+        "afterlife_mult": 0.5
+    },
+
+    "applause": {
+        "_comment": "喝彩事件分值表（v0.2 §4.2，全 [待风洞]）。每类每局限 1 次（反合谋三闸）",
+        "first_kill": 2,
+        "severe_revenge": 3,
+        "break_full_armor": 2,
+        "apocalypse_kill": 2,
+        "last_arrow_kill": 2
+    },
+
+    "afterlife": {
+        "_comment": "往世层（v0.2 §5，[待风洞 + 轮次敏感：M7/M8 后复核]）。星光上限有界，轮次变长只更快到顶",
+        "starlight_per_round": 1,
+        "starlight_cap": 3,
+        "fate_cost": 1,
+        "omen_cost": 2,
+        "coronation_cost": 2
+    },
+
+    "finale": {
+        "_comment": "完结条剧情分（v0.2 §4.3，[待风洞 + 轮次敏感]）。天赋接入归 M7",
+        "g2_curtain": 15,
+        "g4_graduation": 12,
+        "g5_double_anchor": 15,
+        "g4_survive_rounds": 5
+    },
+
     "world_clock": {
         "_comment": "白昼世界时钟（experiment: m5_clock，v0.2 §3，全 [待风洞]）。段长=segment_base+初始人数；黄昏/终焉是破僵局压力阀",
         "segment_base": 6,

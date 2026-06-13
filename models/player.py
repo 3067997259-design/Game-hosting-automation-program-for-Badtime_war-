@@ -135,6 +135,15 @@ class Player:
         self._last_hook_round: int = -99   # 钩锁共享冷却（拉人/拉己同钟）
         self.is_suspect: bool = False      # M5 白昼首攻嫌疑（不记罪但留痕）
 
+        # M6 评分制字段（experiment: m6_scoring，v1/无 m6 零副作用，v2.0 §4/§5）
+        self.damage_dealt: int = 0         # 累计造成的有效伤害（战果分）
+        self.death_round: int = 0          # 死于第几轮（0=未死，存活系数用）
+        self.applause: int = 0             # 喝彩点（两用资源：可消耗/计入终分）
+        self.is_star: bool = False         # 往世层：死后成星
+        self.starlight: int = 0            # 星光（每轮+1上限3，做星光行动）
+        self.afterlife_score: int = 0      # 往世分（×0.5 计入终分）
+        self.story_score: int = 0          # 剧情分（完结条，M7 天赋接入）
+
         # 位置
         self.location = None
 
