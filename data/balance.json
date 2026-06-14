@@ -219,8 +219,62 @@
     },
 
     "talents": {
-        "_comment": "天赋数值（M7 迁移后启用）",
-        "_status": "reserved"
+        "_comment": "天赋 hp20 量纲数值（experiment: m7_talents，v0.2 §7，全 [待风洞]）。第一阶段 9 个换算型；G7/G2/G5/T5/G3 巨型/重做归第二阶段",
+        "t1": {
+            "_name": "一刀缭断",
+            "melee_multiplier": 2.0,
+            "target_defense_halved": true
+        },
+        "t2": {
+            "_name": "剪刀手一突",
+            "shield_recovery_durability": 4
+        },
+        "t3": {
+            "_name": "天星",
+            "aoe_base": 4,
+            "aoe_per_hit": 1,
+            "aoe_cap": 8,
+            "armor_pierce": 0.5
+        },
+        "t4": {
+            "_name": "六爻",
+            "qianlong_pierce_damage": 6,
+            "charge_interval_rounds": 5
+        },
+        "t7": {
+            "_name": "死者苏生",
+            "revive_hp": 12
+        },
+        "g1": {
+            "_name": "火萤",
+            "attack_bonus": 3,
+            "defense_reduction": 2,
+            "self_heal": 2,
+            "self_heal_low": 3,
+            "self_heal_low_threshold": 10,
+            "entropy_armor_loss": 5,
+            "entropy_interval_rounds": 2,
+            "supernova_damage": 8,
+            "supernova_pierce": 0.5,
+            "supernova_burn": 2,
+            "ardent_temp_hp": 3,
+            "initiative_bonus": 1,
+            "initiative_interval_rounds": 3
+        },
+        "g4": {
+            "_name": "愿负世",
+            "revive_hp": 1,
+            "temp_hp_per_ember": 2,
+            "attack_per_ember": 1,
+            "attack_cap": 6,
+            "duration_base": 2,
+            "duration_per_3_ember": 1,
+            "duration_cap": 6,
+            "aoe_bonus_low": 2,
+            "aoe_bonus_high": 4,
+            "aoe_high_threshold": 6,
+            "ember_pool_cap": 20
+        }
     },
 
     "stage": {

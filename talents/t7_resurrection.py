@@ -145,7 +145,9 @@ class Resurrection(BaseTalent):
             ).format(shields="、".join(restored_shields))
             display.show_info(shield_msg)
 
-        return {"prevent_death": True, "new_hp": 1.0}
+        from talents.talent_balance import talent_num
+        return {"prevent_death": True,
+                "new_hp": talent_num("t7", "revive_hp", v1=1.0)}
 
     def describe_status(self):
         if self.used:

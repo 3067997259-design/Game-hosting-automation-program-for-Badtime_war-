@@ -179,6 +179,24 @@ class ScissorRush(BaseTalent):
         if hit_piece.name in EXCLUDED_ARMORS:
             return
 
+        # M7 hp20：攻击回盾改为恢复护甲耐久（§7.6）——hp20 护甲是耐久制
+        from talents.talent_balance import m7_enabled, talent_num
+        if m7_enabled():
+            amount = talent_num("t2", "shield_recovery_durability", v1=4)
+            for piece in (getattr(attacker.armor, 'outer', []) or []):
+                if piece.name == hit_piece.name and getattr(piece, 'durability', 0) > 0:
+                    if piece.durability < piece.max_durability:
+                        piece.durability = min(piece.max_durability,
+                                               piece.durability + amount)
+                        display.show_info(
+                            f"🛡️ 攻击回盾：{attacker.name} 的「{piece.name}」"
+                            f"耐久 +{amount} → {piece.durability}/{piece.max_durability}")
+                        self.state.log_event("scissor_rush_shield_recovery",
+                                             player=self.player_id,
+                                             armor=piece.name, durability=amount)
+                    return
+            return  # hp20 下无同名外甲则不创建（耐久制无 max_hp 概念）
+
         # 计算回盾量：被命中护甲 max_hp 的 50%，量化
         raw_recovery = hit_piece.max_hp * 0.5
         recovery = self._quantize_shield(raw_recovery)
