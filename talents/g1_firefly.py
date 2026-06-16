@@ -259,10 +259,25 @@ class G1MythFire(BaseTalent):
     # ============================================
 
     def on_turn_start(self, player):
-        """T0：如果HP=0.5，自动恢复到1"""
+        """T0 燃焰自愈：v1=HP≤0.5回1；M7 hp20=每轮回2，HP<10回3（§7.2）"""
         if player.player_id != self.player_id:
             return None
         if not player.is_alive():
+            return None
+
+        from talents.talent_balance import m7_enabled, talent_num
+        if m7_enabled():
+            if player.hp < player.max_hp:
+                low_thr = talent_num("g1", "self_heal_low_threshold", v1=10)
+                heal = (talent_num("g1", "self_heal_low", v1=3)
+                        if player.hp < low_thr
+                        else talent_num("g1", "self_heal", v1=2))
+                old_hp = player.hp
+                player.hp = min(player.max_hp, player.hp + heal)
+                prompt_manager.show("talent", "g1mythfire.auto_heal",
+                                   player_name=player.name,
+                                   old_hp=old_hp, new_hp=player.hp,
+                                   level=PromptLevel.IMPORTANT)
             return None
 
         if player.hp <= 0.5 and player.hp > 0:
@@ -316,8 +331,10 @@ class G1MythFire(BaseTalent):
     def modify_outgoing_damage(self, attacker, target, weapon, base_damage):
         if attacker.player_id != self.player_id:
             return None
-        # 伤害翻倍通过 damage_multiplier 实现
-        # 这里返回一个标记让 resolve_damage 知道要乘2
+        # v1：伤害×2；M7 hp20：攻击+3（加法，§7.2——乘法变加法 §0.3 律1）
+        from talents.talent_balance import m7_enabled, talent_num
+        if m7_enabled():
+            return {"bonus_damage": talent_num("g1", "attack_bonus", v1=3)}
         return {"damage_multiplier_override": 2.0}
 
     # ============================================
@@ -332,6 +349,12 @@ class G1MythFire(BaseTalent):
         """
         if target.player_id != self.player_id:
             return raw_damage
+        # v1：受伤×0.5；M7 hp20：全属性防御-2（减法，保底后生效最低1，§7.2）
+        from talents.talent_balance import m7_enabled, talent_num
+        if m7_enabled():
+            reduction = talent_num("g1", "defense_reduction", v1=2)
+            reduced = max(1, raw_damage - reduction) if raw_damage > 0 else raw_damage
+            return reduced
         reduced = raw_damage * 0.5
         attacker_name = attacker.name if attacker else "环境"
         prompt_manager.show("talent", "g1mythfire.damage_reduction",
@@ -399,12 +422,17 @@ class G1MythFire(BaseTalent):
             f"  {player.name} 如火流星从天而降，席卷{destination}！\n"
             f"{'='*50}")
 
+        # 超新星伤害：v1=1.0 真伤；M7 hp20=AOE8 穿甲50%（§7.2）
+        from talents.talent_balance import m7_enabled, talent_num
+        _nova_dmg = talent_num("g1", "supernova_damage", v1=1.0)
+        _nova_pierce = talent_num("g1", "supernova_pierce", v1=1.0) if m7_enabled() else 1.0
         results_dict = resolve_location_damage(
             attacker=player, location=destination,
-            game_state=game_state, raw_damage=1.0,
+            game_state=game_state, raw_damage=_nova_dmg,
             ignore_counter=True, exclude_self=True,
             damage_attribute_override="无视属性克制",
-            is_talent_attack=True)
+            is_talent_attack=True,
+            armor_pierce_factor=_nova_pierce)
 
         self.state.log_event("firefly_supernova", player=self.player_id,
                              location=destination)
@@ -459,7 +487,16 @@ class G1MythFire(BaseTalent):
         self.ardent_wish_charges = min(self.ardent_wish_charges + count, self.max_ardent_wish_charges)
 
     def apply_burn(self, target_id: str):
-        """对目标施加灼烧（最多叠加2层）"""
+        """对目标施加灼烧。v1=G1 专属 burn_targets（0.25/层2层）；
+        M7 hp20=接 M4 通用灼烧层（player.burn_stacks，1/层上限3，§11.3 统一实现）。"""
+        from talents.talent_balance import m7_enabled
+        if m7_enabled():
+            target = self.state.get_player(target_id)
+            if target is not None:
+                from engine.bow_modules import apply_burn as _apply_burn
+                from talents.talent_balance import talent_num
+                _apply_burn(target, talent_num("g1", "supernova_burn", v1=2))
+            return
         current = self.burn_targets.get(target_id, 0)
         self.burn_targets[target_id] = min(current + 1, self.burn_max_stacks)
 

@@ -668,16 +668,18 @@ class RoundManager:
             return
 
         # R4-1.5: 火萤灼烧结算（与警察同时机）
-        for pid in self.state.player_order:
-            p = self.state.get_player(pid)
-            if p and p.is_alive() and p.talent:
-                if hasattr(p.talent, 'process_burn_damage'):
-                    p.talent.process_burn_damage(self.state.current_round)
-        if self.state.check_victory():
-            return
+        # m7 下 G1 灼烧走 M4 通用层（_process_burn_stacks_m4），不再单独结算（防双扣）
+        if not experiments.is_enabled("m7_talents"):
+            for pid in self.state.player_order:
+                p = self.state.get_player(pid)
+                if p and p.is_alive() and p.talent:
+                    if hasattr(p.talent, 'process_burn_damage'):
+                        p.talent.process_burn_damage(self.state.current_round)
+            if self.state.check_victory():
+                return
 
-        # R4-1.6: M4 通用灼烧结算（火矢/燃烧瓶共用，G1 接入归 M7；v2.0 §11.3）
-        if experiments.is_enabled("m4_gear"):
+        # R4-1.6: 通用灼烧结算（M4 火矢/燃烧瓶 + M7 G1 共用，v2.0 §11.3）
+        if experiments.is_enabled("m4_gear") or experiments.is_enabled("m7_talents"):
             self._process_burn_stacks_m4()
         if self.state.check_victory():
             return
