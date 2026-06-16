@@ -296,6 +296,25 @@
             "terror_attack_cost": 6,
             "terror_attack_damage": 4,
             "terror_move_cost": 2
+        },
+        "g2": {
+            "_name": "注视（ish-bosheth）",
+            "stability_pivot": 6.0,
+            "stability_armor_coeff": 0.4,
+            "stability_base_divisor": 6.0,
+            "armor_rating_durability_divisor": 6.0,
+            "melody_seq_1": [5, 3, 3, 3],
+            "melody_seq_2": [5, 5, 3, 3],
+            "melody_seq_3": [8, 8, 5, 5],
+            "melody_damage_floor": 1,
+            "duet_heat_conversion": 0.1,
+            "duet_button_amount": 2,
+            "card_glow_stick": 2,
+            "card_glow_stick_str": 3,
+            "card_bouquet_temp_hp": 3,
+            "card_bouquet_chorus_heal": 3,
+            "card_boo_damage_taken": 2,
+            "card_support_cheer_temp_hp": 2
         }
     },
 

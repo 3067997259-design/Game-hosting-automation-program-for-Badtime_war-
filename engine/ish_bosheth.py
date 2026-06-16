@@ -25,6 +25,24 @@ if TYPE_CHECKING:
     from engine.game_state import GameState
     from models.player import Player
 
+def _g2_m7() -> bool:
+    """G2 天赋 hp20 量纲换算开关（experiment: m7_talents，v2.0 §11.4）。"""
+    from engine import experiments
+    return experiments.is_enabled("m7_talents")
+
+
+def _g2_num(*keys, v1):
+    """读 G2 的 hp20 量纲数值（m7 下读 balance.talents.g2，否则 v1）。"""
+    if not _g2_m7():
+        return v1
+    node = bget("talents", "g2", default={}) or {}
+    for k in keys:
+        if not isinstance(node, dict) or k not in node:
+            return v1
+        node = node[k]
+    return node
+
+
 # ── 声部常量（复用旧情绪常量名）───────────────────────────────────
 ACCAREZZEVOLE = "accarezzevole"   # 入戏者
 INDIFFERENZA  = "indifferenza"    # 抽离者
@@ -1404,7 +1422,7 @@ class IshBosheth:
                        base_dmg_seq: list = None):
         """旋律 v0.7：G2 选 1-2 座位 → 最多 4 目标 → 安定値修正伤害/治疗。"""
         if base_dmg_seq is None:
-            base_dmg_seq = [1.0, 1.0, 0.5, 0.5]
+            base_dmg_seq = list(_g2_num("melody_seq_1", v1=[1.0, 1.0, 0.5, 0.5]))
 
         occupied = self._get_occupied_seats(game_state)
         if not occupied:
@@ -1581,6 +1599,26 @@ def get_total_defense_hp(unit) -> float:
     return hp
 
 
+def get_armor_rating(unit) -> float:
+    """装甲度（hp20 §11.4）= Σ(主防+副防) + 总耐久/divisor。
+    语义：旋律打的是甲，不是命——安定値输入从总防御HP 改为纯护甲指标。
+    含玩家永久身体防御（inner_defense，如晶化皮肤）。"""
+    rating = 0.0
+    total_dur = 0.0
+    armor = getattr(unit, 'armor', None)
+    if armor and hasattr(armor, 'get_all_active'):
+        for p in armor.get_all_active():
+            dmap = getattr(p, 'defense_map', None) or {}
+            rating += sum(dmap.values())
+            total_dur += getattr(p, 'durability', 0)
+    inner = getattr(unit, 'inner_defense', None) or {}
+    if isinstance(inner, dict):
+        rating += sum(inner.values())
+    divisor = _g2_num("armor_rating_durability_divisor", v1=6.0) or 6.0
+    rating += total_dur / divisor
+    return rating
+
+
 def _build_melody_preview(game_state, ish, occupied: dict, seat_names: list,
                           base_dmg_seq: list, cumulative_delta: float) -> dict:
     """为每个座位生成旋律伤害预览。返回 {seat_name: preview_string}。"""
@@ -1619,11 +1657,18 @@ def _calc_stability(unit, cumulative_delta: float, decay_factor: float = 1.0,
     - _stability_force_decay: 反光板(强制decay=1.0)
     - _stability_defense_offset: 耳返(total_defense偏移)
     - ish._pivot_override: Riposato(5.0) / Dolente(2.0)"""
-    base = max(-0.5, min(1.5, cumulative_delta / 6.0 - 0.5))
-    pivot = ish._pivot_override if (ish and ish._pivot_override is not None) else 3.5
+    base_divisor = _g2_num("stability_base_divisor", v1=6.0) or 6.0
+    base = max(-0.5, min(1.5, cumulative_delta / base_divisor - 0.5))
+    # hp20 §11.4：安定値输入改为装甲度，pivot 重锚到 6（旋律打甲不打命）
+    default_pivot = _g2_num("stability_pivot", v1=3.5)
+    pivot = ish._pivot_override if (ish and ish._pivot_override is not None) else default_pivot
     offset = getattr(unit, '_stability_defense_offset', 0.0)
-    total_def = get_total_defense_hp(unit) + offset
-    armor_mod = (total_def - pivot) * 0.4
+    if _g2_m7():
+        total_def = get_armor_rating(unit) + offset
+    else:
+        total_def = get_total_defense_hp(unit) + offset
+    coeff = _g2_num("stability_armor_coeff", v1=0.4)
+    armor_mod = (total_def - pivot) * coeff
     stability = (base + armor_mod)
     mult = getattr(unit, '_stability_armor_mult', 1.0)
     stability *= mult
@@ -1640,7 +1685,8 @@ def _calc_melody_damage(base_dmg: float, stability: float,
     raw = round(base_dmg * (1.0 + stability), 2)
     if raw <= 0:
         return max(raw, unit_current_hp - unit_max_hp)
-    return max(0.5, raw)
+    floor = _g2_num("melody_damage_floor", v1=0.5)
+    return max(floor, raw)
 
 
 # ══════════════════════════════════════════════════════════════════
