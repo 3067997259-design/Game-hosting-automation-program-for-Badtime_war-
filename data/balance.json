@@ -274,6 +274,28 @@
             "aoe_bonus_high": 4,
             "aoe_high_threshold": 6,
             "ember_pool_cap": 20
+        },
+        "g7": {
+            "_name": "星野（大叔我啊，剪短发了）",
+            "iron_horus_durability": 20,
+            "iron_horus_repair": 8,
+            "halo_value": 3,
+            "halo_count": 3,
+            "shield_block_threshold": 6,
+            "shield_overflow_durability_cost": 3,
+            "hold_defense": 5,
+            "passive_defense": 3,
+            "passive_break_reserve": 2,
+            "eye_pellet_damage": 2,
+            "armor_pierce_durability_cost": 6,
+            "revive_hp": 12,
+            "terror_armor_per_piece": 3,
+            "terror_horus_divisor": 4,
+            "terror_halo_per_layer": 3,
+            "terror_hp_floor": 12,
+            "terror_attack_cost": 6,
+            "terror_attack_damage": 4,
+            "terror_move_cost": 2
         }
     },
 

@@ -36,9 +36,12 @@ class FusionMixin:
         for armor in player.armor.get_all_active():
             if armor.name in ("盾牌", "AT力场"):
                 player.armor.remove_piece(armor)
-        # 铁之荷鲁斯：无属性特殊护盾，初始护甲值2，手提箱形态（不提供保护直到架盾/持盾）
-        self.iron_horus_hp = 2
-        self.iron_horus_max_hp = 2
+        # 铁之荷鲁斯：无属性特殊护盾，手提箱形态（不提供保护直到架盾/持盾）
+        # v1 初始护甲值 2；m7 = 20 耐久巨盾（§7.4）
+        from talents.talent_balance import talent_num
+        durability = talent_num("g7", "iron_horus_durability", v1=2)
+        self.iron_horus_hp = durability
+        self.iron_horus_max_hp = durability
         self.fusion_shield_done = True
         from cli import display
         msg = prompt_manager.get_prompt("talent", "g7hoshino.fuse_iron_horus",
@@ -140,7 +143,9 @@ class FusionMixin:
         if sacrifice_name not in ("盾牌", "AT力场"):
             return prompt_manager.get_prompt("talent", "g7hoshino.repair_wrong_material")
         player.armor.remove_piece(target_armor)
-        self.iron_horus_hp = min(self.iron_horus_hp + 1, self.iron_horus_max_hp)
+        from talents.talent_balance import talent_num
+        repair_amount = talent_num("g7", "iron_horus_repair", v1=1)
+        self.iron_horus_hp = min(self.iron_horus_hp + repair_amount, self.iron_horus_max_hp)
         return prompt_manager.get_prompt("talent", "g7hoshino.repair_ok",
                                         sacrifice_name=sacrifice_name,
                                         iron_horus_hp=self.iron_horus_hp,
