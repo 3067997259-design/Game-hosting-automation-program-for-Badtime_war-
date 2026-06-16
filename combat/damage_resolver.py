@@ -96,7 +96,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                                 raw_damage, damage_attribute_str,
                                 is_talent_attack=False,
                                 is_love_poem=False,
-                                is_embrace_damage=False):
+                                is_embrace_damage=False,
+                                armor_pierce_factor=1.0):
     """
     无武器伤害结算（爱与记忆之诗等外部伤害源）。
     走护甲结算但不涉及武器天赋修正。
@@ -278,44 +279,65 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             hologram_bonus=hologram_bonus
         ))
 
-    final_damage = quantize_damage(raw)
-    result["final_damage"] = final_damage
-    remaining = final_damage
+    # ---- hp20 无武器伤害：减法防御+耐久磨损+保底（与有武器路径同 numeric_v2）----
+    if _hp20_mode():
+        from combat.numeric_v2 import resolve_hit
+        raw_int = max(0, int(round(raw)))
+        # 无视属性克制 → 用一个不被任何护甲覆盖的属性名（防御=0，直击）
+        attr_name = damage_attribute_str if damage_attr is not None else "__无视__"
+        hit = resolve_hit(target, raw_int, attr_name,
+                          pierce_factor=armor_pierce_factor)
+        result["final_damage"] = hit["damage"]
+        result["success"] = True
+        remaining = hit["damage"]
+        if hit["defense"] > 0:
+            result["details"].append(
+                f"{raw_int}(裸伤) − {hit['defense']}(防御){'·穿甲' if armor_pierce_factor != 1.0 else ''}"
+                f" = {hit['damage']} 伤害")
+        for broken_name in hit["broken"]:
+            result["armor_broken"] = True
+            result["armor_hit"] = broken_name
+            result["details"].append(f"💥 护甲「{broken_name}」耐久归零，碎裂！")
+            _remove_broken_hp20_armor(target, broken_name)
+    else:
+        final_damage = quantize_damage(raw)
+        result["final_damage"] = final_damage
+        remaining = final_damage
 
-    armor_piece = _select_armor_target(target, None, None)
-    if armor_piece is not None:
-        if damage_attr is not None:
-            if not is_effective(damage_attr, armor_piece.attribute):
-                weapon_countered_text = prompt_manager.get_prompt(
-                    "combat", "weapon_countered",
-                    default="伤害属性「{weapon_attr}」被护甲「{armor_name}({armor_attr})」克制，无效！"
-                )
-                result["reason"] = weapon_countered_text.format(
-                    weapon_attr=damage_attribute_str,
-                    armor_name=armor_piece.name,
-                    armor_attr=armor_piece.attribute.value
-                )
-                result["details"].append(result["reason"])
-                result["success"] = False
-                result["final_damage"] = 0
-                return result
+        armor_piece = _select_armor_target(target, None, None)
+        if armor_piece is not None:
+            if damage_attr is not None:
+                if not is_effective(damage_attr, armor_piece.attribute):
+                    weapon_countered_text = prompt_manager.get_prompt(
+                        "combat", "weapon_countered",
+                        default="伤害属性「{weapon_attr}」被护甲「{armor_name}({armor_attr})」克制，无效！"
+                    )
+                    result["reason"] = weapon_countered_text.format(
+                        weapon_attr=damage_attribute_str,
+                        armor_name=armor_piece.name,
+                        armor_attr=armor_piece.attribute.value
+                    )
+                    result["details"].append(result["reason"])
+                    result["success"] = False
+                    result["final_damage"] = 0
+                    return result
 
-        attack_target_text = prompt_manager.get_prompt(
-            "combat", "attack_target_armor",
-            default="攻击目标护甲：{armor_piece}"
-        )
-        result["details"].append(attack_target_text.format(
-            armor_piece=armor_piece
-        ))
+            attack_target_text = prompt_manager.get_prompt(
+                "combat", "attack_target_armor",
+                default="攻击目标护甲：{armor_piece}"
+            )
+            result["details"].append(attack_target_text.format(
+                armor_piece=armor_piece
+            ))
 
-    result["success"] = True
+        result["success"] = True
 
-    if armor_piece is not None:
-        remaining = _apply_damage_to_armor(
-            target, armor_piece, remaining,
-            False, result,
-            damage_attr
-        )
+        if armor_piece is not None:
+            remaining = _apply_damage_to_armor(
+                target, armor_piece, remaining,
+                False, result,
+                damage_attr
+            )
 
     if remaining > 0:
         if remaining > 0:
@@ -467,7 +489,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                    is_embrace_damage=False,
                    *,
                    displacement_only=False,
-                   is_opportunity_attack=False):
+                   is_opportunity_attack=False,
+                   armor_pierce_factor=1.0):
     """
     完整伤害结算。
     新增参数（Phase 4）：
@@ -605,6 +628,7 @@ def resolve_damage(attacker, target, weapon, game_state,
             is_talent_attack=is_talent_attack,
             is_love_poem=is_love_poem,
             is_embrace_damage=is_embrace_damage,
+            armor_pierce_factor=armor_pierce_factor,
         )
 
     # ======== 六爻·元亨利贞：免疫伤害（有武器路径） ========
@@ -852,7 +876,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                         f"🎯 命中 {chance} → 掷 {roll}：被闪避！擦伤结算")
 
         hit = resolve_hit(target, raw_int, weapon.attribute.value,
-                          force_min=police_force_min or grazed_by_evasion)
+                          force_min=police_force_min or grazed_by_evasion,
+                          pierce_factor=armor_pierce_factor)
         result["final_damage"] = hit["damage"]
         result["success"] = True
         remaining = hit["damage"]
@@ -1277,7 +1302,8 @@ def resolve_location_damage(attacker, location, game_state,
                             raw_damage=1.0, ignore_counter=True,
                             exclude_self=True,
                             damage_attribute_override=None,
-                            is_talent_attack=False):
+                            is_talent_attack=False,
+                            armor_pierce_factor=1.0):
     """对指定地点的所有单位（玩家 + 警察 + 未来的其他单位）造成伤害。
 
     参数：
@@ -1304,6 +1330,7 @@ def resolve_location_damage(attacker, location, game_state,
             ignore_counter=ignore_counter,
             damage_attribute_override=damage_attribute_override,
             is_talent_attack=is_talent_attack,
+            armor_pierce_factor=armor_pierce_factor,
         )
         results["players"].append({"target": t, "result": r})
 

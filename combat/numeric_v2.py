@@ -90,17 +90,20 @@ def distribute_durability(pieces: List[Any], absorbed: int,
 
 
 def resolve_hit(target: Any, raw_damage: int, attack_attr_name: str,
-                force_min: bool = False) -> Dict[str, Any]:
+                force_min: bool = False, pierce_factor: float = 1.0) -> Dict[str, Any]:
     """一次命中的完整数值结算（不写 HP，只算账+磨耐久）。
 
     force_min: 强制按保底结算（警察保护 / M3 起的擦伤）。
+    pierce_factor: 防御计算系数（M7 穿甲/防御减半，1.0=正常，0.5=防御按半计，
+        0.25=穿甲按 25% 计）——耐久仍按实际吸收量磨损。
     返回 {damage, defense, absorbed, grazed, broken: [甲名]}。
     """
     defense, contributing = compute_defense(target, attack_attr_name)
+    effective_defense = int(round(defense * pierce_factor)) if pierce_factor != 1.0 else defense
     if force_min:
         damage = min_damage(raw_damage)
     else:
-        damage = compute_damage(raw_damage, defense)
+        damage = compute_damage(raw_damage, effective_defense)
     absorbed = raw_damage - damage
     broken = distribute_durability(contributing, absorbed, attack_attr_name)
     return {

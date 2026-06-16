@@ -57,9 +57,15 @@ class Star(BaseTalent):
             police_at_loc = [u for u in self.state.police.units_at(player.location)
                              if u.is_alive()]
 
-        # V1.92: 动态伤害公式 = min(1 + 0.5 * 命中单位数, 3)
+        # 伤害公式：v1 = min(1+0.5×命中数, 2)；M7 hp20 = min(4+命中数, 8)（§7.6）
         target_count = len(targets) + len(police_at_loc)
-        damage_per_target = min(1.0 + 0.5 * target_count, 2.0)
+        from talents.talent_balance import m7_enabled, talent_num
+        if m7_enabled():
+            damage_per_target = min(
+                talent_num("t3", "aoe_base", v1=4) + talent_num("t3", "aoe_per_hit", v1=1) * target_count,
+                talent_num("t3", "aoe_cap", v1=8))
+        else:
+            damage_per_target = min(1.0 + 0.5 * target_count, 2.0)
 
         # 记录伤害前的 HP（resolve_location_damage 内部会直接扣血）
         player_old_hp = {}
@@ -77,12 +83,15 @@ class Star(BaseTalent):
                                           player_name=player.name)]
 
         # 使用 resolve_location_damage 统一处理玩家+警察伤害
+        # M7 hp20：天星穿甲 50%（§7.6）
+        _pierce = talent_num("t3", "armor_pierce", v1=1.0) if m7_enabled() else 1.0
         results_dict = resolve_location_damage(
             attacker=player, location=player.location,
             game_state=self.state, raw_damage=damage_per_target,
             ignore_counter=True, exclude_self=True,
             damage_attribute_override="无视属性克制",
             is_talent_attack=True,
+            armor_pierce_factor=_pierce,
         )
 
         # 处理玩家结果：伤害 + 石化
