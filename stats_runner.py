@@ -154,7 +154,8 @@ COL_PERS = 14      # 人格列宽
 def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random",
                     diag_mode: bool = False, collect_digest: bool = False,
                     lineup: Optional[list[str]] = None,
-                    no_talents: bool = False) -> dict[str, Any]:
+                    no_talents: bool = False,
+                    force_talent: Optional[str] = None) -> dict[str, Any]:
     """Run a single game (all-AI, or with one RL seat) and return results.
 
     collect_digest: True 时结果附带 event_digest（golden 回放用，常规批跑不开省内存）。
@@ -210,6 +211,7 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
 
     ai_personality_map = {info[0]: info[2] for info in ai_players_info}
     taken: set[int] = set()
+    force_assigned = False
 
     # RL random 模式：先选，确保均匀分布
     if rl_pid is not None and rl_talent_mode == "random":
@@ -287,6 +289,21 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         # 风洞 bot 不选天赋（测机制不测天赋）；--no-talents 全员跳过
         if pid in bot_pids or no_talents:
             continue
+
+        # --force-talent：保证指定天赋出现在一个 AI 席位（逐天赋风洞用）
+        # 子串匹配：TALENT_TABLE 注册名带「神代天赋-」前缀，允许传部分名
+        if force_talent and not force_assigned:
+            for n, name, cls, desc in TALENT_TABLE:
+                if force_talent in name and n not in taken:
+                    talent_inst = cls(pid, game_state)
+                    player.talent = talent_inst
+                    player.talent_name = name
+                    talent_inst.on_register()
+                    taken.add(n)
+                    force_assigned = True
+                    break
+            if force_assigned and player.talent is not None:
+                continue
 
         # AI 玩家天赋分配（原有逻辑）
         available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
@@ -527,7 +544,8 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
               golden_record: Optional[str] = None,
               golden_check: Optional[str] = None,
               lineup: Optional[list[str]] = None,
-              no_talents: bool = False) -> None:
+              no_talents: bool = False,
+              force_talent: Optional[str] = None) -> None:
     """Run multiple games and collect statistics.
 
     seed: 基准随机种子。提供时第 i 局（0-based）使用 random.seed(seed + i)，
@@ -611,7 +629,8 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
         try:
             result = run_single_game(num_players, rl_controller, rl_talent_mode,
                                      diag_mode=diag_mode, collect_digest=golden_mode,
-                                     lineup=lineup, no_talents=no_talents)
+                                     lineup=lineup, no_talents=no_talents,
+                                     force_talent=force_talent)
         except Exception:
             errors += 1
             continue
@@ -1119,6 +1138,9 @@ def main():
                              "如 --players 2 --lineup turtle,rush")
     parser.add_argument("--no-talents", action="store_true",
                         help="全员不分配天赋（M2~M6 风洞主通道：天赋量纲 M7 才迁移）")
+    parser.add_argument("--force-talent", type=str, default=None,
+                        help="保证指定天赋（名称，如「大叔我啊，剪短发了」）出现在一个 AI 席位，"
+                             "用于 M7 第二阶段逐天赋风洞")
     args = parser.parse_args()
 
     if (args.golden_record or args.golden_check) and args.seed is None:
@@ -1175,7 +1197,7 @@ def main():
     run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
               diag_mode=args.diag, diag_output=args.diag_output, seed=args.seed,
               golden_record=args.golden_record, golden_check=args.golden_check,
-              lineup=lineup, no_talents=args.no_talents)
+              lineup=lineup, no_talents=args.no_talents, force_talent=args.force_talent)
 
 
 if __name__ == "__main__":
