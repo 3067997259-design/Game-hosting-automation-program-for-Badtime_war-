@@ -1,6 +1,6 @@
 """倒彩 ×2 — 通用（Str倾向）"""
 from engine.cards.base import BaseCard
-from engine.ish_bosheth import ACCAREZZEVOLE
+from engine.ish_bosheth import ACCAREZZEVOLE, _g2_num
 from cli import display
 
 class Boo(BaseCard):
@@ -19,4 +19,4 @@ class Boo(BaseCard):
             chosen = player.controller.choose("倒彩：选择 Acc 目标", [t.name for t in all_acc],
                 context={"phase":"T0","situation":"g2_card_boo"})
             target = next((t for t in all_acc if t.name == chosen), all_acc[0])
-            target._card_debuff_damage_taken = 0.5
+            target._card_debuff_damage_taken = _g2_num("card_boo_damage_taken", v1=0.5)

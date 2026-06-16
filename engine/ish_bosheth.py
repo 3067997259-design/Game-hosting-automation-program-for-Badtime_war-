@@ -346,7 +346,8 @@ class IshBosheth:
     # ================================================================
     def _duet_on_r4(self, game_state: GameState):
         """duet 模式 R4：当轮热力→Regard 折算 + 检查谢幕条件。"""
-        CONVERSION = 0.5
+        # hp20 §11.4：伤害量纲 ×5 后热力随之膨胀，转化率 0.5→0.1 防 Regard 通胀
+        CONVERSION = _g2_num("duet_heat_conversion", v1=0.5)
         # 当轮热力增量 = 当前累计 - 上轮累计（避免全赛程累积导致 Regard 快速饱和）
         round_heat = {
             v: self.duet_heat[v] - self._duet_prev_heat.get(v, 0)
@@ -1001,11 +1002,12 @@ class IshBosheth:
                 if c.is_alive() and c.emotion == voice:
                     members.append(c)
 
+            button_amt = _g2_num("duet_button_amount", v1=0.5)
             if rank_idx == 0:
                 for m in members:
                     m._duet_d4_bonus = True
                     m._duet_d6_bonus = True
-                    m._duet_damage_bonus = getattr(m, '_duet_damage_bonus', 0) + 0.5 * multiplier
+                    m._duet_damage_bonus = getattr(m, '_duet_damage_bonus', 0) + button_amt * multiplier
                 display.show_info(
                     prompt_manager.get_prompt("duet", "curtain.reward_1st",
                         default="🥇 第1声部({voice}): D4/D6+1，下次伤害+0.5").format(voice=voice))
@@ -1013,7 +1015,7 @@ class IshBosheth:
                 for m in members:
                     m._duet_d4_bonus = True
                     m._duet_d6_bonus = True
-                    m.temp_hp_g2 += 0.5 * multiplier
+                    m.temp_hp_g2 += button_amt * multiplier
                 display.show_info(
                     prompt_manager.get_prompt("duet", "curtain.reward_2nd",
                         default="🥈 第2声部({voice}): D4/D6+1，tempHP+0.5").format(voice=voice))

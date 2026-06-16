@@ -1,5 +1,6 @@
 """花束 ×2 — 通用"""
 from engine.cards.base import BaseCard
+from engine.ish_bosheth import _g2_num
 from cli import display
 
 class Bouquet(BaseCard):
@@ -28,12 +29,15 @@ class Bouquet(BaseCard):
                 context={"phase":"T0","situation":"g2_card_bouquet"})
             target = next((t for t in all_units if t.name == chosen), all_units[0])
 
+            temp_hp = _g2_num("card_bouquet_temp_hp", v1=0.5)
+            chorus_heal = _g2_num("card_bouquet_chorus_heal", v1=0.5)
+
             # v2.0 duet: 上供舞台 → 热力
             if ish.phase == "duet" and target.player_id in (ish.g2_owner_id, ish.duet_g5_pid):
-                target._card_temp_hp_until_r4 = getattr(target, '_card_temp_hp_until_r4', 0) + 0.5
-                ish.offer_heat(player, 0.5, self.name)
+                target._card_temp_hp_until_r4 = getattr(target, '_card_temp_hp_until_r4', 0) + temp_hp
+                ish.offer_heat(player, temp_hp, self.name)
                 return
 
-            target._card_temp_hp_until_r4 = 0.5
+            target._card_temp_hp_until_r4 = temp_hp
             if getattr(target, 'is_chorus', False):
-                target.hp = min(1.0, round(target.hp + 0.5, 2))
+                target.hp = min(target.max_hp, round(target.hp + chorus_heal, 2))

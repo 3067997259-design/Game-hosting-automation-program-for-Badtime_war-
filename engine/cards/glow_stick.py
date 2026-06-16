@@ -1,6 +1,6 @@
 """荧光棒 ×2 — 通用（Acc倾向）"""
 from engine.cards.base import BaseCard
-from engine.ish_bosheth import STRAPPANDO
+from engine.ish_bosheth import STRAPPANDO, _g2_num
 from cli import display
 
 class GlowStick(BaseCard):
@@ -19,8 +19,8 @@ class GlowStick(BaseCard):
                 context={"phase": "T0", "situation": "g2_card_glow_stick_duet"}
             )
             if "上供" in choice:
-                ish.offer_heat(player, 0.5, self.name)
+                ish.offer_heat(player, _g2_num("card_glow_stick", v1=0.5), self.name)
                 return
 
-        player._card_damage_bonus = 0.5
+        player._card_damage_bonus = _g2_num("card_glow_stick", v1=0.5)
         player._card_damage_bonus_voice_filter = STRAPPANDO
