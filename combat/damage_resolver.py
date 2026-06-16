@@ -12,6 +12,95 @@ def _hp20_mode():
     from engine import experiments
     return experiments.is_enabled("hp20")
 
+def _m7_talents():
+    """天赋 hp20 量纲换算开关（experiment: m7_talents，v2.0 §7）。"""
+    from engine import experiments
+    return experiments.is_enabled("m7_talents")
+
+def _g7_num(*keys, v1):
+    """读 G7 星野的 hp20 量纲数值（m7 下读 balance.talents.g7，否则 v1）。"""
+    from talents.talent_balance import talent_num
+    return talent_num("g7", *keys, v1=v1)
+
+
+def _g7_m7_shield_filter(talent, raw, result, game_state):
+    """m7 架盾正面过滤（§7.4）：裸伤 ≤ 阈值完全格挡；超出扣耐久并无效化。
+    架盾对正面攻击始终吃下（伤害归 0），返回 result。"""
+    threshold = _g7_num("shield_block_threshold", v1=0)
+    if raw <= threshold:
+        result["final_damage"] = 0
+        result["success"] = False
+        result["reason"] = "架盾正面伤害过滤"
+        result["details"].append(prompt_manager.get_prompt(
+            "talent", "g7hoshino.shield_filter_immune", raw=raw, threshold=threshold))
+    else:
+        cost = _g7_num("shield_overflow_durability_cost", v1=1)
+        talent.iron_horus_hp = max(0, talent.iron_horus_hp - cost)
+        result["final_damage"] = 0
+        result["success"] = False
+        result["reason"] = "架盾正面伤害过滤（溢出）"
+        result["details"].append(prompt_manager.get_prompt(
+            "talent", "g7hoshino.shield_filter_overflow",
+            raw=raw, threshold=threshold, remaining_hp=talent.iron_horus_hp))
+        if talent.iron_horus_hp <= 0:
+            player_obj = game_state.get_player(talent.player_id) if game_state else None
+            if player_obj:
+                talent._end_shield_mode(player_obj)
+            result["details"].append(
+                prompt_manager.get_prompt("talent", "g7hoshino.shield_horus_zero"))
+    return result
+
+
+def _g7_m7_hold_absorb(talent, raw, result, game_state):
+    """m7 持盾减免（§7.4）：全属性 -hold_defense（减法，非 ×0.5），剩余由耐久吸收；
+    破盾吸收溢出并解除持盾。返回 (handled, raw)：handled=True 表示已完全挡下。"""
+    defense = _g7_num("hold_defense", v1=0)
+    raw = max(0, raw - defense)
+    if raw > 0 and talent.iron_horus_hp > 0:
+        absorbed = min(raw, talent.iron_horus_hp)
+        talent.iron_horus_hp -= absorbed
+        raw -= absorbed
+        result["details"].append(prompt_manager.get_prompt(
+            "talent", "g7hoshino.hold_absorb",
+            absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
+        if talent.iron_horus_hp <= 0:
+            raw = 0
+            result["details"].append(
+                prompt_manager.get_prompt("talent", "g7hoshino.hold_broken_absorb"))
+            player_obj = game_state.get_player(talent.player_id) if game_state else None
+            if player_obj:
+                talent._end_shield_mode(player_obj)
+    if raw <= 0:
+        result["final_damage"] = 0
+        result["success"] = False
+        result["reason"] = "持盾伤害减免"
+        return True, raw
+    return False, raw
+
+
+def _g7_m7_passive(talent, raw, result):
+    """m7 被动保护（§7.4）：全属性 -passive_defense；耐久吸收但保留 reserve 耐久不破，
+    溢出由光环护体池吸收；再溢出继续走护甲/HP。返回 (handled, raw)。"""
+    defense = _g7_num("passive_defense", v1=0)
+    raw = max(0, raw - defense)
+    reserve = _g7_num("passive_break_reserve", v1=0)
+    absorbable = max(0, talent.iron_horus_hp - reserve)
+    if raw > 0 and absorbable > 0:
+        absorbed = min(raw, absorbable)
+        talent.iron_horus_hp -= absorbed
+        raw -= absorbed
+        result["details"].append(prompt_manager.get_prompt(
+            "talent", "g7hoshino.passive_absorb",
+            absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
+    if raw > 0:
+        raw = talent.receive_damage_to_temp_hp(raw)  # 光环护体池
+    if raw <= 0:
+        result["final_damage"] = 0
+        result["success"] = False
+        result["reason"] = "铁之荷鲁斯被动保护"
+        return True, raw
+    return False, raw  # 溢出继续走后续护甲/HP 结算
+
 def _get_hologram_bonus(target, game_state):
     """检查所有玩家天赋，看目标是否在全息影像中"""
     if not game_state:
@@ -139,6 +228,8 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         if attacker_id and talent.is_front(attacker_id):
             # is_love_poem 由调用方通过参数传入
             if not is_love_poem:
+                if _m7_talents():
+                    return _g7_m7_shield_filter(talent, raw, result, game_state)
                 threshold = talent.shield_snapshot_hp
                 if raw <= threshold:
                     result["final_damage"] = 0
@@ -180,8 +271,12 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
                 game_state.markers.has_relation(target.player_id, "ENGAGED_WITH", attacker_id)
                 or game_state.markers.has_relation(target.player_id, "LOCKED_ON", attacker_id)
             )
+        if _m7_talents():
+            handled, raw = _g7_m7_hold_absorb(talent, raw, result, game_state)
+            if handled:
+                return result
         # 持盾保护：所有入射伤害降低50%（包括范围攻击如天星）
-        if talent.iron_horus_hp > 0:
+        elif talent.iron_horus_hp > 0:
             raw = raw * 0.5
             absorbed = min(raw, talent.iron_horus_hp)
             talent.iron_horus_hp -= absorbed
@@ -213,46 +308,52 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         and getattr(target.talent, 'fusion_shield_done', False)  # 已完成融合
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
-        absorbed = min(raw, talent.iron_horus_hp)
-        # 设计意图：使用 `>=` 而非 `>` —— 当 raw 恰好等于 iron_horus_hp（无溢出）时，
-        # 也视为"本次攻击导致破损"，从而触发光环吸收并把 Horus 保留在 0.5 HP。
-        # 这是有意为之的"光环救援"机制，确保踩线伤害也能让光环介入。
-        # 也视为"本次攻击导致破损"，从而触发光环吸收并把 Horus 保留在 0.5 护甲值。
-        talent.iron_horus_hp -= absorbed
-        raw -= absorbed
-        result["details"].append(
-            prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
-                absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
-        if talent.iron_horus_hp <= 0:
-            active_halos = sum(1 for h in getattr(talent, 'halos', []) if h.get('active'))
-            if active_halos > 0:
-                # ★ 保留0.5护甲值，溢出伤害由光环吸收
-                talent.iron_horus_hp = 0.5
-                remaining = talent.receive_damage_to_temp_hp(raw)
-                if remaining > 0:
-                    # 光环不足以吸收全部溢出 → 熄灭所有剩余光环，Horus真正破损
-                    for h in getattr(talent, 'halos', []):
-                        if h.get('active'):
-                            h['active'] = False
-                            h['recovering'] = False
-                            h['cooldown_remaining'] = 0
-                    talent.iron_horus_hp = 0
-                    raw = remaining
-                    result["details"].append(
-                        prompt_manager.get_prompt("talent", "g7hoshino.passive_broken_halos_exhausted"))
+        if _m7_talents():
+            handled, raw = _g7_m7_passive(talent, raw, result)
+            if handled:
+                return result
+            # m7：溢出继续走后续护甲/HP（跳过 v1 被动救援逻辑）
+        else:
+            absorbed = min(raw, talent.iron_horus_hp)
+            # 设计意图：使用 `>=` 而非 `>` —— 当 raw 恰好等于 iron_horus_hp（无溢出）时，
+            # 也视为"本次攻击导致破损"，从而触发光环吸收并把 Horus 保留在 0.5 HP。
+            # 这是有意为之的"光环救援"机制，确保踩线伤害也能让光环介入。
+            # 也视为"本次攻击导致破损"，从而触发光环吸收并把 Horus 保留在 0.5 护甲值。
+            talent.iron_horus_hp -= absorbed
+            raw -= absorbed
+            result["details"].append(
+                prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
+                    absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
+            if talent.iron_horus_hp <= 0:
+                active_halos = sum(1 for h in getattr(talent, 'halos', []) if h.get('active'))
+                if active_halos > 0:
+                    # ★ 保留0.5护甲值，溢出伤害由光环吸收
+                    talent.iron_horus_hp = 0.5
+                    remaining = talent.receive_damage_to_temp_hp(raw)
+                    if remaining > 0:
+                        # 光环不足以吸收全部溢出 → 熄灭所有剩余光环，Horus真正破损
+                        for h in getattr(talent, 'halos', []):
+                            if h.get('active'):
+                                h['active'] = False
+                                h['recovering'] = False
+                                h['cooldown_remaining'] = 0
+                        talent.iron_horus_hp = 0
+                        raw = remaining
+                        result["details"].append(
+                            prompt_manager.get_prompt("talent", "g7hoshino.passive_broken_halos_exhausted"))
+                    else:
+                        raw = 0
                 else:
+                    # 无活跃光环：原行为，破碎时吸收所有溢出
                     raw = 0
-            else:
-                # 无活跃光环：原行为，破碎时吸收所有溢出
-                raw = 0
-                result["details"].append(
-                    prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
-        # 被动模式下破碎时也吸收所有溢出伤害（与持盾行为一致）
-        if raw <= 0:
-            result["final_damage"] = 0
-            result["success"] = False
-            result["reason"] = "铁之荷鲁斯被动保护"
-            return result
+                    result["details"].append(
+                        prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
+            # 被动模式下破碎时也吸收所有溢出伤害（与持盾行为一致）
+            if raw <= 0:
+                result["final_damage"] = 0
+                result["success"] = False
+                result["reason"] = "铁之荷鲁斯被动保护"
+                return result
         # raw > 0 时继续走后续的天赋减伤和护甲结算
 
     # ---- 天赋受伤减免（如火萤IV型 -50%）----
@@ -698,6 +799,8 @@ def resolve_damage(attacker, target, weapon, game_state,
             # 免疫除爱与记忆之诗外所有伤害低于快照护甲值的正面伤害
             # is_love_poem 由调用方通过参数传入
             if not is_love_poem:
+                if _m7_talents():
+                    return _g7_m7_shield_filter(talent, raw, result, game_state)
                 threshold = talent.shield_snapshot_hp
                 if raw <= threshold:
                     # 完全免疫，铁之荷鲁斯不受伤害
@@ -764,7 +867,11 @@ def resolve_damage(attacker, target, weapon, game_state,
                 game_state.markers.has_relation(target.player_id, "ENGAGED_WITH", attacker_id)
                 or game_state.markers.has_relation(target.player_id, "LOCKED_ON", attacker_id)
             )
-        if talent.iron_horus_hp > 0:
+        if _m7_talents():
+            handled, raw = _g7_m7_hold_absorb(talent, raw, result, game_state)
+            if handled:
+                return result
+        elif talent.iron_horus_hp > 0:
             raw = raw * 0.5  # 持盾减伤50%
             absorbed = min(raw, talent.iron_horus_hp)
             talent.iron_horus_hp -= absorbed
@@ -795,24 +902,30 @@ def resolve_damage(attacker, target, weapon, game_state,
         and getattr(target.talent, 'fusion_shield_done', False)  # 已完成融合
         and not getattr(target, '_mythland_talent_suppressed', False)):
         talent = target.talent
-        # 无属性：所有伤害类型都有效，不做属性克制检查
-        # 被动模式下吸收伤害，破碎时吸收所有溢出（与持盾一致）
-        absorbed = min(raw, talent.iron_horus_hp)
-        talent.iron_horus_hp -= absorbed
-        raw -= absorbed
-        result["details"].append(
-            prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
-                absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
-        if talent.iron_horus_hp <= 0:
-            raw = 0  # 破碎时吸收所有溢出
+        if _m7_talents():
+            handled, raw = _g7_m7_passive(talent, raw, result)
+            if handled:
+                return result
+            # m7：溢出继续走后续护甲/HP
+        else:
+            # 无属性：所有伤害类型都有效，不做属性克制检查
+            # 被动模式下吸收伤害，破碎时吸收所有溢出（与持盾一致）
+            absorbed = min(raw, talent.iron_horus_hp)
+            talent.iron_horus_hp -= absorbed
+            raw -= absorbed
             result["details"].append(
-                prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
-        # 被动模式下破碎时也吸收所有溢出伤害（与持盾行为一致）
-        if raw <= 0:
-            result["final_damage"] = 0
-            result["success"] = False
-            result["reason"] = "铁之荷鲁斯被动保护"
-            return result
+                prompt_manager.get_prompt("talent", "g7hoshino.passive_absorb",
+                    absorbed=absorbed, remaining_hp=talent.iron_horus_hp))
+            if talent.iron_horus_hp <= 0:
+                raw = 0  # 破碎时吸收所有溢出
+                result["details"].append(
+                    prompt_manager.get_prompt("talent", "g7hoshino.passive_broken"))
+            # 被动模式下破碎时也吸收所有溢出伤害（与持盾行为一致）
+            if raw <= 0:
+                result["final_damage"] = 0
+                result["success"] = False
+                result["reason"] = "铁之荷鲁斯被动保护"
+                return result
         # raw > 0 时继续走后续的天赋减伤和护甲结算
 
     # ---- 萤火受伤减免 ----
