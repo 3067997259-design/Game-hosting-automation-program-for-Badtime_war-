@@ -274,8 +274,12 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
 
     def receive_damage_to_temp_hp(self, damage, is_embrace=False):
         remaining = damage
-        # 相拥伤害：跳过 terror_extra_hp 和 permanent_extra_hp，但保留光环吸收
+        # 相拥伤害：跳过 terror_extra_hp 和 permanent_extra_hp
+        # §11.4：m7 下 embrace 无视光环吸收（直达 HP）；v1 仍消耗光环
         if is_embrace:
+            from talents.talent_balance import m7_enabled
+            if m7_enabled():
+                return remaining
             return self._halo_drain(remaining)
         # 正常模式：先用 Terror 额外HP
         if self.is_terror:

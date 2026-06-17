@@ -1099,6 +1099,12 @@ class IshBosheth:
             if breaker:
                 breaker._g2_curtain_d4_bonus = True
 
+        # §4.3 完结条：完整谢幕成功（独唱 END_CURTAIN / 双人 END_DUET）→ G2 剧情分 +15
+        # finale_conditions.mark 内部 m6_scoring 门控 + 每局判重；失败结局（破幕/静默/空场）不给分
+        if reason in (END_CURTAIN, END_DUET) and g2p:
+            from engine import finale_conditions
+            finale_conditions.mark(g2p, "g2_curtain", game_state)
+
         # 空场 / 谢幕 / 完整演出 G2 隐身
         if reason in (END_EMPTY, END_CURTAIN, END_SILENT, END_IND_WIN, END_DUET) and g2p and g2p.is_alive():
             game_state.markers.clear_all_relations(self.g2_owner_id)

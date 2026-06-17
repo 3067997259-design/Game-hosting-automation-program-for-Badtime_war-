@@ -357,8 +357,10 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
         # raw > 0 时继续走后续的天赋减伤和护甲结算
 
     # ---- 天赋受伤减免（如火萤IV型 -50%）----
+    # §11.4：m7 下 embrace（相拥）无视天赋防御（G1 -2 等），不无视装备防御
     if (target.talent and hasattr(target.talent, 'modify_incoming_damage')
-        and not getattr(target, '_mythland_talent_suppressed', False)):
+        and not getattr(target, '_mythland_talent_suppressed', False)
+        and not (is_embrace_damage and _m7_talents())):
         original_raw = raw
         raw = target.talent.modify_incoming_damage(target, attacker, None, raw)
         if raw != original_raw:
@@ -929,8 +931,10 @@ def resolve_damage(attacker, target, weapon, game_state,
         # raw > 0 时继续走后续的天赋减伤和护甲结算
 
     # ---- 萤火受伤减免 ----
+    # §11.4：m7 下 embrace（相拥）无视天赋防御，不无视装备防御
     if (target.talent and hasattr(target.talent, 'modify_incoming_damage')
-        and not getattr(target, '_mythland_talent_suppressed', False)):
+        and not getattr(target, '_mythland_talent_suppressed', False)
+        and not (is_embrace_damage and _m7_talents())):
         raw = target.talent.modify_incoming_damage(target, attacker, weapon, raw)
         if raw != result["raw_damage"]:
             damage_reduced_text = prompt_manager.get_prompt(
