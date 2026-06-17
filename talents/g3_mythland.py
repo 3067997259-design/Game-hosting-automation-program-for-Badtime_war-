@@ -50,7 +50,10 @@ class Mythland(BaseTalent):
         self.barrier_players = []
         self.original_locations = {}
         self.barrier_round = 0
-        self.max_barrier_rounds = 5
+        # 结界内决斗轮数：m7 读 balance.talents.g3（[待风洞] 旋钮），v1=5 字节不变。
+        # G3 无自身伤害量纲，这是唯一可调量；天赋压制二元悬崖待 M8 重设计。
+        from talents.talent_balance import talent_num
+        self.max_barrier_rounds = talent_num("g3", "max_barrier_rounds", v1=5)
         self.barrier_location = None
         self.poem_eternity_enhanced = False  # 涟漪献诗增强：被拉入者禁用主动天赋
         self._target_first_action_done = False  # 追踪被拉入者是否已完成第一次行动

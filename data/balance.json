@@ -315,6 +315,11 @@
             "card_bouquet_chorus_heal": 3,
             "card_boo_damage_taken": 2,
             "card_support_cheer_temp_hp": 2
+        },
+        "g3": {
+            "_name": "神话之外",
+            "_comment": "G3 无自身 HP/伤害量纲，伤害全委托已 hp20 的战斗流水线。唯一可调量是结界内决斗轮数。天赋压制二元悬崖待 M8 重设计（见 memory）",
+            "max_barrier_rounds": 5
         }
     },
 
