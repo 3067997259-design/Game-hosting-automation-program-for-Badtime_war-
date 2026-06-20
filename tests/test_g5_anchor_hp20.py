@@ -92,5 +92,59 @@ class SimulatePathTest(unittest.TestCase):
         self.assertFalse(r.achieved)
 
 
+class ResolverEvalTest(unittest.TestCase):
+    """G5b：anchor_resolver m7 分支走评估器 + 人类自传序列判断 + v1 回退。"""
+
+    def tearDown(self):
+        experiments.reset()
+
+    def _setup(self):
+        from engine.game_state import GameState
+        st = GameState()
+        c = Player("c", "C", controller=ForfeitController())
+        c.hp = 20; c.max_hp = 20; c.location = "商店"
+        c.weapons.append(Weapon("小刀", Attribute.ORDINARY, 4, WeaponRange.MELEE))
+        st.add_player(c)
+        t = Player("t", "T", controller=ForfeitController())
+        t.hp = 20; t.max_hp = 20; t.location = "商店"
+        t.armor.outer.append(make_armor("盾牌"))
+        st.add_player(t)
+        return st, c, t
+
+    def test_m7_auto_floor_feasible(self):
+        experiments.enable("hp20"); experiments.enable("m7_talents")
+        from engine.anchor_resolver import AnchorVerifier
+        st, c, t = self._setup()
+        r = AnchorVerifier(st).verify_kill(c, t)
+        # 同地点近战：find 1 + 杀 7 = 命数 8（horizon 8 → 可行）
+        self.assertTrue(r.feasible)
+        self.assertEqual(r.fate, 8)
+
+    def test_m7_supplied_sequence_too_short(self):
+        experiments.enable("hp20"); experiments.enable("m7_talents")
+        from engine.anchor_resolver import AnchorVerifier
+        st, c, t = self._setup()
+        seq = [("find",)] + [("attack", None)] * 3
+        r = AnchorVerifier(st).verify_sequence(c, t, "kill", seq)
+        self.assertFalse(r.feasible)   # 4 轮不够
+
+    def test_m7_supplied_sequence_enough(self):
+        experiments.enable("hp20"); experiments.enable("m7_talents")
+        from engine.anchor_resolver import AnchorVerifier
+        st, c, t = self._setup()
+        seq = [("find",)] + [("attack", None)] * 7
+        r = AnchorVerifier(st).verify_sequence(c, t, "kill", seq)
+        self.assertTrue(r.feasible)
+        self.assertEqual(r.fate, 8)
+
+    def test_v1_falls_through_to_old_formula(self):
+        # m7 关：走旧闭式公式（命数 = prep + ceil(总HP/裸伤)），不经评估器
+        experiments.reset()
+        from engine.anchor_resolver import AnchorVerifier
+        st, c, t = self._setup()
+        r = AnchorVerifier(st).verify_kill(c, t)
+        self.assertIsNotNone(r)   # 旧公式仍可调用（feasible 取决于旧 cap 5）
+
+
 if __name__ == "__main__":
     unittest.main()

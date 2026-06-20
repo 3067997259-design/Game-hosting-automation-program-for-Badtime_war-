@@ -44,6 +44,11 @@
         "g4_survive_rounds": 5
     },
 
+    "anchor": {
+        "_comment": "G5 锚定（experiment: m7_talents，§7.5，[待风洞]）。feasibility_horizon=命数可行上限（评估器 simulate_path 用）；monitor_window/variance_base 归 G5c",
+        "feasibility_horizon": 8
+    },
+
     "world_clock": {
         "_comment": "白昼世界时钟（experiment: m5_clock，v0.2 §3，全 [待风洞]）。段长=segment_base+初始人数；黄昏/终焉是破僵局压力阀",
         "segment_base": 6,

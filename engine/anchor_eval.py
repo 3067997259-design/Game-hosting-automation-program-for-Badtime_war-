@@ -196,3 +196,22 @@ def simulate_path(target: Any, weapons: List[Any], sequence: List[tuple], *,
             break
 
     return SimResult(goal_met(), rounds, log)
+
+
+def build_direct_sequence(state: Any, caster: Any, target: Any, weapons: List[Any], *,
+                          goal: str = "kill", break_piece: Optional[str] = None,
+                          horizon: int = 8) -> List[tuple]:
+    """直取底线序列：选当前对 goal 最优武器 → 该武器前置 → 连击至 horizon。
+
+    这是"神谕发给玩家的默认牌"的底线（可达性检查），**不是**策展的命运路线模板
+    （那些经 anchor_templates 注册，本站预留接口）。发动者不满意可自传序列覆盖。
+    """
+    proj = _TargetProj(target)
+    charged = set(w.name for w in weapons if getattr(w, "is_charged", False))
+    pick = _goal_progress_weapon(proj, weapons, charged, goal, break_piece)
+    if pick is None:
+        return []
+    weapon = pick[0]
+    seq = prep_actions(state, caster, target, weapon)
+    seq += [("attack", None)] * max(1, horizon)
+    return seq
