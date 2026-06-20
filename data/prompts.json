@@ -29,7 +29,8 @@
     "police_enforcement": " 🚔 警察执法：",
     "police_enforcement_item": " {msg}",
     "virus_death": " 💀🦠 {player_name} 因病毒死亡！",
-    "validate_terror_no_interact": "⚠️ Terror 降临，所有地点交互已被封锁。"
+    "validate_terror_no_interact": "⚠️ Terror 降临，所有地点交互已被封锁。",
+    "extra_turn_inserted": "📌 {name} 的额外行动回合已插入！"
   },
   "combat": {
     "opportunity_attack": " ⚡ {attacker} 对试图脱离交战的 {mover} 发动借机攻击！",

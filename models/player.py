@@ -196,6 +196,9 @@ class Player:
         # K 模式借机攻击：本轮已使用的轮次号（每轮限 1 次，v2.0 §1.3）
         self._aoo_used_round = 0
         self.acted_this_round = False
+        # 通用追加回合通道（round_manager R3 消费；天赋经 BaseTalent.grant_extra_turn 置位）
+        # 默认 0 时通道惰性、不产生任何行为，保持 v1 字节不变
+        self.pending_extra_turns: int = 0
 
         # 军事基地
         self.has_military_pass = False

@@ -437,6 +437,18 @@ class RoundManager:
                     display.show_info(
                         f"📌 {p.name} 的额外行动回合已插入！（警觉）")
 
+            # === 通用追加回合通道（非天赋具名；天赋经 BaseTalent.grant_extra_turn 置位）===
+            # 默认 pending_extra_turns=0 时本段惰性，不影响 v1
+            pending = getattr(actor, 'pending_extra_turns', 0)
+            if pending > 0:
+                actor.pending_extra_turns = 0
+                for k in range(pending):
+                    action_queue.insert(i + 1 + k, actor.player_id)
+                from engine.prompt_manager import prompt_manager
+                display.show_info(prompt_manager.get_prompt(
+                    "game", "extra_turn_inserted",
+                    default="📌 {name} 的额外行动回合已插入！").format(name=actor.name))
+
             # 检查胜利
             if self.state.check_victory():
                 return
