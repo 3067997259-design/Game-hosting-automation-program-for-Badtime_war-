@@ -431,7 +431,15 @@
       ],
       "activate": "🔥 Combo！{player_name} 连续行动达成！",
       "bonus_round": "🔥 Combo！{player_name} 本轮获得 +1 HP 和 +1 攻击力！",
-      "streak_trigger": "🔥 {player_name} 连续行动{threshold}轮！下一轮 D4 必为 4，D6 必为 6！"
+      "streak_trigger": "🔥 {player_name} 连续行动{threshold}轮！下一轮 D4 必为 4，D6 必为 6！",
+      "chart_issued": "🎵 {player_name} 的谱面来了：{chart}（按拍命中动作大类！）",
+      "note_perfect": "🎶 Perfect！（{category}）",
+      "note_good_early": "🎵 Good，快了！（{category}）",
+      "note_good_late": "🎵 Good，慢了！（{category}）",
+      "resolve_fc": "🌟 FULL COMBO！{player_name} 手感火热！",
+      "resolve_clear": "✨ Clear！{player_name} 手感火热！",
+      "resolve_partial": "🎵 {player_name} 演出结束（P{p}/G{g}/M{m}）。",
+      "resolve_none": "🎵 {player_name} ……这一段节奏全乱了。"
     },
     "t6goodcitizen": {
       "lore": [

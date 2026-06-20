@@ -320,6 +320,20 @@
             "_name": "神话之外",
             "_comment": "G3 无自身 HP/伤害量纲，伤害全委托已 hp20 的战斗流水线。唯一可调量是结界内决斗轮数。天赋压制二元悬崖待 M8 重设计（见 memory）",
             "max_barrier_rounds": 5
+        },
+        "t5": {
+            "_name": "combo（音游谱面，§7.6.1 重做）",
+            "chart_cadence_rounds": 4,
+            "chart_len_weights": [40, 40, 20],
+            "beat_spacing": 1,
+            "fever_atk_clear": 1,
+            "fever_atk_fc": 2,
+            "fever_duration_clear": 2,
+            "fever_duration_fc": 3,
+            "heal_clear": 2,
+            "heal_fc": 3,
+            "score_per_perfect": 2,
+            "fc_bonus_score": 5
         }
     },
 
