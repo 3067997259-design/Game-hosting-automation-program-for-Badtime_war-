@@ -34,7 +34,6 @@ _WHITELIST = {
     # talent — G5 往世的涟漪
     "talent.g5ripple.dm_confirm_acquisition",
     "talent.g5ripple.anchor_countdown",
-    "talent.g5ripple.monitoring_period",
     "talent.g5ripple.poem_law_election_progress",
     "talent.g5ripple.poem_bear",
     "talent.g5ripple.poem_destiny_header",

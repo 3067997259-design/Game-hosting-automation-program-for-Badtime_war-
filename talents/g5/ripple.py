@@ -73,6 +73,9 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         self.anchor_target_snapshot = None
         self.anchor_revealed_step = None
         self.was_paused_by_barrier = False
+        # m7 开拓：路径属性命中数（防御公式 n_X）+ 路径声明的有限 key 物品（floor 空）
+        self.anchor_attr_counts: dict = {}
+        self.anchor_key_items: list = []
 
         # === V1.92: 轮初快照（由 AnchorMixin._auto_judge_destructive 使用）===
         self._target_round_start_location: object | None = None
@@ -80,6 +83,11 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         self._caster_round_start_stunned: bool = False
         self._caster_round_start_shocked: bool = False
         self._caster_round_start_petrified: bool = False
+        # m7 开拓判定轮初快照：目标每属性总防御 / 隐身集 / HP / 持有物名
+        self._target_round_start_defense: dict | None = None
+        self._target_round_start_stealth: set | None = None
+        self._target_round_start_hp: float | None = None
+        self._target_round_start_items: set | None = None
 
         # === V1.92: 锚定D4加成（来自「一页永恒的善见天」）===
         # 成功锚定后，双方在后续5个判定轮次中D4点数+2（不超过4）

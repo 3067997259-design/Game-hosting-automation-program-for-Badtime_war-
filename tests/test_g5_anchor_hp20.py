@@ -164,6 +164,69 @@ class ResolverEvalTest(unittest.TestCase):
         self.assertIsNotNone(r)   # 旧公式仍可调用（feasible 取决于旧 cap 5）
 
 
+class PioneerIncrementTest(unittest.TestCase):
+    """G5c-3：开拓增量公式（防御 Σn_X + 移动 + 致残 + 治疗；删隐身）。"""
+
+    def tearDown(self):
+        experiments.reset()
+
+    def _setup(self, attr_counts):
+        experiments.enable("hp20"); experiments.enable("m7_talents")
+        from engine.game_state import GameState
+        from talents.g5.ripple import Ripple
+        st = GameState()
+        caster = Player("g5", "G5", controller=ForfeitController())
+        caster.hp = 20; caster.max_hp = 20; caster.location = "商店"
+        st.add_player(caster)
+        t = Player("t", "T", controller=ForfeitController())
+        t.hp = 20; t.max_hp = 20; t.location = "商店"
+        st.add_player(t)
+        g5 = Ripple("g5", st)
+        caster.talent = g5
+        g5.anchor_active = True
+        g5.anchor_target_id = "t"
+        g5.anchor_attr_counts = dict(attr_counts)
+        g5._anchor_save_round_snapshots()   # 轮初快照
+        return st, caster, t, g5
+
+    def _add_armor(self, target, defense_map):
+        from models.equipment import ArmorPiece, ArmorLayer
+        target.armor.outer.append(
+            ArmorPiece("X", None, ArmorLayer.OUTER, 10, defense_map=defense_map, durability=10))
+
+    def test_defense_magic_plus_n(self):
+        st, c, t, g5 = self._setup({"魔法": 2, "科技": 1})
+        self._add_armor(t, {"魔法": 3})       # 抬高魔法防御
+        self.assertEqual(g5._compute_pioneer_increment(t, c), 2)   # +n_魔
+
+    def test_defense_tech_plus_one(self):
+        st, c, t, g5 = self._setup({"魔法": 2, "科技": 1})
+        self._add_armor(t, {"科技": 3})
+        self.assertEqual(g5._compute_pioneer_increment(t, c), 1)   # +n_科
+
+    def test_defense_normal_zero_when_not_in_path(self):
+        st, c, t, g5 = self._setup({"魔法": 2})   # 路径无普通
+        self._add_armor(t, {"普通": 3})           # 抬高普通防御
+        self.assertEqual(g5._compute_pioneer_increment(t, c), 0)   # n_普=0 → +0
+
+    def test_normal_counts_when_in_path(self):
+        st, c, t, g5 = self._setup({"普通": 2})   # 路径有普通（普通非特例）
+        self._add_armor(t, {"普通": 3})
+        self.assertEqual(g5._compute_pioneer_increment(t, c), 2)   # 普通也算
+
+    def test_move_and_heal_and_stun(self):
+        st, c, t, g5 = self._setup({"魔法": 1})
+        t.location = "魔法所"          # 脱离 G5（商店）
+        t.hp = t.hp + 1               # 治疗
+        c.is_stunned = True           # 致残发动者
+        # 移动+1, 治疗+1, 致残+1 = 3（未抬防御 → 防御 0）
+        self.assertEqual(g5._compute_pioneer_increment(t, c), 3)
+
+    def test_no_pioneer_when_idle(self):
+        st, c, t, g5 = self._setup({"魔法": 2})
+        self.assertEqual(g5._compute_pioneer_increment(t, c), 0)
+
+
 class BowAwareEvalTest(unittest.TestCase):
     """G5c-1：评估器弓感知——弓按 compute_shot 解析属性 + 吃 pierce + attr_counts。"""
 
