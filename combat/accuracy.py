@@ -56,7 +56,16 @@ def compute_hit_chance(attacker: Any, target: Any, weapon: Any,
                        and getattr(target, "_hook_no_evasion_round", None)
                        == getattr(game_state, "current_round", -1))
 
-    if not hook_no_evasion:
+    # 善见天 v3（G5，m7）：被锚定目标对其锚定者的闪避/隐身全失效（永远被注视）
+    anchored_by_attacker = False
+    if attacker is not None and getattr(target, "_anchored_by", None) is not None:
+        from engine import experiments
+        if experiments.is_enabled("m7_talents"):
+            anchored_by_attacker = (
+                getattr(target, "_anchored_by", None)
+                == getattr(attacker, "player_id", None))
+
+    if not hook_no_evasion and not anchored_by_attacker:
         if not is_aoo and getattr(target, "moved_this_round", False):
             move_ev = _acc("move_evasion", 15)
             evasion += move_ev
@@ -78,7 +87,8 @@ def compute_hit_chance(attacker: Any, target: Any, weapon: Any,
             breakdown.append(f"闪避封顶 {cap}（原 {evasion}）")
             evasion = cap
     elif breakdown is not None:
-        breakdown.append("擦钩：闪避失效")
+        breakdown.append("善见天：永远被注视，闪避失效"
+                         if anchored_by_attacker else "擦钩：闪避失效")
     chance -= evasion
 
     # ── 攻击者震荡降级（自消耗 flag，不计入闪避封顶——是攻方 debuff 非守方投资）──

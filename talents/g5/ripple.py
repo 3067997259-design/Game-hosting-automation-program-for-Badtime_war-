@@ -379,7 +379,13 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
     # ================================================================
 
     def on_d4_bonus(self, player):
-        """锚定成功后，双方在后续5个判定轮次中D4点数+2（不超过4）"""
+        """锚定成功后，双方在后续5个判定轮次中D4点数+2（不超过4）。
+
+        m7：D4 退役，善见天由 v3（监控期闪避失效，accuracy.py）取代 → 此处恒 0。
+        """
+        from talents.talent_balance import m7_enabled
+        if m7_enabled():
+            return 0
         if self._anchor_d4_bonus_rounds <= 0:
             return 0
         # 检查是否是发动者或被锚定者

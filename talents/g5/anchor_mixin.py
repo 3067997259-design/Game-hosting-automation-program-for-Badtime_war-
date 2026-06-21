@@ -666,8 +666,14 @@ class AnchorMixin:
 
         display.show_info(self._format_anchor_start_msg(player, target))
 
-        # V1.92: 锚定确认时即应用「一页永恒的善见天」D4加成
-        self._apply_anchor_d4_bonus()
+        from talents.talent_balance import m7_enabled
+        if m7_enabled():
+            # 善见天 v3：监控期目标对 G5 的闪避/隐身失效（accuracy.py 读此关系）
+            if target is not None:
+                target._anchored_by = self.player_id
+        else:
+            # V1.92: 锚定确认时即应用「一页永恒的善见天」D4加成（D4 在 v1 仍存活）
+            self._apply_anchor_d4_bonus()
 
     def _format_anchor_start_msg(self, player, target):
         lines = [
@@ -1503,6 +1509,11 @@ class AnchorMixin:
     # ================================================================
 
     def _anchor_cleanup(self):
+        # 善见天 v3：解除被锚定目标的"被注视"关系
+        if self.anchor_target_id:
+            tgt = self.state.get_player(self.anchor_target_id)
+            if tgt is not None and getattr(tgt, "_anchored_by", None) == self.player_id:
+                tgt._anchored_by = None
         self.anchor_active = False
         self.anchor_type = None
         self.anchor_target_id = None

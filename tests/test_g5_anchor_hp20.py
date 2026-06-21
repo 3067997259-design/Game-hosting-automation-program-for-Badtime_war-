@@ -286,5 +286,59 @@ class BowAwareEvalTest(unittest.TestCase):
         self.assertLess(rp.rounds, rn.rounds)   # 穿甲命数更短
 
 
+class ShinkenV3Test(unittest.TestCase):
+    """G5c-4：善见天 v3——监控期目标对锚定者的闪避/隐身失效；替换已死 D4 加成。"""
+
+    def tearDown(self):
+        experiments.reset()
+
+    def _pair(self):
+        experiments.enable("hp20"); experiments.enable("m3_accuracy")
+        experiments.enable("m7_talents")
+        from engine.game_state import GameState
+        st = GameState(); st.current_round = 3
+        a = Player("a", "A", controller=ForfeitController()); a.location = "商店"
+        t = Player("t", "T", controller=ForfeitController()); t.location = "商店"
+        st.add_player(a); st.add_player(t)
+        t.moved_this_round = True   # → move_evasion
+        return st, a, t
+
+    def test_anchored_evasion_nullified(self):
+        from combat.accuracy import compute_hit_chance
+        st, a, t = self._pair()
+        base, _ = compute_hit_chance(a, t, None, st)   # 未锚定：吃移动闪避
+        t._anchored_by = a.player_id
+        anc, _ = compute_hit_chance(a, t, None, st)     # 锚定者：善见天 → 闪避失效
+        self.assertGreater(anc, base)
+        self.assertEqual(anc, 100)
+
+    def test_non_anchorer_unaffected(self):
+        from combat.accuracy import compute_hit_chance
+        st, a, t = self._pair()
+        other = Player("o", "O", controller=ForfeitController()); other.location = "商店"
+        st.add_player(other)
+        t._anchored_by = a.player_id           # 被 a 锚定
+        c, _ = compute_hit_chance(other, t, None, st)   # other 非锚定者 → 闪避照常
+        self.assertLess(c, 100)
+
+    def test_v1_d4_shinken_preserved(self):
+        experiments.reset()   # m7 关
+        from engine.game_state import GameState
+        from talents.g5.ripple import Ripple
+        st = GameState(); p = Player("g", "G", controller=ForfeitController())
+        st.add_player(p)
+        g5 = Ripple("g", st); g5._anchor_d4_bonus_rounds = 5
+        self.assertEqual(g5.on_d4_bonus(p), 3)   # v1 善见天 D4 保留
+
+    def test_m7_d4_shinken_dead(self):
+        experiments.enable("m7_talents")
+        from engine.game_state import GameState
+        from talents.g5.ripple import Ripple
+        st = GameState(); p = Player("g", "G", controller=ForfeitController())
+        st.add_player(p)
+        g5 = Ripple("g", st); g5._anchor_d4_bonus_rounds = 5
+        self.assertEqual(g5.on_d4_bonus(p), 0)   # m7：D4 退役 → 让位 v3
+
+
 if __name__ == "__main__":
     unittest.main()
