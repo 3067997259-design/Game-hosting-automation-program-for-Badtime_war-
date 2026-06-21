@@ -32,7 +32,8 @@ def execute(player: Any, target: Any, game_state: Any) -> Tuple[str, Dict]:
 
     result = resolve_damage(
         attacker=player, target=target, weapon=weapon,
-        game_state=game_state)
+        game_state=game_state,
+        armor_pierce_factor=shot["armor_pierce_factor"])
 
     lines = [f"🏹 {player.name} 张弓射向 {target.name}！"]
     for detail in result.get("details", []):

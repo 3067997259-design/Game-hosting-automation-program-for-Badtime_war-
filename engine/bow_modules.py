@@ -151,6 +151,7 @@ def compute_shot(player: Any) -> Dict[str, Any]:
     knockback = False
     knockback_pen = 0
     hit_bonus = 0
+    pierce_factor = 1.0
 
     for name, n in counts.items():
         spec = specs.get(name, {})
@@ -162,6 +163,9 @@ def compute_shot(player: Any) -> Dict[str, Any]:
         if "attribute" in spec:
             attr = {"魔法": Attribute.MAGIC, "科技": Attribute.TECH}.get(
                 spec["attribute"], Attribute.ORDINARY)
+        if "armor_pierce" in spec:
+            # 穿甲：防御按系数计（单 0.5 / 双 0.25），喂 resolve_damage 的 pierce_factor
+            pierce_factor = spec["armor_pierce_x2"] if n >= 2 else spec["armor_pierce"]
         if "burn_stacks" in spec:
             burn += spec["burn_stacks_x2"] if n >= 2 else spec["burn_stacks"]
         if "hit_bonus" in spec:
@@ -177,7 +181,7 @@ def compute_shot(player: Any) -> Dict[str, Any]:
     return {
         "weapon": weapon, "infinite": infinite, "burn_stacks": burn,
         "knockback": knockback, "knockback_initiative_penalty": knockback_pen,
-        "hit_bonus": hit_bonus,
+        "hit_bonus": hit_bonus, "armor_pierce_factor": pierce_factor,
     }
 
 
