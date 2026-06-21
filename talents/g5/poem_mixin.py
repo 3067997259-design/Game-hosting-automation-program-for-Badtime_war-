@@ -840,10 +840,12 @@ class PoemMixin:
             # 真伤与普通伤害统一走 resolve_damage，与天星/超新星一致
             # "真伤"使用"无视属性克制"属性 + ignore_counter，正常经过护甲/天赋钩子
             damage_attr = "无视属性克制" if dtype == "真伤" else dtype
+            from talents.talent_balance import talent_num
+            stage_dmg = talent_num("g5", "poem_destiny_stage_damage", v1=0.5)
             result = resolve_damage(
                 attacker=caster, target=target, weapon=None,
                 game_state=self.state,
-                raw_damage_override=0.5,
+                raw_damage_override=stage_dmg,
                 damage_attribute_override=damage_attr,
                 ignore_counter=True,
                 is_talent_attack=True,

@@ -52,9 +52,23 @@ def award(game_state: Any, player: Any, event_key: str,
 
     used.add(dedup_key)
     player.applause = getattr(player, "applause", 0) + points
+    _record_applause_location(game_state, player)
     game_state.log_event("applause", player=player.player_id,
                          event=event_key, points=points)
     return True
+
+
+def _record_applause_location(game_state: Any, player: Any) -> None:
+    """记录喝彩发生的(轮次,地点)到侧表（供 G5 追忆水源筛地点）。
+
+    不写进 event_log —— golden 摘要只采 event_log，侧表不污染回放基线（m6 冻结）。
+    """
+    rec = getattr(game_state, "_round_applause", None)
+    if rec is None:
+        rec = []
+        game_state._round_applause = rec
+    rec.append((getattr(game_state, "current_round", 0),
+                getattr(player, "location", None)))
 
 
 def check_kill_applause(game_state: Any, killer: Any, victim: Any,
@@ -72,6 +86,7 @@ def check_kill_applause(game_state: Any, killer: Any, victim: Any,
         pts = bget("applause", "first_kill", default=2)
         if pts > 0:
             killer.applause = getattr(killer, "applause", 0) + pts
+            _record_applause_location(game_state, killer)
             game_state.log_event("applause", player=killer.player_id,
                                  event="first_kill", points=pts)
 

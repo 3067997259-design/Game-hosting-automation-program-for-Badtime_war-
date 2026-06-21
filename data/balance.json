@@ -340,6 +340,12 @@
             "heal_fc": 3,
             "score_per_perfect": 2,
             "fc_bonus_score": 5
+        },
+        "g5": {
+            "_name": "往世的涟漪（追忆水源 + 献诗换算，§7.5）",
+            "reminiscence_per_round": 1,
+            "reminiscence_applause_bonus": 1,
+            "poem_destiny_stage_damage": 5
         }
     },
 

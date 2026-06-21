@@ -197,6 +197,18 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         """获取发动者 Player 对象"""
         return self.state.get_player(self.player_id)
 
+    def _count_applause_at_location(self, round_num):
+        """统计指定轮次、与 G5 同地点发生的喝彩级事件数（追忆新水源，§7.5 pt3）。
+
+        读 applause 侧表 `_round_applause`（不在 golden 摘要里，故不污染 m6 基线）。
+        """
+        me = self._get_caster()
+        if not me:
+            return 0
+        my_loc = getattr(me, "location", None)
+        rec = getattr(self.state, "_round_applause", None) or []
+        return sum(1 for (r, loc) in rec if r == round_num and loc == my_loc)
+
     # ================================================================
     #  追忆积累（R0）
     # ================================================================
@@ -210,18 +222,25 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         if round_num <= 1:
             return
 
-        # V1.93: 追忆积攒速度基于场上当前存活人数
-        current_alive = sum(
-            1 for pid in self.state.player_order
-            if self.state.get_player(pid) and self.state.get_player(pid).is_alive()
-        )
-        if current_alive > 3:
-            gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 1.0
+        from talents.talent_balance import m7_enabled, talent_num
+        if m7_enabled():
+            # §7.5 pt3 新水源：每轮基础 + 所在地点上一轮每发生一次喝彩级事件额外
+            gain = talent_num("g5", "reminiscence_per_round", v1=1)
+            gain += (self._count_applause_at_location(round_num - 1)
+                     * talent_num("g5", "reminiscence_applause_bonus", v1=1))
         else:
-            # 设计说明：≤3 人局当前两侧均为 0.5（看似冗余的三元），
-            # **故意保留**结构以便将来对"未行动"和"行动了"独立调参，
-            # 不要简化为 `gain = 0.5`。
-            gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 0.5
+            # V1.93: 追忆积攒速度基于场上当前存活人数
+            current_alive = sum(
+                1 for pid in self.state.player_order
+                if self.state.get_player(pid) and self.state.get_player(pid).is_alive()
+            )
+            if current_alive > 3:
+                gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 1.0
+            else:
+                # 设计说明：≤3 人局当前两侧均为 0.5（看似冗余的三元），
+                # **故意保留**结构以便将来对"未行动"和"行动了"独立调参，
+                # 不要简化为 `gain = 0.5`。
+                gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 0.5
 
         old = self.reminiscence
         self.reminiscence = min(self.max_reminiscence, self.reminiscence + gain)
