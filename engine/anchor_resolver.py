@@ -181,7 +181,7 @@ class AnchorVerifier:
         from engine import anchor_eval, anchor_templates
         from engine.balance import get as bget
 
-        horizon = int(bget("anchor", "feasibility_horizon", default=8))
+        horizon = int(bget("anchor", "window", default=8))   # K：可行上限=监控轮（单值）
         break_piece = None
         if goal == "break_armor":
             piece = self._find_armor_by_desc(target, target_armor_desc)
@@ -220,8 +220,9 @@ class AnchorVerifier:
                 reason=f"命数 {probe.rounds} 超过可行上限 {horizon}",
                 attr_counts=dict(probe.attr_counts))
 
-        # 变数：G5b 暂用 horizon - 命数（G5c 改为 variance_base + (K - 命数)）
-        variance = max(0, horizon - best.rounds)
+        # 变数 = clamp(variance_base + (K − 命数), 0, K−1)：越短越稳，永远留 ≥1 干净轮
+        variance_base = int(bget("anchor", "variance_base", default=2))
+        variance = max(0, min(variance_base + (horizon - best.rounds), horizon - 1))
         return AnchorVerification(
             feasible=True, fate=best.rounds, variance=variance,
             path_description=list(best.log), reason="可行",

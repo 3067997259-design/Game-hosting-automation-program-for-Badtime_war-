@@ -641,9 +641,15 @@ class AnchorMixin:
     # ================================================================
 
     def _anchor_start_combat(self, player, target):
+        from talents.talent_balance import m7_enabled
         self._consume_use()
         self.anchor_active = True
-        self.anchor_rounds_left = 5
+        # 监控轮 = K（m7 单值，= 可行上限）；v1 仍硬编码 5
+        if m7_enabled():
+            from engine.balance import get as bget
+            self.anchor_rounds_left = int(bget("anchor", "window", default=8))
+        else:
+            self.anchor_rounds_left = 5
         self.anchor_destructive_count = 0
 
         # RL 事件日志

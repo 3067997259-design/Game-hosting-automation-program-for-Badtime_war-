@@ -137,6 +137,24 @@ class ResolverEvalTest(unittest.TestCase):
         self.assertTrue(r.feasible)
         self.assertEqual(r.fate, 8)
 
+    def test_variance_clamp_formula(self):
+        # window=8, variance_base=2：命数8→变数2；命数越短变数越大、封顶 K-1=7
+        experiments.enable("hp20"); experiments.enable("m7_talents")
+        from engine.anchor_resolver import AnchorVerifier
+        st, c, t = self._setup()
+        r = AnchorVerifier(st).verify_kill(c, t)   # 命数8（find1+杀7）
+        self.assertEqual(r.fate, 8)
+        self.assertEqual(r.variance, 2)            # clamp(2+(8-8),0,7)=2
+        # 自传短路径（命数3：3连击直接，假设够杀的裸目标）
+        bare = Player("b", "B", controller=ForfeitController())
+        bare.hp = 6; bare.max_hp = 6; bare.location = "商店"
+        st.add_player(bare)
+        # 小刀 raw4：裸 6HP → 2 击；同地点需 find1 → 命数3
+        r2 = AnchorVerifier(st).verify_sequence(
+            c, bare, "kill", [("find",), ("attack", None), ("attack", None)])
+        self.assertTrue(r2.feasible)
+        self.assertEqual(r2.variance, max(0, min(2 + (8 - r2.fate), 7)))
+
     def test_v1_falls_through_to_old_formula(self):
         # m7 关：走旧闭式公式（命数 = prep + ceil(总HP/裸伤)），不经评估器
         experiments.reset()
