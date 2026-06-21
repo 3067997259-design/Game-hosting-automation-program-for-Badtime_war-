@@ -350,6 +350,7 @@
             "poem_bear_ember": 2,
             "poem_nightwatch_horus": 2,
             "poem_nightwatch_hp_deduct": 2,
+            "poem_joy_laugh_bonus": 2,
             "_poem_light_vuln_TODO": "追光诗易伤换算待 G2 Hologram 接易伤机制（当前 vestigial），见 docs"
         }
     },

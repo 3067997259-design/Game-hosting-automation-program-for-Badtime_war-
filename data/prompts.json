@@ -303,6 +303,7 @@
       ],
       "poem_rhythm_immediate_action": "🔥 {target_name} 获得一次奖励行动！（+1HP/+1ATK）",
       "poem_rhythm_completion": "🔥 {target_name} 完成奖励行动！\n{effects}",
+      "poem_rhythm_fc": "🎵🌊 {target_name} 的谱面被旋律诗点亮——FULL COMBO，手感火热！",
       "cancel_activation": "取消发动。",
       "anchor_not_established": "锚定未成立，追忆已返还。",
       "unknown_anchor_type": "❌ 未知锚定类型：{anchor_type}",
@@ -440,7 +441,8 @@
       "resolve_fc": "🌟 FULL COMBO！{player_name} 手感火热！",
       "resolve_clear": "✨ Clear！{player_name} 手感火热！",
       "resolve_partial": "🎵 {player_name} 演出结束（P{p}/G{g}/M{m}）。",
-      "resolve_none": "🎵 {player_name} ……这一段节奏全乱了。"
+      "resolve_none": "🎵 {player_name} ……这一段节奏全乱了。",
+      "poem_pick_category": "🎵 旋律诗：从谱面大类选一个立刻行动："
     },
     "t6goodcitizen": {
       "lore": [

@@ -235,6 +235,42 @@ class Combo(BaseTalent):
             talent_num("t5", "chart_cadence_rounds", v1=4))
 
     # ============================================================
+    #  献予「旋律」之诗支持（G5，m7）：保证一次 FC
+    # ============================================================
+    def poem_force_full_combo(self, player):
+        """旋律诗（m7）：无谱面则先发一张 → 给一次受谱面大类约束的额外行动 → 整谱判 FC。
+
+        由 G5 PoemMixin._poem_rhythm 调用（跨天赋调对象方法，合规）。
+        """
+        if not m7_enabled():
+            return False
+        if getattr(player, '_mythland_talent_suppressed', False):
+            return False
+        r = self.state.current_round
+        if not self.chart_active:
+            self._generate_chart(player, r)
+        if not self.current_chart:
+            return False
+        # 受谱面大类约束的额外行动（软约束：从谱面 categories 选一类后立刻行动）
+        cats = sorted({n["category"] for n in self.current_chart})
+        try:
+            player.controller.choose(
+                prompt_manager.get_prompt(
+                    "talent", "t5combo.poem_pick_category",
+                    default="🎵 旋律诗：从谱面大类选一个立刻行动："),
+                [self._CATEGORY_LABEL.get(c, c) for c in cats],
+                context={"phase": "poem", "situation": "rhythm_chart_action"})
+            from engine.action_turn import ActionTurnManager
+            ActionTurnManager(self.state).execute_single_action(player)
+        except Exception:
+            pass   # 额外行动失败不阻断 FC 结算
+        # 整谱判 FC：所有音符置 perfect → 走标准结算（顶档手感火热 + 追加行动）
+        for n in self.current_chart:
+            n["result"] = "perfect"
+        self._resolve_chart(player, self.state.current_round)
+        return True
+
+    # ============================================================
     #  行动回合钩子（m7：按拍判定音符）
     # ============================================================
     def on_turn_end(self, player, action_type):

@@ -425,8 +425,19 @@ class PoemMixin:
         1. 立刻给予一个享受奖励的额外行动（+1HP/+1ATK）
         2. 下一次天赋触发只需要连续2次获得行动权
         """
-        lines = []
+        from talents.talent_balance import m7_enabled
         talent = target.talent
+
+        # m7：T5 已是音游谱面 → 旋律诗保证一次 FC（发谱+受限行动+整谱判FC）
+        if m7_enabled() and hasattr(talent, 'poem_force_full_combo'):
+            talent.poem_force_full_combo(target)
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_rhythm_fc",
+                default="🎵🌊 {target_name} 的谱面被旋律诗点亮——FULL COMBO，手感火热！"
+            ).format(target_name=target.name)
+
+        # v1：旧 combo 奖励关
+        lines = []
 
         # 1. 激活奖励状态
         if hasattr(talent, 'activate_poem_bonus'):
@@ -956,23 +967,26 @@ class PoemMixin:
         - 后续「插入式笑话」需要的forfeit数减少2
         README 第 2162 行
         """
+        from talents.talent_balance import m7_enabled, talent_num
         talent = target.talent
         if not talent or talent.name != "要有笑声！":
             return "❌ 目标天赋不是「要有笑声！」"
 
-        # 立刻获得1次插入式笑话（附带 D4/D6 保证）
-        if hasattr(talent, 'cutaway_charges'):
-            talent.cutaway_charges = getattr(talent, 'cutaway_charges', 0) + 1
-        else:
-            talent.cutaway_charges = 1
-        talent._d4_force = True
-        talent._d6_force = True
+        # 立刻获得1次插入式笑话
+        talent.cutaway_charges = getattr(talent, 'cutaway_charges', 0) + 1
 
-        # forfeit需求减少2
-        if hasattr(talent, 'forfeit_threshold'):
-            talent.forfeit_threshold = max(0, talent.forfeit_threshold - 2)
+        if m7_enabled():
+            # 新 G6：D4 退役 → 不再置 _d4/_d6；"减 forfeit 需求"改为直接给笑点 +X
+            talent.laugh_points = getattr(talent, 'laugh_points', 0) + int(
+                talent_num("g5", "poem_joy_laugh_bonus", v1=2))
         else:
-            talent.forfeit_reduction = getattr(talent, 'forfeit_reduction', 0) + 2
+            # v1：D4/D6 保证 + 减 forfeit 需求
+            talent._d4_force = True
+            talent._d6_force = True
+            if hasattr(talent, 'forfeit_threshold'):
+                talent.forfeit_threshold = max(0, talent.forfeit_threshold - 2)
+            else:
+                talent.forfeit_reduction = getattr(talent, 'forfeit_reduction', 0) + 2
 
         charges = getattr(talent, 'cutaway_charges', 1)
         return (
