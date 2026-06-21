@@ -340,5 +340,63 @@ class ShinkenV3Test(unittest.TestCase):
         self.assertEqual(g5.on_d4_bonus(p), 0)   # m7：D4 退役 → 让位 v3
 
 
+class CommitTemplateTest(unittest.TestCase):
+    """G5 phase-2 P2e：直取限定枚举模板（commit_sequences + 注册模板）。"""
+
+    def tearDown(self):
+        experiments.reset()
+
+    def test_commit_sequences_count(self):
+        experiments.enable("hp20")
+        from engine import anchor_eval
+        from engine.game_state import GameState
+        from models.equipment import Weapon, WeaponRange
+        from utils.attribute import Attribute
+        st = GameState()
+        c = Player("c", "C", controller=ForfeitController()); c.location = "商店"
+        c.weapons.append(Weapon("小刀", Attribute.ORDINARY, 4, WeaponRange.MELEE))
+        c.weapons.append(Weapon("电磁步枪", Attribute.TECH, 6, WeaponRange.RANGED))
+        st.add_player(c)
+        t = _target(); st.add_player(t)
+        seqs = anchor_eval.commit_sequences(st, c, t, c.weapons, goal="kill", horizon=8)
+        # Player 默认带拳击 → 3 把能打武器各一条承诺 + 1 条贪心 = 4
+        self.assertGreaterEqual(len(seqs), 3)
+
+    def test_template_path_still_verifies(self):
+        # 经模板路径，命数 8 的有甲击杀仍可行（与 G5b 直取底线一致）
+        experiments.enable("hp20"); experiments.enable("m7_talents")
+        from engine.game_state import GameState
+        from engine.anchor_resolver import AnchorVerifier
+        from models.equipment import Weapon, WeaponRange
+        from utils.attribute import Attribute
+        st = GameState()
+        c = Player("c", "C", controller=ForfeitController())
+        c.hp = 20; c.max_hp = 20; c.location = "商店"
+        c.weapons.append(Weapon("小刀", Attribute.ORDINARY, 4, WeaponRange.MELEE))
+        st.add_player(c)
+        t = Player("t", "T", controller=ForfeitController())
+        t.hp = 20; t.max_hp = 20; t.location = "商店"
+        t.armor.outer.append(make_armor("盾牌"))
+        st.add_player(t)
+        r = AnchorVerifier(st).verify_kill(c, t)
+        self.assertTrue(r.feasible)
+        self.assertEqual(r.fate, 8)
+
+    def test_propose_paths_has_zhiqu(self):
+        experiments.enable("hp20")
+        from engine import anchor_templates
+        from engine.game_state import GameState
+        from models.equipment import Weapon, WeaponRange
+        from utils.attribute import Attribute
+        st = GameState()
+        c = Player("c", "C", controller=ForfeitController()); c.location = "商店"
+        c.weapons.append(Weapon("小刀", Attribute.ORDINARY, 4, WeaponRange.MELEE))
+        st.add_player(c)
+        t = _target()
+        st.add_player(t)
+        paths = anchor_templates.propose_paths(st, c, t, "kill", None)
+        self.assertTrue(len(paths) >= 1)
+
+
 if __name__ == "__main__":
     unittest.main()

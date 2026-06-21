@@ -15,20 +15,31 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
+def _zhiqu(state: Any, caster: Any, target: Any,
+           goal: str, break_piece: Optional[str]) -> List[List[tuple]]:
+    """直取模板：限定范围枚举（每武器一条承诺 + 一条贪心）。见 anchor_eval.commit_sequences。"""
+    from engine import anchor_eval
+    from engine.balance import get as bget
+    weapons = anchor_eval.resolve_weapons(caster)
+    horizon = int(bget("anchor", "window", default=8))
+    return anchor_eval.commit_sequences(
+        state, caster, target, weapons,
+        goal=goal, break_piece=break_piece, horizon=horizon)
+
+
 # 模板生产者列表。每个 callable 接收 (state, caster, target, goal, break_piece)，
-# 返回动作序列（list[tuple]）或 None/[]（该模板不适用）。当前空 —— 待用户策展。
-TEMPLATES: List[Callable[..., Optional[List[tuple]]]] = []
+# 返回**一小撮候选序列**（list[list[tuple]]，限定范围枚举）。武装夺命/以学弑命待策展叠加。
+TEMPLATES: List[Callable[..., Optional[List[List[tuple]]]]] = [_zhiqu]
 
 
 def propose_paths(state: Any, caster: Any, target: Any,
                   goal: str, break_piece: Optional[str]) -> List[List[tuple]]:
-    """收集所有适用模板产出的候选序列（当前为空，预留接口）。"""
+    """收集所有模板产出的候选序列集（每模板吐一小撮，全汇入交评估器取 min-命数）。"""
     out: List[List[tuple]] = []
     for produce in TEMPLATES:
         try:
-            seq = produce(state, caster, target, goal, break_piece)
+            seqs = produce(state, caster, target, goal, break_piece) or []
         except Exception:
-            seq = None
-        if seq:
-            out.append(seq)
+            seqs = []
+        out.extend(seqs)
     return out

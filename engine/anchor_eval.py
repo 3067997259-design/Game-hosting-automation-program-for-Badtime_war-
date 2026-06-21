@@ -251,3 +251,27 @@ def build_direct_sequence(state: Any, caster: Any, target: Any, weapons: List[An
     seq = prep_actions(state, caster, target, weapon)
     seq += [("attack", None)] * max(1, horizon)
     return seq
+
+
+def commit_sequences(state: Any, caster: Any, target: Any, weapons: List[Any], *,
+                     goal: str = "kill", break_piece: Optional[str] = None,
+                     horizon: int = 8) -> List[List[tuple]]:
+    """直取模板的"很有限范围的枚举"：一小撮候选序列，交评估器取 min-命数。
+
+    - 对每把能打的武器：一条"凑该武器前置 + 一路用它"（锁定一种属性承诺，破甲后伤害飙升）；
+    - 外加一条"每轮贪心换最优武器"。
+    合计 ~武器数+1 条，O(武器数×K)——不是 10^K 脚本、也不是单一贪心，正中"限定枚举"。
+    """
+    charged = set(w.name for w in weapons if getattr(w, "is_charged", False))
+    out: List[List[tuple]] = []
+    for w in weapons:
+        if _raw_of(w, charged) <= 0:
+            continue
+        seq = prep_actions(state, caster, target, w)
+        seq += [("attack", w)] * max(1, horizon)   # 承诺这把武器
+        out.append(seq)
+    greedy = build_direct_sequence(state, caster, target, weapons,
+                                   goal=goal, break_piece=break_piece, horizon=horizon)
+    if greedy:
+        out.append(greedy)
+    return out

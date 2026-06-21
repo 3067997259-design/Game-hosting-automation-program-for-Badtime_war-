@@ -195,12 +195,13 @@ class AnchorVerifier:
         if sequence is not None:
             candidates = [sequence]                       # 人类自定路径
         else:
-            # 预留模板（当前空）+ 直取底线（神谕默认牌）
+            # 命运路线模板（直取限定枚举已注册）；空则退直取底线
             candidates = anchor_templates.propose_paths(
                 self.state, caster, target, goal, break_piece)
-            candidates.append(anchor_eval.build_direct_sequence(
-                self.state, caster, target, weapons,
-                goal=goal, break_piece=break_piece, horizon=horizon))
+            if not candidates:
+                candidates = [anchor_eval.build_direct_sequence(
+                    self.state, caster, target, weapons,
+                    goal=goal, break_piece=break_piece, horizon=horizon)]
 
         best = None
         for seq in candidates:
