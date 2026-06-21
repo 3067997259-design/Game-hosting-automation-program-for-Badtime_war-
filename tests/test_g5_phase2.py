@@ -62,5 +62,24 @@ class PoemDestinyScaleTest(unittest.TestCase):
         self.assertEqual(talent_num("g5", "poem_destiny_stage_damage", v1=0.5), 0.5)
 
 
+class PoemConversionTest(unittest.TestCase):
+    """P2b：群星/负世/守夜人 数值换算（m7 读 balance，v1 原值 fallback）。"""
+
+    def tearDown(self):
+        experiments.reset()
+
+    def test_m7_balance_values(self):
+        from talents.talent_balance import talent_num
+        experiments.enable("m7_talents")
+        self.assertEqual(talent_num("g5", "poem_stars_bounce_damage", v1=0.5), 2)
+        self.assertEqual(talent_num("g5", "poem_bear_ember", v1=2), 2)
+        self.assertEqual(talent_num("g5", "poem_nightwatch_horus", v1=2), 2)
+
+    def test_v1_fallback(self):
+        from talents.talent_balance import talent_num
+        experiments.reset()
+        self.assertEqual(talent_num("g5", "poem_stars_bounce_damage", v1=0.5), 0.5)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -345,7 +345,12 @@
             "_name": "往世的涟漪（追忆水源 + 献诗换算，§7.5）",
             "reminiscence_per_round": 1,
             "reminiscence_applause_bonus": 1,
-            "poem_destiny_stage_damage": 5
+            "poem_destiny_stage_damage": 5,
+            "poem_stars_bounce_damage": 2,
+            "poem_bear_ember": 2,
+            "poem_nightwatch_horus": 2,
+            "poem_nightwatch_hp_deduct": 2,
+            "_poem_light_vuln_TODO": "追光诗易伤换算待 G2 Hologram 接易伤机制（当前 vestigial），见 docs"
         }
     },
 

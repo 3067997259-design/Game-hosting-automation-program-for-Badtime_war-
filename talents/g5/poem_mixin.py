@@ -718,13 +718,15 @@ class PoemMixin:
 
     def _poem_bear(self, target):
         """献予「负世」之诗：愿负世增强（可重复）"""
+        from talents.talent_balance import talent_num
+        ember = int(talent_num("g5", "poem_bear_ember", v1=2))   # hp20 火种量纲 [待风洞]
         talent = target.talent
 
-        # 基础：给予 2 点火种（每次都给）
+        # 基础：给予火种（每次都给）
         if hasattr(talent, 'gain_divinity'):
-            talent.gain_divinity(2, "涟漪方式2-基础奖励")
+            talent.gain_divinity(ember, "涟漪方式2-基础奖励")
         elif hasattr(talent, 'divinity'):
-            talent.divinity += 2
+            talent.divinity += ember
 
         # 增强效果
         if hasattr(talent, 'enhance_by_ripple'):
@@ -1039,8 +1041,9 @@ class PoemMixin:
             permanent_extra = int(talent.terror_extra_hp)
             talent.terror_extra_hp = 0
 
-            # 额外扣除2点（不致死，不足2点的话有多少扣多少）
-            deduct = min(permanent_extra, 2)
+            # 额外扣除（不致死，不足的话有多少扣多少）；hp20 量纲 [待风洞]
+            from talents.talent_balance import talent_num
+            deduct = min(permanent_extra, int(talent_num("g5", "poem_nightwatch_hp_deduct", v1=2)))
             permanent_extra -= deduct
 
             # 将永久额外HP存储到talent上（用于 receive_damage_to_temp_hp）
@@ -1050,9 +1053,10 @@ class PoemMixin:
                 default="sensei，我回来了。永久额外HP: {permanent_extra}"
             ).format(permanent_extra=permanent_extra))
 
-            # 恢复护甲值为2的铁之荷鲁斯
-            talent.iron_horus_hp = 2
-            talent.iron_horus_max_hp = 2
+            # 恢复铁之荷鲁斯（耐久值 [待风洞]，对齐 G7 hp20 量纲；默认沿用 2）
+            horus = int(talent_num("g5", "poem_nightwatch_horus", v1=2))
+            talent.iron_horus_hp = horus
+            talent.iron_horus_max_hp = horus
             talent.fusion_shield_done = True
             msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_horus_restore",
                 default="铁之荷鲁斯恢复（护甲值2）"))

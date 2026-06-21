@@ -158,8 +158,10 @@ class Star(BaseTalent):
 
         # ===== 涟漪增强：额外弹射伤害 =====
         if self.ripple_enhanced:
+            from talents.talent_balance import talent_num
+            bounce_dmg = talent_num("g5", "poem_stars_bounce_damage", v1=0.5)
             bounce_count = getattr(self, 'ripple_bounce_count', 2)
-            lines.append(f"\n   ⭐🌊 涟漪增强：额外指定{bounce_count}次目标，各造成0.5无视属性伤害！")
+            lines.append(f"\n   ⭐🌊 涟漪增强：额外指定{bounce_count}次目标，各造成{bounce_dmg}无视属性伤害！")
 
             # 收集同地点存活的可选目标（发动者以外的玩家+警察）
             bounce_player_targets = [p for p in self.state.players_at_location(player.location)
@@ -200,20 +202,20 @@ class Star(BaseTalent):
                         result = resolve_damage(
                             attacker=player, target=target_obj, weapon=None,
                             game_state=self.state,
-                            raw_damage_override=0.5,
+                            raw_damage_override=bounce_dmg,
                             damage_attribute_override="无视属性克制",
                             ignore_counter=True,
                             is_talent_attack=True,
                         )
-                        lines.append(f"   ⭐🌊 弹射→ {target_obj.name} 受到0.5伤害 HP: {old_hp} → {target_obj.hp}")
+                        lines.append(f"   ⭐🌊 弹射→ {target_obj.name} 受到{bounce_dmg}伤害 HP: {old_hp} → {target_obj.hp}")
                         if result.get("killed", False):
                             player.kill_count += 1
                             self.state.markers.on_player_death(target_obj.player_id)
                             lines.append(f"   💀 {target_obj.name} 被弹射击杀！")
                     elif target_obj and is_police_target:
                         old_hp = target_obj.hp
-                        target_obj.take_damage(0.5, attacker_id=player.player_id)
-                        lines.append(f"   ⭐🌊 弹射→ 警察{target_obj.unit_id} 受到0.5伤害 HP: {old_hp} → {target_obj.hp}")
+                        target_obj.take_damage(bounce_dmg, attacker_id=player.player_id)
+                        lines.append(f"   ⭐🌊 弹射→ 警察{target_obj.unit_id} 受到{bounce_dmg}伤害 HP: {old_hp} → {target_obj.hp}")
                         if target_obj.hp <= 0:
                             pe = getattr(self.state, 'police_engine', None)
                             if pe:
