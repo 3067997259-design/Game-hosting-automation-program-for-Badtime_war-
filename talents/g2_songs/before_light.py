@@ -17,9 +17,10 @@ class Riposato(BaseSong):
     _rhythm_key = "Riposato"
 
     def execute(self, g2_player, target, ish, game_state):
+        from talents.talent_balance import talent_num
         ish.before_light = "riposato"
-        # v0.7 安定値: pivot 3.5→5.0
-        ish._pivot_override = 5.0
+        # 安定値 pivot 抬高（hp20 默认 pivot 6.0 → 重锚，[待风洞]）；v1=5.0 字节不变
+        ish._pivot_override = talent_num("g2", "before_light_riposato_pivot", v1=5.0)
         prompt_manager.show("g2reset", "song.riposato_v06")
         return f"🎵 {self.name}·{self.rhythm}"
 
@@ -37,8 +38,9 @@ class Dolente(BaseSong):
         return ish.regard >= 2
 
     def execute(self, g2_player, target, ish, game_state):
+        from talents.talent_balance import talent_num
         ish.before_light = "dolente"
-        # v0.7 安定値: pivot 3.5→2.0
-        ish._pivot_override = 2.0
+        # 安定値 pivot 降低（hp20 重锚，[待风洞]）；v1=2.0 字节不变
+        ish._pivot_override = talent_num("g2", "before_light_dolente_pivot", v1=2.0)
         prompt_manager.show("g2reset", "song.dolente_v06")
         return f"🎵 {self.name}·{self.rhythm}"

@@ -1145,6 +1145,7 @@ class AnchorMixin:
             self.state.log_event("ripple_anchor_success",
                                  player=self.player_id,
                                  target=self.anchor_target_id)
+            self._record_anchor_success(me)
             display.show_info(
                 f"\n{'='*60}"
                 f"\n" + prompt_manager.get_prompt(
@@ -1242,6 +1243,7 @@ class AnchorMixin:
             self.state.log_event("ripple_anchor_success",
                                  player=self.player_id,
                                  target=self.anchor_target_id)
+            self._record_anchor_success(me)
             display.show_info(
                 f"\n" + prompt_manager.get_prompt(
                     "talent", "g5ripple.combat_anchor_success",
@@ -1507,6 +1509,16 @@ class AnchorMixin:
     # ================================================================
     #  锚定清理（V1.92: 增加轮初快照字段清理）
     # ================================================================
+
+    def _record_anchor_success(self, me):
+        """累计成功锚定数；满 2 次 → 完结条「两次成功锚定」+剧情分（§4.3）。
+
+        successful_anchors 是整局累计（不被 _anchor_cleanup 清），finale.mark 已去重/m6 门控。
+        """
+        self.successful_anchors = getattr(self, "successful_anchors", 0) + 1
+        if self.successful_anchors == 2 and me is not None:
+            from engine.finale_conditions import mark
+            mark(me, "g5_double_anchor", self.state)
 
     def _anchor_cleanup(self):
         # 善见天 v3：解除被锚定目标的"被注视"关系

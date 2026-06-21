@@ -76,6 +76,8 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         # m7 开拓：路径属性命中数（防御公式 n_X）+ 路径声明的有限 key 物品（floor 空）
         self.anchor_attr_counts: dict = {}
         self.anchor_key_items: list = []
+        # 完结条：整局累计成功锚定数（满 2 → g5_double_anchor）
+        self.successful_anchors: int = 0
 
         # === V1.92: 轮初快照（由 AnchorMixin._auto_judge_destructive 使用）===
         self._target_round_start_location: object | None = None

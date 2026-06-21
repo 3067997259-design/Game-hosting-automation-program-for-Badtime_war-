@@ -153,5 +153,44 @@ class JoyPoemNewG6Test(unittest.TestCase):
         self.assertTrue(g6._d4_force)         # v1：保留 D4
 
 
+class DuetAndFinaleTest(unittest.TestCase):
+    """P2d：before_light pivot 量纲 + G5 双锚定完结条。"""
+
+    def tearDown(self):
+        experiments.reset()
+
+    def test_before_light_pivot_balance(self):
+        from talents.talent_balance import talent_num
+        experiments.enable("m7_talents")
+        self.assertEqual(talent_num("g2", "before_light_riposato_pivot", v1=5.0), 8.0)
+        self.assertEqual(talent_num("g2", "before_light_dolente_pivot", v1=2.0), 4.0)
+        experiments.reset()
+        self.assertEqual(talent_num("g2", "before_light_riposato_pivot", v1=5.0), 5.0)
+
+    def test_double_anchor_finale(self):
+        from talents.g5.ripple import Ripple
+        experiments.enable("m6_scoring")
+        st = GameState()
+        p = Player("g5", "G5", controller=ForfeitController())
+        st.add_player(p)
+        g5 = Ripple("g5", st); p.talent = g5
+        g5._record_anchor_success(p)          # 第 1 次 → 无分
+        self.assertEqual(getattr(p, "story_score", 0), 0)
+        g5._record_anchor_success(p)          # 第 2 次 → 完结条 +15
+        self.assertEqual(p.story_score, 15)
+        g5._record_anchor_success(p)          # 第 3 次 → 不重复
+        self.assertEqual(p.story_score, 15)
+
+    def test_double_anchor_no_score_without_m6(self):
+        from talents.g5.ripple import Ripple
+        experiments.reset()   # m6_scoring 关
+        st = GameState()
+        p = Player("g5", "G5", controller=ForfeitController())
+        st.add_player(p)
+        g5 = Ripple("g5", st); p.talent = g5
+        g5._record_anchor_success(p); g5._record_anchor_success(p)
+        self.assertEqual(getattr(p, "story_score", 0), 0)   # mark m6 门控
+
+
 if __name__ == "__main__":
     unittest.main()

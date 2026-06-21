@@ -320,7 +320,9 @@
             "card_bouquet_temp_hp": 3,
             "card_bouquet_chorus_heal": 3,
             "card_boo_damage_taken": 2,
-            "card_support_cheer_temp_hp": 2
+            "card_support_cheer_temp_hp": 2,
+            "before_light_riposato_pivot": 8.0,
+            "before_light_dolente_pivot": 4.0
         },
         "g3": {
             "_name": "神话之外",
