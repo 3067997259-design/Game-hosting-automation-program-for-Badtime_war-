@@ -24,10 +24,15 @@ from models.equipment import WeaponRange
 
 @dataclass
 class SimResult:
-    """推演结果。rounds = 命数（达成时用了几轮；未达成时为已走轮数）。"""
+    """推演结果。rounds = 命数（达成时用了几轮；未达成时为已走轮数）。
+
+    attr_counts：路径中每攻击属性的命中次数（{属性中文名: 次数}），供 G5 开拓·防御公式
+    （contrib(X)=n_X）使用。弓按 compute_shot 解析后的真实属性记。
+    """
     achieved: bool
     rounds: int
     log: List[str] = field(default_factory=list)
+    attr_counts: dict = field(default_factory=dict)
 
 
 class _TargetProj:
@@ -92,7 +97,8 @@ def _goal_progress_weapon(proj: _TargetProj, weapons: List[Any], charged: set,
             continue
         trial = copy.deepcopy(proj)
         before_dura = _piece_durability(trial, break_piece)
-        res = numeric_v2.resolve_hit(trial, raw, attr)
+        res = numeric_v2.resolve_hit(trial, raw, attr,
+                                     pierce_factor=getattr(w, "_pierce_factor", 1.0))
         if goal == "kill":
             gain = res["damage"]                      # HP 减损
         else:
@@ -142,6 +148,33 @@ def prep_actions(state: Any, caster: Any, target: Any, weapon: Any) -> List[tupl
     return actions
 
 
+def resolve_weapons(caster: Any) -> List[Any]:
+    """把 caster 武器栏里的弓替换为按已装模块解析后的有效武器（评估器弓感知）。
+
+    弓走 `bow_modules.compute_shot`（穿甲→科/火矢→魔/力量+伤），结果武器带 `_pierce_factor`
+    供 simulate_path 喂 resolve_hit。其它武器原样（pierce 1.0）。信源统一——属性/伤害/穿甲
+    全部由 compute_shot 这一处决定，评估器不另算。
+    """
+    weapons = list(getattr(caster, "weapons", []))
+    if not hasattr(caster, "bow_modules"):
+        return weapons  # 无 m4 弓系统 → 武器原样
+    out: List[Any] = []
+    for w in weapons:
+        tags = getattr(w, "special_tags", None) or []
+        if "bow" in tags or getattr(w, "name", "") == "弓":
+            try:
+                from engine.bow_modules import compute_shot
+                shot = compute_shot(caster)
+                ew = shot["weapon"]
+                ew._pierce_factor = shot.get("armor_pierce_factor", 1.0)
+                out.append(ew)
+            except Exception:
+                out.append(w)
+        else:
+            out.append(w)
+    return out
+
+
 # ================================================================
 #  评估器：唯一前向模型
 # ================================================================
@@ -158,6 +191,7 @@ def simulate_path(target: Any, weapons: List[Any], sequence: List[tuple], *,
     proj = _TargetProj(target)
     charged = set(w.name for w in weapons if getattr(w, "is_charged", False))
     log: List[str] = []
+    attr_counts: dict = {}
 
     def goal_met() -> bool:
         if goal == "kill":
@@ -165,7 +199,7 @@ def simulate_path(target: Any, weapons: List[Any], sequence: List[tuple], *,
         return _piece_durability(proj, break_piece) <= 0
 
     if goal_met():
-        return SimResult(True, 0, log)
+        return SimResult(True, 0, log, attr_counts)
 
     rounds = 0
     for action in sequence:
@@ -185,17 +219,19 @@ def simulate_path(target: Any, weapons: List[Any], sequence: List[tuple], *,
                 picked = _goal_progress_weapon(proj, weapons, charged, goal, break_piece)
             if picked is not None:
                 w, raw, attr = picked
-                res = numeric_v2.resolve_hit(proj, raw, attr)
+                res = numeric_v2.resolve_hit(proj, raw, attr,
+                                             pierce_factor=getattr(w, "_pierce_factor", 1.0))
                 proj.hp -= res["damage"]
+                attr_counts[attr] = attr_counts.get(attr, 0) + 1   # 开拓·防御公式数据源
                 log.append(f"R{rounds} {w.name}({attr}) raw{raw}→伤{res['damage']} "
                            f"吸{res['absorbed']} hp{proj.hp:.0f}")
         # move/find/lock 仅消耗一轮（前置），账目不变
         if goal_met():
-            return SimResult(True, rounds, log)
+            return SimResult(True, rounds, log, attr_counts)
         if horizon is not None and rounds >= horizon:
             break
 
-    return SimResult(goal_met(), rounds, log)
+    return SimResult(goal_met(), rounds, log, attr_counts)
 
 
 def build_direct_sequence(state: Any, caster: Any, target: Any, weapons: List[Any], *,

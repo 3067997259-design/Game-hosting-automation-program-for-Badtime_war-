@@ -6,7 +6,7 @@
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List
 
 from utils.attribute import Attribute, is_effective
@@ -18,9 +18,10 @@ class AnchorVerification:
     """锚定验证结果"""
     feasible: bool          # 是否可行
     fate: int               # 命数
-    variance: int           # 变数 = 5 - 命数
+    variance: int           # 变数
     path_description: list  # 每回合做什么
     reason: str             # 不可行时的原因
+    attr_counts: dict = field(default_factory=dict)  # 路径属性命中数（m7 开拓·防御公式用）
 
 
 class AnchorVerifier:
@@ -190,7 +191,7 @@ class AnchorVerifier:
                     reason=f"目标没有该护甲：{target_armor_desc}")
             break_piece = piece.name
 
-        weapons = list(getattr(caster, "weapons", []))
+        weapons = anchor_eval.resolve_weapons(caster)     # 评估器弓感知（弓走 compute_shot）
         if sequence is not None:
             candidates = [sequence]                       # 人类自定路径
         else:
@@ -216,13 +217,15 @@ class AnchorVerifier:
             return AnchorVerification(
                 feasible=False, fate=probe.rounds, variance=0,
                 path_description=list(probe.log),
-                reason=f"命数 {probe.rounds} 超过可行上限 {horizon}")
+                reason=f"命数 {probe.rounds} 超过可行上限 {horizon}",
+                attr_counts=dict(probe.attr_counts))
 
-        # 变数：G5b 暂用 horizon - 命数（G5c 改为 variance_base + (H - 命数)）
+        # 变数：G5b 暂用 horizon - 命数（G5c 改为 variance_base + (K - 命数)）
         variance = max(0, horizon - best.rounds)
         return AnchorVerification(
             feasible=True, fate=best.rounds, variance=variance,
-            path_description=list(best.log), reason="可行")
+            path_description=list(best.log), reason="可行",
+            attr_counts=dict(best.attr_counts))
 
     def _calculate_prep_rounds(self, caster, target, weapon):
         """计算前置回合数：移动、find、lock"""

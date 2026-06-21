@@ -146,5 +146,64 @@ class ResolverEvalTest(unittest.TestCase):
         self.assertIsNotNone(r)   # 旧公式仍可调用（feasible 取决于旧 cap 5）
 
 
+class BowAwareEvalTest(unittest.TestCase):
+    """G5c-1：评估器弓感知——弓按 compute_shot 解析属性 + 吃 pierce + attr_counts。"""
+
+    def tearDown(self):
+        experiments.reset()
+
+    def _caster_with_bow(self, modules):
+        experiments.enable("hp20"); experiments.enable("m4_gear")
+        c = Player("c", "C", controller=ForfeitController())
+        c.hp = 20; c.max_hp = 20; c.location = "商店"
+        c.bow_modules = list(modules)
+        from models.equipment import Weapon, WeaponRange
+        from utils.attribute import Attribute
+        c.weapons.append(Weapon("弓", Attribute.ORDINARY, 3, WeaponRange.RANGED,
+                                special_tags=["bow", "no_lock_required"]))
+        return c
+
+    def test_resolve_weapons_pierce_bow(self):
+        c = self._caster_with_bow(["穿甲"])
+        eff = anchor_eval.resolve_weapons(c)
+        bow = next(w for w in eff if w.name == "弓")   # Player 默认带拳击，弓按名取
+        self.assertEqual(bow.attribute.value, "科技")          # 穿甲改属性
+        self.assertEqual(getattr(bow, "_pierce_factor", 1.0), 0.5)  # 穿甲 pierce
+
+    def test_attr_counts_records_tech(self):
+        c = self._caster_with_bow(["穿甲"])
+        t = _target()           # 盾牌 普通防御2/耐久8
+        weapons = anchor_eval.resolve_weapons(c)
+        # 纯弓连射，attr_counts 应全记"科技"
+        r = anchor_eval.simulate_path(t, weapons, [("attack", None)] * 15, goal="kill")
+        self.assertTrue(r.achieved)
+        self.assertEqual(set(r.attr_counts), {"科技"})
+        self.assertEqual(r.attr_counts["科技"], r.rounds)
+
+    def test_pierce_lowers_fate(self):
+        # 目标科技外甲：穿甲弓比裸弓命数更低（穿甲真减防 → 伤更高）
+        from models.equipment import ArmorPiece, ArmorLayer, Weapon, WeaponRange
+        from utils.attribute import Attribute
+
+        def tgt():
+            experiments.enable("hp20")
+            t = Player("t", "T", controller=ForfeitController())
+            t.hp = 20
+            # 三属性都防 4，封死拳击(普通)绕路，逼评估器用弓 → 凸显穿甲减防
+            t.armor.outer.append(ArmorPiece("全防甲", None, ArmorLayer.OUTER, 30,
+                                            defense_map={"科技": 4, "普通": 4, "魔法": 4},
+                                            durability=30))
+            return t
+
+        pierce_bow = self._caster_with_bow(["穿甲", "力量"])  # 科技 + 伤5 + pierce0.5
+        plain_bow = self._caster_with_bow(["力量"])           # 普通 + 伤5
+        rp = anchor_eval.simulate_path(tgt(), anchor_eval.resolve_weapons(pierce_bow),
+                                       [("attack", None)] * 30, goal="kill")
+        rn = anchor_eval.simulate_path(tgt(), anchor_eval.resolve_weapons(plain_bow),
+                                       [("attack", None)] * 30, goal="kill")
+        self.assertTrue(rp.achieved and rn.achieved)
+        self.assertLess(rp.rounds, rn.rounds)   # 穿甲命数更短
+
+
 if __name__ == "__main__":
     unittest.main()
