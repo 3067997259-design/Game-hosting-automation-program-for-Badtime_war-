@@ -51,6 +51,9 @@
 # 本地热座
 python main.py
 
+# V2.0-exp 档案
+python main.py --profile v2exp
+
 # 联机模式（房主）
 python main_server.py --players 3
 
@@ -59,7 +62,12 @@ python main_client.py --host <服务器IP> --name <你的名字>
 
 # 全AI胜率统计
 python stats_runner.py --players 6 --games 5000
+
+# V2.0-exp 档案风洞
+python stats_runner.py --profile v2exp --players 6 --games 5000
 ```
+
+不带 `--profile` 时，默认运行 v1 稳定口径（`legacy`）。
 
 ---
 
@@ -67,12 +75,12 @@ python stats_runner.py --players 6 --games 5000
 
 | 文档 | 内容 |
 |------|------|
-| [完全游玩手册](docs/完全游玩手册.md) | 完整游戏规则（人类阅读，含闭合补丁、FAQ、开发日志） |
-| [天赋参考](docs/talents.md) | 14 个天赋的机械规格（以代码为准，AI 可读） |
-| [使用说明](docs/usage.md) | CLI 参数详解、RL 训练管线、联机配置、LLM 聊天、AIRI 接入 |
-| [指令表](docs/commands.md) | 电子裁决系统支持的所有指令及星野战术宏子系统 |
-| [更新日志](docs/changelog.md) | 版本历史（含开发日志与胜率统计） |
-| [AIRI 接入](docs/airi_bridge.md) | AIRI Bot 的三种接入模式详细配置 |
+| [文档中心](docs/README.md) | 文档身份、适用版本、权威范围和冲突台账的统一入口 |
+| [V2.0-exp 模块化手册](docs/handbook/README.md) | 按主题和天赋拆分的候选玩家规则；支持模型按需读取 |
+| [Legacy 模块化手册](docs/legacy/README.md) | 旧版规则的按主题入口；不要与 V2.0-exp 规则混用 |
+| [旧天赋参考](docs/talents.md) | 混合 legacy、V2 与实现说明，语义审计完成前只用于定位 |
+| [操作与接入](docs/operations/README.md) | 使用说明、指令表和 AIRI 接入的统一入口 |
+| [历史文档](docs/history/README.md) | 版本更新日志与开发日记，只解释演化 |
 
 ---
 

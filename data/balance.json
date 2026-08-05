@@ -102,14 +102,13 @@
         "地震": {"damage": 3},
         "地动山摇": {"damage": 3},
         "电磁步枪": {"damage": 4},
-        "高斯步枪": {"damage": 6, "charged_damage": 10},
-        "导弹": {"damage": 8}
+        "高斯步枪": {"damage": 6, "charged_damage": 10}
     },
 
     "armor": {
         "_comment": "HP20 量纲外甲表（v0.2 §2.3，[待风洞]）。defense 键 = 属性中文名；repairable=false 的修复归 M4 经济",
         "盾牌": {"defense": {"普通": 2}, "durability": 8, "repairable": false},
-        "陶瓷护甲": {"defense": {"普通": 3, "科技": 1}, "durability": 12, "repairable": false},
+        "陶瓷护甲": {"defense": {"普通": 3, "科技": 1}, "durability": 12, "repairable": true, "repair_amount": 6},
         "魔法护盾": {"defense": {"魔法": 3, "普通": 1}, "durability": 12, "repair_amount": 6},
         "AT力场": {"defense": {"科技": 3, "魔法": 1}, "durability": 12, "repair_amount": 6}
     },
@@ -149,7 +148,7 @@
             "修理陶瓷护甲": 1,
             "力量模块": 3,
             "无限模块": 4,
-            "钩锁": 2
+            "钩索": 2
         },
         "surgery_min_cost": 4,
         "force_pass_min_cost": 2,
@@ -174,7 +173,7 @@
     },
 
     "hook": {
-        "_comment": "钩锁（v0.2 §2.9）：神器×1 军事基地，科技属性，位移三件套之「拉」",
+        "_comment": "钩索（v0.2 §2.9）：神器×1 军事基地，科技属性，位移三件套之「拉」",
         "damage": 2,
         "cooldown_rounds": 2
     },
@@ -287,6 +286,9 @@
             "iron_horus_repair": 8,
             "halo_value": 3,
             "halo_count": 3,
+            "cost_base_cap": 5,
+            "adrenaline_cost_cap": 10,
+            "adrenaline_initiative_bonus": 3,
             "shield_block_threshold": 6,
             "shield_overflow_durability_cost": 3,
             "hold_defense": 5,
@@ -352,8 +354,7 @@
             "poem_bear_ember": 2,
             "poem_nightwatch_horus": 2,
             "poem_nightwatch_hp_deduct": 2,
-            "poem_joy_laugh_bonus": 2,
-            "_poem_light_vuln_TODO": "追光诗易伤换算待 G2 Hologram 接易伤机制（当前 vestigial），见 docs"
+            "poem_joy_laugh_bonus": 2
         }
     },
 
@@ -362,7 +363,7 @@
             "_comment": "duet 安可奖励菜单。注意与 AI 层 LOCATION_ITEMS（交互物品表）目的不同。",
             "商店": ["小刀", "盾牌", "陶瓷护甲", "隐身衣", "防毒面具", "通行证"],
             "警察局": ["警棍", "防毒面具"],
-            "军事基地": ["高斯步枪", "电磁步枪", "导弹", "AT力场", "热成像仪"],
+            "军事基地": ["高斯步枪", "电磁步枪", "AT力场", "热成像仪"],
             "魔法所": ["魔法弹幕", "远程魔法弹幕", "魔法护盾"],
             "医院": ["防毒面具"],
             "家": ["小刀", "磨刀石", "通行证"]

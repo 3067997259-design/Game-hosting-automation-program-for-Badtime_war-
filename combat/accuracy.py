@@ -51,7 +51,7 @@ def compute_hit_chance(attacker: Any, target: Any, weapon: Any,
 
     # ── 闪避来源（受封顶约束的部分）──
     evasion = 0
-    # 擦钩：本轮被钩锁擦中 → 全部闪避加成失效（零产出禁令，钩头挂了一下）
+    # 擦钩：本轮被钩索擦中 → 全部闪避加成失效（零产出禁令，钩头挂了一下）
     hook_no_evasion = (game_state is not None
                        and getattr(target, "_hook_no_evasion_round", None)
                        == getattr(game_state, "current_round", -1))

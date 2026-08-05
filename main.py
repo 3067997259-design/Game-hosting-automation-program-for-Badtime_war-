@@ -49,7 +49,9 @@ def parse_args():
                    help="日志保存路径（留空则输出到stdout）")
     # --new-arch 已移除（C7 后仅保留新架构 DecisionOrchestrator）
     p.add_argument("--experiment", action="append", default=[],
-                   help="启用实验开关（可多次使用），如 --experiment k_action_quota")
+                   help="启用实验开关（可多次使用），如 --experiment k_initiative")
+    p.add_argument("--profile", type=str, default="",
+                   help="启用实验档案（legacy/m1/m2/m3/m4/m5/m6/v2exp）")
     p.add_argument("--ai", action="append", default=[],
                    help="指定AI配置, 格式: name:talent:personality (可多次使用)")
     p.add_argument("--force-talent", type=str, default="",
@@ -243,8 +245,10 @@ def main():
     args = parse_args()
 
     # 实验开关（V2.0 EXP）
-    if args.experiment:
+    if args.profile or args.experiment:
         from engine import experiments
+        if args.profile:
+            experiments.set_profile(args.profile)
         for exp_name in args.experiment:
             experiments.enable(exp_name)
         print(f"  ⚗️ 实验开关: {', '.join(experiments.active())}")

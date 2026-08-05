@@ -772,9 +772,10 @@ class PoemMixin:
         V1.92+: 段数随使用次数成长。
         基础段数由开局人数决定（2人=2段, 4人=3段, 6人+=4段）。
         每多发动一次，段数+1。达到4段后，额外段数为真伤。
-        消耗递增：min(24, 12 + 3 × 已用次数)（已在 _execute_poem 中处理）
+        消耗递增：min(24, 12 + 4 × 已用次数)（已在 _execute_poem 中处理）
         """
         ALL_DAMAGE_TYPES = ["科技", "普通", "魔法", "无视属性克制"]
+        from talents.talent_balance import talent_num
 
         # Base stages from player count
         initial_count = len(self.state.player_order)
@@ -798,10 +799,12 @@ class PoemMixin:
         damage_assignments = []
 
         cost = self.get_destiny_cost()
+        stage_dmg = talent_num("g5", "poem_destiny_stage_damage", v1=0.5)
+        stage_dmg_label = f"{stage_dmg:g}" if isinstance(stage_dmg, float) else str(stage_dmg)
         display.show_info(
             f"\n🌊 献予「爱与记忆」之诗！（第{self.destiny_use_count}次，消耗{cost}层追忆）\n"
             f"   选择{total_stages}个单体单位（可重复），分别承受：\n"
-            f"   {'/'.join(DAMAGE_TYPES)} 各1点伤害"
+            f"   {'/'.join(DAMAGE_TYPES)} 各{stage_dmg_label}点伤害"
         )
 
         all_alive = [p for p in self.state.alive_players()]
@@ -818,8 +821,8 @@ class PoemMixin:
             display.show_info(
                 prompt_manager.get_prompt(
                     "talent", "g5ripple.poem_destiny_damage_selection",
-                    default="\n   选择承受「{damage_type}」1点伤害的目标："
-                ).format(damage_type=dtype)
+                    default="\n   选择承受「{damage_type}」{damage_value}点伤害的目标："
+                ).format(damage_type=dtype, damage_value=stage_dmg_label)
             )
 
             target_name = caster.controller.choose(
@@ -853,8 +856,6 @@ class PoemMixin:
             # 真伤与普通伤害统一走 resolve_damage，与天星/超新星一致
             # "真伤"使用"无视属性克制"属性 + ignore_counter，正常经过护甲/天赋钩子
             damage_attr = "无视属性克制" if dtype == "真伤" else dtype
-            from talents.talent_balance import talent_num
-            stage_dmg = talent_num("g5", "poem_destiny_stage_damage", v1=0.5)
             result = resolve_damage(
                 attacker=caster, target=target, weapon=None,
                 game_state=self.state,

@@ -1128,7 +1128,9 @@ def main():
     parser.add_argument("--seed", type=int, default=None,
                         help="基准随机种子：第 i 局使用 seed+i，固定后逐局可复现")
     parser.add_argument("--experiment", action="append", default=[],
-                        help="启用实验开关（可多次使用），如 --experiment k_action_quota")
+                        help="启用实验开关（可多次使用），如 --experiment k_initiative")
+    parser.add_argument("--profile", type=str, default="",
+                        help="启用实验档案（legacy/m1/m2/m3/m4/m5/m6/v2exp）")
     parser.add_argument("--golden-record", type=str, default=None,
                         help="录制 golden 存档到该路径（JSON-lines），需要 --seed")
     parser.add_argument("--golden-check", type=str, default=None,
@@ -1164,6 +1166,8 @@ def main():
         print(f"  🤖 席位配置: {', '.join(lineup)}")
 
     from engine import experiments
+    if args.profile:
+        experiments.set_profile(args.profile)
     for exp_name in args.experiment:
         experiments.enable(exp_name)
 

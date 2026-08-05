@@ -68,7 +68,7 @@ class GameState:
             from engine.bow_modules import init_supply
             init_supply(self)
             self.arrow_piles = {}
-            self.hook_taken = False  # 钩锁神器全图唯一
+            self.hook_taken = False  # 钩索神器全图唯一
             # M5 击杀掉落：地面物品（location → {credits, arrows, items, weapons}）
             self.ground_loot = {}
 
@@ -129,10 +129,10 @@ class GameState:
         for w in list(getattr(player, "weapons", [])):
             if w and w.name not in ("拳击", "弓", "小刀"):
                 pile["weapons"].append(w.name)
-        # 可拾取物品（防毒面具/磨刀石等，钩锁神器回归"未取走"由 hook_taken 另管）
+        # 可拾取物品（防毒面具/磨刀石等，钩索神器回归"未取走"由 hook_taken 另管）
         for it in list(getattr(player, "items", [])):
             nm = getattr(it, "name", "")
-            if nm and nm != "钩锁":
+            if nm and nm != "钩索":
                 pile["items"].append(nm)
 
     def add_player(self, player):

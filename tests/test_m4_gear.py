@@ -1,4 +1,4 @@
-"""M4 消耗层测试：经济 / 弓 / 模块 / 灼烧 / 钩锁 / 退役 / v1 回归。"""
+"""M4 消耗层测试：经济 / 弓 / 模块 / 灼烧 / 钩索 / 退役 / v1 回归。"""
 import random
 import unittest
 
@@ -202,7 +202,7 @@ class HookTest(unittest.TestCase):
         self.a = _player("p1", self.state, "军事基地")
         self.t = _player("p2", self.state, "医院")
         from models.equipment import Item
-        self.a.add_item(Item("钩锁", "tool"))
+        self.a.add_item(Item("钩索", "tool"))
 
     def tearDown(self):
         experiments.reset()

@@ -1,15 +1,15 @@
-"""文档数值渲染器 —— 信源统一：data/balance.json → 文档（v2.0）。
+"""文档数值渲染器 —— 模块化手册 + data/balance.json → 玩家合订版。
 
 约定：
-  作者版 `docs/*.src.md` 内用占位 ⟦bal:dotted.key⟧ 引用 balance.json 的值（你我编辑这个）；
-  本脚本产出渲染版 `docs/*.md`（数字填好，玩家读）。风洞改 balance 后跑一次即全文档同步，
-  **不再手工改任何文档里的数字**。
+  当前作者源为 `docs/handbook/manifest.json` 登记的模块化 Markdown；
+  本脚本委托 `tools/handbook.py` 装配作者版和玩家版。旧 `docs/*.src.md` 链只保留历史文件，
+  不再作为默认输入。
 
   示例：作者版写「监控期 ⟦bal:anchor.window⟧ 轮」→ 渲染版「监控期 8 轮」。
 
 用法：
-  python tools/render_docs.py          # 渲染所有 docs/*.src.md → docs/*.md
-  python tools/render_docs.py --check  # 只校验渲染版是否与 balance 一致（不写文件，pytest/CI 用）
+  python tools/render_docs.py          # 装配模块并渲染 balance 数值
+  python tools/render_docs.py --check  # 只校验模块、manifest 与生成产物（不写文件）
 
 纪律：文档里所有机制数值都走 ⟦bal:...⟧，不留裸数字；占位指向的键必须在 balance 中存在
 （缺键直接报错），保证"唯一数字源"。
@@ -21,11 +21,13 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BALANCE_PATH = os.path.join(ROOT, "data", "balance.json")
 DOCS_DIR = os.path.join(ROOT, "docs")
 SRC_SUFFIX = ".src.md"
+HANDBOOK_MANIFEST = os.path.join(DOCS_DIR, "handbook", "manifest.json")
 
 # 占位：⟦bal:dotted.key⟧（白方括号 U+27E6/27E7，中文/markdown 内不撞）
 # key 允许中文（balance 有中文键，如 bow_modules.穿甲）；取到闭括号前的任意非闭括号字符。
@@ -90,6 +92,41 @@ def iter_sources() -> list[str]:
 
 
 def main(check: bool = False) -> int:
+    if os.path.exists(HANDBOOK_MANIFEST):
+        from handbook import (
+            HandbookError,
+            build_outputs,
+            check_outputs,
+            load_manifest,
+        )
+
+        manifest_path = Path(HANDBOOK_MANIFEST)
+        source_output = manifest_path.parent / "complete.generated.src.md"
+        rendered_output = manifest_path.parent / "complete.generated.md"
+        try:
+            manifest = load_manifest(manifest_path)
+            if check:
+                check_outputs(
+                    manifest_path,
+                    manifest,
+                    None,
+                    source_output,
+                    rendered_output,
+                    Path(BALANCE_PATH),
+                )
+            else:
+                build_outputs(
+                    manifest_path,
+                    manifest,
+                    source_output,
+                    rendered_output,
+                    Path(BALANCE_PATH),
+                )
+        except (HandbookError, OSError, ValueError) as error:
+            print(f"❌ {error}")
+            return 2
+        return 0
+
     balance = load_balance()
     sources = iter_sources()
     if not sources:

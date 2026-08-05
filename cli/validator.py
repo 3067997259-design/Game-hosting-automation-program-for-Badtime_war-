@@ -185,7 +185,7 @@ def validate(parsed, player, game_state):
 
 
 # ============================================
-#  M4 校验：射箭 / 钩锁（experiment: m4_gear）
+#  M4 校验：射箭 / 钩索（experiment: m4_gear）
 # ============================================
 
 def validate_applause_spend(player, use, game_state):
@@ -246,13 +246,13 @@ def validate_hook(player, parsed, game_state):
     ok, reason = _check_not_disabled(player, game_state)
     if not ok:
         return False, reason
-    if not any(getattr(i, 'name', '') == "钩锁" for i in getattr(player, 'items', [])):
-        return False, "你没有钩锁"
+    if not any(getattr(i, 'name', '') == "钩索" for i in getattr(player, 'items', [])):
+        return False, "你没有钩索"
     from engine.balance import get as _bget
     cooldown = _bget("hook", "cooldown_rounds", default=2)
     ready_round = getattr(player, '_last_hook_round', -99) + cooldown
     if game_state.current_round < ready_round:
-        return False, f"钩锁冷却中（第 {ready_round} 轮就绪）"
+        return False, f"钩索冷却中（第 {ready_round} 轮就绪）"
     if parsed.get("mode") == "self":
         dest = parsed.get("destination")
         from actions.move import get_all_valid_locations

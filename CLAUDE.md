@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Badtime War（起闯战争）是一个基于 Python 3.8+ 的回合制大逃杀桌游电子裁判系统。包含 14 个天赋（7 原初 + 7 神代）、BasicAI 启发式策略引擎、RL 训练管线（MaskablePPO + GRU）、联机对战（TCP + Textual TUI）、以及 LLM/AIRI 角色聊天集成。纯后端/命令行项目，无图形前端。
 
-核心原则：所有设计和机制理解必须基于文档描述——玩法与天赋叙述见 `docs/完全游玩手册.md`，机制数值规格见 `docs/talents.md`（以代码实现为准），不能经由名称自行猜测。如果文档之间或文档与代码冲突、或者不确定，直接问用户。
+核心原则：先从 `docs/README.md` 判断文档身份和适用 profile。Legacy 玩家规则按主题读取 `docs/legacy/README.md`，V2 玩家规则按主题读取 `docs/handbook/README.md`；`docs/完全游玩手册.md` 只保留兼容入口，`docs/talents.md` 当前是 legacy/V2/实现说明混合参考。数值以 `data/balance.json` 为唯一信源，当前行为以代码和测试为证据。不能经由名称自行猜测；文档之间或文档与代码冲突时，先查 `docs/contradictions.md`，未决事项直接问用户。
 
 ---
 
@@ -252,8 +252,8 @@ PR#362 的三个严重运行时回归（stats_runner 被截断成静默空跑、
 
 1. **Mixin 退役进行中**：旧瀑布流管道已删除（C7），但 8 个 Mixin 仍作为共享方法库留在 MRO 中（新架构 hooks 反向依赖 `_pick_target`/`_cmd_attack` 等）。新功能只加到新架构（Goal/Strategy/TalentHook/evaluation.py），Mixin 只修不增；待 `_estimate_power` 等深依赖链函数迁出后再彻底移除。
 2. **双牌定义并存**：`engine/material_deck.py` 的 `_CARD_DEFS`（供 build_deck/查询）与 `engine/cards/CARD_REGISTRY`（供 `_resolve_card_play()` 分派）。新增/修改物料牌必须同步两处，长期目标是统一到 CARD_REGISTRY。
-3. **G2 Reset（feat/g2-reset-v0.6 分支）**：设计草案在 `docs/g2_reset_draft_v0.7.md`（草案≠实现，实现以 `docs/talents.md` 为准）。部分草案机制未完整接线（反光板/耳返安定値标记、聚光合影插入回合、StageAI 投票仍为 MVP 占位），见 `docs/changelog.md` 的"草案计划但代码未完整实装"表。
-4. **文档数值漂移**：`docs/完全游玩手册.md` 与 `docs/talents.md` 与代码间存在数值不一致（例：六爻充能间隔手册写 5 轮、talents.md 写 6 轮、代码实际 9 轮）。**修改任何数值时以代码为准并同步 talents.md**；发现漂移时优先改文档而不是改代码。
+3. **G2 Reset（feat/g2-reset-v0.6 分支）**：设计草案在 `docs/g2_reset_draft_v0.7.md`（草案≠实现，实现以 `docs/talents.md` 为准）。部分草案机制未完整接线（反光板/耳返安定値标记、聚光合影插入回合、StageAI 投票仍为 MVP 占位），见 `docs/history/changelog.md` 的"草案计划但代码未完整实装"表。
+4. **文档数值漂移**：`docs/legacy/` 模块与 `docs/talents.md` 与代码间存在数值不一致（例：六爻充能间隔手册写 5 轮、talents.md 写 6 轮、代码实际 9 轮）。**修改任何数值时以代码为准并同步 talents.md**；发现漂移时优先改文档而不是改代码。
 5. **已知失败测试**：`tests/test_network_integration.py::TestLLMBackendFactory::test_create_backend_no_config_returns_none` 在本地存在 `config/llm_config.json` 时会失败（create_backend 回退读取了本地配置），属测试环境敏感问题，与你的改动无关。
 
 ---

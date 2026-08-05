@@ -21,12 +21,12 @@ class ExperimentsTest(unittest.TestCase):
         self.assertFalse(experiments.is_enabled("no_such_experiment"))
 
     def test_runtime_enable_and_active(self) -> None:
-        experiments.enable("k_action_quota")
-        self.assertTrue(experiments.is_enabled("k_action_quota"))
-        self.assertIn("k_action_quota", experiments.active())
-        experiments.disable("k_action_quota")
-        self.assertFalse(experiments.is_enabled("k_action_quota"))
-        self.assertNotIn("k_action_quota", experiments.active())
+        experiments.enable("k_initiative")
+        self.assertTrue(experiments.is_enabled("k_initiative"))
+        self.assertIn("k_initiative", experiments.active())
+        experiments.disable("k_initiative")
+        self.assertFalse(experiments.is_enabled("k_initiative"))
+        self.assertNotIn("k_initiative", experiments.active())
 
     def test_config_file_loading(self) -> None:
         """experiments 分区从配置文件加载；下划线键被忽略；CLI 覆盖优先。"""
@@ -34,9 +34,11 @@ class ExperimentsTest(unittest.TestCase):
             cfg_dir = os.path.join(tmp, "config")
             os.makedirs(cfg_dir)
             cfg = {
+                "profile": "m1",
                 "experiments": {
                     "_comment": "should be ignored",
                     "from_config_on": True,
+                    "k_initiative": False,
                     "from_config_off": False,
                 }
             }
@@ -48,7 +50,9 @@ class ExperimentsTest(unittest.TestCase):
             try:
                 os.chdir(tmp)
                 experiments.reset()
+                self.assertEqual(experiments.current_profile(), "m1")
                 self.assertTrue(experiments.is_enabled("from_config_on"))
+                self.assertFalse(experiments.is_enabled("k_initiative"))
                 self.assertFalse(experiments.is_enabled("from_config_off"))
                 self.assertNotIn("_comment", experiments.active())
                 # 运行时覆盖优先于配置
@@ -70,9 +74,22 @@ class ExperimentsTest(unittest.TestCase):
                 os.chdir(tmp)
                 experiments.reset()
                 self.assertFalse(experiments.is_enabled("anything"))
+                self.assertEqual(experiments.current_profile(), "legacy")
                 self.assertEqual(experiments.active(), [])
             finally:
                 os.chdir(cwd)
+
+    def test_runtime_profile_then_experiment_override(self) -> None:
+        experiments.set_profile("m3")
+        self.assertEqual(experiments.current_profile(), "m3")
+        self.assertTrue(experiments.is_enabled("k_initiative"))
+        self.assertTrue(experiments.is_enabled("hp20"))
+        self.assertTrue(experiments.is_enabled("m3_accuracy"))
+        self.assertFalse(experiments.is_enabled("m4_gear"))
+        experiments.disable("hp20")
+        experiments.enable("m4_gear")
+        self.assertFalse(experiments.is_enabled("hp20"))
+        self.assertTrue(experiments.is_enabled("m4_gear"))
 
 
 if __name__ == "__main__":

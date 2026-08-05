@@ -32,7 +32,7 @@ HOSHINO_TACTICAL = {"破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃�
 NEED_PASS = {"AT力场", "电磁步枪", "高斯步枪", "导弹控制权", "雷达", "隐形涂层"} | HOSHINO_TACTICAL
 
 
-# m4 退役：导弹生态位由弓继承，攻城/反龟缩职责移交钩锁（v2.0 §2.2 处决名单）
+# m4 退役：导弹生态位由弓继承，攻城/反龟缩职责移交钩索（v2.0 §2.2 处决名单）
 _M4_RETIRED = {"导弹控制权"}
 
 
@@ -44,7 +44,7 @@ def get_menu():
             menu.pop(r, None)
         from engine.bow_modules import menu_entries
         menu.update(menu_entries("军事基地"))
-        menu["钩锁"] = "神器·钩锁（通行证+信用点，全图唯一）：拉人/拉己位移"
+        menu["钩索"] = "神器·钩索（通行证+信用点，全图唯一）：拉人/拉己位移"
     return menu
 
 
@@ -59,23 +59,23 @@ def can_interact(player, item_name, game_state=None):
             if not player.has_military_pass:
                 return False, "军事基地的弓模块需要通行证"
             return check_purchase(player, base_name(item_name), game_state)
-        # 钩锁（神器×1）
-        if item_name == "钩锁":
+        # 钩索（神器×1）
+        if item_name == "钩索":
             if not player.has_military_pass:
-                return False, "钩锁需要通行证"
+                return False, "钩索需要通行证"
             if getattr(game_state, 'hook_taken', False):
-                return False, "钩锁是全图唯一神器，已被取走"
-            if any(getattr(i, 'name', '') == "钩锁" for i in getattr(player, 'items', [])):
-                return False, "你已经持有钩锁"
+                return False, "钩索是全图唯一神器，已被取走"
+            if any(getattr(i, 'name', '') == "钩索" for i in getattr(player, 'items', [])):
+                return False, "你已经持有钩索"
             from engine.economy import can_afford
-            return can_afford(player, "钩锁")
+            return can_afford(player, "钩索")
 
     if item_name not in MILITARY_MENU:
         return False, f"军事基地没有「{item_name}」"
 
     # m4 退役武器：断新增（已持有者不剥夺）
     if _m4 and item_name in _M4_RETIRED:
-        return False, f"「{item_name}」已退役（远程交给弓，攻城交给钩锁）"
+        return False, f"「{item_name}」已退役（远程交给弓，攻城交给钩索）"
 
     # 办理通行证不需要已有通行证
     if item_name == "办理通行证":
@@ -137,13 +137,13 @@ def do_interact(player, item_name, game_state=None):
         from engine.bow_modules import is_module_item, do_purchase, base_name
         if is_module_item(item_name):
             return do_purchase(player, base_name(item_name), game_state)
-        if item_name == "钩锁":
+        if item_name == "钩索":
             from engine.economy import charge
             from models.equipment import Item
-            charge(player, "钩锁")
-            player.add_item(Item("钩锁", "tool"))
+            charge(player, "钩索")
+            player.add_item(Item("钩索", "tool"))
             game_state.hook_taken = True
-            return f"🪝 {player.name} 取得了全图唯一神器·钩锁！"
+            return f"🪝 {player.name} 取得了全图唯一神器·钩索！"
 
     if item_name == "办理通行证":
         player.has_military_pass = True

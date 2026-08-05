@@ -71,8 +71,8 @@ def parse(raw_input, player_id):
             return None
         return {"action": "shoot", "target": parts[1]}
 
-    # ---- 钩锁（M4） ----
-    if cmd in ("hook", "钩锁", "钩"):
+    # ---- 钩索（M4） ----
+    if cmd in ("hook", "钩索", "钩"):
         if len(parts) < 2:
             return None
         if parts[1] in ("self", "自己") and len(parts) >= 3:

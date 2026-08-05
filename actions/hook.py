@@ -1,4 +1,4 @@
-"""行动类型：钩锁（M4 神器，experiment: m4_gear，v2.0 §2.9）。
+"""行动类型：钩索（M4 神器，experiment: m4_gear，v2.0 §2.9）。
 
 位移三件套之「拉」（科技属性）：
 - hook <目标>  拉人：把任意地点的目标拽至己方地点 + 2 科伤，走命中骰；
@@ -14,7 +14,7 @@ from engine.balance import get as bget
 
 
 def execute(player: Any, parsed: Dict, game_state: Any) -> Tuple[str, bool]:
-    """执行钩锁（validator 已校验持有/冷却/目标合法）。"""
+    """执行钩索（validator 已校验持有/冷却/目标合法）。"""
     mode = parsed.get("mode")
     if mode == "self":
         return _pull_self(player, parsed.get("destination"), game_state)
@@ -58,7 +58,7 @@ def _pull_target(player: Any, target_str: str, game_state: Any) -> Tuple[str, bo
         target._hook_no_evasion_round = game_state.current_round
         game_state.log_event("hook", player=player.player_id, mode="pull",
                              target=target_id, grazed=True)
-        return (f"🪝 {player.name} 的钩锁擦过 {target.name}（掷 {roll} > {chance}）"
+        return (f"🪝 {player.name} 的钩索擦过 {target.name}（掷 {roll} > {chance}）"
                 f"——未能拽动，但 {target.name} 本轮闪避全失效！", True)
 
     # 命中：拽至己方地点 + 科伤
@@ -71,7 +71,7 @@ def _pull_target(player: Any, target_str: str, game_state: Any) -> Tuple[str, bo
     game_state.log_event("hook", player=player.player_id, mode="pull",
                          target=target_id, from_loc=old,
                          to_loc=player.location, result=result)
-    lines = [f"🪝 {player.name} 用钩锁将 {target.name} 从 {old} 拽到面前！"]
+    lines = [f"🪝 {player.name} 用钩索将 {target.name} 从 {old} 拽到面前！"]
     for detail in result.get("details", []):
         lines.append(f"   {detail}")
     if result.get("killed"):
@@ -80,7 +80,7 @@ def _pull_target(player: Any, target_str: str, game_state: Any) -> Tuple[str, bo
         if game_state.police_engine:
             game_state.police_engine.on_player_death(target_id)
         from cli import display
-        display.show_death(target.name, f"被 {player.name} 钩锁拽杀")
+        display.show_death(target.name, f"被 {player.name} 钩索拽杀")
         from engine import applause as _applause
         _applause.check_kill_applause(game_state, player, target)
         from engine.round_manager import RoundManager
@@ -90,8 +90,8 @@ def _pull_target(player: Any, target_str: str, game_state: Any) -> Tuple[str, bo
 
 
 def _hook_weapon():
-    """钩锁的伤害载体（临时 Weapon，科技属性）。"""
+    """钩索的伤害载体（临时 Weapon，科技属性）。"""
     from models.equipment import Weapon, WeaponRange
     from utils.attribute import Attribute
-    return Weapon("钩锁", Attribute.TECH, bget("hook", "damage", default=2),
+    return Weapon("钩索", Attribute.TECH, bget("hook", "damage", default=2),
                   WeaponRange.MELEE, special_tags=["hook"])

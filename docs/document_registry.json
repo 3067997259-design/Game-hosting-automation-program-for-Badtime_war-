@@ -1,0 +1,389 @@
+{
+  "schema_version": 1,
+  "last_reviewed": "2026-08-05",
+  "profiles": ["legacy", "v2exp", "m9-rfc", "cross-profile"],
+  "documents": [
+    {
+      "path": "README.md",
+      "type": "project-entry",
+      "status": "mixed",
+      "profiles": ["cross-profile", "legacy", "v2exp"],
+      "authority_for": ["project.entry"],
+      "notes": "项目入口；已统一指向 docs/README.md、Legacy 模块入口和 V2 模块入口。"
+    },
+    {
+      "path": "AGENTS.md",
+      "type": "agent-guidance",
+      "status": "scoped-current",
+      "profiles": ["cross-profile"],
+      "authority_for": ["agent.repository_workflow"]
+    },
+    {
+      "path": "CLAUDE.md",
+      "type": "agent-guidance",
+      "status": "scoped-current",
+      "profiles": ["cross-profile"],
+      "authority_for": ["agent.claude_workflow"]
+    },
+    {
+      "path": "docs/README.md",
+      "type": "docs-entry",
+      "status": "canonical",
+      "profiles": ["cross-profile"],
+      "authority_for": ["docs.navigation"]
+    },
+    {
+      "path": "docs/governance.md",
+      "type": "governance",
+      "status": "canonical",
+      "profiles": ["cross-profile"],
+      "authority_for": ["docs.governance"]
+    },
+    {
+      "path": "docs/document_registry.json",
+      "type": "registry",
+      "status": "canonical",
+      "profiles": ["cross-profile"],
+      "authority_for": ["docs.registry"]
+    },
+    {
+      "path": "docs/contradictions.md",
+      "type": "audit-ledger",
+      "status": "decision-ledger",
+      "profiles": ["cross-profile", "legacy", "v2exp", "m9-rfc"],
+      "authority_for": ["docs.conflicts"]
+    },
+    {
+      "path": "docs/audits/initial-baseline.md",
+      "type": "audit-snapshot",
+      "status": "historical",
+      "profiles": ["cross-profile"],
+      "authority_for": []
+    },
+    {
+      "path": "docs/audits/semantic-audit-v1.md",
+      "type": "audit-snapshot",
+      "status": "historical",
+      "profiles": ["legacy", "v2exp", "m9-rfc"],
+      "authority_for": []
+    },
+    {
+      "path": "docs/audits/talent-authority-matrix-v1.md",
+      "type": "audit-matrix",
+      "status": "historical",
+      "profiles": ["legacy", "v2exp"],
+      "authority_for": []
+    },
+    {
+      "path": "docs/handbook/README.md",
+      "type": "manual-entry",
+      "status": "canonical",
+      "profiles": ["v2exp"],
+      "authority_for": ["manual.v2exp.navigation"]
+    },
+    {
+      "path": "docs/handbook/manifest.json",
+      "type": "manual-manifest",
+      "status": "canonical",
+      "profiles": ["v2exp"],
+      "authority_for": ["manual.v2exp.module_registry"],
+      "notes": "34 个候选规范模块的顺序、依赖、主题与权威范围。"
+    },
+    {
+      "path": "docs/handbook/complete.generated.src.md",
+      "type": "manual-assembly",
+      "status": "generated",
+      "profiles": ["v2exp"],
+      "authority_for": [],
+      "generated_from": "docs/handbook/manifest.json"
+    },
+    {
+      "path": "docs/handbook/complete.generated.md",
+      "type": "manual-render",
+      "status": "generated",
+      "profiles": ["v2exp"],
+      "authority_for": [],
+      "generated_from": "docs/handbook/manifest.json"
+    },
+    {
+      "path": "docs/archive/README.md",
+      "type": "archive-index",
+      "status": "historical",
+      "profiles": ["legacy", "v2exp", "m9-rfc"],
+      "authority_for": [],
+      "notes": "冻结迁移源、旧生成链和实验分叉的统一索引；归档文件不定义现行玩法。"
+    },
+    {
+      "path": "docs/archive/v2-migration/完全游玩手册V2.0-exp.src.docx",
+      "type": "manual-source",
+      "status": "historical",
+      "profiles": ["v2exp"],
+      "authority_for": [],
+      "notes": "模块化迁移的冻结 DOCX 基线；迁移已完成，只用于完整性校验和历史复核。"
+    },
+    {
+      "path": "docs/archive/v2-old-chain/完全游玩手册V2.0-exp.src.md",
+      "type": "manual-source",
+      "status": "superseded",
+      "profiles": ["v2exp"],
+      "authority_for": [],
+      "superseded_by": ["docs/handbook/manifest.json"],
+      "notes": "与冻结 DOCX 迁移基线明显分叉，不作为模块迁移输入。"
+    },
+    {
+      "path": "docs/archive/v2-old-chain/完全游玩手册V2.0-exp.md",
+      "type": "manual-render",
+      "status": "superseded",
+      "profiles": ["v2exp"],
+      "authority_for": [],
+      "generated_from": "docs/archive/v2-old-chain/完全游玩手册V2.0-exp.src.md",
+      "notes": "旧单体 Markdown 生成链产物，已由模块化生成版替换。"
+    },
+    {
+      "path": "docs/完全游玩手册.md",
+      "type": "manual-redirect",
+      "status": "scoped-current",
+      "profiles": ["legacy"],
+      "authority_for": ["manual.legacy.entry"],
+      "notes": "兼容旧链接的短入口；作者源已迁到 docs/legacy/ 模块。"
+    },
+    {
+      "path": "docs/legacy/README.md",
+      "type": "manual-index",
+      "status": "decision-ledger",
+      "profiles": ["legacy"],
+      "authority_for": ["manual.legacy.index"],
+      "notes": "Legacy 模块化手册入口；模块尚未完成逐主题语义审计。"
+    },
+    {
+      "path": "docs/legacy/manifest.json",
+      "type": "manual-manifest",
+      "status": "mixed",
+      "profiles": ["legacy"],
+      "authority_for": ["manual.legacy.module_registry"],
+      "notes": "34 个 Legacy 模块的顺序、依赖、主题与权威范围。"
+    },
+    {
+      "path": "docs/legacy/complete.generated.md",
+      "type": "manual-render",
+      "status": "generated",
+      "profiles": ["legacy"],
+      "authority_for": [],
+      "generated_from": "docs/legacy/manifest.json"
+    },
+    {
+      "path": "docs/archive/legacy-migration/完全游玩手册.md",
+      "type": "manual-source",
+      "status": "historical",
+      "profiles": ["legacy"],
+      "authority_for": [],
+      "notes": "Legacy 模块化迁移的冻结单体基线；不再直接编辑。"
+    },
+    {
+      "path": "docs/talents.md",
+      "type": "mechanics-reference",
+      "status": "mixed",
+      "profiles": ["legacy", "v2exp"],
+      "authority_for": ["talents.implementation_notes"],
+      "notes": "混合 legacy、V2 和实现说明，不能整体视为现行玩家规则。"
+    },
+    {
+      "path": "docs/design/v2exp/v2.0_exp_design_draft_v0.2.md",
+      "type": "design-rfc",
+      "status": "mixed",
+      "profiles": ["v2exp"],
+      "authority_for": ["design.v2exp.decisions_and_drafts"],
+      "notes": "同时包含设计宪法、已拍板决定、待办和过时实现描述。"
+    },
+    {
+      "path": "docs/design/v2exp/m8_basicai_refactor.md",
+      "type": "design-plan",
+      "status": "mixed",
+      "profiles": ["v2exp"],
+      "authority_for": ["design.m8.history"],
+      "notes": "计划与已完成实现状态混合，不能作为当前 AI 架构唯一信源。"
+    },
+    {
+      "path": "docs/design/v2exp/README.md",
+      "type": "design-index",
+      "status": "decision-ledger",
+      "profiles": ["v2exp"],
+      "authority_for": ["design.v2exp.navigation"]
+    },
+    {
+      "path": "docs/m9/README.md",
+      "type": "design-index",
+      "status": "decision-ledger",
+      "profiles": ["m9-rfc"],
+      "authority_for": ["design.m9.index"],
+      "notes": "M9 唯一推荐入口；汇总当前候选、失效边界、待决事项与历史阅读路径，不直接替代详细 RFC。"
+    },
+    {
+      "path": "docs/m9/drafts/m9_unified_currency_design.md",
+      "type": "design-rfc",
+      "status": "mixed",
+      "profiles": ["m9-rfc"],
+      "authority_for": ["design.m9.economy_support.original_draft"],
+      "notes": "原始统一提案。数值型 SP、三货币定位和行动费用章节已被行动 RFC v0.5 取代；信用点、PP、投注、魂援与往世层仅作为待重写输入。"
+    },
+    {
+      "path": "docs/m9/superseded/m9_action_system_rfc_v0.1.md",
+      "type": "design-rfc",
+      "status": "superseded",
+      "profiles": ["m9-rfc"],
+      "authority_for": [],
+      "superseded_by": ["docs/m9/superseded/m9_action_system_rfc_v0.4.md"],
+      "notes": "首轮方案保留为迭代证据；其 R0 自动升级已被纸面推演否决，不定义现行玩法。"
+    },
+    {
+      "path": "docs/m9/superseded/m9_action_system_rfc_v0.4.md",
+      "type": "design-rfc",
+      "status": "superseded",
+      "profiles": ["m9-rfc"],
+      "authority_for": [],
+      "superseded_by": ["docs/m9/current/m9_action_system_rfc_v0.5.md"],
+      "notes": "保留为硬门控迭代证据；其自动入队、R0 三人顺延和公演垄断主动发动权已被 v0.5 取代。"
+    },
+    {
+      "path": "docs/m9/current/m9_action_system_rfc_v0.5.md",
+      "type": "design-rfc",
+      "status": "candidate",
+      "profiles": ["m9-rfc"],
+      "authority_for": ["design.m9.action_system.final_candidate"],
+      "notes": "用户批准方向：全员单行动槽、先攻只排序、SP 二段就绪、即时演出与自愿公演并存；完整额外行动作为明文白名单的最高级奖励保留。尚未进入 v2exp。"
+    },
+    {
+      "path": "docs/m9/superseded/m9_talent_spotlight_rfc_v0.1.md",
+      "type": "design-rfc",
+      "status": "superseded",
+      "profiles": ["m9-rfc"],
+      "authority_for": [],
+      "superseded_by": ["docs/m9/current/m9_talent_spotlight_rfc_v0.2.md"],
+      "notes": "保留为队列硬门控与旧纸面推演的历史证据；其发动频率和 SAE 汇总不能证明 v0.2。"
+    },
+    {
+      "path": "docs/m9/current/m9_talent_spotlight_rfc_v0.2.md",
+      "type": "design-rfc",
+      "status": "candidate",
+      "profiles": ["m9-rfc"],
+      "authority_for": ["design.m9.talents.spotlight.candidate"],
+      "notes": "十四天赋接入即时演出、自愿公演、自动转折和副舞台的当前候选；T4 或跃在渊与 T5 FC 首批保留完整额外行动。需要重建并发纸面模型。"
+    },
+    {
+      "path": "docs/audits/m9-action-paper-simulation-v0.1.md",
+      "type": "audit-snapshot",
+      "status": "historical",
+      "profiles": ["v2exp", "m9-rfc"],
+      "authority_for": [],
+      "notes": "纸面推演判定全员行动方向通过、RFC v0.1 自动 SP 推进不通过，并提出 v0.2 候选状态机。"
+    },
+    {
+      "path": "docs/inheritor_decision_map.md",
+      "type": "decision-map",
+      "status": "decision-ledger",
+      "profiles": ["legacy", "v2exp", "m9-rfc"],
+      "authority_for": ["design.transition_status"],
+      "notes": "用于继承和定位，不直接定义现行玩法。"
+    },
+    {
+      "path": "docs/operations/README.md",
+      "type": "operations-index",
+      "status": "scoped-current",
+      "profiles": ["cross-profile", "legacy", "v2exp"],
+      "authority_for": ["operations.navigation"]
+    },
+    {
+      "path": "docs/operations/commands.md",
+      "type": "operations-reference",
+      "status": "candidate",
+      "profiles": ["legacy", "v2exp"],
+      "authority_for": ["operations.commands"]
+    },
+    {
+      "path": "docs/operations/usage.md",
+      "type": "operations-guide",
+      "status": "candidate",
+      "profiles": ["legacy", "v2exp"],
+      "authority_for": ["operations.usage"]
+    },
+    {
+      "path": "docs/operations/airi_bridge.md",
+      "type": "integration-guide",
+      "status": "candidate",
+      "profiles": ["cross-profile"],
+      "authority_for": ["integration.airi_bridge"]
+    },
+    {
+      "path": "docs/history/README.md",
+      "type": "history-index",
+      "status": "scoped-current",
+      "profiles": ["cross-profile", "legacy", "v2exp"],
+      "authority_for": ["history.navigation"]
+    },
+    {
+      "path": "docs/history/changelog.md",
+      "type": "history",
+      "status": "historical",
+      "profiles": ["legacy", "v2exp"],
+      "authority_for": ["history.changelog"]
+    },
+    {
+      "path": "docs/history/develop_diary.md",
+      "type": "history",
+      "status": "historical",
+      "profiles": ["legacy"],
+      "authority_for": ["history.development_diary"]
+    },
+    {
+      "path": "docs/archive/v2-migration/完全游玩手册V2.0-exp.src.G3G7.docx",
+      "type": "manual-variant",
+      "status": "historical",
+      "profiles": ["v2exp"],
+      "authority_for": [],
+      "notes": "已归档的局部实验分叉；约 100 个段落不与主 DOCX 精确重合，独有内容仍待语义复核。"
+    },
+    {
+      "path": "docs/archive/v2-migration/G3G7.extracted.md",
+      "type": "manual-extract",
+      "status": "historical",
+      "profiles": ["v2exp"],
+      "authority_for": [],
+      "notes": "G3/G7 DOCX 的机器可检索逻辑文本，不保留排版且不定义规则。"
+    },
+    {
+      "path": "起闯战争鉴赏随笔.md",
+      "type": "editorial",
+      "status": "historical",
+      "profiles": ["cross-profile"],
+      "authority_for": []
+    },
+    {
+      "path": "起闯战争鉴赏随笔·续篇.md",
+      "type": "editorial",
+      "status": "historical",
+      "profiles": ["cross-profile"],
+      "authority_for": []
+    },
+    {
+      "path": "起闯战争评测报告.md",
+      "type": "review",
+      "status": "historical",
+      "profiles": ["cross-profile"],
+      "authority_for": []
+    },
+    {
+      "path": "tools/handbook.py",
+      "type": "docs-tool",
+      "status": "scoped-current",
+      "profiles": ["cross-profile"],
+      "authority_for": ["tooling.handbook"]
+    },
+    {
+      "path": "tools/check_doc_governance.py",
+      "type": "docs-tool",
+      "status": "scoped-current",
+      "profiles": ["cross-profile"],
+      "authority_for": ["tooling.doc_governance"]
+    }
+  ]
+}
