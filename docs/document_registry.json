@@ -825,6 +825,14 @@
       "notes": "实现就绪审计增量 v0.2（2026-08-11）：补齐 G0 世界援助与 G3 连续投影两份增量合同的权威矩阵、结构语义与 17 个 Given/When/Then 场景，P0/P1/P2=0；五个增量 balance 键已登记 v0.4.6 首轮值（DOC-048），行动 RFC 升版收容根内连发与敌意 SP 扣减为 P2 观察项；不定义 v2exp 现行玩法。"
     },
     {
+      "path": "docs/audits/m9-contract-test-gap-ledger-v0.1.md",
+      "type": "audit-ledger",
+      "status": "decision-ledger",
+      "profiles": ["m9-rfc"],
+      "authority_for": ["docs.maintenance.m9_contract_test_gaps"],
+      "notes": "B-2 合同测试缺口台账（2026-08-11）：B0-B3 清单 11 项全部映射到关联测试或「随 B-3 迁移同步」标注；今日落地 tests/test_m9_contracts_v2exp.py 12 个用例。"
+    },
+    {
       "path": "docs/audits/m9-action-paper-simulation-v0.1.md",
       "type": "audit-snapshot",
       "status": "historical",
