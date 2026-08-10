@@ -23,6 +23,7 @@ from controllers.ai.constants import (
 )
 from models.equipment import make_weapon
 from controllers.ai.game_query import GameQuery
+from engine.experiments import is_enabled as _is_exp_enabled
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController
 _Base = BasicAIController if TYPE_CHECKING else object
@@ -519,6 +520,9 @@ class PoliceMixin(_Base):
         return names
     def _armor_counters_weapon(self, player, weapon_name) -> bool:
         """检查玩家的护甲是否克制指定武器"""
+        if _is_exp_enabled("m8_ai"):
+            # D1：hp20 无硬克制——护甲只是"净伤更低"，武器仍有效（保底 25% 磨血）
+            return False
         from utils.attribute import Attribute, is_effective
         from models.equipment import make_weapon, ArmorLayer
         w = make_weapon(weapon_name)

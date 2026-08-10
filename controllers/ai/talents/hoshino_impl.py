@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import List, Optional, Any
 from controllers.ai.constants import PROTECTED_ITEMS, debug_ai_basic
 from utils.attribute import COUNTER_ATTRIBUTE_NAME
+from engine.experiments import is_enabled as _is_exp_enabled
 
 
 class HoshinoImpl:
@@ -484,6 +485,28 @@ class HoshinoImpl:
             return False
         ammo = getattr(talent, 'ammo', [])
         ammo_attrs = set(b.get("attribute", "普通") for b in ammo)
+
+        if _is_exp_enabled("m8_ai"):
+            # D1：单发裸伤 = 3 弹丸 × talent_num(g7.eye_pellet_damage)，净伤>0 即有效
+            from talents.talent_balance import talent_num
+            pellet = float(talent_num("g7", "eye_pellet_damage", v1=0.5))
+            raw = max(1, int(round(pellet * 3)))
+            from combat import numeric_v2
+            from models.equipment import ArmorLayer
+            armor_obj = getattr(target, 'armor', None)
+            outer_armors = []
+            if armor_obj and hasattr(armor_obj, 'get_all_active'):
+                outer_armors = [a for a in armor_obj.get_all_active()
+                                if not a.is_broken
+                                and getattr(a, 'layer', None) == ArmorLayer.OUTER]
+            if not outer_armors:
+                return True  # 无外层护甲，任何子弹都有效
+            for b in ammo:
+                b_attr = b.get("attribute", "普通")
+                defense, _ = numeric_v2.compute_defense(target, b_attr)
+                if numeric_v2.compute_damage(raw, defense) > 0:
+                    return True
+            return False
 
         # 检查目标外层护甲属性
         armor_obj = getattr(target, 'armor', None)

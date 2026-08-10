@@ -23,6 +23,7 @@ from controllers.ai.constants import (
 )
 from controllers.ai.minds.base import BaseMind, MindAssessment
 from controllers.ai.strategies.base_strategy import DecisionPhase
+from engine.experiments import is_enabled as _is_exp_enabled
 
 
 class PoliceStance(Enum):
@@ -224,6 +225,28 @@ class PoliceMind(BaseMind):
             return True, "目标不受警察保护"
 
         threshold = pe.get_protection_threshold(target.player_id)
+
+        if _is_exp_enabled("m8_ai"):
+            # D1：净伤为基——AOE 净伤>0 可绕过保护；单发净伤超阈值可硬穿（无硬克制）
+            for aoe_name in aoe_weapon_names:
+                aoe_w = self._find_weapon_by_name(player_weapons, aoe_name)
+                if aoe_w is None:
+                    from models.equipment import make_weapon
+                    aoe_w = make_weapon(aoe_name)
+                if aoe_w is None:
+                    continue
+                if self._needs_charge(aoe_w) and not self._is_charged(aoe_w):
+                    continue  # 未蓄力
+                if self._query.net_damage(player, aoe_w, target) > 0:
+                    return True, f"AOE武器 {aoe_name} 净伤可无视警察保护攻击"
+            best = max(
+                (self._query.net_damage(player, w, target)
+                 for w in getattr(player, 'weapons', []) if w),
+                default=0.0,
+            )
+            if best > threshold:
+                return True, f"净伤({best:.1f})超过警察保护阈值({threshold})，可硬穿"
+            return False, f"净伤({best:.1f})不足穿透警察保护阈值({threshold})"
 
         # 路径1：伤害超过保护阈值（硬穿）
         if talent_adjusted_damage > threshold:
