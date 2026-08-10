@@ -121,16 +121,16 @@ Agent: [Loads skills] → Delegates to python-coder subagent
 
 | Task Type | Subagent | Task Tool Usage |
 |-----------|----------|-----------------|
-| Code generation | python-coder | `task(subagent_type="general", ...)` |
-| Code review | python-reviewer | `task(subagent_type="general", ...)` |
-| Test writing | python-tester | `task(subagent_type="general", ...)` |
-| Codebase exploration | python-scout | `task(subagent_type="explore", ...)` |
+| Code generation | python-coder | `task(subagent_type="python-coder", ...)` |
+| Code review | python-reviewer | `task(subagent_type="python-reviewer", ...)` |
+| Test writing | python-tester | `task(subagent_type="python-tester", ...)` |
+| Codebase exploration | python-scout | `task(subagent_type="python-scout", ...)` |
 
 ### Delegation Format
 
 ```python
 task(
-    subagent_type="general",  # Use "explore" for python-scout
+    subagent_type="python-scout",  # or "python-coder"/"python-reviewer"/"python-tester" for others
     description="Brief task description",
     prompt="""Detailed instructions including:
     - Context from loaded skills

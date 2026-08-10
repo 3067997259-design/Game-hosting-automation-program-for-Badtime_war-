@@ -52,10 +52,10 @@ On first interaction in a Python project:
 
 | Task Type | Subagent | Task Tool Usage |
 |-----------|----------|-----------------|
-| Code generation | python-coder | `task(subagent_type="general", description="...", prompt="...")` |
-| Code review | python-reviewer | `task(subagent_type="general", description="...", prompt="...")` |
-| Test writing | python-tester | `task(subagent_type="general", description="...", prompt="...")` |
-| Codebase exploration | python-scout | `task(subagent_type="explore", description="...", prompt="...")` |
+| Code generation | python-coder | `task(subagent_type="python-coder", description="...", prompt="...")` |
+| Code review | python-reviewer | `task(subagent_type="python-reviewer", description="...", prompt="...")` |
+| Test writing | python-tester | `task(subagent_type="python-tester", description="...", prompt="...")` |
+| Codebase exploration | python-scout | `task(subagent_type="python-scout", description="...", prompt="...")` |
 
 ### Delegation Format
 

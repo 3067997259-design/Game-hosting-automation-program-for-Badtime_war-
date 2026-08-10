@@ -24,7 +24,7 @@ Subagents are specialized assistants that the primary agent (python-expert) can 
 
 ## python-coder
 
-**File**: `.opencode/subagents/python-coder.md`
+**File**: `.opencode/agent/python-coder.md`
 
 ### Mission
 
@@ -174,7 +174,7 @@ async def fetch_all(urls: list[str]) -> list[dict]:
 
 ## python-reviewer
 
-**File**: `.opencode/subagents/python-reviewer.md`
+**File**: `.opencode/agent/python-reviewer.md`
 
 ### Mission
 
@@ -331,7 +331,7 @@ async def bad():
 
 ## python-tester
 
-**File**: `.opencode/subagents/python-tester.md`
+**File**: `.opencode/agent/python-tester.md`
 
 ### Mission
 
@@ -525,7 +525,7 @@ uv run pytest tests/path/to/test_file.py -v
 
 ## python-scout
 
-**File**: `.opencode/subagents/python-scout.md`
+**File**: `.opencode/agent/python-scout.md`
 
 ### Mission
 
