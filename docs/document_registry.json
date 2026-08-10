@@ -812,10 +812,17 @@
     {
       "path": "docs/audits/m9-implementation-readiness-v0.1.md",
       "type": "audit-matrix",
+      "status": "superseded",
+      "profiles": ["m9-rfc"],
+      "authority_for": ["docs.maintenance.m9_implementation_readiness"],
+      "notes": "增量合同出现前 17 份 M9 合同的实现权威矩阵、共同纪律与 Given/When/Then 验收场景；P0/P1/P2 均为 0 的结论不覆盖 G0 世界援助与 G3 连续投影，不定义 v2exp 现行玩法。已被 v0.2 取代。"
+    }, {
+      "path": "docs/audits/m9-implementation-readiness-v0.2.md",
+      "type": "audit-matrix",
       "status": "decision-ledger",
       "profiles": ["m9-rfc"],
       "authority_for": ["docs.maintenance.m9_implementation_readiness"],
-      "notes": "增量合同出现前 17 份 M9 合同的实现权威矩阵、共同纪律与 Given/When/Then 验收场景；P0/P1/P2 均为 0 的结论不覆盖 G0 世界援助与 G3 连续投影，不定义 v2exp 现行玩法。"
+      "notes": "实现就绪审计增量 v0.2（2026-08-11）：补齐 G0 世界援助与 G3 连续投影两份增量合同的权威矩阵、结构语义与 17 个 Given/When/Then 场景，P0/P1/P2=0；五个增量 balance 键已登记 v0.4.6 首轮值（DOC-048），行动 RFC 升版收容根内连发与敌意 SP 扣减为 P2 观察项；不定义 v2exp 现行玩法。"
     },
     {
       "path": "docs/audits/m9-action-paper-simulation-v0.1.md",
