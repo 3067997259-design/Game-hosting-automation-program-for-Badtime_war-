@@ -18,6 +18,7 @@ from controllers.ai.constants import (
     NEED_PROVIDERS, PERSONALITY_NEEDS,
     debug_ai_basic, debug_ai_development_plan
 )
+from engine.experiments import is_enabled as _is_exp_enabled
 
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController
@@ -871,6 +872,70 @@ class DevelopMixin(_Base):
         return unmet
     def _score_destination(self, dest, unmet_needs, player, state, vouchers, has_pass) -> float:
         """对一个候选地点评分"""
+        if _is_exp_enabled("m8_ai"):
+            # D3：按 player.credits + balance.economy 价格决策（免费/付费/财产税三档）。
+            # 折扣结构沿用旧语义：买不起=0.3（可先打工）、强买/手术=财产税打折、
+            # 差太多=0.1。off 路径保持 voucher 模型逐字不变。
+            from engine.balance import get as _bget
+            from engine.economy import price as _item_price
+            credits = getattr(player, 'credits', 0)
+            force_pass_min = float(_bget("economy", "force_pass_min_cost", default=2))
+            surgery_min = float(_bget("economy", "surgery_min_cost", default=4))
+            score = 0.0
+            for need_key, priority in unmet_needs:
+                providers = NEED_PROVIDERS.get(need_key, [])
+                for (ploc, item_name, prereq) in providers:
+                    if ploc != dest:
+                        continue
+                    # 检查是否已有该物品（避免重复获取）
+                    if self._already_has_item(player, item_name):
+                        continue
+                    if prereq == "pass":
+                        # 军基物品：有通行证免费；否则强买=财产税（下限 force_pass_min_cost）
+                        if has_pass:
+                            score += priority
+                        elif credits >= force_pass_min:
+                            score += priority * 0.5  # 可强买通行证，清空积蓄打折
+                        else:
+                            score += priority * 0.1  # 需要先打工凑下限
+                        continue
+                    if prereq == "voucher_consume":
+                        # 手术 = 财产税（下限 surgery_min_cost）
+                        if credits >= surgery_min:
+                            score += priority
+                        else:
+                            score += priority * 0.2  # 需要先打工凑下限
+                            continue
+                        break
+                    cost = float(_item_price(item_name))
+                    if cost <= 0 or credits >= cost:
+                        score += priority  # 免费（家取/魔法所学习）或买得起
+                    else:
+                        score += priority * 0.3  # 买不起但可以打工，打折
+                    break  # 每个需求只计一次
+            enemies = self._count_enemies_at(dest, player, state)
+            if self.personality in ("aggressive", "assassin"):
+                score -= enemies * 0.5
+            else:
+                if enemies == 1:
+                    score -= 0.5
+                elif enemies == 2:
+                    score -= 2.5
+                elif enemies >= 3:
+                    score -= enemies * 2 + 3
+            # 3. 效率加分：一个地方能同时满足多个需求
+            satisfiable_count = 0
+            for need_key, _ in unmet_needs:
+                providers = NEED_PROVIDERS.get(need_key, [])
+                for (ploc, item_name, _) in providers:
+                    if ploc == dest and not self._already_has_item(player, item_name):
+                        satisfiable_count += 1
+                        break
+            if satisfiable_count >= 2:
+                score += 3  # 一站式加分
+            if satisfiable_count >= 3:
+                score += 3  # 更多加分
+            return score
         score = 0.0
         # 1. 能满足多少需求（按优先级加权）
         for need_key, priority in unmet_needs:
