@@ -6,7 +6,7 @@
 | 文档 | 身份 |
 |---|---|
 | [`v2.0_exp_design_draft_v0.2.md`](v2.0_exp_design_draft_v0.2.md) | 设计宪法、决定、草案和实现描述的混合总纲 |
-| [`m8_basicai_refactor.md`](m8_basicai_refactor.md) | BasicAI 信源审计、历史路线和未完成计划的混合记录 |
+| [`m8_basicai_refactor.md`](m8_basicai_refactor.md) | BasicAI 信源审计、历史路线、未完成计划与 M8.1 收缩修订的混合记录（现行指导见 §6） |
 
 玩家规则读取 [`../../handbook/README.md`](../../handbook/README.md)；设计冲突读取
 [`../../contradictions.md`](../../contradictions.md)。后续内容维护应把已接受决定、未决 RFC

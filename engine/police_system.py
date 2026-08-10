@@ -6,6 +6,7 @@ from combat.damage_resolver import resolve_damage
 from combat.damage_resolver import quantize_damage
 from models.equipment import make_weapon, make_armor, WeaponRange, ArmorLayer
 from utils.attribute import Attribute, is_effective
+from engine.action_tables import EQUIPMENT_LOCATION
 from engine.prompt_manager import prompt_manager
 
 
@@ -15,16 +16,8 @@ class PoliceEngine:
     def __init__(self, game_state):
         self.state = game_state
         self.police = game_state.police
-        # 警察获得各种物品的地点
-        self.EQUIPMENT_LOCATION = {
-            "警棍": {"警察局"},
-            "高斯步枪": {"军事基地"},
-            "魔法弹幕": {"魔法所"},
-            "盾牌": {"商店", "home"},
-            "陶瓷护甲": {"商店"},
-            "魔法护盾": {"魔法所"},
-            "AT力场": {"军事基地"},
-        }
+        # D4 归并：警察获得各种物品的地点，与 AI 同读 engine.action_tables 单表
+        self.EQUIPMENT_LOCATION = EQUIPMENT_LOCATION
 
         # 允许攻击警察的AOE手段
         self.ALLOWED_AOE = {"地震", "地动山摇", "电磁步枪", "天星"}

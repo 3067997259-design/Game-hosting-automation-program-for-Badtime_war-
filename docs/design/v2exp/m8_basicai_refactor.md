@@ -1,6 +1,8 @@
 # M8 · BasicAI 重写 + 信源统一审计
 
 > 状态：审计完成（2026-06-22），待开 /plan。
+> 修订（2026-08-10）：收缩为 **M8.1 = 原步骤 1–5（数值语义信源统一）**；步骤 6–7 剥离至 M9 引擎落地后。
+> **现行指导见 §6**，§0–5 保留为原始审计记录。
 > 背景：V2.0 数值模型（hp20）+ 全套新系统（弓/模块/钩索/信用点/白昼/喝彩/往世层/锚定/谱面/舞台）
 > 已在 M1–M7 落地，但 **BasicAI 几乎全部决策逻辑仍停留在旧 2.0 模型**，且自身积累了大量信源债。
 > 数值模型替换是稀有任务（不会每个大版本做一次），故本轮**尽可能把债清干净**。
@@ -156,3 +158,84 @@ canonical：`balance.ai.*`（新分区，[待风洞]）。
 | weapon_score | combat_mind.py:295 / combat_mixin.py:760 / combat_commands.py:432 |
 | can_damage(_through_protection) | minds/police_mind.py:202 / orchestrator.py:1300 |
 | 属性克制 | combat_mixin.py:926 / police_mixin.py:520 / game_query.py:1078 |
+
+---
+
+## 6. 修订（2026-08-10）— M8.1 收缩与 M9 对齐（现行指导）
+
+> 本节为现行指导，取代原 §2 与 §4 中第 6–7 步的范围约定；§0–5 保留为原始审计记录。
+> 修订动因：M9 十九份合同（`docs/m9/current/`，2026-08 冻结，m9-rfc profile）对天赋机制层几乎全面重制，
+> 若按原 §4 顺序把步骤 6–7 做完再等 M9，等于把 M8 投资投进即将被淘汰的设计。
+
+### 6.1 背景：M9 对天赋机制层的重制面
+
+| M9 合同 | 对 M7 天赋的处置 |
+|---|---|
+| `m9_talent_action_contract_rfc_v0.3` | **T5 退役**，原槽位转 G0 |
+| `m9_g2_holographic_presence_rfc_v0.3` | G2 舞台冻结、duet suspended，改光身/影身双 actor |
+| `m9_g3_reality_marble/chain_projection_rfc` | G3 重置为现实宝石 + 连续投影 |
+| `m9_g4_savior_cycle_rfc_v0.3` | G4 十二火种轮回、残缺/完整救世主、焚诏/天裁 |
+| `m9_g5_anchor_contract_rfc_v0.4` | G5 重入轮回 + 玩家自写 AnchorScript |
+| `m9_g6_cutaway_joke_rfc_v0.2` | G6 即演重演、公演借用核心 |
+| `m9_g7_tactical_suppression_rfc_v0.3` | G7 三形态、战术宏、连续射击、Terror |
+| `m9_g1_firefly_burn_cycle_rfc_v0.3` | G1 三段形态、繁育、绝对死亡 |
+| `m9_g0_shiroko_terror_rfc_v0.3` | G0 新增（BLACK FANG 465/无人机/遗物） |
+| `m9_t3_t7_migration_rfc_v0.3` / `m9_police_t6_reset_rfc_v0.3` | T3/T7 迁移、T6 警察配装重置 |
+| `m9_pp_afterlife_betting_rfc_v0.4` / `m9_pp_afterlife_scoring_rfc_v0.1` | 往世层改 PP 投注 + 魂援 + 绝对死排除 + arc_count 评分 |
+
+原 §2 第 6 步的"新天赋 AI（T5 读谱/G5 发锚/stage duet 桩/星模式）"逐项命中上述重制面；
+原第 7 步 RL 解冻采出的 BC 数据在 M9 落地后作废重采（先例：design draft §11.7"BC 数据全部作废，M7 后重采"）。
+
+### 6.2 M8.1 范围：仅保留步骤 1–5
+
+| 步骤 | 内容 | 与 M9 关系 |
+|---|---|---|
+| 1 | D4 归并（`EQUIPMENT_LOCATION` 单表，中性、不门控） | 无关，照做 |
+| 2 | `m8_ai` 门控骨架 + GameQuery `net_damage`/`rounds_to_kill` 地基（D1 根） | **M9 前置** |
+| 3 | 估算函数逐个接地（effective_hp / best_weapon / estimate_power / 克制→净伤） | **M9 前置** |
+| 4 | 经济 credits 接地（D3） | M9 兼容（PP 为第二货币，不动 credits） |
+| 5 | 消费端收口（weapon_score×3 / `_score_target` / 警察判定 → net_damage） | **M9 前置** |
+
+### 6.3 为什么步骤 1–5 不被 M9 淘汰（兼容性论据）
+
+1. **M9 未推翻数值语义层**：B5 纸面推演 v0.1 锁定的 HP20 + 伤害下限 `ceil(A×25%)` 即现行语义；
+   分辨率合同 v0.3 只是给伤害管道加 A/H 两阶段通道与 `DIRECT_DAMAGE` 身份，AI 侧"净伤能否打死"的评估模型不变。
+2. **B2 已预演兼容**：T3 真伤终裁为"无属性 + `defense_coefficient=0`"
+   （`m9_t3_t7_migration_rfc_v0.3.md` §1.3）——即 `numeric_v2.compute_damage(raw, compute_defense(...))` 的自然实例，
+   M9 合同主动收敛到 M8 要建的原语上，而非分叉。
+3. **动作制同构**：design draft §10 M8 行（L1007/L1091）"顺序全员行动制与其 assess() 框架同构"——
+   Mind / GoalStack / GameQuery 评估框架在 M9 全员行动 + SP 分层制下继续有效；变的只是 Builder 的动作枚举层。
+
+### 6.4 剥离项（移出 M8，挂到 M9 引擎落地后的 AI 适配）
+
+| 原步骤 6 子项 | 剥离理由 | 后续承接 |
+|---|---|---|
+| 往世层星模式策略（starlight/拨弄/加冕/预兆） | M9 改 PP 投注 + 魂援 + 绝对死排除语义 | M9 引擎落地后按 B4 v0.4 合同重写 |
+| T5 读谱按拍 | T5 已退役，槽位转 G0 | G0 无人机/遗物 AI |
+| G5 主动发锚 + 命运路线 | G5 已重置为重入轮回 + AnchorScript | 按 `m9_g5_anchor_contract_rfc_v0.4` 重写 |
+| stage duet 投票 / embrace 桩（`stage_ai.py:154/185`） | G2 舞台冻结、duet suspended | 按 G2 光身/影身合同重写（若 G2 保留） |
+| 步骤 7 RL 解冻重训 | BC 数据基于天赋环境，M9 落地后作废 | 顺延至 M9 引擎落地后一次性重设计（同 §11.7） |
+
+### 6.5 总路线（M8.1 之后的接续）
+
+```
+M8.1（步骤 1–5 信源统一）
+  → M9 引擎实现（增量就绪审计：G0 世界援助 + G3 连续投影
+    → 合同测试补缺（B0–B3 已列清单）→ [待风洞] 数值单值化
+    → W1 原型指标 → 配置档迁移决策 → m9-rfc 接入 v2exp）
+  → BasicAI 基于新地基重设计（原步骤 6 的 M9 版：SP/即演/公演/新天赋 AI）
+  → stats_runner 风洞平衡（design draft §9 仪表盘 + M6 轮次敏感数值复核）
+  → 终版方案定稿
+  → 作者动笔：新完全手册 + 开发日记
+```
+
+### 6.6 完成标准与新增停止线
+
+- **M8.1 完成标志**：引擎 / AI / 锚定神谕三方并轨同一 `numeric_v2`；验收仍按 §5 纪律
+  （`m8_ai` off 逐字节不变 → v1~m6 golden 冻结；每步 `stats_runner --players 6 --games 50`
+  烟雾：崩溃 0 + 平均轮长同噪声带）。
+- **停止线（修订新增）**：
+  1. M8.1 期间不写任何天赋 AI 能力（星模式 / 谱面 / 锚定 / 舞台均不碰）；
+  2. M9 引擎落地前不做 RL 解冻；
+  3. 不按 M7 天赋设计补原步骤 6 的任何子项。
+- M8.1 开工前，本修订即 §2 / §4 过期清单的更新（后续再拆入 /plan 的工单级描述）。

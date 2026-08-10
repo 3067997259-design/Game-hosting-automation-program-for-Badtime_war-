@@ -1,7 +1,7 @@
 # M9 全员先攻与舞台位阶行动制 RFC v0.1
 
 > **历史版本 / 请勿用于当前设计。** 本稿的 R0 自动升级 SP 已被纸面推演否决；当前 M9
-> 行动候选是 [`m9_action_system_rfc_v0.5.md`](../current/m9_action_system_rfc_v0.5.md)。推荐从
+> 行动候选是 [`m9_action_system_rfc_v0.8.md`](../current/m9_action_system_rfc_v0.8.md)。推荐从
 > [`m9/README.md`](../README.md) 进入，本文只保留为设计演化证据。
 
 > **日期**：2026-08-05  

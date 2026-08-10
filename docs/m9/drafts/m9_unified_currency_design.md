@@ -3,7 +3,7 @@
 > **部分失效的原始草案 / 不要从本文理解当前 SP。** 本稿提出的“三货币”、数值型 SP、
 > SP 支付行动费用和 SP 统一所有行动，已被当前行动候选取代。现行 M9 阅读入口是
 > [`m9/README.md`](../README.md)，行动规则见
-> [`m9_action_system_rfc_v0.5.md`](../current/m9_action_system_rfc_v0.5.md)。本文只继续承载尚未重写的
+> [`m9_action_system_rfc_v0.8.md`](../current/m9_action_system_rfc_v0.8.md)。本文只继续承载尚未重写的
 > 信用点、PP、投注、魂援与往世层原始构想；这些构想本身也尚未进入 `v2exp`。
 
 > **版本**：0.1.0  

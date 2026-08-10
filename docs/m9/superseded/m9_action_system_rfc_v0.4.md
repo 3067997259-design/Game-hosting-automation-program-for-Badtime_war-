@@ -2,7 +2,7 @@
 
 > **历史版本 / 请勿用于当前设计。** 本稿的自动入队、R0 三人顺延与“全桌每轮唯一主动
 > 天赋”硬门控已经废止；当前候选是
-> [`m9_action_system_rfc_v0.5.md`](../current/m9_action_system_rfc_v0.5.md)。
+> [`m9_action_system_rfc_v0.8.md`](../current/m9_action_system_rfc_v0.8.md)。
 > 推荐从 [`m9/README.md`](../README.md) 进入，本文只保留旧模型和迭代证据。
 
 > **日期**：2026-08-05  

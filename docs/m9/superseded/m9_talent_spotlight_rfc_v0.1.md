@@ -2,7 +2,7 @@
 
 > **历史版本 / 请勿使用其中的频率结论。** 本稿假设主动天赋只能等待每轮唯一聚光位；
 > 当前候选已改为即时演出与自愿公演并存，见
-> [`m9_talent_spotlight_rfc_v0.2.md`](../current/m9_talent_spotlight_rfc_v0.2.md)。推荐从
+> [`m9_talent_spotlight_rfc_v0.5.md`](../current/m9_talent_spotlight_rfc_v0.5.md)。推荐从
 > [`m9/README.md`](../README.md) 进入，旧模拟表只用于说明硬门控方案的演化。
 
 > **日期**：2026-08-05  

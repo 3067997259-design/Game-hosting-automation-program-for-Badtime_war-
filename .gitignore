@@ -51,3 +51,23 @@ htmlcov/
 logs/
 __pycache__/
 *.pyc
+
+# ── 本地敏感配置（含 API key / token，绝不提交）─────────
+config/llm_config.json
+config/airi_config.json
+config/airi_bridge_config.json
+cline_mcp_settings.json
+data/balance.json.backup
+
+# ── RL 训练产物（数据 & 权重）───────────────────────────
+bc_data/
+pretrained/
+
+# ── 节点依赖 / agent 本地状态（不提交）─────────────────
+node_modules/
+.opencode/node_modules/
+.claude/
+.codex/
+.harness-memory/
+.ocx/
+.fallow/

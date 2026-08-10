@@ -5,14 +5,16 @@
 - SPELL_PREREQUISITES → 从 action_tables 推导（引擎唯一定义）
 - EFFECTIVE_AGAINST → utils.attribute（属性层唯一定义）
 - LOCATION_ITEMS → 硬编码顺序（AI 行为敏感），与 ITEM_LOCATIONS 一致性由模块级 assert 保证
-- EQUIPMENT_LOCATION / NEED_PROVIDERS / PERSONALITY_NEEDS / POLICE_AOE_WEAPONS → AI 层专属数据
+- EQUIPMENT_LOCATION → engine.action_tables（D4 归并：AI 与 police_system 同读，此处仅再导出）
+- NEED_PROVIDERS / PERSONALITY_NEEDS / POLICE_AOE_WEAPONS → AI 层专属数据
 """
-from typing import Dict, List
+from typing import Dict, List, Set
 
 from utils.attribute import Attribute, EFFECTIVE_AGAINST
 from engine.action_tables import (
     LOCATIONS, ITEM_LOCATIONS as _ENGINE_ITEM_LOCATIONS,
     SPELL_PREREQUISITES as _ENGINE_SPELL_PREREQUISITES,
+    EQUIPMENT_LOCATION,
 )
 from engine.debug_config import (
     debug_ai, debug_ai_basic, debug_ai_detailed, debug_ai_full,
@@ -36,7 +38,8 @@ assert set(SPELL_PREREQUISITES.keys()) == _MAGIC_ITEMS, \
     f"SPELL_PREREQUISITES keys mismatch: {set(SPELL_PREREQUISITES.keys()) ^ _MAGIC_ITEMS}"
 
 
-EQUIPMENT_LOCATION = {
+# D4 归并防回退：冻结旧 AI 拷贝，断言引擎单表与旧值相等（仅加载期检查，不参与运行）
+_LEGACY_EQUIPMENT_LOCATION: Dict[str, set] = {
     "警棍": {"警察局"},
     "高斯步枪": {"军事基地"},
     "魔法弹幕": {"魔法所"},
@@ -45,6 +48,8 @@ EQUIPMENT_LOCATION = {
     "魔法护盾": {"魔法所"},
     "AT力场": {"军事基地"},
 }
+assert EQUIPMENT_LOCATION == _LEGACY_EQUIPMENT_LOCATION, \
+    "EQUIPMENT_LOCATION D4 归并漂移：engine.action_tables 与旧 AI 拷贝不一致"
 
 # ── 信源归并：LOCATION_ITEMS 逆映射自 ITEM_LOCATIONS ──────────────────
 # LOCATIONS 直接来自顶部 import（engine.action_tables 同一对象），此处不再重复绑定。

@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@opencode-ai/plugin": "1.18.15",
+    "harness-memory": "latest"
+  },
+  "devDependencies": {
+    "unique-names-generator": "4.7.1"
+  }
+}

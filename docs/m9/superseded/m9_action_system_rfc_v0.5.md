@@ -1,5 +1,10 @@
 # M9 单行动槽、SP 就绪与自愿公演 RFC v0.5
 
+> **已被取代。** 当前版本为
+> [`../current/m9_action_system_rfc_v0.8.md`](../current/m9_action_system_rfc_v0.8.md)。本版保留为
+> “即演与公演都要求 SP=2、结算后统一归零”的历史候选；B5 推演 v0.3 发现后续五份
+> 天赋 RFC 已一致采用“即演 1 SP / 公演 2 SP”，用户于 2026-08-09 裁决改为分层就绪。
+
 > **当前 M9 行动候选。** 总览与阅读路径见 [`m9/README.md`](../README.md)；十四天赋接入
 > 见 [`m9_talent_spotlight_rfc_v0.2.md`](m9_talent_spotlight_rfc_v0.2.md)。要查询现在实际
 > 游玩的规则，请查看 [`handbook/README.md`](../../handbook/README.md)，不要把本文当成已实装手册。
