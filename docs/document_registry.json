@@ -833,6 +833,14 @@
       "notes": "B-2 合同测试缺口台账（2026-08-11）：B0-B3 清单 11 项全部映射到关联测试或「随 B-3 迁移同步」标注；今日落地 tests/test_m9_contracts_v2exp.py 12 个用例。"
     },
     {
+      "path": "docs/audits/m9-migration-decision-v0.1.md",
+      "type": "decision-ledger",
+      "status": "decision-ledger",
+      "profiles": ["m9-rfc", "v2exp"],
+      "authority_for": ["docs.maintenance.m9_v2exp_migration"],
+      "notes": "B-4 迁移决策台账（2026-08-11）：m9-rfc → v2exp 哪些进、哪些等风洞；结构可进 4 组（天赋层/分辨率/评分/动作系统），数值相关 6 组等风洞；接入需作者拍板 + W1 指标 + 数值单值化三道门槛。见 README 未冻结清单。"
+    },
+    {
       "path": "docs/audits/m9-action-paper-simulation-v0.1.md",
       "type": "audit-snapshot",
       "status": "historical",

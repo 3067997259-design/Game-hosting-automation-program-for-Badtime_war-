@@ -29,8 +29,35 @@
    统一收尾、`m9-rfc` profile）——在 B-3 实现对应机制时同步编写，本台账随后更新状态；
 3. 新增缺口项时按本表格式追加，不删除历史行。
 
-## 三、收尾状态
+## 三、B-3 状态更新（2026-08-11）
+
+B-3 机制层已在 `engine/m9/` 落地（profile: `m9-rfc`），上表「随 B-3 迁移同步」列
+逐项获得机制级测试（`tests/test_m9_mechanisms.py`，29 用例）+ 冒烟
+（`tools/m9_rfc_smoke.py`，8 场景 exit=0）：
+
+| 原「随 B-3」项 | B-3 机制落点 | 机制级测试 |
+|---|---|---|
+| 压制/统一收尾（项 1/2） | `engine/m9/action_system.py`（SlotOutcome/resolution_kind） | `ActionSystemTest::test_slot_finalization_kinds` |
+| full-extra 白名单/上限/递归（项 3/4） | `GrantLedger`（白名单/每人每轮上限/深度闸）+ `pick_full_extra_candidate` 三源仲裁 | `ActionSystemTest::test_full_extra_*` / `test_three_source_arbitration_priority` |
+| T4 单 full_extra（项 4） | 三源含 `t4_hexagram_hojump`，候选整体丢弃 | 同上 |
+| G6 模板池（项 6） | `engine/m9/talents.py::g6_template_pool_categories`（大类白名单） | 结构登记（无独立机制测试，结算随接入层） |
+| G7 单收尾（项 7） | 机制层预留（宏 Cost 表 `g7_tactical_macro_cost_table`） | 结构登记 |
+| T3 2SP 公演（项 8） | `SPOTLIGHT_INDEX["T3"]=public/2` + `dispatch_public` 预检先消费 | `ActionSystemTest::test_improvise_and_public_dispatch` |
+| T7 落幕/absolute_death（项 9） | `resolution.would_skip_revive` + `PPLedger.freeze` | `ResolutionTest::test_absolute_death_*` / `PPScoringTest::test_earn_freeze_decay` |
+| G1 三熵（项 10） | `talents.g1_form_entropy`（量表/形态速率结构） | 结构登记 |
+| G4 余烬/挑战/响应（项 11） | `talents.g4_ember_pool`（余烬/ember_floor 结构） | 结构登记 |
+| G3 连续投影/赤原猎风 | `engine/m9/g3_chain.py` | `ProjectionChainTest`（5 用例） |
+| G0 世界援助 | `engine/m9/g0_world_poem.py` | `WorldPoemAidTest`（4 用例） |
+| PP/投注/魂援/评分 | `engine/m9/pp.py` | `PPScoringTest`（4 用例） |
+| 警察/T6/掩体/停机 | `engine/m9/police.py` | `PoliceStationTest`（4 用例） |
+
+> 注：机制层结构（纯数据/状态机）已落地可测；**接入 v2exp 现行流水线需迁移决策
+> （B-4）拍板后另做**，机制层不依赖接入也能独立运行（m9_rfc_smoke 即证据）。
+
+## 四、收尾状态
 
 - B-2 今日落地：`tests/test_m9_contracts_v2exp.py` 12 个用例（T7 持久化 / T5 时延 /
   T4 两阶段 / T3 次数门控 / G1 结算序 / G4 封顶 / 石化入口 / acted_this_round 语义）；
-- 其余合同断言全部标注「随 B-3 迁移同步」，无遗漏、无未标注项。
+- B-3 今日落地：`engine/m9/` 机制层 + `tests/test_m9_mechanisms.py` 29 用例 +
+  `tools/m9_rfc_smoke.py`（exit=0）；v2exp profile 回归不漂（golden 冻结 + stats 92.6）；
+- 全部缺口项均有「关联测试」或「机制级测试」标注，无遗漏、无未标注项。
