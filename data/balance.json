@@ -91,6 +91,17 @@
         "petrify_release_damage": 2
     },
 
+    "ai": {
+        "_comment": "BasicAI 估算打分权重（M8.1 D6，experiment: m8_ai，全 [待风洞]）。estimate_power 的魔数收口；不改决策结构，只改数值来源",
+        "hp_weight": 10,
+        "damage_weight": 15,
+        "outer_armor_weight": 20,
+        "inner_armor_weight": 15,
+        "stealth_weight": 10,
+        "detection_weight": 5,
+        "iron_horus_weight": 15
+    },
+
     "weapons": {
         "_comment": "HP20 量纲武器表（v0.2 §2.2，[待风洞]）。远程魔法弹幕/地动山摇/导弹 M4 退役，过渡期按新量纲换算。charged_damage 仅蓄力武器有",
         "拳击": {"damage": 2},

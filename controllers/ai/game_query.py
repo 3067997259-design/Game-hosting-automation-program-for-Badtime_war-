@@ -376,6 +376,24 @@ class GameQuery:
 
     @staticmethod
     def has_effective_aoe_against(player, target) -> bool:
+        if _is_exp_enabled("m8_ai"):
+            # D1：无硬克制——AOE"有效" = 对该目标净伤 > 0
+            aoe_names = GameQuery.get_all_aoe_weapon_names(player)
+            for aoe_name in aoe_names:
+                aoe_weapon = next((w for w in getattr(player, 'weapons', [])
+                                   if w and w.name == aoe_name), None)
+                if not aoe_weapon:
+                    from models.equipment import make_weapon
+                    aoe_weapon = make_weapon(aoe_name)
+                if not aoe_weapon:
+                    continue
+                if (getattr(aoe_weapon, 'requires_charge', False)
+                        and getattr(aoe_weapon, 'charge_mandatory', True)
+                        and not getattr(aoe_weapon, 'is_charged', False)):
+                    continue
+                if GameQuery.net_damage(player, aoe_weapon, target) > 0:
+                    return True
+            return False
         target_armor_attrs = GameQuery.get_outer_armor_attr(target)
         if not target_armor_attrs:
             target_armor_attrs = GameQuery.get_inner_armor_attr(target)
@@ -676,6 +694,21 @@ class GameQuery:
 
     @staticmethod
     def get_effective_hp(player) -> float:
+        if _is_exp_enabled("m8_ai"):
+            # D5：炽愿每层 HP 读 talent_num 活值（m7=balance.talents.g1.ardent_temp_hp），
+            # 不再写死 ×0.5。注：引擎 receive_damage_to_temp_hp 仍硬编码 0.5（引擎侧债，
+            # 已记录），balance 为唯一信源，AI 先并轨。
+            from talents.talent_balance import talent_num
+            hp = player.hp
+            talent = getattr(player, 'talent', None)
+            if talent:
+                temp_hp = getattr(talent, 'temp_hp', 0.0)
+                if temp_hp > 0:
+                    hp += temp_hp
+                charges = getattr(talent, 'ardent_wish_charges', 0)
+                if charges > 0:
+                    hp += charges * float(talent_num("g1", "ardent_temp_hp", v1=0.5))
+            return hp
         hp = player.hp
         talent = getattr(player, 'talent', None)
         if talent:
@@ -689,6 +722,28 @@ class GameQuery:
 
     @staticmethod
     def estimate_talent_adjusted_damage(player, weapon=None) -> float:
+        if _is_exp_enabled("m8_ai"):
+            # D5：火萤 ×2.0 写死 → 读活天赋已换算加成（m7=balance.talents.g1.attack_bonus）
+            from talents.talent_balance import talent_num
+            if weapon is not None:
+                base_dmg = GameQuery.get_weapon_damage(weapon)
+            else:
+                weapons = getattr(player, 'weapons', [])
+                if not weapons:
+                    return 0.0
+                base_dmg = max((GameQuery.get_weapon_damage(w) for w in weapons if w), default=0.0)
+            talent = getattr(player, 'talent', None)
+            if not talent:
+                return base_dmg
+            if hasattr(talent, 'name') and talent.name == "火萤IV型-完全燃烧":
+                return base_dmg + float(talent_num("g1", "attack_bonus", v1=3.0))
+            if hasattr(talent, 'is_savior') and talent.is_savior:
+                bonus = getattr(talent, 'temp_attack_bonus', 0.0)
+                aoe_bonus = getattr(talent, 'aoe_bonus', 0.0)
+                if weapon and GameQuery.get_weapon_range(weapon) == "area":
+                    return base_dmg + aoe_bonus
+                return base_dmg + bonus
+            return base_dmg
         if weapon is not None:
             base_dmg = GameQuery.get_weapon_damage(weapon)
         else:
@@ -761,6 +816,35 @@ class GameQuery:
 
     @staticmethod
     def estimate_power(player) -> float:
+        if _is_exp_enabled("m8_ai"):
+            # D6：打分权重全部读 balance.ai（[待风洞]），不写死魔数
+            from engine.balance import get as _bget
+            hp_w = float(_bget("ai", "hp_weight", default=10))
+            dmg_w = float(_bget("ai", "damage_weight", default=15))
+            outer_w = float(_bget("ai", "outer_armor_weight", default=20))
+            inner_w = float(_bget("ai", "inner_armor_weight", default=15))
+            stealth_w = float(_bget("ai", "stealth_weight", default=10))
+            detect_w = float(_bget("ai", "detection_weight", default=5))
+            horus_w = float(_bget("ai", "iron_horus_weight", default=15))
+            power = 0.0
+            power += GameQuery.get_effective_hp(player) * hp_w
+            weapons = getattr(player, 'weapons', [])
+            for w in weapons:
+                power += GameQuery.estimate_talent_adjusted_damage(player, w) * dmg_w if w else 0
+            outer = GameQuery.count_outer_armor(player)
+            inner = GameQuery.count_inner_armor(player)
+            power += outer * outer_w
+            power += inner * inner_w
+            if GameQuery.has_stealth(player):
+                power += stealth_w
+            if getattr(player, 'has_detection', False):
+                power += detect_w
+            t_talent = getattr(player, 'talent', None)
+            if t_talent and hasattr(t_talent, 'iron_horus_hp'):
+                iron_hp = getattr(t_talent, 'iron_horus_hp', 0)
+                if iron_hp > 0:
+                    power += iron_hp * horus_w
+            return power
         power = 0.0
         power += GameQuery.get_effective_hp(player) * 10
         weapons = getattr(player, 'weapons', [])
@@ -985,6 +1069,16 @@ class GameQuery:
 
     @staticmethod
     def all_weapons_countered(player, target) -> bool:
+        if _is_exp_enabled("m8_ai"):
+            # D1：hp20 无硬克制——武器"有效" = 净伤 > 0（保底 25% 恒可磨血）。
+            # 属性不利只是"净伤更低"，不再整把作废。
+            weapons = [
+                weapon for weapon in getattr(player, 'weapons', [])
+                if weapon and not getattr(weapon, '_hexagram_disabled', False)
+            ]
+            if not weapons:
+                return True
+            return all(GameQuery.net_damage(player, w, target) <= 0 for w in weapons)
         weapons = [
             weapon for weapon in getattr(player, 'weapons', [])
             if weapon and not getattr(weapon, '_hexagram_disabled', False)
@@ -1126,6 +1220,27 @@ class GameQuery:
 
     @staticmethod
     def best_effective_weapon_damage(player, target) -> float:
+        if _is_exp_enabled("m8_ai"):
+            # D1：逐武器净伤取 max（无硬克制过滤），天赋钩子照旧叠加
+            weapons = getattr(player, 'weapons', [])
+            if not weapons:
+                return 0.0
+            best = 0.0
+            for w in weapons:
+                if not w:
+                    continue
+                dmg = GameQuery.net_damage(player, w, target)
+                if GameQuery.has_firefly_talent(player):
+                    talent = getattr(player, 'talent', None)
+                    if talent and hasattr(talent, 'modify_outgoing_damage'):
+                        mod = talent.modify_outgoing_damage(player, target, w, dmg)
+                        if mod and "damage_multiplier_override" in mod:
+                            dmg = dmg * mod["damage_multiplier_override"]
+                        if mod and "bonus_damage" in mod:
+                            dmg += mod["bonus_damage"]
+                if dmg > best:
+                    best = dmg
+            return best
         weapons = getattr(player, 'weapons', [])
         if not weapons:
             return 0.0
