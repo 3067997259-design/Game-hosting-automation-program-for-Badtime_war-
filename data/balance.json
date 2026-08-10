@@ -393,9 +393,10 @@
             "blackhorse_def": 2,
             "blackhorse_bonus": 10,
             "world_poem_g0_heal": 1,
-            "_comment_aid": "魂援系统（26 个天赋援助效果数值；T5 已由 G0 取代且 G0 无魂援；aid_passive_reward=被动援助提供者固定奖励）",
+            "_comment_aid": "魂援系统（26 个天赋援助效果数值；T5 已由 G0 取代且 G0 无魂援；aid_passive_reward=被动援助提供者固定奖励）；aid_quota_per_round=每轮援助额度（当前 4）",
             "aid_hp_threshold": 4,
             "aid_passive_reward": 1,
+            "aid_quota_per_round": 4,
             "t1_counter_ratio": 0.5,
             "t2_armor_steal": 2,
             "t2_evasion_boost": 15,
@@ -428,6 +429,12 @@
             "damage_weight": 0.1,
             "g0_relic_bonus": 5,
             "g0_breath_survive_bonus": 10
+        },
+        "action": {
+            "_comment": "M9 行动系统（行动 RFC v0.8，[待风洞]）：full_extra_per_round=每人每轮完整额外行动上限；grant_depth=ActionGrant 递归深度闸；attention_per_round=每轮关注额度",
+            "full_extra_per_round": 1,
+            "grant_depth": 2,
+            "attention_per_round": 1
         }
     },
 
@@ -636,8 +643,9 @@
             "revive_hp": 12
         },
         "t6": {
-            "_comment": "T6 朝阳好市民（远程配装选项数，待 B5 定义具体列表）",
-            "remote_equip_options": 3
+            "_comment": "T6 朝阳好市民（远程配装选项数，待 B5 定义具体列表）；equipment=机制默认配装表",
+            "remote_equip_options": 3,
+            "equipment": ["防毒面具", "热成像仪"]
         }
     },
 
