@@ -13,6 +13,7 @@ from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS, LOCATIONS,
     debug_ai_basic,
 )
+from engine.experiments import is_enabled as _is_exp_enabled
 
 
 class GameQuery:
@@ -619,6 +620,55 @@ class GameQuery:
         if candidates:
             return candidates[0][0]
         return "home"
+
+    # ════════════════════════════════════════════════════════
+    #  信源统一原语（m8_ai，D1 根）
+    #  net_damage / rounds_to_kill —— 全部经 combat.numeric_v2 与
+    #  engine.anchor_eval.simulate_path，与引擎/锚定神谕三方并轨同一套数值。
+    #  消费端（best_effective / estimate_power / _score_target / weapon_score /
+    #  _armor_counters / can_damage_through_protection / hoshino 射击判定）只准
+    #  调这两个原语，不允许各自再实现伤害数学。
+    # ════════════════════════════════════════════════════════
+
+    @staticmethod
+    def net_damage(attacker, weapon, target) -> float:
+        """单发净伤：numeric_v2 减法防御后的伤害（m8_ai 原语）。
+
+        = compute_damage(raw, compute_defense(target, attr))。
+        raw 与引擎 damage_resolver 同口径：max(0, int(round(武器有效伤害)))；
+        attr 取武器属性中文名（防御表键）。纯估算不磨耐久、不改目标。
+        attacker 预留（天赋钩子等消费端扩展用，本原语不读）。
+        """
+        from combat import numeric_v2
+        if not weapon:
+            return 0.0
+        raw = max(0, int(round(GameQuery.get_weapon_damage(weapon))))
+        attr_name = GameQuery.get_weapon_attr(weapon).value
+        defense, _ = numeric_v2.compute_defense(target, attr_name)
+        return float(numeric_v2.compute_damage(raw, defense))
+
+    @staticmethod
+    def rounds_to_kill(attacker, target, state=None, horizon: int = 8) -> Optional[int]:
+        """推演打死 target 的最短命数（m8_ai 原语，复用 anchor_eval）。
+
+        武器先经 anchor_eval.resolve_weapons（弓按已装模块解析），再走
+        build_direct_sequence 直取底线 + simulate_path；achieved → 返回命数，
+        horizon 内打不死 → None。state 可缺省（无 markers 时前置动作退化为
+        move/find/lock 全做）。纯估算，在目标投影上推演，不改真目标。
+        """
+        from engine import anchor_eval
+        weapons = anchor_eval.resolve_weapons(attacker)
+        if not weapons:
+            return None
+        seq = anchor_eval.build_direct_sequence(
+            state, attacker, target, weapons, goal="kill", horizon=horizon)
+        if not seq:
+            return None
+        res = anchor_eval.simulate_path(target, weapons, seq,
+                                        goal="kill", horizon=horizon)
+        if res.achieved:
+            return res.rounds
+        return None
 
     # ════════════════════════════════════════════════════════
     #  战力与伤害估算（从 evaluation_mixin 复制）
