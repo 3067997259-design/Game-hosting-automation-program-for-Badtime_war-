@@ -33,6 +33,16 @@ PROFILES: Dict[str, List[str]] = {
         "m6_scoring",
         "m7_talents",
     ],
+    "m9-rfc": [
+        "k_initiative",
+        "hp20",
+        "m3_accuracy",
+        "m4_gear",
+        "m5_clock",
+        "m6_scoring",
+        "m7_talents",
+        "m9_rfc",
+    ],
 }
 
 _config_flags: Optional[Dict[str, bool]] = None
