@@ -18,6 +18,7 @@ from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS,
     debug_ai_basic, debug_ai_attack_generation,
 )
+from engine.experiments import is_enabled as _is_exp_enabled
 
 _LLM_AGGRESSION_TARGET_BIAS_SCALE = 0.2
 _LLM_AGGRESSION_TARGET_BIAS_CLAMP = 60.0
@@ -293,7 +294,11 @@ class CombatMind(BaseMind):
         is_protected = police_protected_ids and target.player_id in police_protected_ids
 
         def score(w):
-            s = self._query.get_weapon_damage(w) * 10
+            if _is_exp_enabled("m8_ai"):
+                # D1：净伤为基（属性差异已折进防御表），克制不再二元
+                s = self._query.net_damage(player, w, target) * 10
+            else:
+                s = self._query.get_weapon_damage(w) * 10
 
             # 救世主加成
             if self._query.is_in_savior_state(player):
@@ -311,7 +316,7 @@ class CombatMind(BaseMind):
 
             # 属性克制
             w_attr = self._query.get_weapon_attr(w)
-            if target_attrs and w_attr in EFFECTIVE_AGAINST:
+            if not _is_exp_enabled("m8_ai") and target_attrs and w_attr in EFFECTIVE_AGAINST:
                 effective_set = EFFECTIVE_AGAINST[w_attr]
                 if any(a in effective_set for a in target_attrs):
                     s += 20
