@@ -608,6 +608,25 @@ def resolve_damage(attacker, target, weapon, game_state,
     新增参数（v2.0 G2×G5 TE）：
       displacement_only: duet 模式下攻击只产生位移不产生 HP 伤害
     """
+    # M9 结算路径（profile: m9-rfc）：A/H 两阶段 + DIRECT_DAMAGE + absolute_dead 分流
+    from engine import experiments as _m9exp
+    if _m9exp.is_enabled("m9_rfc"):
+        from engine.m9.combat import resolve_damage as _m9_resolve
+        return _m9_resolve(
+            attacker, target, weapon, game_state,
+            target_layer=target_layer, target_armor_attr=target_armor_attr,
+            ignore_element=ignore_element, damage_multiplier=damage_multiplier,
+            bonus_damage=bonus_damage, ignore_counter=ignore_counter,
+            ignore_last_inner_absorb=ignore_last_inner_absorb,
+            raw_damage_override=raw_damage_override,
+            damage_attribute_override=damage_attribute_override,
+            is_talent_attack=is_talent_attack, is_love_poem=is_love_poem,
+            is_embrace_damage=is_embrace_damage,
+            displacement_only=displacement_only,
+            is_opportunity_attack=is_opportunity_attack,
+            armor_pierce_factor=armor_pierce_factor,
+        )
+
     # G2 相拥伤害自动检测
     if not is_embrace_damage and game_state and getattr(game_state, 'ish_bosheth', None):
         ish = game_state.ish_bosheth
