@@ -22,12 +22,14 @@ def _load_m9_classes() -> dict:
     from engine.m9.talents.g1 import G1MythFire9
     from engine.m9.talents.g4 import Savior9
     from engine.m9.talents.g2 import Hologram9
+    from engine.m9.talents.g5 import Ripple9
     return {
         "要有笑声！": CutawayJoke9,
         "大叔我啊，剪短发了": Hoshino9,
         "火萤IV型-完全燃烧": G1MythFire9,
         "愿负世，照拂黎明": Savior9,
         "神代天赋-请一直注视着我": Hologram9,
+        "神代天赋-往世的涟漪": Ripple9,
     }
 
 
