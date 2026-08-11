@@ -336,6 +336,17 @@ class RoundManager:
         # 构建行动队列（可在运行中插入额外行动回合）
         action_queue = list(self.state.round_winners)
 
+        # M9：G2 影身代理标准槽（光身之后插入；影身每轮一个标准槽，非 full_extra）
+        if hasattr(self.state, "m9_system"):
+            from engine.m9.talents.g2 import shadow_actor_for
+            for g2_pid in list(action_queue):
+                shadow = shadow_actor_for(
+                    self.state, f"G2:shadow@{g2_pid}")
+                if shadow is not None and shadow.is_alive() \
+                        and not shadow.is_terminal_singer:
+                    idx = action_queue.index(g2_pid)
+                    action_queue.insert(idx + 1, shadow.actor_id)
+
         # v0.6 ish-bosheth: G2 保底最优先行动
         ish = self.state.ish_bosheth
         if ish and ish.phase in ("active", "duet"):
@@ -349,6 +360,9 @@ class RoundManager:
         while i < len(action_queue):
             actor_id = action_queue[i]
             actor = self.state.get_player(actor_id)
+            if actor is None and hasattr(self.state, "m9_system"):
+                from engine.m9.talents.g2 import shadow_actor_for
+                actor = shadow_actor_for(self.state, actor_id)
             if not actor or not actor.is_alive():
                 i += 1
                 continue

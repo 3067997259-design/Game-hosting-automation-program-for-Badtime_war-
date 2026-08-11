@@ -71,6 +71,11 @@ class ActionTurnManager:
     #  主入口
     # ================================================================
     def execute_action_turn(self, player):
+        # M9：G2 影身代理标准槽（受限菜单 + 消散）
+        if getattr(player, "_m9_shadow_actor", False):
+            display.show_action_turn_header(player.name)
+            action_type = self._phase_t1_shadow(player)
+            return action_type
         # Chorus 单位：跳过 T0/T2，直接选行动
         is_chorus = getattr(player, 'is_chorus', False)
         if is_chorus:
@@ -1957,6 +1962,37 @@ class ActionTurnManager:
         # 使用后进入弃牌区
         if card_name != "改签票":
             ish.deck.discard_pile.append(card_name)
+
+    def _phase_t1_shadow(self, shadow):
+        """M9 G2 影身标准槽：move/interact/find/lock/attack/forfeit/消散影身。
+
+        影身使用真实物品与自身装备；不用玩家天赋/即演/公演；槽位收尾由
+        round_manager m9 分支统一处理（resolution_kind=action_performed）。
+        """
+        from engine.m9.talents.g2 import is_shadow_id
+        ctrl = getattr(shadow, "controller", None)
+        menu = ["move", "interact", "find", "lock", "attack", "forfeit",
+                "消散影身"]
+        try:
+            choice = ctrl.choose(f"{shadow.name} 影身行动：", menu)
+        except Exception:
+            choice = "forfeit"
+        if choice == "消散影身":
+            owner_talent = None
+            owner = self.state.get_player(shadow.owner_pid)
+            if owner is not None:
+                owner_talent = owner.talent
+            if owner_talent is not None and hasattr(
+                    owner_talent, "dissipate"):
+                owner_talent.dissipate(shadow, reason="dissolve")
+            return "forfeit"
+        if choice not in menu:
+            choice = "forfeit"
+        from engine.m9.executor import execute_category
+        if choice in ("move", "interact", "find", "lock", "attack"):
+            msg, ok = execute_category(shadow, self.state, choice)
+            return choice if ok else "forfeit"
+        return "forfeit"
 
     def _execute_attack(self, parsed, player, override_killer=None):
         """override_killer: 插入式笑话中传入 G6 玩家，

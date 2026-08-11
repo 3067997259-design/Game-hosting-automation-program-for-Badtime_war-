@@ -17,6 +17,7 @@ M9 天赋钩子协议（六天赋机制模块实现，阶段 2-7）：
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional
 
 from engine import experiments
@@ -184,6 +185,11 @@ def resolve_damage(attacker, target, weapon, game_state,
         except Exception:
             pass
 
+    # 终曲区域：全员易伤（攻击方侧固定加值，合同 G2 §8.1）
+    area = _terminal_area_of(game_state, target)
+    if area is not None:
+        hit.damage += area.vulnerability()
+
     # 结算后事件钩子（火种计数/标记；G4 W2 敌对来源等）
     if t_target is not None and hasattr(t_target, "m9_on_hit"):
         try:
@@ -210,6 +216,9 @@ def resolve_damage(attacker, target, weapon, game_state,
             remaining = max(0, float(remaining))
         except Exception:
             pass
+    # 终曲伤害共享（shared_post_mitigation：无重复防御/共享，总量守恒）
+    if remaining > 0:
+        remaining = _share_damage(game_state, target, int(remaining))
     if remaining > 0:
         target.hp = max(0, getattr(target, "hp", 0) - remaining)
     result["hp_damage"] = round(target_hp_before - getattr(target, "hp", 0), 2)
@@ -225,6 +234,63 @@ def resolve_damage(attacker, target, weapon, game_state,
             result["killed"] = True
             result["absolute_dead"] = is_absolute_death_source(source_kind)
     return result
+
+
+def _terminal_area_of(game_state: Any, target: Any):
+    """目标所在地点的终曲区域（若存在）。"""
+    if game_state is None:
+        return None
+    loc = getattr(target, "location", None)
+    for owner in getattr(game_state, "player_order", []):
+        p = game_state.get_player(owner)
+        if p is None or p.talent is None:
+            continue
+        talent = p.talent
+        if hasattr(talent, "area_for_target"):
+            try:
+                area = talent.area_for_target(target)
+            except Exception:
+                area = None
+            if area is not None:
+                return area
+    return None
+
+
+def _share_damage(game_state: Any, target: Any, damage: int) -> int:
+    """终曲伤害共享（合同 G2 §8.2）：S = floor(H0 × ratio) 分给区域内所有
+    存活单位（含原目标），余数按 actor_id 升序各 +1；总量守恒，无重复共享。"""
+    area = _terminal_area_of(game_state, target)
+    if area is None or damage <= 0:
+        return damage
+    ratio = area.damage_share_ratio()
+    if ratio <= 0:
+        return damage
+    loc = getattr(target, "location", None)
+    members = []
+    for pid in getattr(game_state, "player_order", []):
+        p = game_state.get_player(pid)
+        if (p and p.is_alive()
+                and getattr(p, "location", None) == loc):
+            members.append(p)
+    from engine.m9.talents.g2 import shadow_actor_for
+    for pid in list(getattr(game_state, "player_order", [])):
+        s = shadow_actor_for(game_state, f"G2:shadow@{pid}")
+        if (s and s.is_alive()
+                and getattr(s, "location", None) == loc):
+            members.append(s)  # 共享集含歌者/普通影身
+    if len(members) <= 1:
+        return damage
+    shared = int(math.floor(damage * ratio))
+    if shared <= 0:
+        return damage
+    per = shared // len(members)
+    rem = shared % len(members)
+    ordered = sorted(members, key=lambda m: getattr(m, "player_id", ""))
+    for i, m in enumerate(ordered):
+        share = per + (1 if i < rem else 0)
+        if share > 0:
+            m.hp = max(0, getattr(m, "hp", 0) - share)
+    return damage - shared
 
 
 def resolve_hit_probe(target: Any, raw_int: int, attr: str,

@@ -21,11 +21,13 @@ def _load_m9_classes() -> dict:
     from engine.m9.talents.g7 import Hoshino9
     from engine.m9.talents.g1 import G1MythFire9
     from engine.m9.talents.g4 import Savior9
+    from engine.m9.talents.g2 import Hologram9
     return {
         "要有笑声！": CutawayJoke9,
         "大叔我啊，剪短发了": Hoshino9,
         "火萤IV型-完全燃烧": G1MythFire9,
         "愿负世，照拂黎明": Savior9,
+        "神代天赋-请一直注视着我": Hologram9,
     }
 
 
@@ -49,3 +51,5 @@ def ensure_state_mechanisms(game_state: Any) -> None:
     game_state.m9_system = ActionSystem()
     game_state.g6_template_pool = G6TemplatePool()
     game_state.m9_pp = PPLedger()
+    game_state.m9_shadows = {}        # G2:shadow@<pid> → ShadowActor
+    game_state.m9_terminal_areas = {}  # g2_pid → TerminalArea（Hologram9 持有）
