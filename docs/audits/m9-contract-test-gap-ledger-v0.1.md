@@ -60,4 +60,17 @@ B-3 机制层已在 `engine/m9/` 落地（profile: `m9-rfc`），上表「随 B-
   T4 两阶段 / T3 次数门控 / G1 结算序 / G4 封顶 / 石化入口 / acted_this_round 语义）；
 - B-3 今日落地：`engine/m9/` 机制层 + `tests/test_m9_mechanisms.py` 29 用例 +
   `tools/m9_rfc_smoke.py`（exit=0）；v2exp profile 回归不漂（golden 冻结 + stats 92.6）；
-- 全部缺口项均有「关联测试」或「机制级测试」标注，无遗漏、无未标注项。
+- 第四层（2026-08-11 续）：六天赋机制完整落地 + 战斗语义完整接入——
+  - 阶段 1：`engine/m9/combat.py` M9 结算路径（A/H、DIRECT_DAMAGE、absolute_dead
+    分流、temp-HP 吸收、终曲区域易伤/伤害共享、m9_on_hit 协议）；
+  - 阶段 2：G6 模板池（R4 记录/即演重演/公演借用或跃重掷/槽收尾接线）；
+  - 阶段 3：G7 战术压制（wake_followup/Terror DIRECT_DAMAGE+absolute_dead/
+    连续射击重置/R0 即演豁免）；
+  - 阶段 4：G1 燃烧循环（三形态/失熵/R4 冻结序/繁育绝对死/超新星）；
+  - 阶段 5：G4 救世主轮回（火种 W2/完整残缺/形态内致死消耗/负世 full_extra/
+    焚诏拉条裁决）；
+  - 阶段 6：G2 光影双身（影身代理槽/消散归还/终曲永久锁死/区域效果/听众 tick）；
+  - 阶段 7：G5 轮回锚定（四形态/追忆封存/AnchorScript 投影器/逐槽监控/窄回溯）；
+  - 阶段 8：审计 v0.2 全部 17 场景转正式测试（`tests/test_m9_audit_v02.py`）；
+  - 阶段 9：剧本验收 `tools/m9_rfc_playtest.py`（6 剧本 exit=0）；
+- 全部缺口项均有「关联测试」「机制级测试」或「剧本验收」标注，无遗漏、无未标注项。

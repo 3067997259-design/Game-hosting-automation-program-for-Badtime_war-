@@ -21,6 +21,7 @@ import random
 from typing import Any, Dict, List, Optional
 
 from engine.balance import get as bget
+from engine.m9.talents.stub import M9TalentStub
 
 
 def _g2(key: str, default):
@@ -91,7 +92,7 @@ class TerminalArea:
         return self.suppression_uses <= 0
 
 
-class Hologram9:
+class Hologram9(M9TalentStub):
     """M9 G2（m9-rfc 实例化；与 v2exp 类同名 name 保字符串引用兼容）。"""
 
     name = "神代天赋-请一直注视着我"
@@ -102,10 +103,6 @@ class Hologram9:
         self.shadow_creation_eligible = True
         self.current_shadow_id: Optional[str] = None
         self.terminal_area: Optional[TerminalArea] = None
-
-    # ── 兼容桩（v2exp 挂点不读字段即安全）──
-    def on_round_end(self, *a, **k):
-        return None
 
     def on_round_start(self, *a, **k):
         return None

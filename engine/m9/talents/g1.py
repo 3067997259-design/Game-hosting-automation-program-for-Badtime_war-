@@ -48,6 +48,20 @@ class G1MythFire9(G1MythFire):
         self.ardent_wish_charges = min(
             int(_g1("ardent_initial", 1)), int(_g1("ardent_cap", 6)))
 
+    def on_turn_start(self, player):
+        """M9：0.5 血自愈退役（合同 §3.4）；无操作。"""
+        from engine.m9.gate import m9_enabled
+        if not m9_enabled():
+            return super().on_turn_start(player)
+        return None
+
+    def on_turn_end(self, player, action_type):
+        """M9：v2exp 行动计数退役（失熵改 R4 冻结序驱动）。"""
+        from engine.m9.gate import m9_enabled
+        if not m9_enabled():
+            return super().on_turn_end(player, action_type)
+        return None
+
     # ════════════════════════════════════════════════════════
     #  T0 入口：着装 / 卸甲 / 完全燃烧
     # ════════════════════════════════════════════════════════

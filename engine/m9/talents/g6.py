@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 from engine.balance import get as bget
+from engine.m9.talents.stub import M9TalentStub
 
 # 模板池类别白名单（talent_action v0.3 §七：第一版正向白名单）
 TEMPLATE_CATEGORIES: Tuple[str, ...] = ("move", "interact", "find", "lock", "attack")
@@ -181,7 +182,7 @@ class G6Mechanics:
         return float(bget("m9_system", "pp", "aid_passive_reward", default=1))
 
 
-class CutawayJoke9:
+class CutawayJoke9(M9TalentStub):
     """M9 G6 天赋（m9-rfc 实例化；与 v2exp 类同名 name 保字符串引用兼容）。
 
     T0 入口：SP≥1 即演（重演模板类别）、SP≥2 公演（借用核心/召唤援助）。
@@ -195,16 +196,6 @@ class CutawayJoke9:
         self.player_id = player_id
         self.state = game_state
         self.joy_extend = False  # 欢愉延展标记（诗篇接线，阶段 7）
-
-    # ── 供既有引擎钩子兼容的桩（v2exp 挂点不读字段即安全）──
-    def on_round_end(self, *args, **kwargs):
-        return None
-
-    def on_round_start(self, *args, **kwargs):
-        return None
-
-    def on_turn_end(self, *args, **kwargs):
-        return None
 
     def get_t0_option(self, player: Any) -> Optional[dict]:
         """M9 T0 入口：即演（1 SP）/ 公演（2 SP）。"""
