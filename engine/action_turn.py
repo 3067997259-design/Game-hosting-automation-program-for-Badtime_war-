@@ -1686,6 +1686,11 @@ class ActionTurnManager:
                         self.state, player.player_id, killer_id=None)
                 return msg, "move", True
             msg = move.execute(player, dest, self.state)
+            # M9：繁育超新星（每轮第一次合法 move 根行动触发，合同 G1 §5.3）
+            if hasattr(self.state, "m9_system"):
+                talent = getattr(player, "talent", None)
+                if talent and hasattr(talent, "m9_on_root_move"):
+                    talent.m9_on_root_move(player)
             # 到达舞台座位 → auto-find 该座位的所有人
             ish2 = self.state.ish_bosheth
             if (ish2 and ish2.phase in ("active", "duet")
