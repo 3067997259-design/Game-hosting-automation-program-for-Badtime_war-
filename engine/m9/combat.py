@@ -174,12 +174,20 @@ def resolve_damage(attacker, target, weapon, game_state,
 
     # A/H 两阶段账目（DIRECT_DAMAGE 身份由调用方经 source_kind 或 direct 标志给出）
     hit = _apply_attack(target, raw_int, attr, pierce_factor=armor_pierce_factor)
+    hit._attacker = attacker
 
     # H 阶段易伤/减伤挂载（M9 天赋协议）
     t_target = getattr(target, "talent", None)
     if t_target is not None and hasattr(t_target, "m9_modify_incoming"):
         try:
             t_target.m9_modify_incoming(hit)
+        except Exception:
+            pass
+
+    # 结算后事件钩子（火种计数/标记；G4 W2 敌对来源等）
+    if t_target is not None and hasattr(t_target, "m9_on_hit"):
+        try:
+            t_target.m9_on_hit(hit)
         except Exception:
             pass
 

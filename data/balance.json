@@ -528,7 +528,9 @@
             "ember_gain_positive": 1,
             "ember_gain_per_round_cap": 2,
             "full_duration_r4": 6,
-            "challenge_punch": 2
+            "challenge_punch": 2,
+            "ruin_start": 3,
+            "ruin_cap": 9
         },
         "g5": {
             "_comment": "G5 轮回培养与锚定脚本 RFC v0.4、诗篇合同 v0.1；全部数值待风洞",
