@@ -38,10 +38,11 @@ class WorldPoemAid:
 
     def recompute(self, global_round: int, alive_ids: List[str],
                   dead_ids: List[str]) -> None:
-        """每个 R0 开市结束、tranche 与转仓落定后调用：重算黑马快照与激活门槛。"""
+        """每个 R0 开市结束、tranche 与转仓落定后调用：重算黑马快照与激活门槛。
+        黑马快照与 G0 无关（无 G0 局「此诗，献予世界」同样重算）。"""
+        self.pp.recompute_blackhorse(alive_ids, dead_ids)
         if not self.has_g0_in_pool:
             return
-        self.pp.recompute_blackhorse(alive_ids, dead_ids)
         if self.pp.has_active_bet():
             self.activated = True
 
