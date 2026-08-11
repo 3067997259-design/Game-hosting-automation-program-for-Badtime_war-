@@ -55,3 +55,4 @@ def ensure_state_mechanisms(game_state: Any) -> None:
     game_state.m9_pp = PPLedger()
     game_state.m9_shadows = {}        # G2:shadow@<pid> → ShadowActor
     game_state.m9_terminal_areas = {}  # g2_pid → TerminalArea（Hologram9 持有）
+    game_state.m9_destroyed_locations = set()  # 繁育超新星摧毁的地点

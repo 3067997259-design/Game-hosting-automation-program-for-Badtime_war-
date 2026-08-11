@@ -275,9 +275,12 @@ class G1MythFire9(G1MythFire):
         self._m9_supernova_burst(player)
 
     def _m9_supernova_burst(self, player: Any) -> None:
-        """繁育超新星：地点 AOE（m9 结算）+ 灼烧 + 地点摧毁骨架。"""
+        """繁育超新星：地点 AOE（m9 结算）+ 灼烧 + 地点摧毁（合同 §5.4）。
+
+        摧毁：标记永久不可进入、逐出全部存活单位（玩家与 G2 影身）回 home
+        （home 永不摧毁，作最后安全地点兜底）、警察局停机。
+        """
         from engine.m9.combat import resolve_damage
-        from combat.damage_resolver import resolve_location_damage
         dmg = int(_g1("supernova_damage", 8))
         loc = getattr(player, "location", None)
         for t in self.state.players_at_location(loc):
@@ -287,8 +290,27 @@ class G1MythFire9(G1MythFire):
                            raw_damage_override=dmg,
                            damage_attribute_override="__无视__",
                            source_kind="g1_propagation_supernova")
-        # 地点摧毁骨架：警察局停机（阶段 8 补逐出/物品销毁）
+        # 地点摧毁
+        if loc and loc != "home":
+            destroyed = getattr(self.state, "m9_destroyed_locations", None)
+            if destroyed is not None and loc not in destroyed:
+                destroyed.add(loc)
+                self.state.log_event("location_destroyed", player=self.player_id,
+                                     location=loc)
+                self._evict_location(loc)
+        # 警察局停机
         if loc == "警察局":
             pe = getattr(self.state, "police_engine", None)
             if pe is not None and hasattr(pe, "permanently_disable"):
                 pe.permanently_disable("被繁育超新星摧毁")
+
+    def _evict_location(self, loc: str) -> None:
+        """逐出：该地点全部存活单位回 home（G2 影身一并逐出）。"""
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and p.is_alive() and getattr(p, "location", None) == loc:
+                p.location = "home"
+        shadows = getattr(self.state, "m9_shadows", {})
+        for actor in list(shadows.values()):
+            if actor.is_alive() and getattr(actor, "location", None) == loc:
+                actor.location = "home"

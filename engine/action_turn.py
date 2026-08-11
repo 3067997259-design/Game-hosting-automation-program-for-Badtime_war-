@@ -1691,6 +1691,11 @@ class ActionTurnManager:
                         self.state, player.player_id, killer_id=None)
                 return msg, "move", True
             msg = move.execute(player, dest, self.state)
+            # M9：被摧毁地点不可进入（繁育超新星，合同 G1 §5.4）
+            destroyed = getattr(self.state, "m9_destroyed_locations", None)
+            if destroyed and dest in destroyed:
+                player.location = getattr(player, "location", "home")
+                msg = f"❌ 地点「{dest}」已被摧毁，无法进入（行动已消费）"
             # M9：终曲区域概率移动偏转（根 move 离开歌者位置时重定向回歌者位置）
             if hasattr(self.state, "m9_system"):
                 from engine.m9.talents.g2 import terminal_move_redirect

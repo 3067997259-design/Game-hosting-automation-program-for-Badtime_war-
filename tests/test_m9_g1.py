@@ -175,5 +175,53 @@ class SupernovaOnMoveTest(unittest.TestCase):
         self.assertEqual(state.get_player("p2").hp, 2)
 
 
+class LocationDestructionTest(unittest.TestCase):
+
+    def setUp(self) -> None:
+        _enable("m9_rfc", "hp20")
+
+    def tearDown(self) -> None:
+        experiments.reset()
+
+    def test_supernova_destroys_and_evicts_location(self) -> None:
+        state, p, t = _make()
+        t.form = FORM_PROPAGATION
+        t.propagation_rounds = 3
+        other = Player("p2", "目标", controller=ForfeitController())
+        other.location = "医院"
+        other.hp = 20
+        state.add_player(other)
+        p.location = "医院"
+        t.m9_on_root_move(p)
+        self.assertIn("医院", state.m9_destroyed_locations)
+        self.assertEqual(state.get_player("p2").location, "home")  # 逐出
+
+    def test_home_never_destroyed(self) -> None:
+        state, p, t = _make()
+        t.form = FORM_PROPAGATION
+        t.propagation_rounds = 3
+        p.location = "home"
+        t.m9_on_root_move(p)
+        self.assertNotIn("home", state.m9_destroyed_locations)
+
+    def test_eviction_includes_shadow_actors(self) -> None:
+        from engine.m9.talents.g2 import Hologram9
+        state, p, t = _make()
+        t.form = FORM_PROPAGATION
+        t.propagation_rounds = 3
+        g2 = Player("p2", "G2", controller=ForfeitController())
+        g2.location = "医院"
+        g2.hp = 20
+        state.add_player(g2)
+        h = Hologram9("p2", state)
+        g2.talent = h
+        actor = h._create_shadow(g2)
+        actor.location = "医院"
+        p.location = "医院"
+        t.m9_on_root_move(p)
+        self.assertEqual(g2.location, "home")
+        self.assertEqual(actor.location, "home")
+
+
 if __name__ == "__main__":
     unittest.main()
