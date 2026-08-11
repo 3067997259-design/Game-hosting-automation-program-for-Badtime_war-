@@ -130,6 +130,13 @@ class Ripple9(Ripple):
         self.anchor_results: List[str] = []   # 未来闭合 / 因果被改写 / 锚定粉碎
         self.total_closures = 0               # 未来闭合次数（完结条 = 第 2 次）
         self.flower_arc_granted = False
+        from engine.m9.talents.poems import PoeticRecital
+        self.poems = PoeticRecital(self)
+
+    def recite_poem(self, poem_name: str, target_pid: str) -> str:
+        """献诗入口（共享入口预检 + 十四首执行器）。"""
+        return self.poems.recite(
+            self.state.get_player(self.player_id), poem_name, target_pid)
 
     # ════════════════════════════════════════════════════════
     #  四形态 / R0 结算
@@ -296,6 +303,7 @@ class Ripple9(Ripple):
         from engine.m9.gate import m9_enabled
         if not m9_enabled():
             return super().on_round_end(round_num)
+        self.poems.tick_love_wishes()
         if not self.active_anchor:
             return
         if self.anchor_established_round == round_num:

@@ -51,18 +51,18 @@ class ActionSystemTest(unittest.TestCase):
         asys = ActionSystem()
         self.assertIsNone(asys.dispatch_full_extra("a", 1, "not_in_whitelist"))
         parent = asys.dispatch_full_extra("a", 1, "t4_hexagram_hojump")
-        child = asys.dispatch_full_extra("a", 1, "g5_earthfire_poem", parent=parent)
+        child = asys.dispatch_full_extra("a", 1, "g5_poem_earthfire", parent=parent)
         self.assertIsNone(child)  # 同轮同 actor 已占满
         # 深度闸：隔轮新父链递归
         parent2 = asys.dispatch_full_extra("c", 2, "t4_hexagram_hojump")
-        child2 = asys.dispatch_full_extra("c", 2, "g5_earthfire_poem",
+        child2 = asys.dispatch_full_extra("c", 2, "g5_poem_earthfire",
                                           parent=parent2)
         self.assertIsNone(child2)  # 同轮已占满
 
     def test_three_source_arbitration_priority(self) -> None:
         asys = ActionSystem()
         picked = asys.pick_full_extra_candidate(
-            ["g4_savior_active_burn", "t4_hexagram_hojump", "g5_earthfire_poem"])
+            ["g4_savior_active_burn", "t4_hexagram_hojump", "g5_poem_earthfire"])
         self.assertEqual(picked, "t4_hexagram_hojump")
 
     def test_public_queue_head_invalid_no_fill(self) -> None:

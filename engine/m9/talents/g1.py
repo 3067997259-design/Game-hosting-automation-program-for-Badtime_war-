@@ -207,21 +207,28 @@ class G1MythFire9(G1MythFire):
             self.entropy = min(float(_g1("entropy_cap", 12)),
                                self.entropy + rate)
 
-            # 4. 飞萤的回响：诗篇施放后才减失熵（阶段 7 由 G5 诗篇设标记）
+            # 4. 飞萤的回响：诗篇标记存续期减失熵（m9_poem_markers，tick 递减）
+            markers = getattr(self, "m9_poem_markers", {})
+            echo_left = int(markers.get("firefly_echo", 0))
             poem_reduce = 0
-            if getattr(self, "_firefly_echo_active", False) \
-                    and self.form == FORM_ARMORLESS:
+            if echo_left > 0 and self.form == FORM_ARMORLESS:
                 poem_reduce = int(bget("m9_talents_extended", "g5",
                                        "poem_firefly_entropy_reduction",
                                        default=0))
+            if echo_left > 0:
+                markers["firefly_echo"] = echo_left - 1
             if poem_reduce > 0:
                 self.entropy = max(0.0, self.entropy - poem_reduce)
 
-            # 5. 卸甲调息：卸甲常态 + 本轮无攻击行动 → 失熵回落
+            # 5. 卸甲调息：卸甲常态 + 本轮无攻击行动 → 失熵回落（飞萤标记加成）
             last = getattr(me, "last_action_type", "")
             if self.form == FORM_ARMORLESS and last not in ("attack", "shoot",
                                                             "hook"):
-                self.entropy = max(0.0, self.entropy - int(_g1("entropy_recover", 1)))
+                rest = int(_g1("entropy_recover", 1))
+                if echo_left > 0:
+                    rest += int(bget("m9_talents_extended", "g5",
+                                     "poem_firefly_rest_boost", default=0))
+                self.entropy = max(0.0, self.entropy - rest)
 
             # 6. 阈值结算：炽愿抵扣 → 碎外甲 → 无甲扣 HP
             if self.entropy >= float(_g1("entropy_threshold", 6)):

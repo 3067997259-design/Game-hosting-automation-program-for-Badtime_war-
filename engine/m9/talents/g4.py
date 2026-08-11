@@ -228,7 +228,8 @@ class Savior9(Savior):
         from engine.m9.gate import m9_enabled
         if not m9_enabled():
             return super().get_t0_option(player)
-        if self.form == FORM_HUMAN and self.divinity >= 12:
+        if (self.form == FORM_HUMAN and self.divinity >= 12
+                and getattr(self, "m9_burden_unlocked", False)):
             return {"name": "负世·主动燃尽", "description": "完整形态进入（完整额外行动）",
                     "m9_kind": "g4_active_burn"}
         if self.form in (FORM_FULL, FORM_INCOMPLETE):
@@ -245,7 +246,8 @@ class Savior9(Savior):
             return super().execute_t0(player)
         m9 = getattr(self.state, "m9_system", None)
         round_num = getattr(self.state, "current_round", 1)
-        if self.form == FORM_HUMAN and self.divinity >= 12 and m9 is not None:
+        if (self.form == FORM_HUMAN and self.divinity >= 12 and m9 is not None
+                and getattr(self, "m9_burden_unlocked", False)):
             grant = m9.dispatch_full_extra(self.player_id, round_num,
                                            "g4_savior_active_burn")
             if grant is None:

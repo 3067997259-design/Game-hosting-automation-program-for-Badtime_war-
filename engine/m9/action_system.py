@@ -25,7 +25,7 @@ SP_PUBLIC_COST = 2      # 公演
 SP_MAX = 2
 
 # ── 三源完整额外行动候选（审计 v0.1 纪律 5，优先级从高到低）──
-FULL_EXTRA_SOURCES: tuple = ("t4_hexagram_hojump", "g5_earthfire_poem",
+FULL_EXTRA_SOURCES: tuple = ("t4_hexagram_hojump", "g5_poem_earthfire",
                              "g4_savior_active_burn")
 
 # ── 标准受限行动菜单（v0.8 §4 受限菜单；冻结枚举）──

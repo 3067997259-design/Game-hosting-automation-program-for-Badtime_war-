@@ -131,6 +131,7 @@ class FormEntryTest(unittest.TestCase):
         state, p, t = _make()
         t.divinity = 12
         t.ember = 12
+        t.m9_burden_unlocked = True  # 负世诗解锁主动燃尽（合同 §七）
         option = t.get_t0_option(p)
         self.assertIsNotNone(option)
         msg, ok = t.execute_t0(p)
