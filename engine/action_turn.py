@@ -82,6 +82,13 @@ class ActionTurnManager:
         if not player.is_awake:
             result_msg = wake_up.execute(player, self.state)
             display.show_result(result_msg)
+            # M9：起床后同槽受限追演（wake_followup：move/interact/find/lock/结束）
+            if hasattr(self.state, "m9_system"):
+                talent = getattr(player, "talent", None)
+                if talent and hasattr(talent, "m9_wake_followup"):
+                    follow = talent.m9_wake_followup(player, self)
+                    if follow is not None:
+                        return follow
             return "wake"
         skip = self._phase_t0(player)
         if skip:
@@ -1950,6 +1957,11 @@ class ActionTurnManager:
         """override_killer: 插入式笑话中传入 G6 玩家，
         使击杀归属、死亡显示、天赋通知都用 G6 的身份。"""
         killer = override_killer or player
+        # M9：非射击攻击重置 G7 连续射击计数（合同 §2.4b：仅非射击攻击/换形态重置）
+        if hasattr(self.state, "m9_system"):
+            talent = getattr(player, "talent", None)
+            if talent and hasattr(talent, "m9_reset_shoot_streak"):
+                talent.m9_reset_shoot_streak()
         target_id = resolve_player_target(parsed["target"], self.state)
         weapon_name = parsed["weapon"]
         layer_str = parsed.get("layer")

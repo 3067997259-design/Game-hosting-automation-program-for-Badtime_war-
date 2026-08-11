@@ -190,8 +190,18 @@ def resolve_damage(attacker, target, weapon, game_state,
         f"{hit.raw}(裸伤) − {hit.defense}(防御) = {hit.damage} 伤害"
         + ("（直达伤害）" if hit.direct_damage else ""))
 
-    # H 阶段扣 HP
+    # H 阶段扣 HP：天赋 temp-HP 吸收链（G7 光环/盾、G4 第二血条、G1 炽愿——
+    # 兼容 v2exp 天赋的 receive_damage_to_temp_hp 协议，M9 天赋同样实现）
     remaining = max(0, hit.damage)
+    t_target = getattr(target, "talent", None)
+    if remaining > 0 and t_target is not None and hasattr(
+            t_target, "receive_damage_to_temp_hp"):
+        try:
+            remaining = t_target.receive_damage_to_temp_hp(
+                remaining, is_embrace=False)
+            remaining = max(0, float(remaining))
+        except Exception:
+            pass
     if remaining > 0:
         target.hp = max(0, getattr(target, "hp", 0) - remaining)
     result["hp_damage"] = round(target_hp_before - getattr(target, "hp", 0), 2)

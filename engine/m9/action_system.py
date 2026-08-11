@@ -75,7 +75,9 @@ class SlotOutcome:
 
 
 RESOLUTION_KINDS = ("action_performed", "suppressed", "aid_rest", "wake",
-                    "petrified_hold", "forfeit", "no_target")
+                    "petrified_hold", "forfeit", "no_target",
+                    "wake_followup", "shadow_dissipated",
+                    "terminal_song_conversion")
 
 
 class GrantLedger:

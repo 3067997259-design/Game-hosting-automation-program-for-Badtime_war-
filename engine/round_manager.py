@@ -362,12 +362,17 @@ class RoundManager:
                 slot_id = m9.assign_slot(actor.player_id)
                 excluded = ("status", "help", "police_status", "allstatus",
                             "shock_recover", "wake")
-                m9.resolve_slot(
-                    slot_id,
-                    root_action=action_type not in excluded,
-                    kind="action_performed" if action_type not in excluded
-                    else ("wake" if action_type == "wake" else "forfeit"),
-                )
+                if getattr(actor, "_m9_last_slot_wake_followup", False):
+                    kind = "wake_followup"
+                    actor._m9_last_slot_wake_followup = False
+                    root = True
+                elif action_type not in excluded:
+                    kind = "action_performed"
+                    root = True
+                else:
+                    kind = "wake" if action_type == "wake" else "forfeit"
+                    root = False
+                m9.resolve_slot(slot_id, root_action=root, kind=kind)
                 pool = getattr(self.state, "g6_template_pool", None)
                 if pool is not None:
                     pool.record(self.state.current_round, action_type,

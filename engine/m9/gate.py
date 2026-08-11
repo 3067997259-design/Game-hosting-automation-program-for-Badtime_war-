@@ -18,8 +18,10 @@ def m9_enabled() -> bool:
 def _load_m9_classes() -> dict:
     """v2exp 天赋类名 → M9 类（惰性导入，避免 v2exp 路径引入 engine.m9）。"""
     from engine.m9.talents.g6 import CutawayJoke9
+    from engine.m9.talents.g7 import Hoshino9
     return {
         "要有笑声！": CutawayJoke9,
+        "大叔我啊，剪短发了": Hoshino9,
     }
 
 
