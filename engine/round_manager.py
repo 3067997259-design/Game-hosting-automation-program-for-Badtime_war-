@@ -367,6 +367,28 @@ class RoundManager:
                 i += 1
                 continue
 
+            # M9：终曲一次压制（合同 G2 §8.3）——区域内非 G2 actor 的实际槽被
+            # 消耗 suppression use → 跳过行动、槽以 ACTION_SUPPRESSED 收尾
+            if hasattr(self.state, "m9_system"):
+                m9 = self.state.m9_system
+                suppressed = False
+                for pid in self.state.player_order:
+                    p = self.state.get_player(pid)
+                    if (p and p.talent
+                            and hasattr(p.talent, "suppress_grant")
+                            and p.talent.suppress_grant(
+                                actor.player_id, m9)):
+                        suppressed = True
+                        break
+                if suppressed:
+                    slot_id = m9.assign_slot(actor.player_id)
+                    m9.resolve_slot(slot_id, kind="suppressed",
+                                    suppressed=True)
+                    display.show_info(
+                        f"🎵 终曲压制：{actor.name} 的槽被压制，跳过行动")
+                    i += 1
+                    continue
+
             # 执行行动回合
             action_type = self.turn_manager.execute_action_turn(actor)
 

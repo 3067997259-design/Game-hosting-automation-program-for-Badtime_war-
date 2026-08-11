@@ -1691,6 +1691,15 @@ class ActionTurnManager:
                         self.state, player.player_id, killer_id=None)
                 return msg, "move", True
             msg = move.execute(player, dest, self.state)
+            # M9：终曲区域概率移动偏转（根 move 离开歌者位置时重定向回歌者位置）
+            if hasattr(self.state, "m9_system"):
+                from engine.m9.talents.g2 import terminal_move_redirect
+                redirect = terminal_move_redirect(self.state, player, dest)
+                if redirect is not None:
+                    dest = redirect
+                    player.location = dest
+                    msg = (f"🌀 {player.name} 被终曲移动偏转，回到歌者所在地点"
+                           f"「{dest}」（槽已消费，无成功离开）")
             # M9：繁育超新星（每轮第一次合法 move 根行动触发，合同 G1 §5.3）
             if hasattr(self.state, "m9_system"):
                 talent = getattr(player, "talent", None)

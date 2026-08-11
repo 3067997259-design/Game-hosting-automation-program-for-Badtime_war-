@@ -285,8 +285,9 @@ class Hologram9(M9TalentStub):
             return False
         if actor_id == self.player_id:
             return False
-        if getattr(shadow, "location", None) != area.location:
-            return False
+        actor = self.state.get_player(actor_id)
+        if actor is None or getattr(actor, "location", None) != area.location:
+            return False  # 目标必须仍在区域
         area.suppression_uses -= 1
         return True
 
@@ -297,3 +298,47 @@ def shadow_actor_for(game_state: Any, actor_id: str) -> Optional[ShadowActor]:
         return None
     shadows = getattr(game_state, "m9_shadows", {})
     return shadows.get(actor_id)
+
+
+def terminal_area_for(game_state: Any, location: str) -> Optional[TerminalArea]:
+    """指定地点的终曲区域（若存在）。"""
+    for pid in getattr(game_state, "player_order", []):
+        p = game_state.get_player(pid)
+        if p is None or p.talent is None:
+            continue
+        talent = p.talent
+        if hasattr(talent, "terminal_area") and talent.terminal_area is not None:
+            area = talent.terminal_area
+            shadow = talent._shadow() if hasattr(talent, "_shadow") else None
+            if shadow is not None and shadow.location == location:
+                return area
+    return None
+
+
+def terminal_move_redirect(game_state: Any, player: Any, destination: str,
+                           rng: Any = None) -> Optional[str]:
+    """概率移动偏转（合同 G2 §8.4）：区域内 actor 根 move 离开歌者位置时，
+    以 terminal_move_redirect_chance 把目的地改回歌者位置（槽消费、无成功离开）。
+    强制位移/钩索/传送不适用（仅根 move 由引擎挂点调用本函数）。"""
+    from engine.balance import get as bget
+    rng = rng or random.random
+    area = terminal_area_for(game_state, getattr(player, "location", None))
+    if area is None:
+        return None
+    shadow = None
+    for pid in getattr(game_state, "player_order", []):
+        p = game_state.get_player(pid)
+        if p and p.talent and hasattr(p.talent, "_shadow"):
+            s = p.talent._shadow()
+            if s is not None and s.is_terminal_singer:
+                shadow = s
+                break
+    if shadow is None or destination == shadow.location:
+        return None
+    chance = float(bget("m9_talents_extended", "g2",
+                        "terminal_move_redirect_chance", default=0.5))
+    if rng() < chance:
+        game_state.log_event("MOVE_REDIRECTED", player=player.player_id,
+                             to=shadow.location)
+        return shadow.location
+    return None

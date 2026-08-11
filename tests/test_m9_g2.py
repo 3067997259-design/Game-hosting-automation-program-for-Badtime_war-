@@ -12,6 +12,7 @@ from controllers.forfeit_controller import ForfeitController
 from engine.m9.gate import ensure_state_mechanisms
 from engine.m9.talents.g2 import (
     Hologram9, ShadowActor, TerminalArea, shadow_actor_for,
+    terminal_area_for, terminal_move_redirect,
 )
 from engine.m9.talents.g2 import shadow_actor_id
 
@@ -114,6 +115,23 @@ class ShadowLifecycleTest(unittest.TestCase):
         self.assertIsNone(shadow_actor_for(state, "p1"))
 
 
+def _area_scene():
+    state = GameState()
+    ensure_state_mechanisms(state)
+    g2 = Player("p1", "G2", controller=ForfeitController())
+    g2.location = "商店"
+    state.add_player(g2)
+    t = Hologram9("p1", state)
+    g2.talent = t
+    actor = t._create_shadow(g2)
+    t._commit_terminal(g2, actor)
+    other = Player("p2", "路人", controller=ForfeitController())
+    other.location = "商店"
+    other.hp = 10
+    state.add_player(other)
+    return state, t, actor, other
+
+
 class TerminalAreaEffectsTest(unittest.TestCase):
 
     def setUp(self) -> None:
@@ -122,32 +140,16 @@ class TerminalAreaEffectsTest(unittest.TestCase):
     def tearDown(self) -> None:
         experiments.reset()
 
-    def _area_scene(self):
-        state = GameState()
-        ensure_state_mechanisms(state)
-        g2 = Player("p1", "G2", controller=ForfeitController())
-        g2.location = "商店"
-        state.add_player(g2)
-        t = Hologram9("p1", state)
-        g2.talent = t
-        actor = t._create_shadow(g2)
-        t._commit_terminal(g2, actor)
-        other = Player("p2", "路人", controller=ForfeitController())
-        other.location = "商店"
-        other.hp = 10
-        state.add_player(other)
-        return state, t, actor, other
-
     def test_vulnerability_boosts_damage_in_area(self) -> None:
         from engine.m9.combat import _terminal_area_of
-        state, t, actor, other = self._area_scene()
+        state, t, actor, other = _area_scene()
         area = _terminal_area_of(state, other)
         self.assertIsNotNone(area)
         self.assertEqual(area.vulnerability(), 1)
 
     def test_damage_sharing_conserves_total(self) -> None:
         from engine.m9.combat import _share_damage
-        state, t, actor, other = self._area_scene()
+        state, t, actor, other = _area_scene()
         other.hp = 10
         remaining = _share_damage(state, other, 8)
         # 共享集 3 成员（光身 p1/歌者影身/路人 p2），S=8 → 3/3/2，总量守恒
@@ -157,12 +159,55 @@ class TerminalAreaEffectsTest(unittest.TestCase):
         self.assertEqual(state.get_player("p1").hp, 17)
 
     def test_listener_tick_grants_arc_once(self) -> None:
-        state, t, actor, other = self._area_scene()
+        state, t, actor, other = _area_scene()
         for r in range(1, 5):
             state.current_round = r
             t.on_round_end(r)
         self.assertTrue(t.terminal_area.arc_granted)
         self.assertGreaterEqual(t.terminal_area.witnessed_ticks, 3)
+
+
+class TerminalSuppressionRedirectTest(unittest.TestCase):
+
+    def setUp(self) -> None:
+        _enable("m9_rfc", "hp20")
+
+    def tearDown(self) -> None:
+        experiments.reset()
+
+    def test_suppress_grant_consumes_use_once(self) -> None:
+        state, t, actor, other = _area_scene()
+        m9 = state.m9_system
+        self.assertTrue(t.suppress_grant("p2", m9))
+        self.assertTrue(t.terminal_area.suppression_used())
+        self.assertFalse(t.suppress_grant("p2", m9))  # 次数耗尽
+        self.assertFalse(t.suppress_grant("p1", m9))  # G2 自己不可压制
+
+    def test_suppress_grant_requires_same_location(self) -> None:
+        state, t, actor, other = _area_scene()
+        far = Player("p9", "远者", controller=ForfeitController())
+        far.location = "医院"
+        state.add_player(far)
+        self.assertFalse(t.suppress_grant("p9", state.m9_system))
+
+    def test_move_redirect_always_when_chance_1(self) -> None:
+        from engine.m9.talents.g2 import TerminalArea
+        state, t, actor, other = _area_scene()
+        # 强制命中：rng 恒 0
+        dest = terminal_move_redirect(state, other, "医院", rng=lambda: 0.0)
+        self.assertEqual(dest, "商店")  # 歌者位置
+
+    def test_move_redirect_never_when_chance_0(self) -> None:
+        state, t, actor, other = _area_scene()
+        t.terminal_area.move_redirect_chance = lambda: 0.0  # 类型不符——直接改键
+        # 用 rng 恒 1（> 0.5 不偏转）
+        dest = terminal_move_redirect(state, other, "医院", rng=lambda: 1.0)
+        self.assertIsNone(dest)
+
+    def test_move_redirect_skips_singer_destination(self) -> None:
+        state, t, actor, other = _area_scene()
+        dest = terminal_move_redirect(state, other, "商店", rng=lambda: 0.0)
+        self.assertIsNone(dest)  # 目的地已是歌者位置 → 不偏转
 
 
 if __name__ == "__main__":
