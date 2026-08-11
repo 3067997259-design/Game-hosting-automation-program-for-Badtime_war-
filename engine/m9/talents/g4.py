@@ -183,7 +183,8 @@ class Savior9(Savior):
         self.ember_hp = float(max(
             floor,
             consumed * 2 if full else max(floor, consumed)))  # 余烬生命（数值待风洞）
-        self.ruin_damage = int(_g4("ruin_start", 3))        self.form_ticks = int(_g4("full_duration_r4", 6)) if full else max(
+        self.ruin_damage = int(_g4("ruin_start", 3))
+        self.form_ticks = int(_g4("full_duration_r4", 6)) if full else max(
             1, int(_g4("full_duration_r4", 6)) * floor // max(1, consumed))
         self.is_savior = True
         player.hp = max(getattr(player, "hp", 0), 1.0)
@@ -230,6 +231,12 @@ class Savior9(Savior):
         if self.form == FORM_HUMAN and self.divinity >= 12:
             return {"name": "负世·主动燃尽", "description": "完整形态进入（完整额外行动）",
                     "m9_kind": "g4_active_burn"}
+        if self.form in (FORM_FULL, FORM_INCOMPLETE):
+            m9 = getattr(self.state, "m9_system", None)
+            if m9 is not None and m9.get_sp(self.player_id) >= 2 \
+                    and self.ruin_damage > 0:
+                return {"name": "灾厄·弑魂焚诏", "description": "全桌拉条公演",
+                        "m9_kind": "g4_challenge"}
         return None
 
     def execute_t0(self, player: Any):
@@ -245,7 +252,123 @@ class Savior9(Savior):
                 return "❌ 完整额外行动已满/递归超限", False
             self._enter_savior_state(player, is_manual=True, full=True)
             return f"🌅 {player.name} 负世主动燃尽：完整救世主形态！", True
+        if self.form in (FORM_FULL, FORM_INCOMPLETE) and m9 is not None \
+                and m9.get_sp(self.player_id) >= 2 and self.ruin_damage > 0:
+            if not self._ensure_public_seat(player, m9, round_num):
+                return "❌ SP/公演位不足", False
+            msg = self._run_challenge(player)
+            return msg, True
         return "❌ 条件不满足", False
+
+    # ════════════════════════════════════════════════════════
+    #  焚诏拉条（合同 §3.2-§5）：快照 → 秘密承诺 → 响应 → 反击 → 天裁
+    # ════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _ensure_public_seat(player: Any, m9: Any, round_num: int) -> bool:
+        if m9.assign_public_slot(round_num) != player.player_id:
+            if not m9.register_performance(player.player_id, round_num):
+                return False
+        return m9.dispatch_public(player.player_id, round_num) is not None
+
+    def _run_challenge(self, player: Any) -> str:
+        """焚诏公演编排：全桌快照（除 G4）→ 秘密承诺（攻击/拒战）→
+        先攻降序响应（合法攻击载体，无武器退化基础拳击 challenge_punch）→
+        统一反击池（攻击者）→ 死星天裁（拒战者，DIRECT_DAMAGE + absolute_death）。
+        数值 J/counter 为 [待风洞] 占位。"""
+        from engine.m9.combat import resolve_damage
+        me = player
+        snapshot = []
+        for pid in self.state.player_order:
+            if pid == self.player_id:
+                continue
+            p = self.state.get_player(pid)
+            if p and p.is_alive():
+                has_attack = any(
+                    w for w in getattr(p, "weapons", []) if w)
+                snapshot.append((pid, 0, has_attack))  # 先攻：player_order 序（简化）
+        if not snapshot:
+            return "❌ 无拉条对象"
+        commitments = {}
+        for pid, _, _ in snapshot:
+            p = self.state.get_player(pid)
+            try:
+                choice = p.controller.choose(
+                    f"焚诏拉条：{p.name} 选择攻击或拒战？", ["攻击", "拒战"])
+            except Exception:
+                choice = "拒战"
+            commitments[pid] = "attack" if choice == "攻击" else "refuse"
+
+        d = max(1, self.ruin_damage)
+        counter_total = float(d)                       # 反击池（[待风洞]）
+        judgment_per_segment = 2.0                     # J（[待风洞]）
+        adjudicator = ChallengeAdjudicator(snapshot, counter_total,
+                                           judgment_per_segment)
+        result = adjudicator.resolve(commitments)
+
+        lines = ["⚔️ 灾厄·弑魂焚诏！"]
+        # 响应：攻击者按快照序各执行一次合法攻击载体（先攻降序）
+        for pid, _, _ in sorted(snapshot, key=lambda s: s[0], reverse=True):
+            if commitments.get(pid) != "attack":
+                continue
+            attacker = self.state.get_player(pid)
+            weapon = max(
+                [w for w in getattr(attacker, "weapons", []) if w],
+                key=lambda w: w.get_effective_damage(), default=None)
+            if weapon is not None:
+                from controllers.ai.game_query import GameQuery
+                attr = GameQuery.get_weapon_attr(weapon).value
+                r = resolve_damage(attacker, me, weapon,
+                                   game_state=self.state,
+                                   source_kind="g4_challenge_attack")
+                lines.append(f"  [{attacker.name}] 响应攻击 {weapon.name}"
+                             f" → {r['hp_damage']} 伤")
+            else:
+                r = resolve_damage(attacker, me, weapon=None,
+                                   game_state=self.state,
+                                   raw_damage_override=int(
+                                       _g4("challenge_punch", 2)),
+                                   damage_attribute_override="__无视__",
+                                   source_kind="g4_challenge_attack")
+                lines.append(f"  [{attacker.name}] 基础拳击 → {r['hp_damage']} 伤")
+            if getattr(me, "hp", 0) <= 0:
+                lines.append("  💥 挑战迫使 G4 退出形态！响应与天裁取消。")
+                self._forced_exit(me)
+                return "\n".join(lines)
+
+        # 统一反击：攻击者
+        for pid, dmg in result["counters"].items():
+            if dmg <= 0:
+                continue
+            target = self.state.get_player(pid)
+            r = resolve_damage(me, target, weapon=None,
+                               game_state=self.state,
+                               raw_damage_override=int(dmg),
+                               damage_attribute_override="__无视__",
+                               source_kind="g4_counter")
+            lines.append(f"  [反击] {target.name} 受 {r['hp_damage']} 伤")
+
+        # 死星天裁：拒战者（DIRECT_DAMAGE + absolute_death）
+        for pid, dmg in result["judgments"].items():
+            if dmg <= 0:
+                continue
+            target = self.state.get_player(pid)
+            r = resolve_damage(me, target, weapon=None,
+                               game_state=self.state,
+                               raw_damage_override=int(dmg),
+                               damage_attribute_override="__无视__",
+                               source_kind="g4_judgment")
+            lines.append(f"  [天裁] {target.name} 受 {r['hp_damage']} 伤"
+                         + ("（绝对死亡）" if r.get("absolute_dead") else ""))
+        self.judgment_segments = max(0, d - sum(
+            1 for c in commitments.values() if c == "attack"))
+        return "\n".join(lines)
+
+    def _forced_exit(self, me: Any) -> None:
+        """强制退场：停止后续响应、取消反击与天裁，只执行无额外载荷的退场清理。"""
+        self._exit_savior_state()
+        if getattr(me, "hp", 0) <= 0:
+            me.hp = 1.0
 
     # ════════════════════════════════════════════════════════
     #  m9 结算协议：强化普攻 / 毁伤（数值挂载，阶段 8 校准）

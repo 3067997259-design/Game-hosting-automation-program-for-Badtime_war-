@@ -138,6 +138,95 @@ class FormEntryTest(unittest.TestCase):
         self.assertEqual(t.form, FORM_FULL)
 
 
+class ChallengePerformanceTest(unittest.TestCase):
+
+    def setUp(self) -> None:
+        _enable("m9_rfc", "hp20")
+
+    def tearDown(self) -> None:
+        experiments.reset()
+
+    def _scene(self, choices=()):
+        from controllers.base import PlayerController
+
+        class _C(PlayerController):
+            def __init__(self, seq):
+                self.seq = list(seq)
+                self.i = 0
+
+            def _next(self, options):
+                if self.i < len(self.seq):
+                    c = self.seq[self.i]
+                    self.i += 1
+                    return c if c in options else options[0]
+                return options[0]
+
+            def get_command(self, player, game_state, available_actions,
+                            context=None):
+                return "forfeit"
+
+            def choose(self, prompt, options, context=None):
+                return self._next(options)
+
+            def choose_multi(self, prompt, options, max_count, min_count=0,
+                             context=None):
+                return options[:max_count]
+
+            def confirm(self, prompt, context=None):
+                return True
+
+        state = GameState()
+        ensure_state_mechanisms(state)
+        p = Player("p1", "G4", controller=_C(choices))
+        state.add_player(p)
+        p.max_hp = 20
+        p.hp = 20
+        t = Savior9("p1", state)
+        p.talent = t
+        state.m9_system.set_sp("p1", 2)
+        t.divinity = 12
+        t.on_death_check(p, None)  # 完整形态
+        return state, p, t
+
+    def test_challenge_refuse_gets_judgment_absolute_death(self) -> None:
+        """全员拒战：天裁池 = S×J 全部分给拒战者（DIRECT_DAMAGE+absolute_dead）。"""
+        state, p, t = self._scene()
+        other = Player("p2", "路人", controller=ForfeitController())
+        other.location = "商店"
+        other.hp = 3
+        state.add_player(other)
+        t.ruin_damage = 3
+        msg, ok = t.execute_t0(p)
+        self.assertTrue(ok)
+        self.assertFalse(other.is_alive())  # 天裁打死（absolute_death）
+        self.assertEqual(state.m9_system.get_sp("p1"), 0)  # 公演扣 2
+
+    def test_challenge_attack_gets_counter(self) -> None:
+        state, p, t = self._scene(choices=("攻击",))
+        other = Player("p2", "攻击者", controller=ForfeitController())
+        other.location = "商店"
+        other.hp = 20
+        state.add_player(other)
+        from models.equipment import Weapon, WeaponRange
+        from utils.attribute import Attribute
+        other.weapons.append(
+            Weapon("小刀", Attribute.ORDINARY, 2, WeaponRange.MELEE))
+        t.ruin_damage = 3
+        msg, ok = t.execute_t0(p)
+        self.assertTrue(ok)
+        # 反击池 3 → 攻击者受 3 伤（先攻序唯一）
+        self.assertLess(other.hp, 20)
+        self.assertIn("反击", msg)
+
+    def test_challenge_option_only_in_form_with_ruin(self) -> None:
+        state, p, t = self._scene()
+        option = t.get_t0_option(p)
+        self.assertIsNotNone(option)
+        self.assertEqual(option["m9_kind"], "g4_challenge")
+        t.ruin_damage = 0
+        self.assertIsNone(t.get_t0_option(p))
+
+
 class ChallengeAdjudicatorTest(unittest.TestCase):
 
     def setUp(self) -> None:
