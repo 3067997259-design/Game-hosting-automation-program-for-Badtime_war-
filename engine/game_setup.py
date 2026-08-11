@@ -536,7 +536,9 @@ def _talent_selection(game_state, ai_players_info=None):
                 print(f"  {player.name}（AI）无可用天赋。")
                 continue
             n, name, cls = chosen
-            talent_inst = cls(pid, game_state)
+            from engine.m9.gate import ensure_state_mechanisms, m9_talent_class
+            ensure_state_mechanisms(game_state)
+            talent_inst = m9_talent_class(cls)(pid, game_state)
             player.talent = talent_inst
             player.talent_name = name
             talent_inst.on_register()
@@ -587,7 +589,9 @@ def _talent_selection(game_state, ai_players_info=None):
                 continue
 
             n, name, cls = matched
-            talent_inst = cls(pid, game_state)
+            from engine.m9.gate import ensure_state_mechanisms, m9_talent_class
+            ensure_state_mechanisms(game_state)
+            talent_inst = m9_talent_class(cls)(pid, game_state)
             player.talent = talent_inst
             player.talent_name = name
             talent_inst.on_register()

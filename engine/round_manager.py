@@ -356,6 +356,24 @@ class RoundManager:
             # 执行行动回合
             action_type = self.turn_manager.execute_action_turn(actor)
 
+            # M9 槽收尾 + G6 模板池记录（profile: m9-rfc；v2exp 路径不执行）
+            if hasattr(self.state, "m9_system"):
+                m9 = self.state.m9_system
+                slot_id = m9.assign_slot(actor.player_id)
+                excluded = ("status", "help", "police_status", "allstatus",
+                            "shock_recover", "wake")
+                m9.resolve_slot(
+                    slot_id,
+                    root_action=action_type not in excluded,
+                    kind="action_performed" if action_type not in excluded
+                    else ("wake" if action_type == "wake" else "forfeit"),
+                )
+                pool = getattr(self.state, "g6_template_pool", None)
+                if pool is not None:
+                    pool.record(self.state.current_round, action_type,
+                                getattr(actor, "location", ""),
+                                actor.player_id)
+
             # 犯罪检测（攻击和特殊行动都可能包含攻击）
             self._check_attack_crime(actor)
 
