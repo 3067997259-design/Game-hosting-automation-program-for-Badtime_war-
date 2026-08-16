@@ -179,11 +179,17 @@ class PoliceUnit:
         }
 
     def reset_to_initial(self):
-        """重置为初始状态（威信归零/队长下台时调用）"""
-        self.hp = 1.0
+        """重置为初始状态（威信归零/队长下台时调用）。"""
         self.weapon_name = "警棍"
-        self.outer_armor_name = "盾牌"
-        self.outer_armor = make_armor("盾牌")
+        if getattr(self, "_hp20", False):
+            from engine.balance import get as _bget
+            self.hp = _bget("police", "hp", default=12)
+            self.outer_armor_name = None
+            self.outer_armor = None
+        else:
+            self.hp = 1.0
+            self.outer_armor_name = "盾牌"
+            self.outer_armor = make_armor("盾牌")
         self.inner_armor_name = None
         self.inner_armor = None
         self.location = None  # 不在地图上

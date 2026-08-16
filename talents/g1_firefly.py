@@ -228,19 +228,22 @@ class G1MythFire(BaseTalent):
                             level=PromptLevel.IMPORTANT)
 
     def receive_damage_to_temp_hp(self, remaining_damage, is_embrace=False):
-        """炽愿额外生命值：每层炽愿 = 0.5 HP，吸收穿透护甲后的伤害"""
+        """炽愿额外生命值：每层炽愿吸收 talent_num 活值（v1=0.5 / hp20=3）。"""
         if is_embrace:
             return remaining_damage  # 相拥伤害绕过炽愿
         if self.ardent_wish_charges <= 0 or remaining_damage <= 0:
             return remaining_damage
 
-        ardent_hp = self.ardent_wish_charges * 0.5
+        from talents.talent_balance import talent_num
+        ardent_hp_per_charge = float(
+            talent_num("g1", "ardent_temp_hp", v1=0.5))
+        ardent_hp = self.ardent_wish_charges * ardent_hp_per_charge
         absorbed = min(remaining_damage, ardent_hp)
         remaining_damage -= absorbed
 
-        # 消耗对应的炽愿层数（每层0.5 HP）
+        # 消耗对应的炽愿层数（按每层活值折算）
         import math
-        charges_consumed = math.ceil(absorbed / 0.5)
+        charges_consumed = math.ceil(absorbed / ardent_hp_per_charge)
         charges_consumed = min(charges_consumed, self.ardent_wish_charges)
         self.ardent_wish_charges -= charges_consumed
 

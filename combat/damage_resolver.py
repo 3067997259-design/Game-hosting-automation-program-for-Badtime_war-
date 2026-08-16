@@ -492,18 +492,19 @@ def _resolve_weaponless_damage(attacker, target, game_state, result,
             petrify_remaining = _bget("hp20", "petrify_release_damage", default=2)
         else:
             petrify_remaining = 0.5
+        petrify_dmg = petrify_remaining
         if (target.talent
                 and not getattr(target, '_mythland_talent_suppressed', False)):
             petrify_remaining = target.talent.receive_damage_to_temp_hp(
                 petrify_remaining, is_embrace=False)
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
-            absorbed = round(0.5 - petrify_remaining, 2)
-            actual = round(0.5 - absorbed, 2)
+            absorbed = round(petrify_dmg - petrify_remaining, 2)
+            actual = round(petrify_dmg - absorbed, 2)
             if absorbed > 0:
                 result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受{actual}伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
             else:
-                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
+                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受{petrify_dmg}伤害 → HP: {target.hp}")
             result["target_hp"] = target.hp
 
     # ★ 愿负世：被攻击时积累火种（必须在死亡检查前，让致命一击产生的火种可用于免死）
@@ -1157,18 +1158,19 @@ def resolve_damage(attacker, target, weapon, game_state,
             petrify_remaining = _bget("hp20", "petrify_release_damage", default=2)
         else:
             petrify_remaining = 0.5
+        petrify_dmg = petrify_remaining
         if (target.talent
                 and not getattr(target, '_mythland_talent_suppressed', False)):
             petrify_remaining = target.talent.receive_damage_to_temp_hp(
                 petrify_remaining, is_embrace=False)
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
-            absorbed = round(0.5 - petrify_remaining, 2)
-            actual = round(0.5 - absorbed, 2)
+            absorbed = round(petrify_dmg - petrify_remaining, 2)
+            actual = round(petrify_dmg - absorbed, 2)
             if absorbed > 0:
                 result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受{actual}伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
             else:
-                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
+                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受{petrify_dmg}伤害 → HP: {target.hp}")
             result["target_hp"] = target.hp
 
     # ★ 愿负世：被攻击时积累火种（必须在死亡检查前）
@@ -1763,18 +1765,19 @@ def resolve_terror_damage(attacker, target, game_state, raw_damage=1.0):
             petrify_remaining = _bget("hp20", "petrify_release_damage", default=2)
         else:
             petrify_remaining = 0.5
+        petrify_dmg = petrify_remaining
         if (target.talent
                 and not getattr(target, '_mythland_talent_suppressed', False)):
             petrify_remaining = target.talent.receive_damage_to_temp_hp(
                 petrify_remaining, is_embrace=False)
             if petrify_remaining > 0:
                 target.hp = round(max(0, target.hp - petrify_remaining), 2)
-            absorbed = round(0.5 - petrify_remaining, 2)
-            actual = round(0.5 - absorbed, 2)
+            absorbed = round(petrify_dmg - petrify_remaining, 2)
+            actual = round(petrify_dmg - absorbed, 2)
             if absorbed > 0:
                 result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受{actual}伤害（临时HP吸收{absorbed}） → HP: {target.hp}")
             else:
-                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受0.5伤害 → HP: {target.hp}")
+                result["details"].append(f"🗿→✨ {target.name} 石化被攻击自动解除！额外受{petrify_dmg}伤害 → HP: {target.hp}")
             result["target_hp"] = target.hp
 
     # ---- 死亡判定（自定义：无视死者苏生和g4人形态免死，不无视救世主免死） ----

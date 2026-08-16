@@ -96,7 +96,10 @@ class ScriptBotController(PlayerController):
     def has_armor_named(player: Any, name: str) -> bool:
         outer = getattr(player.armor, "outer", []) or []
         inner = getattr(player.armor, "inner", []) or []
-        return any(getattr(a, "name", "") == name for a in list(outer) + list(inner))
+        return any(
+            getattr(a, "name", "") == name and not getattr(a, "is_broken", False)
+            for a in list(outer) + list(inner)
+        )
 
     @staticmethod
     def my_home(player: Any) -> str:
