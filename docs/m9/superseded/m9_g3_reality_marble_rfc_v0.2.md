@@ -1,14 +1,18 @@
 # M9 G3「神话之外」投影固有结界 RFC v0.2
 
-> **日期**：2026-08-09  
-> **状态**：用户批准结构方向下的当前机制候选；投影、捕捉、剑阵、锚点、破界与幻想崩坏
-> 语义已冻结，仅数值待风洞  
-> **Profile**：`m9-rfc`  
-> **上游**：[行动系统 RFC v0.8](m9_action_system_rfc_v0.8.md)、
-> [结算合同 RFC v0.3](m9_resolution_contract_rfc_v0.3.md)、
-> [天赋演出接口 RFC v0.5](m9_talent_spotlight_rfc_v0.5.md)、
-> [警察/T6 RFC v0.3](m9_police_t6_reset_rfc_v0.3.md)  
-> **局部机制正文**：天赋演出接口 v0.5 的 G3 条目服从本文  
+> **已被取代。** 当前版本为
+> [`../current/m9_g3_reality_marble_rfc_v0.3.md`](../current/m9_g3_reality_marble_rfc_v0.3.md)。
+> 本版保留为迭代证据：兵装通道仅登记无行为条款、临时超额魔力无攻击向出口，
+> 已被 v0.3（兵装池 + 超限灌注）取代，不能用于证明当前设计。
+
+> **日期**：2026-08-09
+> **状态**：已被取代（历史版本）
+> **Profile**：`m9-rfc`
+> **上游**：[行动系统 RFC v0.8](../current/m9_action_system_rfc_v0.8.md)、
+> [结算合同 RFC v0.3](../current/m9_resolution_contract_rfc_v0.3.md)、
+> [天赋演出接口 RFC v0.5](../current/m9_talent_spotlight_rfc_v0.5.md)、
+> [警察/T6 RFC v0.3](../current/m9_police_t6_reset_rfc_v0.3.md)
+> **局部机制正文**：天赋演出接口 v0.5 的 G3 条目服从本文
 > **取代**：[`../superseded/m9_g3_reality_marble_rfc_v0.1.md`](../superseded/m9_g3_reality_marble_rfc_v0.1.md)
 > 的警察列入捕捉单位、未登记的破界标准根行动、未冻结的投影语义与结界结束边界  
 > **不改写**：`v2exp` 当前 G3 玩家手册、五轮猜拳实现与测试

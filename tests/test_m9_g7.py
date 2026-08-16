@@ -140,8 +140,36 @@ class TerrorIdentityTest(unittest.TestCase):
         t.terror_extra_hp = 20
         msg = t._terror_attack(attacker)
         self.assertLessEqual(state.get_player("p2").hp, 0)
-        self.assertEqual(state.get_player("p3").hp, 6)  # 10-4
+        from engine.balance import get as _bget
+        terror_dmg = int(_bget("m9_talents_extended", "g7",
+                               "terror_attack_damage", default=4))
+        self.assertEqual(state.get_player("p3").hp, 10 - terror_dmg)
         self.assertLess(t.terror_extra_hp, 20)  # 未全灭 → 扣 cost
+        self.assertEqual(attacker.kill_count, 1)
+        deaths = [event for event in state.event_log
+                  if event.get("type") == "death"
+                  and event.get("player") == "p2"]
+        self.assertEqual(len(deaths), 1)
+
+    def test_m9_tactical_pellet_counts_kill_once(self) -> None:
+        state = GameState()
+        ensure_state_mechanisms(state)
+        attacker = Player("p1", "星野", controller=ForfeitController())
+        target = Player("p2", "目标", controller=ForfeitController())
+        state.add_player(attacker)
+        state.add_player(target)
+        talent = Hoshino9("p1", state)
+        attacker.talent = talent
+        target.hp = 2
+
+        talent._apply_pellet_damage(attacker, target, 4, "普通")
+
+        self.assertEqual(target.hp, 0)
+        self.assertEqual(attacker.kill_count, 1)
+        deaths = [event for event in state.event_log
+                  if event.get("type") == "death"
+                  and event.get("player") == target.player_id]
+        self.assertEqual(len(deaths), 1)
 
 
 class RoundStartExemptTest(unittest.TestCase):
@@ -160,17 +188,21 @@ class RoundStartExemptTest(unittest.TestCase):
 
     def test_improvise_exempt_cancels_fatigue_minus_one(self) -> None:
         """即演豁免：R0 回满后不扣失却之痛 −1。"""
+        from engine.balance import get as _bget
+        cap = int(_bget("m9_talents_extended", "g7", "cost_base_cap", default=5))
         self.t._macro_used_this_round = True
         self.t.m9_mark_improvise_exempt()
-        self.t.cost = 5
+        self.t.cost = cap
         self.t.on_round_start(2)
-        self.assertEqual(self.t.cost, 5)
+        self.assertEqual(self.t.cost, cap)
 
     def test_fatigue_applies_without_exempt(self) -> None:
+        from engine.balance import get as _bget
+        cap = int(_bget("m9_talents_extended", "g7", "cost_base_cap", default=5))
         self.t._macro_used_this_round = True
-        self.t.cost = 5
+        self.t.cost = cap
         self.t.on_round_start(2)
-        self.assertEqual(self.t.cost, 4)
+        self.assertEqual(self.t.cost, cap - 1)
 
 
 class GateFactoryTest(unittest.TestCase):

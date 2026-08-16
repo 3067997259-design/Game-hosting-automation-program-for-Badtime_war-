@@ -44,7 +44,13 @@ def compute_defense(target: Any, attack_attr_name: str) -> Tuple[int, List[Any]]
     total = 0
     contributing: List[Any] = []
     armor = getattr(target, "armor", None)
-    outer = list(getattr(armor, "outer", []) or []) if armor else []
+    if armor is None:
+        outer = []
+    elif hasattr(armor, "outer"):
+        outer = list(getattr(armor, "outer", []) or [])
+    else:
+        # M9 独立 NPC（警察）只有一个可替换外甲槽，直接保存 ArmorPiece。
+        outer = [armor]
     for piece in outer:
         d = piece_defense(piece, attack_attr_name)
         if d > 0:

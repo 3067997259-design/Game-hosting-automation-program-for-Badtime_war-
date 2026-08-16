@@ -1,139 +1,221 @@
 {
   "schema_version": 1,
-  "last_reviewed": "2026-08-10",
-  "profiles": ["legacy", "v2exp", "m9-rfc", "cross-profile"],
+  "last_reviewed": "2026-08-12",
+  "profiles": [
+    "legacy",
+    "v2exp",
+    "m9-rfc",
+    "cross-profile"
+  ],
   "documents": [
     {
       "path": "README.md",
       "type": "project-entry",
       "status": "mixed",
-      "profiles": ["cross-profile", "legacy", "v2exp"],
-      "authority_for": ["project.entry"],
+      "profiles": [
+        "cross-profile",
+        "legacy",
+        "v2exp"
+      ],
+      "authority_for": [
+        "project.entry"
+      ],
       "notes": "项目入口；已统一指向 docs/README.md、Legacy 模块入口和 V2 模块入口。"
     },
     {
       "path": "AGENTS.md",
       "type": "agent-guidance",
       "status": "scoped-current",
-      "profiles": ["cross-profile"],
-      "authority_for": ["agent.repository_workflow"]
+      "profiles": [
+        "cross-profile"
+      ],
+      "authority_for": [
+        "agent.repository_workflow"
+      ]
     },
     {
       "path": "CLAUDE.md",
       "type": "agent-guidance",
       "status": "scoped-current",
-      "profiles": ["cross-profile"],
-      "authority_for": ["agent.claude_workflow"]
+      "profiles": [
+        "cross-profile"
+      ],
+      "authority_for": [
+        "agent.claude_workflow"
+      ]
     },
     {
       "path": "docs/README.md",
       "type": "docs-entry",
       "status": "canonical",
-      "profiles": ["cross-profile"],
-      "authority_for": ["docs.navigation"]
+      "profiles": [
+        "cross-profile"
+      ],
+      "authority_for": [
+        "docs.navigation"
+      ]
     },
     {
       "path": "docs/governance.md",
       "type": "governance",
       "status": "canonical",
-      "profiles": ["cross-profile"],
-      "authority_for": ["docs.governance"]
+      "profiles": [
+        "cross-profile"
+      ],
+      "authority_for": [
+        "docs.governance"
+      ]
     },
     {
       "path": "docs/document_registry.json",
       "type": "registry",
       "status": "canonical",
-      "profiles": ["cross-profile"],
-      "authority_for": ["docs.registry"]
+      "profiles": [
+        "cross-profile"
+      ],
+      "authority_for": [
+        "docs.registry"
+      ]
     },
     {
       "path": "docs/contradictions.md",
       "type": "audit-ledger",
       "status": "decision-ledger",
-      "profiles": ["cross-profile", "legacy", "v2exp", "m9-rfc"],
-      "authority_for": ["docs.conflicts"]
+      "profiles": [
+        "cross-profile",
+        "legacy",
+        "v2exp",
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.conflicts"
+      ]
     },
     {
       "path": "docs/audits/initial-baseline.md",
       "type": "audit-snapshot",
       "status": "historical",
-      "profiles": ["cross-profile"],
+      "profiles": [
+        "cross-profile"
+      ],
       "authority_for": []
     },
     {
       "path": "docs/audits/semantic-audit-v1.md",
       "type": "audit-snapshot",
       "status": "historical",
-      "profiles": ["legacy", "v2exp", "m9-rfc"],
+      "profiles": [
+        "legacy",
+        "v2exp",
+        "m9-rfc"
+      ],
       "authority_for": []
     },
     {
       "path": "docs/audits/talent-authority-matrix-v1.md",
       "type": "audit-matrix",
       "status": "historical",
-      "profiles": ["legacy", "v2exp"],
+      "profiles": [
+        "legacy",
+        "v2exp"
+      ],
       "authority_for": []
     },
     {
       "path": "docs/audits/m9-v2-talent-reconciliation-baseline-v1.md",
       "type": "maintenance-plan",
       "status": "decision-ledger",
-      "profiles": ["v2exp", "m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_v2_talent_reconciliation"],
+      "profiles": [
+        "v2exp",
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_v2_talent_reconciliation"
+      ],
       "notes": "M9、V2、十四天赋与实现的四列审计口径、五道门、首轮分诊和分批裁决顺序；不定义现行玩法。"
     },
     {
       "path": "docs/audits/m9-v2-action-semantics-b0-v1.md",
       "type": "audit-ledger",
       "status": "decision-ledger",
-      "profiles": ["v2exp", "m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_v2_action_semantics_b0"],
+      "profiles": [
+        "v2exp",
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_v2_action_semantics_b0"
+      ],
       "notes": "已完成的 B0 行动语义事实底稿与决策台账；目标控制、伤害、统一收尾和 ActionGrant 合同已转入 m9_resolution_contract_rfc_v0.1.md，不定义现行玩法。"
     },
     {
       "path": "docs/audits/m9-v2-talent-action-migration-b1-v1.md",
       "type": "audit-ledger",
       "status": "decision-ledger",
-      "profiles": ["v2exp", "m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_v2_talent_action_migration_b1"],
+      "profiles": [
+        "v2exp",
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_v2_talent_action_migration_b1"
+      ],
       "notes": "已完成的 B1 事实与决策台账：T4/T5 完整额外行动、G4 SP 时序、T2 反应、G6 模板及 G7 起床衔接；批准目标已转入 m9_talent_action_contract_rfc_v0.1.md，不定义现行玩法。"
     },
     {
       "path": "docs/audits/m9-v2-talent-trigger-migration-b2-v1.md",
       "type": "audit-ledger",
       "status": "decision-ledger",
-      "profiles": ["v2exp", "m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_v2_talent_trigger_migration_b2"],
+      "profiles": [
+        "v2exp",
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_v2_talent_trigger_migration_b2"
+      ],
       "notes": "B2 事实与决策台账：T1 已批准，T6 已转入警察/T6 联合重置 RFC，G4 十二火种轮回与 Boss 公演机制已转入独立 RFC；其余项目和全部数值仍待裁决或风洞，不定义现行玩法。"
     },
     {
       "path": "docs/audits/m9-v2-substage-performance-b3-v1.md",
       "type": "audit-ledger",
       "status": "decision-ledger",
-      "profiles": ["v2exp", "m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_v2_substage_performance_b3"],
+      "profiles": [
+        "v2exp",
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_v2_substage_performance_b3"
+      ],
       "notes": "B3 事实与决策台账：旧 G2 舞台已分流冻结；G3 已按魔力投影、全地点隔离覆盖层和正常 ActionGrant 形成独立 RFC；G5 锚定、诗篇（14/14 经四批完成）与旧 duet 退役（suspended）均已收口；不定义现行玩法。"
     },
     {
       "path": "docs/handbook/README.md",
       "type": "manual-entry",
       "status": "canonical",
-      "profiles": ["v2exp"],
-      "authority_for": ["manual.v2exp.navigation"]
+      "profiles": [
+        "v2exp"
+      ],
+      "authority_for": [
+        "manual.v2exp.navigation"
+      ]
     },
     {
       "path": "docs/handbook/manifest.json",
       "type": "manual-manifest",
       "status": "canonical",
-      "profiles": ["v2exp"],
-      "authority_for": ["manual.v2exp.module_registry"],
+      "profiles": [
+        "v2exp"
+      ],
+      "authority_for": [
+        "manual.v2exp.module_registry"
+      ],
       "notes": "34 个候选规范模块的顺序、依赖、主题与权威范围。"
     },
     {
       "path": "docs/handbook/complete.generated.src.md",
       "type": "manual-assembly",
       "status": "generated",
-      "profiles": ["v2exp"],
+      "profiles": [
+        "v2exp"
+      ],
       "authority_for": [],
       "generated_from": "docs/handbook/manifest.json"
     },
@@ -141,7 +223,9 @@
       "path": "docs/handbook/complete.generated.md",
       "type": "manual-render",
       "status": "generated",
-      "profiles": ["v2exp"],
+      "profiles": [
+        "v2exp"
+      ],
       "authority_for": [],
       "generated_from": "docs/handbook/manifest.json"
     },
@@ -149,7 +233,11 @@
       "path": "docs/archive/README.md",
       "type": "archive-index",
       "status": "historical",
-      "profiles": ["legacy", "v2exp", "m9-rfc"],
+      "profiles": [
+        "legacy",
+        "v2exp",
+        "m9-rfc"
+      ],
       "authority_for": [],
       "notes": "冻结迁移源、旧生成链和实验分叉的统一索引；归档文件不定义现行玩法。"
     },
@@ -157,7 +245,9 @@
       "path": "docs/archive/v2-migration/完全游玩手册V2.0-exp.src.docx",
       "type": "manual-source",
       "status": "historical",
-      "profiles": ["v2exp"],
+      "profiles": [
+        "v2exp"
+      ],
       "authority_for": [],
       "notes": "模块化迁移的冻结 DOCX 基线；迁移已完成，只用于完整性校验和历史复核。"
     },
@@ -165,16 +255,22 @@
       "path": "docs/archive/v2-old-chain/完全游玩手册V2.0-exp.src.md",
       "type": "manual-source",
       "status": "superseded",
-      "profiles": ["v2exp"],
+      "profiles": [
+        "v2exp"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/handbook/manifest.json"],
+      "superseded_by": [
+        "docs/handbook/manifest.json"
+      ],
       "notes": "与冻结 DOCX 迁移基线明显分叉，不作为模块迁移输入。"
     },
     {
       "path": "docs/archive/v2-old-chain/完全游玩手册V2.0-exp.md",
       "type": "manual-render",
       "status": "superseded",
-      "profiles": ["v2exp"],
+      "profiles": [
+        "v2exp"
+      ],
       "authority_for": [],
       "generated_from": "docs/archive/v2-old-chain/完全游玩手册V2.0-exp.src.md",
       "notes": "旧单体 Markdown 生成链产物，已由模块化生成版替换。"
@@ -183,31 +279,45 @@
       "path": "docs/完全游玩手册.md",
       "type": "manual-redirect",
       "status": "scoped-current",
-      "profiles": ["legacy"],
-      "authority_for": ["manual.legacy.entry"],
+      "profiles": [
+        "legacy"
+      ],
+      "authority_for": [
+        "manual.legacy.entry"
+      ],
       "notes": "兼容旧链接的短入口；作者源已迁到 docs/legacy/ 模块。"
     },
     {
       "path": "docs/legacy/README.md",
       "type": "manual-index",
       "status": "decision-ledger",
-      "profiles": ["legacy"],
-      "authority_for": ["manual.legacy.index"],
+      "profiles": [
+        "legacy"
+      ],
+      "authority_for": [
+        "manual.legacy.index"
+      ],
       "notes": "Legacy 模块化手册入口；模块尚未完成逐主题语义审计。"
     },
     {
       "path": "docs/legacy/manifest.json",
       "type": "manual-manifest",
       "status": "mixed",
-      "profiles": ["legacy"],
-      "authority_for": ["manual.legacy.module_registry"],
+      "profiles": [
+        "legacy"
+      ],
+      "authority_for": [
+        "manual.legacy.module_registry"
+      ],
       "notes": "34 个 Legacy 模块的顺序、依赖、主题与权威范围。"
     },
     {
       "path": "docs/legacy/complete.generated.md",
       "type": "manual-render",
       "status": "generated",
-      "profiles": ["legacy"],
+      "profiles": [
+        "legacy"
+      ],
       "authority_for": [],
       "generated_from": "docs/legacy/manifest.json"
     },
@@ -215,7 +325,9 @@
       "path": "docs/archive/legacy-migration/完全游玩手册.md",
       "type": "manual-source",
       "status": "historical",
-      "profiles": ["legacy"],
+      "profiles": [
+        "legacy"
+      ],
       "authority_for": [],
       "notes": "Legacy 模块化迁移的冻结单体基线；不再直接编辑。"
     },
@@ -223,46 +335,69 @@
       "path": "docs/talents.md",
       "type": "mechanics-reference",
       "status": "mixed",
-      "profiles": ["legacy", "v2exp"],
-      "authority_for": ["talents.implementation_notes"],
+      "profiles": [
+        "legacy",
+        "v2exp"
+      ],
+      "authority_for": [
+        "talents.implementation_notes"
+      ],
       "notes": "混合 legacy、V2 和实现说明，不能整体视为现行玩家规则。"
     },
     {
       "path": "docs/design/v2exp/v2.0_exp_design_draft_v0.2.md",
       "type": "design-rfc",
       "status": "mixed",
-      "profiles": ["v2exp"],
-      "authority_for": ["design.v2exp.decisions_and_drafts"],
+      "profiles": [
+        "v2exp"
+      ],
+      "authority_for": [
+        "design.v2exp.decisions_and_drafts"
+      ],
       "notes": "同时包含设计宪法、已拍板决定、待办和过时实现描述。"
     },
     {
       "path": "docs/design/v2exp/m8_basicai_refactor.md",
       "type": "design-plan",
       "status": "mixed",
-      "profiles": ["v2exp"],
-      "authority_for": ["design.m8.history"],
+      "profiles": [
+        "v2exp"
+      ],
+      "authority_for": [
+        "design.m8.history"
+      ],
       "notes": "计划与已完成实现状态混合，不能作为当前 AI 架构唯一信源；2026-08-10 修订：M8 收缩为 M8.1（步骤 1–5 信源统一），步骤 6–7 剥离至 M9 引擎落地后，现行指导见 §6。"
     },
     {
       "path": "docs/design/v2exp/README.md",
       "type": "design-index",
       "status": "decision-ledger",
-      "profiles": ["v2exp"],
-      "authority_for": ["design.v2exp.navigation"]
+      "profiles": [
+        "v2exp"
+      ],
+      "authority_for": [
+        "design.v2exp.navigation"
+      ]
     },
     {
       "path": "docs/m9/README.md",
       "type": "design-index",
       "status": "decision-ledger",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.index"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.index"
+      ],
       "notes": "M9 唯一推荐入口；汇总当前 19 份候选合同（此前 17 份及 G0 世界援助、G3 连续投影两份增量合同）、失效边界、待决事项与历史阅读路径，不直接替代详细 RFC。"
     },
     {
       "path": "docs/m9/m9_player_manual_candidate_v0.1.md",
       "type": "manual-candidate",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
       "notes": "单文件 M9 玩家候选手册；整合基础游戏与增量合同出现前的 17 份合同，尚未整合 G0 世界援助与 G3 连续投影；只用于审阅、纸面局和验收，不定义 v2exp 现行玩法，冲突时服从 current RFC。"
     },
@@ -270,581 +405,917 @@
       "path": "docs/m9/drafts/m9_unified_currency_design.md",
       "type": "design-rfc",
       "status": "mixed",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.economy_support.original_draft"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.economy_support.original_draft"
+      ],
       "notes": "原始统一提案。数值型 SP 价目表、三货币定位和行动费用章节已被行动 RFC v0.8 取代；PP/投注/魂援已被 B4 RFC v0.4 取代，评分由独立指针承接；信用点继承 v2exp 现状。"
     },
     {
       "path": "docs/m9/superseded/m9_action_system_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_action_system_rfc_v0.4.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_action_system_rfc_v0.4.md"
+      ],
       "notes": "首轮方案保留为迭代证据；其 R0 自动升级已被纸面推演否决，不定义现行玩法。"
     },
     {
       "path": "docs/m9/superseded/m9_action_system_rfc_v0.4.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_action_system_rfc_v0.5.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_action_system_rfc_v0.5.md"
+      ],
       "notes": "保留为硬门控迭代证据；其自动入队、R0 三人顺延和公演垄断主动发动权已被 v0.5 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_action_system_rfc_v0.5.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_action_system_rfc_v0.6.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_action_system_rfc_v0.6.md"
+      ],
       "notes": "保留“即演与公演均需 SP2 并归零”的历史候选；B5 推演发现后续五份天赋 RFC 已采用即演 1 / 公演 2，2026-08-09 被 v0.6 分层就绪取代，v0.6 又被 v0.7 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_action_system_rfc_v0.6.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_action_system_rfc_v0.7.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_action_system_rfc_v0.7.md"
+      ],
       "notes": "SP 分层就绪的历史候选；其自动置 SP2 只登记 G4 一项、G1 繁育仍可能置 2、负世完整额外行动挂在 G5 诗篇名下、验证仍引用旧 P95 等口径已被 B5 纸面推演 v0.4 W1/W3/W7/W12 裁决并更新，2026-08-09 被 v0.7 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_action_system_rfc_v0.7.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_action_system_rfc_v0.8.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_action_system_rfc_v0.8.md"
+      ],
       "notes": "B5 W1-W12 回写版；其动作授予、受限菜单、援助休整与额外行动边界已在实现就绪审计中由 v0.8 收口。"
     },
     {
       "path": "docs/m9/current/m9_action_system_rfc_v0.8.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.action_system.final_candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.action_system.final_candidate"
+      ],
       "notes": "当前行动候选：全员单行动槽、SP 分层、关注与报名窗口、即演/公演、ActionGrant、受限动作与三源完整额外行动的实现就绪合同；尚未进入 v2exp。"
     },
     {
       "path": "docs/m9/superseded/m9_resolution_contract_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_resolution_contract_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_resolution_contract_rfc_v0.2.md"
+      ],
       "notes": "用户批准的 B0 首版结算合同：通用状态、控制优先级、两阶段伤害、25% 下限、攻击归零、统一收尾与 ActionGrant；其未登记 DIRECT_DAMAGE 的伤害身份口径已被 B5 v0.4 W9 裁决，2026-08-09 被 v0.2 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_resolution_contract_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_resolution_contract_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_resolution_contract_rfc_v0.3.md"
+      ],
       "notes": "B0/B5 结算合同历史版；绝对死亡、往世层分流、援助休整与精确生命周期已由 v0.3 收口。"
     },
     {
       "path": "docs/m9/current/m9_resolution_contract_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.resolution_contract.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.resolution_contract.candidate"
+      ],
       "notes": "当前状态、伤害与行动结算合同：含 DIRECT_DAMAGE、absolute_dead、控制优先级、统一收尾、援助休整和 ActionGrant 生命周期；尚未进入 v2exp。"
     },
     {
       "path": "docs/m9/superseded/m9_talent_action_contract_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_talent_action_contract_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_talent_action_contract_rfc_v0.2.md"
+      ],
       "notes": "用户批准的 B1 首版天赋行动迁移合同：冻结 T4/T5/G4/T2/G6/G7 的额外行动、反应、模板重演与起床衔接语义；其“负世主动燃尽不创建行动”口径已被 B5 v0.4 W3 裁决，2026-08-09 被 v0.2 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_talent_action_contract_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_talent_action_contract_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_talent_action_contract_rfc_v0.3.md"
+      ],
       "notes": "B1/B5 天赋行动迁移历史版；反应、G4 挑战、G6 借用与 G7 连续射击边界由 v0.3 收口。"
     },
     {
       "path": "docs/m9/current/m9_talent_action_contract_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talent_action_contract.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talent_action_contract.candidate"
+      ],
       "notes": "当前 T2/T4/G4/G6/G7 行动迁移合同，并登记 T5 不迁入 M9、原槽位转为 G0；定义反应、完整额外行动、借用核心和起床衔接；尚未进入 v2exp。"
     },
     {
       "path": "docs/m9/superseded/m9_g4_savior_cycle_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_g4_savior_cycle_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_g4_savior_cycle_rfc_v0.2.md"
+      ],
       "notes": "G4 首版机制候选：十二火种循环、毁伤、焚诏秘密选择、受限拉条反应、统一反击、死星天裁与退场重开；其未满 12 致命入口未定、限定次数来源额外 +1、按人头复制伤害池、自造真伤语义已被 B5 v0.4 W2/W3 裁决，2026-08-09 被 v0.2 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_g4_savior_cycle_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g4_savior_cycle_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g4_savior_cycle_rfc_v0.3.md"
+      ],
       "notes": "W2/W3 回写历史版；挑战快照、响应顺序、隔离和退场载荷由 v0.3 收口。"
     },
     {
       "path": "docs/m9/current/m9_g4_savior_cycle_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g4_savior_cycle.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.g4_savior_cycle.candidate"
+      ],
       "notes": "当前 G4 十二火种轮回、残缺/完整救世主、挑战响应、焚诏、统一反击、死星天裁与退场合同；数值待风洞。"
     },
     {
       "path": "docs/m9/superseded/m9_police_t6_reset_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_police_t6_reset_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_police_t6_reset_rfc_v0.2.md"
+      ],
       "notes": "警察/T6 首版结构候选：案件驱动、自动出动、固定警力、队长行动责任、掩体、特别线索、远程举报与 T6 警察配装；其缺失的警察局停机收尾、临时演出警察与 Terror 执法排除已被 B5 v0.4 W6 裁决，2026-08-09 被 v0.2 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_police_t6_reset_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_police_t6_reset_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_police_t6_reset_rfc_v0.3.md"
+      ],
       "notes": "W6 回写历史版；案件状态机、合法目标、掩体和停机后的精确生命周期由 v0.3 收口。"
     },
     {
       "path": "docs/m9/current/m9_police_t6_reset_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.police_t6_reset.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.police_t6_reset.candidate"
+      ],
       "notes": "当前案件、通缉、固定警力、队长、掩体、远程举报、T6 配装和警察局停机合同；数值待风洞。"
     },
     {
       "path": "docs/m9/superseded/m9_g2_holographic_presence_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_g2_holographic_presence_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_g2_holographic_presence_rfc_v0.2.md"
+      ],
       "notes": "G2 全息在场首版；影像白名单、延寿与完整镜头事件由 v0.2 收口。"
     },
     {
       "path": "docs/m9/superseded/m9_g2_holographic_presence_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g2_holographic_presence_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g2_holographic_presence_rfc_v0.3.md"
+      ],
       "notes": "短时场景物影像历史候选：转播/转场、空间来源、近战白名单、下一槽落幕与完整镜头；已被 v0.3 完整双 actor 和世末终曲取代。"
     },
     {
       "path": "docs/m9/current/m9_g2_holographic_presence_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g2_holographic_presence.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.g2_holographic_presence.candidate"
+      ],
       "notes": "当前 G2 光身/影身共享玩家身份但各有完整 actor 与标准槽、影身无限持续和真实物品、消散一件归还、永久资格消费的世末终曲及全员区域合同；数值待风洞。"
+    },
+    {
+      "path": "docs/m9/current/m9_g3_reality_marble_rfc_v0.3.md",
+      "type": "design-rfc",
+      "status": "candidate",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talent.g3"
+      ],
+      "notes": "G3 投影固有结界 v0.3（2026-08-12）：新增兵装池（结界内已存在兵装自由取用）与超限灌注（临时超额魔力灌注单次兵装攻击）通道级行为，补齐兵装通道空缺与临时魔力的攻击向出口；防壁/剑阵行为不变；数值待风洞。"
     },
     {
       "path": "docs/m9/superseded/m9_g3_reality_marble_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g3_reality_marble_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_g3_reality_marble_rfc_v0.2.md"
+      ],
       "notes": "G3 投影固有结界首版；魔力、投影白名单、剑阵、锚点、破界、维持与崩坏结构由 v0.2 收口。"
     },
     {
-      "path": "docs/m9/current/m9_g3_reality_marble_rfc_v0.2.md",
+      "path": "docs/m9/superseded/m9_g3_reality_marble_rfc_v0.2.md",
       "type": "design-rfc",
-      "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g3_reality_marble.candidate"],
-      "notes": "当前 G3 魔力、固有投影、全地点捕捉、剑阵、锚点、破界、理想燃烧与幻想崩坏合同；数值待风洞。"
+      "status": "superseded",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [],
+      "notes": "G3 投影固有结界历史版；兵装通道仅登记无行为条款、临时超额魔力无攻击向出口，已被 v0.3（兵装池+超限灌注）取代。",
+      "superseded_by": [
+        "docs/m9/current/m9_g3_reality_marble_rfc_v0.3.md"
+      ]
     },
     {
       "path": "docs/m9/current/m9_g3_chain_projection_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g3_chain_projection.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.g3_chain_projection.candidate"
+      ],
       "notes": "当前 G3 连续投影（宝具连发）根内子循环、累计耗魔阈值、「赤原猎风」即时效果（SP −1 与移出公演队列）与终段幻想崩坏合同；局部取代 G3 v0.2 §8.2 的一次性崩坏形态；四个首轮数值已写入 balance.json v0.4.6，仍待风洞。"
     },
     {
       "path": "docs/m9/superseded/m9_g1_firefly_burn_cycle_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_g1_firefly_burn_cycle_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_g1_firefly_burn_cycle_rfc_v0.2.md"
+      ],
       "notes": "用户与原作者认可方向的 G1 首版重置候选（取代 B2-D05/D06 旧候选）：三段形态阶梯、失熵改形态驱动量表+调息回落、超击破近似、繁育状态；其繁育固定公演槽与缺少的安全地点兜底已被 B5 v0.4 W7/W8 裁决，2026-08-09 被 v0.2 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_g1_firefly_burn_cycle_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g1_firefly_burn_cycle_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g1_firefly_burn_cycle_rfc_v0.3.md"
+      ],
       "notes": "W7/W8 回写历史版；换装、调息、繁育、绝对死亡和安全回退细节由 v0.3 收口。"
     },
     {
       "path": "docs/m9/current/m9_g1_firefly_burn_cycle_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g1_firefly_burn_cycle.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.g1_firefly_burn_cycle.candidate"
+      ],
       "notes": "当前 G1 三段形态、失熵、调息、超击破、繁育、绝对死亡与安全回退合同；数值待风洞。"
     },
     {
       "path": "docs/m9/superseded/m9_g6_cutaway_joke_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g6_cutaway_joke_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g6_cutaway_joke_rfc_v0.2.md"
+      ],
       "notes": "G6 公开模板重演首版；模板分类、支付、责任、来源失效和借用核心由 v0.2 收口。"
     },
     {
       "path": "docs/m9/current/m9_g6_cutaway_joke_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g6_cutaway_joke.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.g6_cutaway_joke.candidate"
+      ],
       "notes": "当前 G6 公开模板记录、即演重演、公演借用核心、责任边界和往世层援助合同；数值待风洞。"
     },
     {
       "path": "docs/m9/drafts/m9_g5_poems_batch1_migration.md",
       "type": "design-draft",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g5_poems_rfc_v0.1.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g5_poems_rfc_v0.1.md"
+      ],
       "notes": "G5 诗篇迁移第一批历史证据；规范正文已整合到十四诗篇合同 v0.1。"
     },
     {
       "path": "docs/m9/drafts/m9_g5_poems_batch2_migration.md",
       "type": "design-draft",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g5_poems_rfc_v0.1.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g5_poems_rfc_v0.1.md"
+      ],
       "notes": "G5 诗篇迁移第二批历史证据；规范正文已整合到十四诗篇合同 v0.1。"
     },
     {
       "path": "docs/m9/drafts/m9_g5_poems_batch3_migration.md",
       "type": "design-draft",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g5_poems_rfc_v0.1.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g5_poems_rfc_v0.1.md"
+      ],
       "notes": "G5 诗篇迁移第三批历史证据；规范正文已整合到十四诗篇合同 v0.1。"
     },
     {
       "path": "docs/m9/drafts/m9_g5_poems_batch4_migration.md",
       "type": "design-draft",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g5_poems_rfc_v0.1.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g5_poems_rfc_v0.1.md"
+      ],
       "notes": "G5 诗篇迁移第四批历史证据；规范正文已整合到十四诗篇合同 v0.1。"
+    },
+    {
+      "path": "docs/m9/drafts/m9_g0_poem_design.md",
+      "type": "design-draft",
+      "status": "superseded",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [],
+      "superseded_by": [
+        "docs/m9/current/m9_g0_shiroko_terror_rfc_v0.3.md"
+      ],
+      "notes": "G0 诗篇/援助原型设计稿；规范正文已整合到 G0 砂狼白子 RFC v0.3 与世界援助合同 v0.1。"
+    },
+    {
+      "path": "docs/m9/drafts/m9_g5_poems_migration_b3d10_working.md",
+      "type": "design-draft",
+      "status": "superseded",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [],
+      "superseded_by": [
+        "docs/m9/current/m9_g5_poems_rfc_v0.1.md"
+      ],
+      "notes": "G5 诗篇迁移工作稿（B3-D10）；规范正文已整合到十四诗篇合同 v0.1。"
     },
     {
       "path": "docs/m9/current/m9_g5_poems_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g5_poems.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.g5_poems.candidate"
+      ],
       "notes": "M9 十四诗篇、七枚简化标记、爱愿与跨合同边界的唯一规范正文；取代四份批次迁移稿，数值待风洞。"
     },
     {
       "path": "docs/m9/superseded/m9_g0_shiroko_terror_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_g0_shiroko_terror_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_g0_shiroko_terror_rfc_v0.2.md"
+      ],
       "notes": "G0 首版候选：砂狼白子*Terror，BLACK FANG 465、无人机召唤物、遗物支援技与调整呼吸；其神秘属性示例、未登记“真伤”、G6/T6 遗物接口与 +20% 落点已被 B5 v0.4 W9/W10 裁决，2026-08-09 被 v0.2 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_g0_shiroko_terror_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g0_shiroko_terror_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g0_shiroko_terror_rfc_v0.3.md"
+      ],
       "notes": "W9/W10 回写历史版；无人机、遗物、调整呼吸、绝对退场与评分挂接由 v0.3 收口。"
     },
     {
       "path": "docs/m9/current/m9_g0_shiroko_terror_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g0_shiroko_terror.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.g0_shiroko_terror.candidate"
+      ],
       "notes": "当前 G0 BLACK FANG 465、无人机、遗物支援、调整呼吸、绝对退场和评分挂接合同；数值待风洞。"
     },
     {
       "path": "docs/m9/current/m9_g0_world_poem_aid_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g0_world_poem_aid.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.g0_world_poem_aid.candidate"
+      ],
       "notes": "黑马援助更名「此诗，献予世界」及本局含 G0 时替换为「昨日的同伴」两式（星野战术压制追演+震荡 / 绫音 R4 地点全员回血）的世界援助合同；治疗来源冻结为 WORLD_RULE、不向 G4 提供火种，首轮回复值 1 已写入 balance.json v0.4.6；G0 往世层/魂援边界不变。"
     },
     {
       "path": "docs/m9/superseded/m9_g5_anchor_contract_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_g5_anchor_contract_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_g5_anchor_contract_rfc_v0.2.md"
+      ],
       "notes": "项目负责人认可方向的 G5 锚定合同首版候选（B3-D09）：删除命数求解器，反制轴改外来连结变数，追忆改事件驱动，成功强制回溯+水晶花穿越回溯；让步项已于 2026-08-08 终审通过（K=3 竞速、双人局禁用、失败不回溯、排他性与死亡粉碎确认）；其首次追忆约 R8-R12、K 未定、收束 +0.5、快照时机与微澜无效果正文已被 B5 v0.4 W4/W5 裁决，2026-08-09 被 v0.2 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_g5_anchor_contract_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_g5_anchor_contract_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_g5_anchor_contract_rfc_v0.3.md"
+      ],
       "notes": "W4/W5 回写历史版；竞速时点、变数、回溯、死亡粉碎与诗篇分界由 v0.3 收口。"
     },
     {
       "path": "docs/m9/superseded/m9_g5_anchor_contract_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g5_anchor_contract_rfc_v0.4.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g5_anchor_contract_rfc_v0.4.md"
+      ],
       "notes": "结果声明式 G5 历史候选：事件追忆、K3/K6、通用变数、绝对实现、安全窄回溯与水晶花；其常驻形态、结果先行与反制模型已被 v0.4 的轮回培养和玩家自写脚本取代。"
     },
     {
       "path": "docs/m9/current/m9_g5_anchor_contract_rfc_v0.4.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g5_anchor_contract.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.g5_anchor_contract.candidate"
+      ],
       "notes": "当前 G5 小昔涟有限轮回、德谬歌有限追忆、微澜、玩家自写 K 槽 AnchorScript、四类候选事件、实时再投影、安全窄回溯、水晶花与因果闭合退场合同；战斗追忆为全图有效战斗 +1、小昔涟亲历再 +1；诗篇正文继续由 v0.1 承接，数值待风洞。"
     },
     {
       "path": "docs/m9/superseded/m9_pp_afterlife_betting_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_pp_afterlife_betting_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_pp_afterlife_betting_rfc_v0.2.md"
+      ],
       "notes": "B4 首版，保留为迭代证据；被动援助空窗打空、被动交易模型空白、援助 PP 全额铸造、潜伏与衰减对冲等口径已被 B5 纸面推演 v0.2 证伪并修复。"
     },
     {
       "path": "docs/m9/superseded/m9_pp_afterlife_betting_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_pp_afterlife_betting_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_pp_afterlife_betting_rfc_v0.3.md"
+      ],
       "notes": "B4 批次 PP/往世层投注/魂援/评分系统 RFC v0.2：并入 B5 推演 A1-A8 与 V5 裁决（被动条件合取、免费指派、攻击即载体、PP 转移不铸造、死者免衰减、派彩纪律、T6/T3 跨合同改写、G3 前摇截断）；其“G5 锚定绝对实现消耗 PP”文本已被 B5 v0.4 W4 裁决删除，水晶花评分挂接并入 v0.3，2026-08-09 被 v0.3 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_pp_afterlife_betting_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_pp_afterlife_betting_rfc_v0.4.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_pp_afterlife_betting_rfc_v0.4.md"
+      ],
       "notes": "B4/W4 历史版；投注结算、28 项援助、绝对死亡分流和评分拆分由 v0.4 收口。"
     },
     {
       "path": "docs/m9/current/m9_pp_afterlife_betting_rfc_v0.4.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.pp_afterlife_betting.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.pp_afterlife_betting.candidate"
+      ],
       "notes": "当前 PP、投注、往世层、交易、26 项魂援与简化诗篇入口合同；先由 base_final_score 冻结 game_winner_snapshot，再锁市派彩和发放黑马加成，显示排名不反算胜者；T5 已移除且 G0 无魂援；数值待风洞。"
     },
     {
       "path": "docs/m9/current/m9_pp_afterlife_scoring_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.pp_afterlife_scoring.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.pp_afterlife_scoring.candidate"
+      ],
       "notes": "当前生死评分、绝对死亡、G0 退场与水晶花评分挂接指针；终局先冻结不含派彩/黑马加成的胜者快照，再计算显示终分，结果依赖奖励不反算胜者；数值待风洞。"
+    },
+    {
+      "path": "docs/m9/current/m9_arc_universal_rfc_v0.1.md",
+      "type": "design-rfc",
+      "status": "candidate",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.arc_universal.candidate"
+      ],
+      "notes": "M9 通用剧情分三章制完结条：全员 arc_cap=3、一章一事、顺序解锁、第一章=首次真实公演、登台优先队列规则；取代 R48 的 arc_weight=0 过渡态，G2/G5 私有 arc 挂接并入章节表；数值待风洞。"
     },
     {
       "path": "docs/m9/superseded/m9_talent_spotlight_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_talent_spotlight_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_talent_spotlight_rfc_v0.2.md"
+      ],
       "notes": "保留为队列硬门控与旧纸面推演的历史证据；其发动频率和 SAE 汇总不能证明 v0.2。"
     },
     {
       "path": "docs/m9/superseded/m9_talent_spotlight_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_talent_spotlight_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_talent_spotlight_rfc_v0.3.md"
+      ],
       "notes": "保留“即演也必须 SP2 并统一归零”的历史接口；2026-08-09 被 v0.3 分层 SP 接口取代，v0.3 又被 v0.4 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_talent_spotlight_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_talent_spotlight_rfc_v0.4.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_talent_spotlight_rfc_v0.4.md"
+      ],
       "notes": "分层 SP 接口的历史候选；其验证状态仍引用未裁决频率、负世来源挂在 G5 诗篇名下、G1 繁育仍视为演出、G5 微澜无效果正文、自动置 SP2 只有 G4 一项、G0 十字炮火自造真伤等口径已被 B5 纸面推演 v0.4 W1-W12 裁决并更新，2026-08-09 被 v0.4 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_talent_spotlight_rfc_v0.4.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_talent_spotlight_rfc_v0.5.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_talent_spotlight_rfc_v0.5.md"
+      ],
       "notes": "W1-W12 回写历史版；逐天赋正文归属与实现索引由 v0.5 收口。"
     },
     {
       "path": "docs/m9/current/m9_talent_spotlight_rfc_v0.5.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.spotlight.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.spotlight.candidate"
+      ],
       "notes": "当前天赋演出实现索引：定义被动、伏笔、转折、即演、公演和十四天赋/G0 的规范正文归属；尚未进入 v2exp。"
     },
     {
       "path": "docs/m9/superseded/m9_g7_tactical_suppression_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_g7_tactical_suppression_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_g7_tactical_suppression_rfc_v0.2.md"
+      ],
       "notes": "G7 首版战术压制候选：三形态、Cost 系统、战术宏、光环与 Terror；其未登记“真实伤害”与单侧警察豁免已被 B5 v0.4 W9/W10 裁决，2026-08-09 被 v0.2 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_g7_tactical_suppression_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_g7_tactical_suppression_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_g7_tactical_suppression_rfc_v0.3.md"
+      ],
       "notes": "W9/W10 回写历史版；Cost 恢复、宏、连续射击、Terror 和守夜人边界由 v0.3 收口。"
     },
     {
       "path": "docs/m9/current/m9_g7_tactical_suppression_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.talents.g7_tactical_suppression.candidate"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.talents.g7_tactical_suppression.candidate"
+      ],
       "notes": "当前 G7 三形态、Cost、战术宏、连续射击、光环、Terror、色彩与守夜人召回合同；宏冻结为单一复合根容器，内部步骤各自产生领域事件但不创建新 ActionGrant，整宏只做一次根/系统收尾；数值待风洞。"
     },
     {
       "path": "docs/m9/superseded/m9_t3_t7_migration_rfc_v0.1.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/superseded/m9_t3_t7_migration_rfc_v0.2.md"],
+      "superseded_by": [
+        "docs/m9/superseded/m9_t3_t7_migration_rfc_v0.2.md"
+      ],
       "notes": "B2 首版 T3/T7 迁移合同：T3 天星穿甲化、T7 苏生单次演出挂载；其未登记 G1 繁育倒计时绝对死亡、未澄清 DIRECT_DAMAGE 与绝对死亡的边界已被 B5 v0.4 W7/W9/W12 裁决，2026-08-09 被 v0.2 取代。"
     },
     {
       "path": "docs/m9/superseded/m9_t3_t7_migration_rfc_v0.2.md",
       "type": "design-rfc",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
+      "profiles": [
+        "m9-rfc"
+      ],
       "authority_for": [],
-      "superseded_by": ["docs/m9/current/m9_t3_t7_migration_rfc_v0.3.md"],
+      "superseded_by": [
+        "docs/m9/current/m9_t3_t7_migration_rfc_v0.3.md"
+      ],
       "notes": "B2/B5 迁移历史版；T3 同槽双次挣脱、有效命中和 T7 绝对死亡边界由 v0.3 收口。"
     },
     {
       "path": "docs/m9/current/m9_t3_t7_migration_rfc_v0.3.md",
       "type": "design-rfc",
       "status": "candidate",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["design.m9.t3_t7_migration.candidate"],
-      "notes": "当前 T3 天星与 T7 苏生/绝对死亡合同；T3 仅能以 2 SP 公演投放至任一仍存在的地图地点，无即演入口；石化采用同槽双次挣脱子循环与统一有效伤害口径；尚未进入 v2exp。"
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.t3_t7_migration.candidate"
+      ],
+      "notes": "当前 T3 天星与 T7 苏生/绝对死亡合同；T3 仅能以 2 SP 公演，并在公演实际执行时于发动者当前所在地点原地释放（无地点选择 UI、不远程投放）；石化采用同槽双次挣脱子循环与统一有效伤害口径；尚未进入 v2exp。"
     },
     {
       "path": "docs/audits/m9-b5-paper-simulation-v0.1.md",
       "type": "audit-ledger",
       "status": "decision-ledger",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_b5_paper_simulation"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_b5_paper_simulation"
+      ],
       "notes": "B5 纸面推演首卷：行动基线与结算合同；关注枚举及 D1-D6 已拍板。其即演频率基于旧 v0.5 SP2→0 模型，不能证明 v0.6。"
     },
     {
       "path": "docs/audits/m9-b5-paper-simulation-v0.2.md",
       "type": "audit-ledger",
       "status": "decision-ledger",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_b5_paper_simulation"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_b5_paper_simulation"
+      ],
       "notes": "B5 纸面推演第二卷：魂援、PP 经济与往世层时间线；A1-A8 已拍板并形成 B4 RFC v0.2。"
     },
     {
       "path": "docs/audits/m9-b5-paper-simulation-v0.3.md",
       "type": "audit-ledger",
       "status": "decision-ledger",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_b5_paper_simulation"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_b5_paper_simulation"
+      ],
       "notes": "B5 纸面推演第三卷：天赋×SP 联动与二十八援助数值审查；V1-V6 已拍板，形成行动 v0.6、天赋接口 v0.3 与 G3 前摇截断。"
     },
     {
       "path": "docs/audits/m9-b5-paper-simulation-v0.4.md",
       "type": "audit-ledger",
       "status": "decision-ledger",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_b5_paper_simulation"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_b5_paper_simulation"
+      ],
       "notes": "B5 纸面推演第四卷：W1-W12 已于 2026-08-09 批准；其后实现就绪审计继续升版至行动 v0.8、天赋接口 v0.5、结算/行动迁移及多数天赋合同 v0.3、B4 v0.4。"
     },
     {
       "path": "docs/audits/m9-implementation-readiness-v0.1.md",
       "type": "audit-matrix",
       "status": "superseded",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_implementation_readiness"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_implementation_readiness"
+      ],
       "notes": "增量合同出现前 17 份 M9 合同的实现权威矩阵、共同纪律与 Given/When/Then 验收场景；P0/P1/P2 均为 0 的结论不覆盖 G0 世界援助与 G3 连续投影，不定义 v2exp 现行玩法。已被 v0.2 取代。"
-    }, {
+    },
+    {
       "path": "docs/audits/m9-implementation-readiness-v0.2.md",
       "type": "audit-matrix",
       "status": "decision-ledger",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_implementation_readiness"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_implementation_readiness"
+      ],
       "notes": "实现就绪审计增量 v0.2（2026-08-11）：补齐 G0 世界援助与 G3 连续投影两份增量合同的权威矩阵、结构语义与 17 个 Given/When/Then 场景，P0/P1/P2=0；五个增量 balance 键已登记 v0.4.6 首轮值（DOC-048），行动 RFC 升版收容根内连发与敌意 SP 扣减为 P2 观察项；不定义 v2exp 现行玩法。"
     },
     {
       "path": "docs/audits/m9-contract-test-gap-ledger-v0.1.md",
       "type": "audit-ledger",
       "status": "decision-ledger",
-      "profiles": ["m9-rfc"],
-      "authority_for": ["docs.maintenance.m9_contract_test_gaps"],
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_contract_test_gaps"
+      ],
       "notes": "B-2 合同测试缺口台账（2026-08-11）：B0-B3 清单 11 项全部映射到关联测试或「随 B-3 迁移同步」标注；今日落地 tests/test_m9_contracts_v2exp.py 12 个用例。"
     },
     {
       "path": "docs/audits/m9-migration-decision-v0.1.md",
       "type": "decision-ledger",
       "status": "decision-ledger",
-      "profiles": ["m9-rfc", "v2exp"],
-      "authority_for": ["docs.maintenance.m9_v2exp_migration"],
+      "profiles": [
+        "m9-rfc",
+        "v2exp"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_v2exp_migration"
+      ],
       "notes": "B-4 迁移决策台账（2026-08-11）：m9-rfc → v2exp 哪些进、哪些等风洞；结构可进 4 组（天赋层/分辨率/评分/动作系统），数值相关 6 组等风洞；接入需作者拍板 + W1 指标 + 数值单值化三道门槛。见 README 未冻结清单。"
+    },
+    {
+      "path": "docs/audits/m9-unwired-content-audit-v1.md",
+      "type": "audit-ledger",
+      "status": "decision-ledger",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_unwired_content"
+      ],
+      "notes": "未接入内容综合审计 v1（2026-08-12）：五个并行审计合并为七组台账——设计已取代未拆除（星光/旧评分/喝彩/legacy 警察指令）、9 条 P0 断线、4 处活桩（G6 借用核心与 26 项援助等）、B4 投注/魂援/PP 经济/评分主机制未接引擎、机制级缺口与语义偏差、AI/指令/TUI/RL 独立算法轨道、测试与文档治理；含 S1-S7 接线执行台账与退出边界。"
     },
     {
       "path": "docs/audits/m9-action-paper-simulation-v0.1.md",
       "type": "audit-snapshot",
       "status": "historical",
-      "profiles": ["v2exp", "m9-rfc"],
+      "profiles": [
+        "v2exp",
+        "m9-rfc"
+      ],
       "authority_for": [],
       "notes": "纸面推演判定全员行动方向通过、RFC v0.1 自动 SP 推进不通过，并提出 v0.2 候选状态机。"
     },
@@ -852,64 +1323,107 @@
       "path": "docs/inheritor_decision_map.md",
       "type": "decision-map",
       "status": "decision-ledger",
-      "profiles": ["legacy", "v2exp", "m9-rfc"],
-      "authority_for": ["design.transition_status"],
+      "profiles": [
+        "legacy",
+        "v2exp",
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.transition_status"
+      ],
       "notes": "用于继承和定位，不直接定义现行玩法。"
     },
     {
       "path": "docs/operations/README.md",
       "type": "operations-index",
       "status": "scoped-current",
-      "profiles": ["cross-profile", "legacy", "v2exp"],
-      "authority_for": ["operations.navigation"]
+      "profiles": [
+        "cross-profile",
+        "legacy",
+        "v2exp"
+      ],
+      "authority_for": [
+        "operations.navigation"
+      ]
     },
     {
       "path": "docs/operations/commands.md",
       "type": "operations-reference",
       "status": "candidate",
-      "profiles": ["legacy", "v2exp"],
-      "authority_for": ["operations.commands"]
+      "profiles": [
+        "legacy",
+        "v2exp"
+      ],
+      "authority_for": [
+        "operations.commands"
+      ]
     },
     {
       "path": "docs/operations/usage.md",
       "type": "operations-guide",
       "status": "candidate",
-      "profiles": ["legacy", "v2exp"],
-      "authority_for": ["operations.usage"]
+      "profiles": [
+        "legacy",
+        "v2exp"
+      ],
+      "authority_for": [
+        "operations.usage"
+      ]
     },
     {
       "path": "docs/operations/airi_bridge.md",
       "type": "integration-guide",
       "status": "candidate",
-      "profiles": ["cross-profile"],
-      "authority_for": ["integration.airi_bridge"]
+      "profiles": [
+        "cross-profile"
+      ],
+      "authority_for": [
+        "integration.airi_bridge"
+      ]
     },
     {
       "path": "docs/history/README.md",
       "type": "history-index",
       "status": "scoped-current",
-      "profiles": ["cross-profile", "legacy", "v2exp"],
-      "authority_for": ["history.navigation"]
+      "profiles": [
+        "cross-profile",
+        "legacy",
+        "v2exp"
+      ],
+      "authority_for": [
+        "history.navigation"
+      ]
     },
     {
       "path": "docs/history/changelog.md",
       "type": "history",
       "status": "historical",
-      "profiles": ["legacy", "v2exp"],
-      "authority_for": ["history.changelog"]
+      "profiles": [
+        "legacy",
+        "v2exp"
+      ],
+      "authority_for": [
+        "history.changelog"
+      ]
     },
     {
       "path": "docs/history/develop_diary.md",
       "type": "history",
       "status": "historical",
-      "profiles": ["legacy"],
-      "authority_for": ["history.development_diary"]
+      "profiles": [
+        "legacy"
+      ],
+      "authority_for": [
+        "history.development_diary"
+      ]
     },
     {
       "path": "docs/archive/v2-migration/完全游玩手册V2.0-exp.src.G3G7.docx",
       "type": "manual-variant",
       "status": "historical",
-      "profiles": ["v2exp"],
+      "profiles": [
+        "v2exp"
+      ],
       "authority_for": [],
       "notes": "已归档的局部实验分叉；约 100 个段落不与主 DOCX 精确重合，独有内容仍待语义复核。"
     },
@@ -917,7 +1431,9 @@
       "path": "docs/archive/v2-migration/G3G7.extracted.md",
       "type": "manual-extract",
       "status": "historical",
-      "profiles": ["v2exp"],
+      "profiles": [
+        "v2exp"
+      ],
       "authority_for": [],
       "notes": "G3/G7 DOCX 的机器可检索逻辑文本，不保留排版且不定义规则。"
     },
@@ -925,36 +1441,266 @@
       "path": "起闯战争鉴赏随笔.md",
       "type": "editorial",
       "status": "historical",
-      "profiles": ["cross-profile"],
+      "profiles": [
+        "cross-profile"
+      ],
       "authority_for": []
     },
     {
       "path": "起闯战争鉴赏随笔·续篇.md",
       "type": "editorial",
       "status": "historical",
-      "profiles": ["cross-profile"],
+      "profiles": [
+        "cross-profile"
+      ],
       "authority_for": []
     },
     {
       "path": "起闯战争评测报告.md",
       "type": "review",
       "status": "historical",
-      "profiles": ["cross-profile"],
+      "profiles": [
+        "cross-profile"
+      ],
       "authority_for": []
     },
     {
       "path": "tools/handbook.py",
       "type": "docs-tool",
       "status": "scoped-current",
-      "profiles": ["cross-profile"],
-      "authority_for": ["tooling.handbook"]
+      "profiles": [
+        "cross-profile"
+      ],
+      "authority_for": [
+        "tooling.handbook"
+      ]
     },
     {
       "path": "tools/check_doc_governance.py",
       "type": "docs-tool",
       "status": "scoped-current",
-      "profiles": ["cross-profile"],
-      "authority_for": ["tooling.doc_governance"]
+      "profiles": [
+        "cross-profile"
+      ],
+      "authority_for": [
+        "tooling.doc_governance"
+      ]
+    },
+    {
+      "path": "docs/m9/ai/talents.md",
+      "type": "mechanics-reference",
+      "status": "scoped-current",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "m9.ai_policy_design"
+      ],
+      "notes": "M9 AI 策略设计单一入口：世界模型/交互矩阵/评分器草案/Policy 协议；接口清单由 tests/test_talents_md_sync.py 同步校验。"
+    },
+    {
+      "path": "docs/m9/ai/slots_t1t4t6t7.md",
+      "type": "mechanics-reference",
+      "status": "scoped-current",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "m9.ai_policy_design.slot_cards"
+      ],
+      "notes": "M9 槽位卡分片（决策点/经济门/AI 注记）。"
+    },
+    {
+      "path": "docs/m9/ai/slots_g0g1g2g3.md",
+      "type": "mechanics-reference",
+      "status": "scoped-current",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "m9.ai_policy_design.slot_cards"
+      ],
+      "notes": "M9 槽位卡分片（决策点/经济门/AI 注记）。"
+    },
+    {
+      "path": "docs/m9/ai/slots_g4g5g6g7.md",
+      "type": "mechanics-reference",
+      "status": "scoped-current",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "m9.ai_policy_design.slot_cards"
+      ],
+      "notes": "M9 槽位卡分片（决策点/经济门/AI 注记）。"
+    },
+    {
+      "path": "docs/ai/commands.md",
+      "type": "mechanics-reference",
+      "status": "scoped-current",
+      "profiles": [
+        "legacy",
+        "v2exp",
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "command_contract"
+      ],
+      "notes": "游戏指令总表：通用指令/M9 天赋特异 special op/语义变更注记；由 tests/test_commands_sync.py 同步校验"
+    },
+    {
+      "path": "docs/ai/commands_mapping.md",
+      "type": "mechanics-reference",
+      "status": "scoped-current",
+      "profiles": [
+        "legacy",
+        "v2exp",
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "command_contract.rl_ai_mapping"
+      ],
+      "notes": "RL 137 索引 ↔ AI 生成层 ↔ 引擎解析层三方映射与缺口清单"
+    },
+    {
+      "path": "docs/ai/commands_choose.md",
+      "type": "mechanics-reference",
+      "status": "scoped-current",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "command_contract.t0_options"
+      ],
+      "notes": "T0 选项层：引擎通用 T0 流程 + 14 槽天赋特异选项/choose 表面"
+    },
+    {
+      "path": "docs/m9/current/m9_windtunnel_calibration_2026-09.md",
+      "type": "mechanics-reference",
+      "status": "canonical",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.balance.calibrated"
+      ],
+      "notes": "M9 风洞校准与数值台账 2026-09：5000 局验收结果、校准期间机制裁决、m9_talents_extended/m9_system 终值与槽位得分系数；数值与 data/balance.json 同步。"
+    },
+    {
+      "path": "docs/m9/b5_balance_values_summary.md",
+      "type": "mechanics-reference",
+      "status": "scoped-current",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "design.m9.balance.b5_summary"
+      ],
+      "notes": "B5 纸面推演批准的平衡值摘要；被 2026-09 风洞校准台账局部更新，数值口径以 calibration 文档与 data/balance.json 为准。"
+    },
+    {
+      "path": "docs/m9/text_migration_plan.md",
+      "type": "maintenance-plan",
+      "status": "canonical",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "docs.maintenance.m9_text_migration"
+      ],
+      "notes": "M9 全代码路径中文文本迁入 prompts.json 的执行计划：范围、键命名、批次、治理与验收；实现产物为 m9 命名空间与 tests/test_m9_text_governance.py。"
+    },
+    {
+      "path": "docs/m9/text_inventory.json",
+      "type": "governance",
+      "status": "generated",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [],
+      "generated_from": "tools/m9_text_inventory.py",
+      "notes": "M9 相关文件 CJK 字面量盘点快照（strict/mixed 分区），由 tools/m9_text_inventory.py 生成。"
+    },
+    {
+      "path": "docs/m9/text_allowlist.json",
+      "type": "governance",
+      "status": "canonical",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [],
+      "generated_from": "tools/m9_text_inventory.py",
+      "notes": "M9 专有文件允许保留的中文身份键白名单（325 条），由 test_m9_text_governance 的 strict AST 扫描消费；新增条目必须人工确认是身份键。"
+    },
+    {
+      "path": "tools/m9_handbook.py",
+      "type": "docs-tool",
+      "status": "scoped-current",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "tooling.m9_handbook"
+      ],
+      "notes": "M9 玩家手册装配器：按 docs/m9/manual/manifest.json 装配模块、渲染 ⟦bal:...⟧ 并校验一致性。"
+    },
+    {
+      "path": "docs/m9/manual/manifest.json",
+      "type": "manual-manifest",
+      "status": "canonical",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "manual.m9.module_registry"
+      ],
+      "notes": "M9 玩家手册模块的顺序、依赖、主题与权威范围；初始批次 core_a 为卷首与里程碑概览，后续主题模块按需扩充。"
+    },
+    {
+      "path": "docs/m9/manual/core/00_frontmatter.md",
+      "type": "manual-source",
+      "status": "candidate",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "manual.m9.frontmatter"
+      ],
+      "notes": "M9 手册卷首与装配/写作纪律说明。"
+    },
+    {
+      "path": "docs/m9/manual/core/01_milestone_overview.md",
+      "type": "manual-source",
+      "status": "candidate",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "manual.m9.overview"
+      ],
+      "notes": "M9 里程碑概览（候选）：冻结骨架、文本/数值口径与后续模块规划；冲突时以 current/ RFC 为准。"
+    },
+    {
+      "path": "docs/m9/manual/complete.generated.src.md",
+      "type": "manual-assembly",
+      "status": "generated",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [],
+      "generated_from": "docs/m9/manual/manifest.json",
+      "notes": "M9 手册合订作者版（禁止手编）。"
+    },
+    {
+      "path": "docs/m9/manual/complete.generated.md",
+      "type": "manual-render",
+      "status": "generated",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [],
+      "generated_from": "docs/m9/manual/manifest.json",
+      "notes": "M9 手册玩家渲染版（⟦bal:...⟧ 已从 data/balance.json 渲染，禁止手编）。"
     }
   ]
 }

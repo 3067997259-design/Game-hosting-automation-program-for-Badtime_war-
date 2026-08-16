@@ -21,11 +21,24 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         super().__init__(player_id, game_state)
         # 形态
         self.form = None  # "水着-shielder" / "临战-Archer" / "临战-shielder"
-        # Cost 体力条
-        self.cost = 5
-        self.max_cost = 5
-        # 光环（3层）
-        self.halos = [{"active": False, "cooldown_remaining": 0, "recovering": False, "value": 0.0} for _ in range(3)]
+        # Cost 体力条与初始光环层数：M9 读 m9_talents_extended.g7（风洞调参入口），
+        # legacy/v2exp 保持硬编码 5 / 3。
+        from engine import experiments
+        _m9 = experiments.is_enabled("m9_rfc")
+        _max_cost = 5
+        _halo_layers = 3
+        if _m9:
+            from engine.balance import get as _bget
+            _max_cost = int(_bget(
+                "m9_talents_extended", "g7", "cost_base_cap", default=5))
+            _halo_layers = int(_bget(
+                "m9_talents_extended", "g7", "halo_initial_layers", default=3))
+        self.cost = _max_cost
+        self.max_cost = _max_cost
+        # 光环（默认 3 层；M9 可调）
+        self.halos = [{"active": False, "cooldown_remaining": 0,
+                       "recovering": False, "value": 0.0}
+                      for _ in range(_halo_layers)]
         # 融合装备
         self.iron_horus = None       # 铁之荷鲁斯 ArmorPiece 引用
         self.eye_of_horus = None     # 荷鲁斯之眼 特殊武器引用

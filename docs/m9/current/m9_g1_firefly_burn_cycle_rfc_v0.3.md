@@ -10,6 +10,10 @@
 > **日期**：2026-08-09  
 > **状态**：用户与原作者认可方向的机制候选；§七开放项 1/2 已于 2026-08-08 终审裁决，
 > v0.3 修订冻结 R4 顺序、换装/卸甲宣言、繁育与绝对死亡边界，数值待 B5 / 风洞  
+>
+> **2026-09 风洞校准修正（实施口径）**：G1 终值见校准台账 §4.1（无甲攻/防惩罚 1、
+> 次级攻击 +3/防御 +1、完全燃烧攻击 +2、超新星 6、失熵阈值 6/上限 12 等）。
+> 完整终值见 [`m9_windtunnel_calibration_2026-09.md`](m9_windtunnel_calibration_2026-09.md)。
 > **Profile**：`m9-rfc`  
 > **上游**：[`m9_action_system_rfc_v0.8.md`](m9_action_system_rfc_v0.8.md)、
 > [`m9_resolution_contract_rfc_v0.3.md`](m9_resolution_contract_rfc_v0.3.md)、

@@ -15,7 +15,9 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Any
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.game_query import GameQuery
-from controllers.ai.constants import debug_ai_basic, PROTECTED_ITEMS
+from controllers.ai.constants import (
+    debug_ai_basic, PROTECTED_ITEMS, ai_wallet, m4_item_price,
+)
 from controllers.ai.talents.hoshino_impl import HoshinoImpl
 from utils.attribute import COUNTER_ATTRIBUTE_NAME
 
@@ -91,24 +93,18 @@ class HoshinoAIHook(BaseTalentAIHook):
             return options[0]
 
         if situation == "hoshino_self_doubt":
-            if state:
-                alive_count = sum(1 for pid in state.player_order
-                                  if state.get_player(pid) and state.get_player(pid).is_alive())
-                if alive_count <= 2:
-                    for opt in options:
-                        if "接受" in opt or "terror" in opt.lower():
-                            return opt
+            if state and self._should_accept_self_doubt(player, state):
+                for opt in options:
+                    if "接受" in opt or "terror" in opt.lower():
+                        return opt
             for opt in options:
                 if "拒绝" in opt or "抵抗" in opt:
                     return opt
             return options[-1]
 
         if situation == "hoshino_self_doubt_choice":
-            if state:
-                alive_count = sum(1 for pid in state.player_order
-                                  if state.get_player(pid) and state.get_player(pid).is_alive())
-                if alive_count <= 2:
-                    return options[0]
+            if state and self._should_accept_self_doubt(player, state):
+                return options[0]
             return options[1] if len(options) > 1 else options[0]
 
         if situation == "hoshino_tactical_equip":
@@ -186,6 +182,41 @@ class HoshinoAIHook(BaseTalentAIHook):
 
         return None
 
+    def _should_accept_self_doubt(self, player: Any, state: Any) -> bool:
+        """自我怀疑接受门：残局且 Terror 两轮直伤足够斩杀最强敌人，或
+        自己只剩 1 HP 时作为最后翻盘手段（审计：1v1 对 9+ HP 满血对手
+        接受 Terror = 主动自杀，此前 alive<=2 恒接受）。"""
+        if state is None:
+            return False
+        alive_others = [
+            state.get_player(pid) for pid in state.player_order
+            if state.get_player(pid)
+            and state.get_player(pid).is_alive()
+            and pid != getattr(player, "player_id", None)
+        ]
+        if not alive_others:
+            return True
+        if len(alive_others) > 2:
+            return False
+        from engine.balance import get as _bget
+        try:
+            dmg = float(_bget(
+                "m9_talents_extended", "g7", "terror_attack_damage", default=3))
+            cost = float(_bget(
+                "m9_talents_extended", "g7", "terror_attack_cost", default=6))
+            floor_hp = float(_bget(
+                "m9_talents_extended", "g7", "terror_hp_floor", default=10))
+            shots = max(1, int(floor_hp // max(1.0, cost)))
+        except Exception:
+            dmg, shots = 3.0, 1
+        lethal = all(
+            float(getattr(p, "hp", 0) or 0)
+            + 2.0 * GameQuery.count_outer_armor(p)
+            + GameQuery.count_inner_armor(p) <= dmg * shots
+            for p in alive_others
+        )
+        return lethal or float(getattr(player, "hp", 0) or 0) <= 1.0
+
     def _max_enemy_total_power(self, player, state=None) -> float:
         if state is None:
             state = getattr(self._ctrl, '_game_state', None)
@@ -233,6 +264,14 @@ class HoshinoAIHook(BaseTalentAIHook):
         # ════════════════════════════════════════════════════════
         shield_mode = self._hoshino._hoshino_get_shield_mode(player)
         if shield_mode and (not can_shoot or not horus_ok) and "special" in available:
+            # 审计修复：先尝试纯投掷，避免“取消盾牌→下一轮才投”的空耗轮。
+            throw_target = self._hoshino._hoshino_find_target(player, state)
+            if throw_target is not None:
+                throw_macro = self._hoshino._hoshino_build_throw_only_macro(
+                    player, state, throw_target)
+                if throw_macro:
+                    self._ctrl._hoshino_macro_queue = list(throw_macro)
+                    return ["special Hoshino", "forfeit"]
             self._ctrl._hoshino_macro_queue = ["取消", "terminal"]
             return ["special Hoshino", "forfeit"]
 
@@ -261,6 +300,17 @@ class HoshinoAIHook(BaseTalentAIHook):
                 if enemy_loc != loc and not (enemy_loc == "home" and GameQuery.is_at_home(player)):
                     return [f"move {enemy_loc}", "forfeit"]
 
+        # 3b2. 无弹药/荷鲁斯破损但持有战术道具 → 纯投掷宏
+        #     （2026-09 R7 机制压顶：公演补给道具此前在此分支完全闲置）
+        if (not can_shoot or not horus_ok) and "special" in available:
+            throw_target = self._hoshino._hoshino_find_target(player, state)
+            if throw_target is not None:
+                throw_macro = self._hoshino._hoshino_build_throw_only_macro(
+                    player, state, throw_target)
+                if throw_macro:
+                    self._ctrl._hoshino_macro_queue = list(throw_macro)
+                    return ["special Hoshino", "forfeit"]
+
         # 3c. 无法战斗 → 发育/修复（装填子弹、修复荷鲁斯）
         return self._get_maintenance_commands(player, state, available)
 
@@ -279,14 +329,43 @@ class HoshinoAIHook(BaseTalentAIHook):
     #  对应旧 _cmd_develop_hoshino 阶段0-1
     # ════════════════════════════════════════════════════════════
 
+    def _can_afford(self, player: Any, location: str, item: str) -> bool:
+        """M9 军基收费后：所有付费交互先查钱包。"""
+        price = m4_item_price(location, item)
+        if price <= 0:
+            return True
+        return ai_wallet(player) >= price
+
+    def _work_commands(self, player: Any, state: Any,
+                       available: List[str]) -> Optional[List[str]]:
+        """信用点不足时先打工：当前在商店/医院 → 打工；否则移动过去。"""
+        loc = GameQuery.get_location_str(player)
+        if loc in ("商店", "医院") and "interact" in available:
+            return ["interact 打工", "forfeit"]
+        if "move" not in available:
+            return None
+        from engine.action_enumerator import build_action_options
+        moves = set(build_action_options(
+            player, state, ["move"]).get("move", []) or [])
+        for dest in ("商店", "医院"):
+            if dest != loc and f"move {dest}" in moves:
+                return [f"move {dest}", "forfeit"]
+        return None
+
     def _get_development_commands(
         self, player: Any, state: Any, available: List[str]
     ) -> List[str]:
-        """未解锁战术时的发育：获取小刀→通行证→AT力场+盾牌→EMR+Gauss"""
+        """未解锁战术时的发育：获取小刀→通行证→AT力场+盾牌→EMR+Gauss。
+
+        M9 军基收费后必须查钱包：付不起就先打工，避免在军基反复空转
+        「办理通行证」把双融合锁死。
+        """
         loc = GameQuery.get_location_str(player)
         talent = player.talent
         has_pass = getattr(player, 'has_military_pass', False)
         is_home = GameQuery.is_at_home(player)
+        wallet = ai_wallet(player)
+        pass_price = m4_item_price("军事基地", "办理通行证")
 
         fusion_shield_done = getattr(talent, 'fusion_shield_done', False)
         fusion_weapon_done = getattr(talent, 'fusion_weapon_done', False)
@@ -304,7 +383,7 @@ class HoshinoAIHook(BaseTalentAIHook):
 
         needs = []  # (物品名, 地点, 优先级)
         if not has_pass:
-            needs.append(("通行证", "军事基地", 100))
+            needs.append(("办理通行证", "军事基地", 100))
         if not fusion_shield_done:
             if not has_at:
                 needs.append(("AT力场", "军事基地", 80))
@@ -317,20 +396,52 @@ class HoshinoAIHook(BaseTalentAIHook):
                 needs.append(("高斯步枪", "军事基地", 60))
         needs.sort(key=lambda x: -x[2])
 
-        # 当前地点能拿就先拿
-        if "interact" in available:
+        # 当前在军基：按钱包先付费拿货，买不起就打工
+        if loc == "军事基地" and "interact" in available:
+            if not has_pass:
+                if wallet >= pass_price:
+                    return ["interact 办理通行证", "forfeit"]
+                work = self._work_commands(player, state, available)
+                return work or ["forfeit"]
             for item_name, item_loc, _ in needs:
-                if item_loc == "军事基地" and loc == "军事基地" and has_pass:
+                if item_loc != "军事基地":
+                    continue
+                if self._can_afford(player, item_loc, item_name):
                     return ["interact " + item_name, "forfeit"]
-                if item_loc == "军事基地" and loc == "军事基地" and item_name == "通行证":
-                    return ["interact 通行证", "forfeit"]
-                if item_loc == "home" and is_home:
+            # 审计修复：军基需求清空但仍有 home 需求（盾牌）→ 直接回家，
+            # 而不是绕去商店/医院打工。
+            if any(item_loc == "home" for _, item_loc, _ in needs) \
+                    and "move" in available:
+                from engine.action_enumerator import build_action_options
+                moves = set(build_action_options(
+                    player, state, ["move"]).get("move", []) or [])
+                if "move home" in moves:
+                    return ["move home", "forfeit"]
+            work = self._work_commands(player, state, available)
+            return work or ["forfeit"]
+
+        # 当前在家：免费盾牌先拿
+        if is_home and "interact" in available:
+            for item_name, item_loc, _ in needs:
+                if item_loc == "home":
                     return ["interact " + item_name, "forfeit"]
 
-        # 移动去拿
+        # 移动去拿；军基路线的钱不够时先去打工
         if "move" in available and needs:
             _, target_loc, _ = needs[0]
             if target_loc == "军事基地" and loc != "军事基地":
+                if not has_pass and wallet < pass_price:
+                    work = self._work_commands(player, state, available)
+                    return work or ["move 军事基地", "forfeit"]
+                first_mil_item = next(
+                    (item for item, item_loc2, _ in needs
+                     if item_loc2 == "军事基地" and item != "办理通行证"),
+                    None)
+                if (has_pass and first_mil_item is not None
+                        and not self._can_afford(
+                            player, "军事基地", first_mil_item)):
+                    work = self._work_commands(player, state, available)
+                    return work or ["move 军事基地", "forfeit"]
                 return ["move 军事基地", "forfeit"]
             if target_loc == "home" and not is_home:
                 return ["move home", "forfeit"]
@@ -359,8 +470,10 @@ class HoshinoAIHook(BaseTalentAIHook):
             if not consumable:
                 if "interact" in available:
                     result = ctrl._hoshino_pick_best_item(player, state, loc)
-                    if result:
+                    if result and self._can_afford(player, loc, result['name']):
                         return ["interact " + result['name'], "forfeit"]
+                    work = self._work_commands(player, state, available)
+                    return work or ["forfeit"]
                 if "move" in available:
                     best_loc = ctrl._hoshino_best_item_destination(player, state)
                     if best_loc and best_loc != loc:
@@ -376,8 +489,11 @@ class HoshinoAIHook(BaseTalentAIHook):
                 if loc == "军事基地" and has_pass and "interact" in available:
                     tactical_items = getattr(talent, 'tactical_items', [])
                     for item in ["闪光弹", "烟雾弹", "震撼弹", "破片手雷", "燃烧瓶"]:
-                        if item not in tactical_items:
+                        if item not in tactical_items \
+                                and self._can_afford(player, "军事基地", item):
                             return ["interact " + item, "forfeit"]
+                    work = self._work_commands(player, state, available)
+                    return work or ["forfeit"]
                 elif has_pass and loc != "军事基地" and "move" in available:
                     return ["move 军事基地", "forfeit"]
 
@@ -392,7 +508,10 @@ class HoshinoAIHook(BaseTalentAIHook):
                 if GameQuery.is_at_home(player):
                     return ["interact 盾牌", "forfeit"]
                 if loc == "军事基地" and has_pass:
-                    return ["interact AT力场", "forfeit"]
+                    if self._can_afford(player, "军事基地", "AT力场"):
+                        return ["interact AT力场", "forfeit"]
+                    work = self._work_commands(player, state, available)
+                    return work or ["forfeit"]
             if not has_material and "move" in available:
                 dest = "军事基地" if has_pass else "home"
                 if loc != dest and not (dest == "home" and GameQuery.is_at_home(player)):
@@ -482,6 +601,12 @@ class HoshinoAIHook(BaseTalentAIHook):
                         # → is_anti_captain 会重新判定是否需要新的反队长接近宏
 
             target = ctrl._hoshino_find_target(player, state)
+            if target is None:
+                # _pick_target 无可用目标：用同地点目标兜底，
+                # 保证战术宏（重新装填→射击）真实开火
+                same = GameQuery.get_same_location_targets(player, state)
+                if same:
+                    target = same[0]
             if target and "special" in available:
                 # ★ 弹药有效性检查：弹匣里的子弹打不穿目标护甲 → 先去装填克制属性弹药
                 if (ctrl._hoshino_has_ammo(player)
@@ -493,7 +618,12 @@ class HoshinoAIHook(BaseTalentAIHook):
                         ctrl._hoshino_macro_queue = [
                             f"重新装填 {counter_item}", "terminal"]
                         return ["special Hoshino", "forfeit"]
-                    # 无克制装填来源 → 继续通用战术宏，避免维护路径空转
+                    # 无克制装填来源：有战术道具改纯投掷，避免 0 伤害打光 Cost
+                    throw_macro = ctrl._hoshino_build_throw_only_macro(
+                        player, state, target)
+                    if throw_macro:
+                        ctrl._hoshino_macro_queue = list(throw_macro)
+                        return ["special Hoshino", "forfeit"]
 
                 pc = ctrl._police_cache or {}
                 captain_id = pc.get("captain_id")
@@ -520,12 +650,15 @@ class HoshinoAIHook(BaseTalentAIHook):
                     ctrl._hoshino_macro_queue = ctrl._hoshino_build_finish_and_switch_macro(player, state, finish_target, target)
                     return ["special Hoshino", "forfeit"]
 
-                # ★ 目标在不同地点（如不同玩家的家）→ 先移动再进宏
+                # ★ 目标在不同地点（如不同玩家的家）→ 先移动再进宏。
+                #   他人住宅是合法目的地：move home_pX 原样通过（parser 只把
+                #   裸 "home" 映射为自己的家；AI 移动目录已补列 home_{pid}）。
                 my_loc = GameQuery.get_location_str(player)
                 target_loc = GameQuery.get_location_str(target)
                 if (my_loc != target_loc
                         and "move" in available
-                        and not (target_loc == "home" and GameQuery.is_at_home(player))):
+                        and not (target_loc == "home"
+                                 and GameQuery.is_at_home(player))):
                     return [f"move {target_loc}", "forfeit"]
 
                 ctrl._hoshino_macro_queue = []

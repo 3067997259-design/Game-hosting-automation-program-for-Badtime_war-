@@ -1,343 +1,258 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Badtime War（起闯战争）是一个基于 Python 的回合制大逃杀桌游电子裁判系统。
+当前开发主线是 **M9-rfc**：独立 profile 下的单行动槽 + SP 即演/公演 + 14 天赋 +
+PP/警察/剧情分体系；legacy/v2exp 规则保留且默认行为不被 M9 修改。
 
-## 项目概述
-
-Badtime War（起闯战争）是一个基于 Python 3.8+ 的回合制大逃杀桌游电子裁判系统。包含 14 个天赋（7 原初 + 7 神代）、BasicAI 启发式策略引擎、RL 训练管线（MaskablePPO + GRU）、联机对战（TCP + Textual TUI）、以及 LLM/AIRI 角色聊天集成。纯后端/命令行项目，无图形前端。
-
-核心原则：先从 `docs/README.md` 判断文档身份和适用 profile。Legacy 玩家规则按主题读取 `docs/legacy/README.md`，V2 玩家规则按主题读取 `docs/handbook/README.md`；`docs/完全游玩手册.md` 只保留兼容入口，`docs/talents.md` 当前是 legacy/V2/实现说明混合参考。数值以 `data/balance.json` 为唯一信源，当前行为以代码和测试为证据。不能经由名称自行猜测；文档之间或文档与代码冲突时，先查 `docs/contradictions.md`，未决事项直接问用户。
+新 session 先读 §0–§2，再按需要跳到对应章节。规则细节以代码和测试为证据；
+文档冲突查 `docs/contradictions.md`；未决设计问题直接问用户。
 
 ---
 
-## Entry Points
+## 0. Profile：当前最重要的事实
+
+| profile | 含义 | 默认 |
+|---|---|---|
+| `legacy` | v1 稳定口径 | **是**（`config/game_config.json` 设 `profile: legacy`） |
+| `v2exp` | V2.0-exp 实验档案（M1–M7） | 否 |
+| `m9-rfc` | **当前开发主线**：已实现、正在风洞/数值校准；未并入 legacy/v2exp | 否 |
+
+- profile 由 `engine/experiments.py` 统一开关；`m9-rfc` 启用：
+  `k_initiative, hp20, m3_accuracy, m4_gear, m5_clock, m6_scoring, m7_talents, m9_rfc, m8_ai`。
+- M9 判定：`from engine.m9.gate import m9_enabled; m9_enabled(state)`。
+- M9 代码全部在 `engine/m9/`；v2exp/legacy 不 import 它。改 M9 不得改变旧 profile 行为。
+
+---
+
+## 1. 5 分钟上手路径
+
+1. **运行**：
+   ```bash
+   python main.py --profile m9-rfc
+   python stats_runner.py --profile m9-rfc --players 6 --games 500
+   python tools/m9_rfc_smoke.py          # 8 场景运行时烟雾，应全过
+   python tools/m9_rfc_playtest.py       # 剧本验收；B.5/C/E/F 当前已知失败，见 §10
+   ```
+2. **规则权威**：`docs/m9/README.md` → `docs/m9/current/*.md`。
+2.5. **手册装配**：作者源在 `docs/m9/manual/core/`，用
+     `python tools/m9_handbook.py build` 生成作者版/玩家版，
+     `python tools/m9_handbook.py check` 校验；数值写 `⟦bal:...⟧`。
+3. **AI 决策接口事实**：`docs/m9/ai/talents.md` + `docs/m9/ai/slots_*.md`；
+   命令侧：`docs/ai/commands.md` / `commands_choose.md` / `commands_mapping.md`。
+4. **代码地图**：§3；**数值**：只改 `data/balance.json`，经 `engine.balance.get as bget` 读取。
+
+---
+
+## 2. Entry Points
 
 | 命令 | 用途 |
 |------|------|
-| `python main.py` | 本地热座（交互式） |
-| `python main.py --mode all_ai --players 6 --debug-level 2` | 非交互式 AI 观战 |
+| `python main.py [--profile legacy\|v2exp\|m9-rfc]` | 本地热座 |
+| `python main.py --mode all_ai --players 6 --debug-level 2` | 非交互 AI 观战 |
 | `python main_server.py --port 9527 --players N` | 联机房主 |
 | `python main_client.py --host <IP> --port 9527` | 联机客户端 |
-| `python stats_runner.py --players 6 --games 500` | 自动化胜率统计（核心集成测试） |
-| `python debug_runner.py` | 调试/回放工具 |
+| `python stats_runner.py --profile m9-rfc --players 6 --games N` | M9 风洞（核心集成测试） |
+| `python tools/m9_rfc_smoke.py` | M9 8 场景运行时烟雾 |
+| `python tools/m9_rfc_playtest.py` | M9 六剧本验收 |
+| `python -m pytest tests/ -q` | 全量测试 |
 
-额外依赖：
-- 基础游戏仅需 Python 3.8+ 标准库
-- 联机模式可选安装 `textual`（`pip install textual`）
-- LLM 聊天需安装 `openai` 或 `requests`（Ollama）
-- RL 训练需 `torch`、`stable-baselines3`、`sb3-contrib`、`gymnasium`、`numpy`
+依赖：基础游戏仅需 Python 标准库；联机可选 `textual`；LLM 可选 `openai/requests`；
+RL 需 `torch/stable-baselines3/sb3-contrib/gymnasium/numpy`。
+`stats_runner.py` 启动时会尝试 import RL 依赖——常数启动成本，不影响每局速度。
 
 ---
 
-## 架构分层
+## 3. 架构分层
 
 ```
-engine/         — 游戏引擎核心（GameState, RoundManager, ActionTurnManager, PoliceEngine）
-                  除非明确要求，禁止修改。关键文件：game_state.py, round_manager.py, action_turn.py
-                  G2 舞台子系统：ish_bosheth.py（舞台结界状态机）、material_deck.py + cards/（物料牌，
-                  注意 _CARD_DEFS 与 CARD_REGISTRY 双牌定义过渡期并存，改牌需同步两处）
-combat/         — 伤害结算系统（22 步流水线），禁止随意修改核心流水线
-actions/        — 行动类型实现，每个模块导出 execute() 函数
-models/         — 数据模型（Player, Equipment, Markers, PoliceData, Virus）
-talents/        — 天赋系统，所有天赋继承 BaseTalent（talents/base_talent.py）
-                  原初（T1-T7）效果较简单，神代（G1-G7）机制复杂，G 级用 Mixin 拆分逻辑
-                  复杂神代有子包：g2_songs/（歌曲）、g5/（锚定+献诗 Mixin）、g7/（星野 5 个 Mixin）
-controllers/    — 玩家控制器（Human, BasicAI, RL, Network, Chorus）
-                  AI 使用 Mixin 组合模式，注意 MRO 顺序
-                  ai/stage/ — StageAI：舞台模式（G2 结界内）Chorus 与 BasicAI 共用的静态决策模块
-cli/            — 命令行解析（parser.py）与验证（validator.py）
-locations/      — 地点交互逻辑
-network/        — 联机网络层（TCP 协议，不可随意修改通信格式）
-rl/             — 强化学习训练管线
-ai_chat/        — LLM 聊天集成（可选模块）
-tui/            — Textual TUI 界面（联机下使用）
-data/           — prompts.json（所有面向用户的文本模板）
-config/         — 配置文件（game_config.json、llm_config.json 等）
+engine/              — 核心循环（GameState / RoundManager / ActionTurnManager）
+engine/m9/           — M9-rfc 独立机制层（action_system/combat/resolution/arc/police/talents）
+engine/experiments.py — profile 与实验开关
+engine/balance.py    — data/balance.json 唯一数值读取入口
+combat/              — 22 步伤害流水线（M9 下由 engine/m9/combat 承接）
+actions/             — 行动实现，每个模块导出 execute()
+models/              — Player / Equipment / Markers / PoliceData / Virus
+talents/             — BaseTalent + legacy 天赋；M9 天赋在 engine/m9/talents/
+controllers/         — Human / BasicAI / RL / Network / Chorus
+controllers/ai/      — BasicAI 新架构（§5）
+cli/                 — parser.py / validator.py
+locations/           — 地点交互
+network/             — 联机 TCP + Textual TUI
+rl/                  — MaskablePPO + GRU 训练管线
+ai_chat/             — LLM 聊天集成
+data/                — prompts.json（用户文本）
+config/              — game_config/llm_config 等
+docs/                — 文档；M9 入口 docs/m9/README.md
+tools/               — 风洞/诊断/剧本脚本
+tests/               — unittest 测试
 ```
 
-### 核心游戏循环
+---
 
-游戏按轮次推进，每轮分 R0→R1→R2→R3→R4 五个阶段；每个玩家回合分 T0→T1→T2 三个阶段：
+## 4. 游戏循环（时序不可改）
 
-- **R0**：轮次开始结算（天赋 `on_round_start` 钩子）
-- **R1**：D4 争夺行动权
-- **R2**：D6 优势判定 + 警察状态机推进（idle → reported → assembled → dispatched）
-- **R3**：玩家行动回合（按行动权顺序，T0 天赋→T1 指令输入→T2 回合结束），含额外行动回合插入逻辑
-- **R4**：轮次结束结算（天赋 `on_round_end` 钩子），检查胜利条件
+每轮 `R0 → R1 → R2 → R3 → R4`；每玩家回合 `T0 → T1 → T2`：
 
-数据所有权：`GameState`（engine/game_state.py）是唯一数据源 — 所有玩家、标记、警察状态、病毒状态、事件日志均存储于此。Player 模型在 models/player.py。
+- **R0**：天赋 `on_round_start`；M9 在此打开公演报名窗口并固化本轮唯一公演位；
+- **R1**：行动权/先攻（M9 全员有标准槽，先攻只排序不淘汰）；
+- **R2**：优势判定 + 警察状态推进（M9 警察在 R2 自动执法）；
+- **R3**：按先攻顺序执行；T0 天赋 → T1 指令 → T2 结束；M9 直接消费 R1 创建的 `ActionGrant`；
+- **R4**：天赋 `on_round_end`、胜利检查。
 
-### 天赋系统
+`GameState`（engine/game_state.py）是唯一数据源。
 
-所有天赋继承 `BaseTalent`（talents/base_talent.py），通过重写以下钩子方法扩展行为：
+---
 
-| 钩子 | 调用时机 | 返回值 |
-|------|----------|--------|
-| `on_register()` | 天赋注册时（开局） | 无 |
-| `on_round_start(round_num)` | R0：轮次开始 | 无 |
-| `on_round_end(round_num)` | R4：轮次结束 | 无 |
-| `on_turn_start(player)` | T0：回合开始 | None 正常继续；`{"consume_turn": True, "message": "..."}` 消耗本回合 |
-| `on_turn_end(player, action_type)` | T2：回合结束 | 无 |
-| `get_t0_option(player)` | 查询 T0 可选天赋 | `{"name": str, "description": str}` 或 None |
-| `execute_t0(player)` | 执行 T0 天赋 | `(message: str, consume_turn: bool)` |
-| `modify_outgoing_damage(attacker, target, weapon, base_damage)` | 伤害流水线步骤 3 | `{"damage": float, "ignore_counter": bool, "ignore_last_inner_absorb": bool}` 或 None |
-| `on_death_check(player, damage_source)` | 死亡判定时 | `{"prevent_death": bool, "new_hp": float}` 或 None |
-| `on_crime_check(player_id, crime_type)` | 犯罪判定时 | `{"immune": bool}` 或 `{"extra_turn": bool}` |
+## 5. BasicAI 决策架构（当前形态）
 
-钩子覆盖规则：基类默认实现为空，子类可直接覆盖无需调用 `super()`。但 **禁止修改方法签名**。
-
-天赋命名规范：`{category}{tier}_{name}`（如 `t1_one_slash`、`g7_hoshino`）。14 个天赋的完整注册表见 engine/game_setup.py 的 `TALENT_TABLE`。
-
-### 伤害结算流水线（22 步，顺序不可变更）
-
-1. 爱愿免疫检查 → 2. 电流免疫 → 3. 天赋修改输出伤害 → 4. 计算原始伤害 → 5. 星野架盾过滤 → 6. 警察保护阈值 → 7. 星野持盾减免 → 8. 星野被动保护 → 9. 萤火受伤减免 → 10. 选择目标护甲 → 11. 属性克制判定 → 12. 伤害量化 → 13. 扣减护甲 → 14. 全息影像额外伤害 → 15. 扣减 HP → 16. 星野色彩 10 检查 → 17. 石化解除 → 18. 眩晕/死亡判定 → 19. 电磁步枪震荡 → 20. 隐身失效 → 21. 愿负世积累火种 → 22. 破除爱愿
-
-属性克制规则：科技 → 魔法 → 普通 → 科技。被克制则整次攻击无效。
-电流免疫：陶瓷护甲（immune_electric tag）完全免疫电流武器和震荡。
-
-天赋交互必须通过钩子方法（如 `modify_outgoing_damage`），不能直接在流水线中插入步骤。
-
-### 护甲系统边界规则
-
-- 外层护甲未全破时攻击内层：攻击自动导向外层，禁止直接攻击内层（`_select_armor_target`）
-- 最后一件内层护甲被击破：溢出伤害转移到 HP（`_redirect_overflow_damage`）
-- 护甲属性克制攻击方武器：整次攻击无效（`is_effective()` 检查）
-- 溢出重定向有多件候选护甲：优先同层，随机选择不免疫武器属性的护甲
-
-### 警察系统状态机
-
-```
-idle → reported（举报）→ assembled（集结）→ dispatched（出动）
-```
-
-威信机制：攻击无辜者 -1，队长犯罪 -1，归零则解除队长身份且原队长成为唯一违法者。
-
-### 装备分布（EQUIPMENT_LOCATION）
-
-警棍→警察局 | 高斯步枪→军事基地 | 魔法弹幕→魔法所 | 盾牌→商店/home | 陶瓷护甲→商店 | 魔法护盾→魔法所 | AT 力场→军事基地
-
-### Action 模块接口
-
-所有 actions/ 下模块的 `execute()` 函数返回格式：`{"success": bool, "message": str, ...}`。新增行动需在 `action_registry.py` 中注册，如需指令验证则在 `cli/validator.py` 中添加验证函数。
-
-### PlayerController 接口
-
-所有控制器实现以下方法：
-- `get_command()` → 返回指令字符串
-- `choose(prompt, options)` → 返回选项字符串
-- `confirm(prompt)` → 返回 bool
-
-### BasicAI 架构
-
-**单一管道（2026-06 C7 重构后）**：旧 Mixin 瀑布流已处决，`new_arch_enabled` 标志与 `--new-arch`/`--disable-new-arch` CLI 参数均已移除。`get_command` 始终走 `DecisionOrchestrator`，事件始终走 `_on_*_new` 路径。
-
-**决策层（DecisionOrchestrator）**：组合优于继承，通过 `GameQuery`（controllers/ai/game_query.py）作为只读查询层，`AIState` 维护 AI 内部状态，`DecisionOrchestrator` 编排 Goal/Strategy/TalentHook 的执行。所有 AI 模块通过 GameQuery 查询状态，不直接修改 GameState。
-
-**方法库层（Mixin 遗留）**：`BasicAIController` 仍按固定 MRO 组合 8 个 Mixin：
+**单一管道**：`get_command` 始终走 `DecisionOrchestrator`；旧 Mixin 只是方法库。
+MRO（禁止更改）：
 `HoshinoMixin → HelpersMixin → EvaluationMixin → ChooseMixin → CombatMixin → DevelopMixin → PoliceMixin → EventsMixin → PlayerController`
 
-它们**不再是决策管道**，而是新架构（talent hooks / orchestrator）反向依赖的共享方法库（`_pick_target`、`_cmd_attack`、`_count_outer_armor` 等）。**MRO 顺序禁止更改**；纯查询函数应逐步迁往 `controllers/ai/evaluation.py`（无状态模块函数）或 GameQuery。星野专属逻辑已整体迁入 `controllers/ai/talents/hoshino_impl.py`（HoshinoImpl 组合类，hoshino_mixin 仅剩单行委托）。
+T1 流程：
+1. `engine/action_turn` 用 `engine/action_enumerator.build_action_options` 预枚举合法动作，放进 context；
+2. `BasicAIController.get_command` → `DecisionOrchestrator.generate`；
+3. orchestrator 构建 `ProjectedSnapshot` → 运行 PoliceMind/ThreatMind/DevelopMind/CombatMind →
+   目标/策略/目标栈 → talent hook 或 M9 slot adapter；
+4. controller 用 `ActionCatalog` 复核候选——**唯一合法信源**：未命中候选被替换或剔除。
 
-核心 AI 打分函数（参考）：
-- 目标选择：`threat_score*2 + retaliation(+50) + location(+30) + hp_bonus((5-hp)*10) - armor_penalty(外-15, 内-10)`
-- 武器选择：`damage*10 + effective(+20) - countered(-50) ± range_bonus - charge_penalty(未蓄力-500)`
-- 战力估算：`hp*10 + weapons*15 + outer_armor*20 + inner*15 + stealth*10 + detection*5`
+T0/choose 流程：
+1. 引擎传 `talent_t0` context（含 `m9_kind`、player、game_state）；
+2. `t0_policy.m9_decide_choose`（T0 发动/R0 公演报名/石化/演出方式）；
+3. `c_policy.c_decide_choose`（目标/武器/借用等最小启发式）；
+4. 回退 slot adapter / v2exp talent hook / ChooseMixin。
 
-已知 AI 行为异常（修 bug 时优先关注；具体行号会随重构漂移，按描述搜索）：
-1. 星野看见队长应激（controller.py / talents/hoshino_impl.py）
-2. 火萤 debuff 后仍进危险模式（evaluation_mixin.py）
-3. 政治人格 fallback 逻辑不完整
+关键文件：`orchestrator.py`、`game_query.py`、`decision/`、`m9_adapters.py`、`minds/`。
 
-### 新增天赋检查清单（必须按顺序完成）
-
-1. 创建天赋文件：`talents/tX_xxx.py` 或 `talents/gX_xxx.py`
-2. 继承 `BaseTalent`，覆盖所需 hook 方法
-3. 在 `engine/game_setup.py` 的 `TALENT_TABLE` 中注册
-4. 如需 AI 优先选择：在 `AI_TALENT_PREFERENCE` 中添加偏好
-5. 在 `data/prompts.json` 中添加 lore 文本和激活提示
-6. 如需新指令：在 `actions/` 中添加并在 `action_registry.py` 中注册
-7. 如需新验证：在 `cli/validator.py` 中添加验证函数
-8. 如需 AI 会使用：在 `controllers/ai/talents/` 中添加 TalentHook
-9. 如需 RL 支持：同步更新 `rl/action_space.py`、`rl/obs_builder.py`、`rl/reward.py`
-
-### 联机架构
-
-通信协议（Server ↔ Client）：
-- Server→Client：`REQUEST_COMMAND` / `CHOOSE` / `CONFIRM`、`GAME_EVENT`、`CHAT_MESSAGE`、`LOBBY_UPDATE`、`DISCONNECT_NOTICE`
-- Client→Server：`COMMAND_RESPONSE`、`CHOOSE_RESPONSE`、`CHAT_SEND`、`HEARTBEAT`、`RECONNECT`
-
-同步机制：引擎在同步线程中运行，网络层使用 asyncio（独立线程），通过 `threading.Event` 桥接两个世界。
-
-断线处理：心跳超时 15 秒（客户端每 5 秒发送），超时后切换到 ForfeitController 等待重连或 AI_TAKEOVER（优先 RL 模型，失败则 BasicAI）。
-
-### AIRI/LLM 集成（三种模式）
-
-1. 聊天皮肤（ai_chatter.py）：BasicAI 决策，AIRI 只负责聊天
-2. 独立玩家（airi_controller.py）：AIRI 自己做决策（WebSocket spark 协议）
-3. 外部桥接（bot_bridge.py）：TCP（游戏）↔ WebSocket（AIRI）独立进程
-
-[ADJUST] 标签：正则提取→JSON 解析→_apply_adjust() 应用。威胁修正（±20）、联盟修整、攻击性修正（单次 ±10，累计 ±20）。目前无自动衰减机制。
-
-### RL 系统
-
-训练流程：BC 数据收集 → BC 预训练 → 权重迁移 → PPO 训练 → TorchScript 导出
-
-Observation Space（539 维，`rl/obs_builder.py` 的 `OBS_DIM`）：基础 523 维（自身状态 22 + 武器拥有 10 + 护甲状态 7 + 对手状态 5×37=185 + 警察 15 + 自身天赋 ID one-hot 14 + 自身天赋状态 40 + 对手天赋 5×34=170 + choose 模式指示器 3 等）+ 16 维 G2 ish-bosheth 舞台全局特征。修改维度时以 `OBS_DIM` 常量为准，注意文件头注释可能滞后。
-
-Action Space（137 维离散，`rl/action_space.py` 的 `ACTION_COUNT`）：基础 130 维（forfeit(1) + wake(1) + move(6) + interact(27) + lock(5) + find(5) + attack(50) + special(6) + police(7) + talent_t0_target(5) + talent_t0_self(1) + choose_option(16)）+ 7 维 G7 星野 special ops 扩展。
-
-奖励函数包含 Terminal（±100/75）、Shaping（gamma*Phi(s')-Phi(s)）、Event（命中、伤害、破甲、击杀等）、Penalty（forfeit 递增、连续移动、重复行动惩罚）。
-
-### 设计模式
-
-- **Mixin 模式**：AI 控制器和 G 级天赋的组合方式。Mixin 类不应有 `__init__` 方法，应聚焦单一职责，避免相互依赖。
-- **策略模式**：不同类型的 Controller（Human, AI, RL）
-- **工厂模式**：TalentPool 管理天赋创建
-- **观察者模式**：RL 环境遵循 OpenAI Gym 接口
+性能缓存是**有意设计**，不要当冗余删除：
+`experiments` 合并结果缓存、`VisibilityProxy` per-decision 可见性缓存、
+orchestrator↔controller 快照复用、`_project_intents` 有界回扫、
+ActionCatalog 复用引擎预枚举、`active_barrier` 带有效性校验的缓存。改前先看 §9。
 
 ---
 
-## 编码规范
+## 6. 天赋系统
 
-1. **用户可见文本必须走 `data/prompts.json`**，通过 `engine/prompt_manager.py` 获取。禁止在代码中硬编码中文面向用户的字符串。prompts.json 顶层分类：ui / game / combat / talent / system / help / debug / error。将文案设计留给用户，设计过程中不自行填充文本。
-2. **调试日志可硬编码**，内部标识符使用英文。
-3. **所有函数需完整类型注解**（使用 `typing` 模块）。
-4. **文档字符串使用中文**。
-5. **遵循 PEP 8**：4 空格缩进，最大行宽 100 字符。
-6. **使用 UTF-8 编码**处理所有中文字符串。仓库内所有文本文件（含 `.gitignore`、配置、文档）必须保存为 UTF-8（无 BOM）——PowerShell 的 `Out-File`/`Set-Content`/重定向默认输出 UTF-16，曾因此损坏过 `.gitignore` 导致全部忽略规则失效；用 PowerShell 写文件必须加 `-Encoding utf8`。
-7. **使用 `TYPE_CHECKING`** 避免循环导入。
-8. **优先使用组合而非继承**（Mixin 场景除外）。
-9. **避免可变默认参数**。
-10. **配置常量统一在 `config/game_config.json` 管理**，避免硬编码。修改配置后需确保向后兼容。
-11. **优先级**：优先采用已有方法，避免自创功能相同的新方法。
-12. **新增第三方库前**先检查是否已在项目中使用，优先使用 Python 标准库。如需新库，先询问并说明理由。
-13. **游戏数值必须经 `engine/balance.py` 读取**（`from engine.balance import get as bget`），禁止在业务代码中硬编码数值常量。`data/balance.json` 是唯一数值信源，修改数值只改此文件。渐进迁移期间，旧硬编码值保留为 `bget(..., default=旧值)` 的 fallback。
-
----
-
-## 大规模重构纪律（2026-06 PR#362 教训，血泪换来的）
-
-PR#362 的三个严重运行时回归（stats_runner 被截断成静默空跑、`_uses_new_arch_events` 误删致 70% 局崩溃、`_hoshino_shield_mode` 指向错误对象）全部来自**脚本化批量代码变换**（正则替换、按行删除、花括号计数），且 **pytest 全绿没有拦住任何一个**。因此：
-
-1. **机械变换后必须跑运行时烟雾，不能只跑 pytest**。pytest 覆盖不到 AI 全链路；变换涉及 `controllers/`、`engine/`、`stats_runner.py` 的，提交前必须跑 `python stats_runner.py --players 6 --games 50` 并确认：崩溃数为 0、平均轮数与基线同噪声带、平局原因里没有"引擎异常"。
-2. **批量替换对三类引用失明，必须单独 grep 核查**：
-   - 字符串形式的属性引用：`getattr(obj, '_name')`、`hasattr(...)`、`setattr(...)` ——正则按 `self._name` 模式替换时碰不到它们；
-   - 跨文件调用点：删除方法前先 `grep -rn` 全仓库确认调用者清零（注意 property、装饰器、测试 mock）；
-   - 用脚本按行号/花括号删除 Python 代码段是禁手——Python 不是花括号语言，截断后往往语法依然合法、import 依然成功，错误只在运行时暴露。优先用 Edit 精确匹配文本删除，每次删除后看一遍文件尾部是否完整。
-
-1. **不可触碰区域** — 这些文件只能通过钩子扩展，不能直接修改核心逻辑：
-   - `engine/round_manager.py` — 游戏循环时序（R0-R4/T0-T2 执行顺序）
-   - `combat/damage_resolver.py` — 22 步伤害结算流水线
-   - `engine/game_state.py` — 全局状态管理
-
-   现实说明：历史原因导致流水线与 `engine/action_turn.py` 中已存在天赋具名逻辑
-   （G7 星野的步骤 5/7/8/16、G6 插入式笑话的 `_cutaway_*` 系列、G2 舞台分支等）。
-   这些是既成事实，可以修 bug，但**新增天赋交互一律走钩子，不得继续向引擎内添加天赋具名分支**。
-2. **天赋修改方式**：通过覆盖 `BaseTalent` 的钩子方法扩展行为，不能直接修改引擎核心逻辑。
-3. **禁止绕过 cli.validator** 直接修改 GameState。
-4. **禁止在游戏循环中使用阻塞操作**。
-5. **单次修改不超过 5 个文件**。
-6. **不要重写正常工作的代码**。
-7. **修改代码前先阅读相关代码理解依赖关系**。
-8. **保持模式一致**：
-   - 新增天赋必须继承 `BaseTalent`
-   - 复杂天赋优先使用 Mixin 组合，避免超长单文件
-   - AI 功能扩展应添加新 Mixin 或 TalentHook 到 `controllers/ai/`，而非修改主控制器
-9. **Mixin 使用注意**：Mixin 不应有 `__init__`（除非显式调用 `super().__init__()`），注意 MRO 顺序，聚焦单一职责避免相互依赖。
-10. **RL 修改同步**：修改奖励函数需同步更新 `rl/reward.py`，修改动作空间需同步更新 `rl/action_space.py` 和 `rl/obs_builder.py`，新增特征需在 `rl/feature_extractor.py` 中实现。环境必须保持 OpenAI Gym 接口兼容。
+- 所有天赋继承 `BaseTalent`（talents/base_talent.py），覆盖钩子，禁止改签名：
+  `on_register / on_round_start / on_round_end / on_turn_start / on_turn_end /
+  get_t0_option / execute_t0 / modify_outgoing_damage / on_death_check / on_crime_check`。
+- 14 个 M9 槽位：原初 T1–T4、T6–T7；神代 G0–G7（G0 取代退役 T5）。
+  M9 注册表：`engine/m9/talent_registry.py`；legacy/v2exp 注册表：`engine/game_setup.py`。
+- 新增 M9 天赋清单：
+  1. 实现放 `engine/m9/talents/`；2. `talent_registry.py` 注册；
+  3. 数值放 `m9_talents_extended.<slot>.*` 或 `m9_system.*`；
+  4. `get_t0_option` 返回稳定 `m9_kind`，内部 choose 带 `situation`；
+  5. 同步 `docs/m9/ai/talents.md`、`docs/m9/ai/slots_*.md`、`docs/ai/commands_choose.md`
+     （有治理测试机械校验）；
+  6. AI 命令逻辑加 adapter/policy，不塞进 orchestrator。
 
 ---
 
-## 当前过渡期与已知技术债（动手前先读）
+## 7. M9 机制速查
 
-1. **Mixin 退役进行中**：旧瀑布流管道已删除（C7），但 8 个 Mixin 仍作为共享方法库留在 MRO 中（新架构 hooks 反向依赖 `_pick_target`/`_cmd_attack` 等）。新功能只加到新架构（Goal/Strategy/TalentHook/evaluation.py），Mixin 只修不增；待 `_estimate_power` 等深依赖链函数迁出后再彻底移除。
-2. **双牌定义并存**：`engine/material_deck.py` 的 `_CARD_DEFS`（供 build_deck/查询）与 `engine/cards/CARD_REGISTRY`（供 `_resolve_card_play()` 分派）。新增/修改物料牌必须同步两处，长期目标是统一到 CARD_REGISTRY。
-3. **G2 Reset（feat/g2-reset-v0.6 分支）**：设计草案在 `docs/g2_reset_draft_v0.7.md`（草案≠实现，实现以 `docs/talents.md` 为准）。部分草案机制未完整接线（反光板/耳返安定値标记、聚光合影插入回合、StageAI 投票仍为 MVP 占位），见 `docs/history/changelog.md` 的"草案计划但代码未完整实装"表。
-4. **文档数值漂移**：`docs/legacy/` 模块与 `docs/talents.md` 与代码间存在数值不一致（例：六爻充能间隔手册写 5 轮、talents.md 写 6 轮、代码实际 9 轮）。**修改任何数值时以代码为准并同步 talents.md**；发现漂移时优先改文档而不是改代码。
-5. **已知失败测试**：`tests/test_network_integration.py::TestLLMBackendFactory::test_create_backend_no_config_returns_none` 在本地存在 `config/llm_config.json` 时会失败（create_backend 回退读取了本地配置），属测试环境敏感问题，与你的改动无关。
-
----
-
-## 禁止事项
-
-1. **禁止在 talent 中直接 import 另一个 talent 模块**
-2. **禁止绕过 `cli/validator.py` 直接修改 GameState**
-3. **禁止修改 `BaseTalent` 的方法签名**
-4. **禁止修改 `engine/` 的时序逻辑**（R0-R4/T0-T2 执行顺序）
-5. **禁止改变 `BasicAIController` 的 Mixin 组合顺序**（影响 MRO）
-6. **禁止在游戏循环中使用阻塞操作**
-7. **禁止在非思考模式下做需要跨文件推理的设计决策**
-8. **禁止硬编码用户面向的中文字符串**（必须走 `data/prompts.json`）
-9. **不要删除或修改不相关的文件**
-10. **不要重写正常工作的代码来"优化"它**
-11. **不要改变现有的 Mixin 组合顺序**
-12. **不确定的设计问题，直接问用户，不要自行猜测**
+- **行动**：每名正常存活玩家一个标准槽；G2 普通影身是唯一代理标准槽例外。
+- **SP**：`0/1/2` 能力层级；即演 −1、公演 −2。SP 是演出资源，不是货币/行动次数。
+- **公演**：R0 报名，FIFO；每轮唯一公演位；队首失效不递补；T0 不得补报名。
+- **完整额外行动**：白名单三源 `T4 或跃 > G5 地火 > G4 负世主动燃尽`；每人每轮至多一个。
+- **伤害**：M9 下 `combat.damage_resolver` 分派到 `engine/m9/combat.resolve_damage`；
+  `DIRECT_DAMAGE` 跳过属性/护甲；`absolute_death` 白名单跳过 T7/免死/形态替代。
+- **评分**：PP（`engine/m9/pp.py`）、剧情分三章（`engine/m9/arc.py`）、黑马/投注。
+- **警察**：`engine/m9/police.py`（固定 roster、通缉、队长、掩体、停机）。
+- **天赋合同**：`docs/m9/current/`；接口事实：`docs/m9/ai/slots_*.md`。
 
 ---
 
-## 测试要求
+## 8. 编码与修改纪律
 
-1. 测试位于 `tests/` 目录（G2 舞台相关在 `tests/test_g2_reset/`），使用 `unittest` 框架：
-   ```bash
-   python -m pytest tests/ -v
-   # 或单独运行
-   python -m unittest tests.test_ai_combat_strategy -v
-   ```
-2. **核心集成测试**：每次修改 combat、talent 或 AI 逻辑后，必须运行：
-   ```bash
-   python stats_runner.py --players 6 --games 500
-   ```
-3. 调试验证：
-   ```bash
-   python main.py                          # 单机热座手动测试
-   python main_server.py --port 9527 --players 4   # 联机测试
-   ```
-4. 遇到运行错误先用完整堆栈分析，再修复，不要盲目试错。
-5. 添加新功能时考虑边界情况（空列表、None 值等）。
-6. 调试日志级别：1=基本，2=详细，3=完整。日志输出到 `logs/` 目录，格式 `{timestamp}_{numH}H_{numAI}AI_{talent}.log`。
+1. 用户可见中文文本走 `data/prompts.json`；调试日志可硬编码英文。
+2. 完整类型注解；中文 docstring；PEP 8，行宽 100；UTF-8 无 BOM。
+3. 数值必须经 `engine/balance.py` 读取；`data/balance.json` 唯一信源。
+   旧硬编码保留为 `bget(..., default=旧值)` fallback。
+4. `TYPE_CHECKING` 防循环导入；优先组合；避免可变默认参数；不擅自新增第三方库。
+5. **单次修改不超过 5 个文件**；禁止脚本化批量变换（正则替换/按行删除/花括号计数）。
+   机械变换后必须跑运行时烟雾，不能只跑 pytest。
+6. **不可触碰**：`engine/round_manager.py` 时序、`combat/damage_resolver.py` 22 步流水线、
+   `engine/game_state.py` 全局状态。可以修 bug；**新增天赋交互一律走钩子**，
+   不得继续向引擎内添加天赋具名分支。
+7. 禁止绕过 `cli/validator.py` 直接改 GameState；禁止游戏循环阻塞操作。
+8. 禁止改变 `BasicAIController` Mixin 顺序；talent 之间禁止 import 另一个 talent 模块。
+9. 删除方法前 grep 全仓库确认调用者清零（含 getattr/hasattr/setattr 字符串引用）。
+10. 不确定的设计问题直接问用户，不要自行猜测。
 
 ---
 
-## 游戏卡住排查
+## 9. 性能注意（2026-09 已清债，改代码前必读）
 
-1. `threading.Event` 未 set → 检查 `network/server.py` 的 `_sync_events`
-2. `action_queue` 不空但所有玩家死了 → 检查 `round_manager.py`
-3. 天赋额外回合无限链 → 检查 `round_manager.py` R3 阶段插入逻辑
-4. 防额外回合无限循环措施：回合计数器、条件检查、状态标记。新增防循环逻辑应加在 `round_manager._phase_r3` 中。
-
----
-
-## 常见 Bug 模式（开发时警惕）
-
-1. 修改 BaseTalent 方法签名但未更新所有子类
-2. 在 damage_resolver 中添加逻辑但未考虑 talent hook 优先级
-3. 额外回合触发条件设置不当导致无限循环
-4. 字符串编码未使用 UTF-8
-5. 网络同步中 threading.Event 未正确 set 或消息丢失
+- M9 风洞稳态约 **3.3–3.7 局/秒**，v2exp 约 4.5–5.2 局/秒（本机前台，不含启动）。
+- `stats_runner` 启动 import torch/sb3 是常数成本。
+- 下列缓存有依赖关系，绕过/删除会导致行为或性能回归：
+  - `engine/experiments.py` `_merged_flags` 缓存（enable/disable/set_profile/reset 失效）；
+  - `engine/visibility_proxy.py` per-observer conceal 缓存（T1 决策期间状态只读）；
+  - `orchestrator.generate → _run_all_minds → controller` 快照复用；
+  - `controllers/ai/decision/snapshot._project_intents` 有界回扫；
+  - `ActionCatalog.build(prebuilt_options=context["action_options"])` 复用引擎预枚举；
+  - `engine/m9/talents/g3.active_barrier` 缓存（命中校验 `barrier_active` 仍真）。
+- 性能回归验收：同 seed 前台对比
+  `python stats_runner.py --profile m9-rfc --players 6 --games 100` 的完成耗时；
+  大幅回退先查上述缓存是否被绕过。
 
 ---
 
-## 关键文件索引
+## 10. 测试要求与已知失败
+
+- 单元测试：`python -m pytest tests/ -q`。M9 相关在 `tests/test_m9_*.py` 与 `tests/test_ai_*.py`。
+- **核心集成测试（风洞）**：改 combat/talent/AI 后必须跑
+  `python stats_runner.py --profile m9-rfc --players 6 --games 500`，
+  确认崩溃 0、平均轮数无异常、平局原因无“引擎异常/崩溃”。
+- 运行时烟雾：`python tools/m9_rfc_smoke.py`（8/8 应全过）。
+- 剧本验收：`python tools/m9_rfc_playtest.py` **当前已知失败**：B.5（终曲建立轮 tick 口径）、
+  C（G5 双人残局判定）、E（G2 影身 HP 新数值）、F（G6 模板窗口）——剧本脚本漂移，
+  不是引擎回归；待修。CI（.github/workflows/m9-runtime.yml）在修复前不把剧本验收设为门禁。
+- Windows 沙箱下临时目录不可写时，以下测试会因 PermissionError 失败（常规环境可跑）：
+  `tests/test_experiments.py::test_config_file_loading`、
+  `tests/test_experiments.py::test_missing_experiments_section`、
+  `tests/test_ai_diagnostics.py::test_diag_report_saves_lightweight_game_outcomes`。
+- 环境敏感已知项：`test_network_integration.py::TestLLMBackendFactory::test_create_backend_no_config_returns_none`
+  在本地存在 `config/llm_config.json` 时会失败。
+
+---
+
+## 11. 关键文件索引
 
 | 文件 | 作用 |
 |------|------|
-| `engine/game_setup.py` | TALENT_TABLE 注册、AI 人格表、天赋选择逻辑 |
-| `engine/game_state.py` | 全局状态唯一定义 |
-| `engine/round_manager.py` | 游戏循环（不可修改） |
-| `engine/action_turn.py` | 玩家单回合调度 |
-| `engine/prompt_manager.py` | 用户文本获取入口 |
-| `combat/damage_resolver.py` | 22 步伤害流水线（不可修改） |
-| `talents/base_talent.py` | 天赋钩子接口定义（不可修改签名） |
-| `controllers/ai/controller.py` | BasicAI 主控制器（Orchestrator 分派 + Mixin 方法库） |
-| `controllers/ai/orchestrator.py` | 决策编排器（唯一管道） |
-| `controllers/ai/evaluation.py` | 无状态评估纯函数（Mixin 迁出目的地） |
-| `controllers/ai/talents/hoshino_impl.py` | 星野战术 AI 实现类（原 hoshino_mixin） |
-| `controllers/ai/game_query.py` | AI 只读查询层 |
-| `controllers/ai/stage/stage_ai.py` | 舞台模式 AI 决策入口（Chorus/BasicAI 共用） |
-| `controllers/chorus_controller.py` | Chorus 观众单位控制器 |
-| `engine/ish_bosheth.py` | G2 舞台结界状态机（声部/Regard/旋律/duet） |
-| `engine/material_deck.py` | 物料牌系统（注意双牌定义过渡期） |
-| `data/prompts.json` | 所有面向用户的文本模板（含 g2reset/duet 命名空间） |
-| `config/game_config.json` | 游戏配置（AI 禁用天赋列表等） |
-| `config/llm_config.json` 等 | 本地配置，含 API 密钥，已被 .gitignore 忽略；模板在 `config/*.example.json` |
-| `engine/debug_config.py` | 调试输出路由和级别控制 |
+| `engine/experiments.py` | profile 开关（先查这里） |
+| `engine/m9/gate.py` | M9 启用判定与机制挂载 |
+| `engine/m9/action_system.py` | SP/即演/公演/ActionGrant/完整额外行动 |
+| `engine/m9/combat.py` | M9 伤害结算、absolute_death、DIRECT_DAMAGE |
+| `engine/m9/talent_registry.py` | M9 十四天赋注册与 slot 解析 |
+| `engine/game_setup.py` | legacy/v2exp 天赋表与 AI 人格 |
+| `engine/action_enumerator.py` | T1 合法动作枚举 |
+| `cli/parser.py` / `cli/validator.py` | 命令解析/校验（武器名多词最长匹配） |
+| `controllers/ai/orchestrator.py` | BasicAI 唯一决策管道 |
+| `controllers/ai/game_query.py` | 只读查询层与评分 |
+| `controllers/ai/decision/snapshot.py` | 不可变决策快照 + M9Facts |
+| `controllers/ai/decision/t0_policy.py` | M9 T0 发动/R0 报名/演出方式 |
+| `controllers/ai/decision/c_policy.py` | choose 目标/武器/借用等启发式 |
+| `controllers/ai/decision/value.py` | 攻击效用探针（含 case_risk/exposure） |
+| `controllers/ai/decision/action_catalog.py` | 命令唯一合法信源 |
+| `controllers/ai/m9_adapters.py` | M9 slot adapter 分派 |
+| `controllers/ai/minds/` | Police/Threat/Develop/Combat Mind |
+| `controllers/ai/talents/` | 旧 talent hooks（M9 新逻辑优先 policy） |
+| `docs/m9/README.md` | M9 文档唯一入口 |
+| `docs/m9/ai/talents.md` | AI 策略接口事实总入口 |
+| `docs/contradictions.md` | 文档/代码冲突与待决台账 |
+
+---
+
+## 12. 其他子系统（保留事实，不展开）
+
+- **联机**：TCP 协议不变（`REQUEST_COMMAND/CHOOSE/CONFIRM/GAME_EVENT/CHAT/LOBBY/DISCONNECT`；
+  客户端 `COMMAND_RESPONSE/CHOOSE_RESPONSE/CHAT_SEND/HEARTBEAT/RECONNECT`）；引擎同步线程 +
+  asyncio 网络线程以 `threading.Event` 桥接；心跳超时 15s 后 ForfeitController 等待重连/AI_TAKEOVER。
+- **AIRI/LLM**：聊天皮肤 / 独立玩家（WebSocket spark）/ bot_bridge 外部桥接；
+  `[ADJUST]` 正则→JSON→`_apply_adjust()`。
+- **RL**：OBS_DIM=539、ACTION_COUNT=137；修改动作/观察/奖励必须同步
+  `rl/action_space.py`、`rl/obs_builder.py`、`rl/reward.py`（新增特征 `rl/feature_extractor.py`）。
+- **技术债**：8 个 Mixin 仍作为方法库（只修不增）；`engine/material_deck.py` 与
+  `engine/cards/` 双牌定义并存（改牌同步两处）；`docs/talents.md` 为 legacy/V2/实现混合参考。

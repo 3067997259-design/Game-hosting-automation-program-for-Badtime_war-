@@ -40,6 +40,9 @@ class M9TalentStub:
     def process_burn_damage(self, *args, **kwargs):
         return None
 
+    def on_death_check(self, *args, **kwargs):
+        return None
+
     def is_immune_to_damage(self, damage_type: str) -> bool:
         return False
 

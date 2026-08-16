@@ -1,6 +1,7 @@
 """武器、护甲、物品的数据定义（Phase 2 完整版）"""
 
 from enum import Enum
+from typing import Any
 
 
 class WeaponRange(Enum):
@@ -118,6 +119,36 @@ def make_bow():
                   bget("bow", "damage", default=3),
                   WeaponRange.RANGED,
                   special_tags=["bow", "no_lock_required"])
+
+
+def knife_sharpened_damage() -> float:
+    """磨刀后小刀的伤害阈值（profile 感知）。
+
+    v1 为 2.0；hp20 下小刀未磨=4、磨刀=7，不能用 <2 判定未磨。
+    """
+    if _hp20_enabled():
+        from engine.balance import get as bget
+        spec = bget("weapons", "磨刀小刀", default=None)
+        if isinstance(spec, dict):
+            return float(spec.get("damage", 7))
+        return 7.0
+    return 2.0
+
+
+def is_knife_sharpened(weapon: Any) -> bool:
+    """小刀是否已磨（profile 感知；与 special_op 的磨刀结算同一信源）。"""
+    if weapon is None or getattr(weapon, "name", "") != "小刀":
+        return False
+    return float(getattr(weapon, "base_damage", 0) or 0) >= knife_sharpened_damage()
+
+
+def has_unsharpened_knife(player: Any) -> bool:
+    """玩家是否持有尚未磨过的小刀。"""
+    return any(
+        w is not None and getattr(w, "name", "") == "小刀"
+        and not is_knife_sharpened(w)
+        for w in getattr(player, "weapons", []) or []
+    )
 
 
 def _make_weapon_v1(name):

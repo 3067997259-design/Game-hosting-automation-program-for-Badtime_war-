@@ -67,6 +67,20 @@ class DeterminismTest(unittest.TestCase):
         b = _run_seeded(2)
         self.assertNotEqual(a, b, "种子 1 与 2 结果完全相同——seed 可能没有生效")
 
+    def test_forced_talent_is_not_fixed_to_first_action_order(self) -> None:
+        positions = set()
+        for seed in range(8100, 8106):
+            random.seed(seed)
+            result = stats_runner.run_single_game(4, force_talent="G5")
+            forced_pid = result["forced_talent_pid"]
+            forced = next(
+                player for player in result["players"]
+                if player["pid"] == forced_pid)
+            positions.add(forced["action_order"])
+        self.assertGreater(
+            len(positions), 1,
+            "强制天赋仍被固定在同一行动顺位")
+
 
 if __name__ == "__main__":
     unittest.main()

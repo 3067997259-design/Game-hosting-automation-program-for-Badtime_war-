@@ -24,6 +24,7 @@ from controllers.ai.constants import (
 from controllers.ai.minds.base import BaseMind, MindAssessment
 from controllers.ai.strategies.base_strategy import DecisionPhase
 from engine.experiments import is_enabled as _is_exp_enabled
+from engine.m9.text import m9_text
 
 
 class PoliceStance(Enum):
@@ -81,12 +82,41 @@ class PoliceMind(BaseMind):
         threat_scores: Dict[str, float],
         my_location: str,
         strategy: Any = None,
+        snapshot: Optional[Any] = None,
+        assessment: Optional[Any] = None,
     ) -> PoliceSituation:
         """评估警察态势，返回结构化的 PoliceSituation。
 
         这是所有警察决策的入口。调用一次，得到完整评估。
         """
         sit = PoliceSituation()
+
+        # ── 快照化派生输出（2026-08-12）：M9 警务摘要写入 AssessmentLayer ──
+        self._snapshot_derived(snapshot, assessment)
+
+        # ── M9 警务修正（2026-08-12）：m9_police 存在 → 构造兼容 police_cache ──
+        # 使 M9 局的警察评估真正生效（此前 M9 cache 无 has_police 键导致早退）。
+        # 深层保护判定（_decide_stance 内 v2exp 引擎读法）属后续批次。
+        m9 = snapshot.m9 if snapshot is not None else None
+        if m9 is not None and police_cache.get("m9_police") is not None:
+            if not m9.police_disabled or m9.police_cases > 0 \
+                    or m9.police_captain is not None:
+                roster = police_cache.get("roster", [])
+                police_cache = {
+                    **police_cache,
+                    "has_police": True,
+                    "captain_id": m9.police_captain,
+                    "is_captain": m9.police_captain == self._player_id(player),
+                    "units": roster,
+                    "alive_count": sum(1 for u in roster
+                                       if u.get("alive")),
+                    "active_count": sum(1 for u in roster
+                                        if u.get("alive")),
+                    "report_target": m9.police_wanted,
+                    "report_phase": (
+                        "reported" if m9.police_wanted else "idle"),
+                    "authority": 0,
+                }
 
         # ── 基础信息 ──
         sit.police_exists = police_cache.get("has_police", False)
@@ -134,6 +164,25 @@ class PoliceMind(BaseMind):
 
         self._log_assessment(sit)
         return sit
+
+    # ── 快照化派生输出（2026-08-12）──
+    def _snapshot_derived(self, snapshot, assessment):
+        """M9 警务摘要写入 AssessmentLayer.notes（行为不变，纯派生）。"""
+        if snapshot is None or assessment is None:
+            return
+        m9 = snapshot.m9
+        if m9 is None:
+            return
+        assessment.notes["m9_police_state"] = m9_text(
+            "ai.police_mind.m9_police_state",
+            cases=m9.police_cases,
+            wanted=m9.police_wanted or m9_text("ai.police_mind.none"),
+            captain=m9.police_captain or m9_text("ai.police_mind.none"),
+            disabled=m9.police_disabled,
+        )
+        if m9.barrier_active:
+            assessment.notes["barrier_location"] = (
+                m9.barrier_location or "?")
 
     def _decide_stance(
         self,

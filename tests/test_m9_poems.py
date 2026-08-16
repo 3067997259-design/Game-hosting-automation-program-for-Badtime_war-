@@ -62,6 +62,8 @@ def _make():
     t.form = FORM_DEMIURGE
     t.sealed_reminiscence = 50
     state.m9_system.set_sp("p1", 2)
+    state.m9_system.register_performance("p1", state.current_round)
+    state.m9_system.allocate_public_slot(state.current_round)
     return state, p, t
 
 
@@ -100,7 +102,10 @@ class SharedEntryTest(unittest.TestCase):
         _add_target(state, "p9")  # 第三人：双人局不施加爱愿
         msg = t.recite_poem("游侠", "p2")
         self.assertNotIn("❌", msg)
-        self.assertEqual(t.sealed_reminiscence, 50 - 12)  # poem_cost
+        from engine.balance import get as _bget
+        poem_cost = int(_bget(
+            "m9_talents_extended", "g5", "poem_cost", default=12))
+        self.assertEqual(t.sealed_reminiscence, 50 - poem_cost)  # poem_cost
         self.assertEqual(state.m9_system.get_sp("p1"), 0)  # 公演扣 2
         self.assertEqual(t.love_wish.get("p2"), 6)        # 爱愿
 
@@ -130,6 +135,23 @@ class PoemEffectsTest(unittest.TestCase):
         msg = t.recite_poem("地火", "p2")
         self.assertNotIn("❌", msg)
         self.assertTrue(target.is_invisible)  # 隐身
+
+    def test_law_poem_uses_registered_t6_equipment_pipeline(self) -> None:
+        from engine.m9.talents.t6 import GoodCitizen9
+        from models.equipment import make_weapon
+
+        state, p, t = _make()
+        target = Player("p2", "T6", controller=_FixedController())
+        state.add_player(target)
+        target.location = "警察局"
+        target.is_awake = True
+        target.talent_slot_id = "T6"
+        target.talent = GoodCitizen9("p2", state)
+        target.weapons.append(make_weapon("警棍"))
+        msg = t.recite_poem("律法", "p2")
+        self.assertNotIn("❌", msg)
+        self.assertIn("整备了「警棍」", msg)
+        self.assertNotIn("警棍", [w.name for w in target.weapons if w])
 
     def test_nightwatch_accept_chain(self) -> None:
         state, p, t = _make()
@@ -176,6 +198,9 @@ class PoemEffectsTest(unittest.TestCase):
         self.assertNotIn("❌", msg1)
         state.m9_system.set_sp("p1", 2)
         state.current_round += 1  # 新轮：attention/公演位重置
+        state.m9_system.begin_round(state.current_round)
+        state.m9_system.register_performance("p1", state.current_round)
+        state.m9_system.allocate_public_slot(state.current_round)
         msg2 = t.recite_poem("爱与记忆", "p1")
         self.assertNotIn("❌", msg2)
         # 段数成长：n=3（4 人局起点 3）→ 4 段

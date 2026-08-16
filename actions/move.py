@@ -7,6 +7,15 @@ ALL_LOCATIONS = [
 ]
 
 
+def has_active_supernova(player) -> bool:
+    """是否可用旧式 move 超新星载荷；M9 G1 还需满足形态门槛。"""
+    talent = getattr(player, "talent", None)
+    if not talent or not getattr(talent, "has_supernova", False):
+        return False
+    gate = getattr(talent, "can_use_legacy_supernova", None)
+    return bool(gate()) if callable(gate) else True
+
+
 def _talent_crime_hook(player, crime_type):
     """非攻击类犯罪的天赋钩子（犯罪再动等）"""
     if player.talent and hasattr(player.talent, 'on_crime_check'):
@@ -105,7 +114,9 @@ def _resolve_opportunity_attacks(player, old_location, destination, game_state):
 
 
 def get_location_display_name(loc_id, game_state):
-    """将地点ID转为显示名"""
+    """将地点ID转为显示名（loc_id 为空时返回安全占位）。"""
+    if not loc_id:
+        return "未知"
     if loc_id.startswith("home_"):
         pid = loc_id[5:]
         p = game_state.get_player(pid)
@@ -121,9 +132,34 @@ def execute(player, destination, game_state):
     效果：玩家从当前地点移动到目标地点。
     触发标记联动（清锁定/清面对面）。
     如果目标是军事基地且玩家有凭证但无通行证，提供强买选项。
+    M9 G3 固有结界：被困单位普通移动不能离开结界地点（强制位移豁免，
+    但带出结界地点后同步释出结界身份）。
     返回结果描述字符串。
     """
     old_location = player.location
+    # M9 G3 固有结界移动限制（固有结界 RFC v0.2 §5.3）：被困单位普通移动
+    # 不能离开结界地点；强制退场等最高级位移豁免（与架盾阻碍/借机攻击同
+    # 一套豁免标记），但带出结界地点后须同步结界身份（§214 主目标立即清空）。
+    from engine.m9.talents.g3 import active_barrier
+    barrier = active_barrier(game_state)
+    g3_forced_exit = False  # 强制豁免且将离开结界地点 → 移动成功后释出结界身份
+    if (barrier is not None
+            and destination != old_location
+            and barrier._is_trapped(player)
+            and destination != getattr(barrier, "barrier_location", None)):
+        if (getattr(player, '_hexagram_forced_move', False)
+                or getattr(player, '_ripple_forced_move', False)
+                or getattr(player, '_hologram_pull', False)):
+            g3_forced_exit = True
+        else:
+            game_state.log_event("move_blocked", player=player.player_id,
+                                 reason="g3_barrier")
+            from cli import display
+            display.show_info(
+                f"🌀 {player.name} 被困在「无限剑制」固有结界中，普通移动无法离开！"
+                f"请使用「破界」特殊行动，或以武器攻击结界锚点。")
+            return (f"🌀 {player.name} 被固有结界困住，移动未执行"
+                    f"（需破界或破坏锚点才能离开）。")
     # 星野架盾移动阻碍：正面敌人离开需多花1回合
     # 半进入状态处理：再次 move 同地点 → 突破（正面→背面 + engage 断裂）
     if (destination == old_location
@@ -183,8 +219,7 @@ def execute(player, destination, game_state):
                 if getattr(player, '_shield_half_entered', False):
                     is_exempt = True
                 # 超新星过载豁免
-                if (player.talent and hasattr(player.talent, 'has_supernova')
-                        and player.talent.has_supernova):
+                if has_active_supernova(player):
                     is_exempt = True
                 # 插入式笑话豁免（神代6）
                 if getattr(player, '_in_cutaway_joke', False):
@@ -223,6 +258,10 @@ def execute(player, destination, game_state):
     player.location = destination
     if destination != old_location:
         player.moved_this_round = True  # M3 移动闪避来源（每轮 R0 重置）
+    # G3 结界强制退场同步：被困单位已被带出结界地点 → 释出其结界身份
+    #（不传送回原地点；主目标立即清空；幂等）
+    if g3_forced_exit:
+        barrier.release_from_barrier(player.player_id, reason="forced_exit")
 
     # 半进入玩家移动到其他地点：清除半进入标记，从正面移除
     if (destination != old_location
@@ -337,8 +376,7 @@ def execute(player, destination, game_state):
     new_name = get_location_display_name(destination, game_state)
     game_state.log_event("move", player=player.player_id,
                          from_loc=old_location, to_loc=destination)
-    if (player.talent and hasattr(player.talent, 'has_supernova')
-        and player.talent.has_supernova):
+    if has_active_supernova(player):
         # Check if there are any targets at destination before triggering
         targets_at_dest = [p for p in game_state.players_at_location(destination)
                         if p.player_id != player.player_id and p.is_alive()]

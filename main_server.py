@@ -23,7 +23,8 @@ from network.disconnect import DisconnectMonitor
 from network.protocol import MessageType
 from engine.round_manager import RoundManager
 from engine.game_setup import (
-    TALENT_TABLE, AI_PERSONALITIES, _talent_selection,
+    AI_PERSONALITIES, _talent_selection, assign_talent_entry,
+    find_talent_entry, talent_table_for_current_profile,
 )
 from ai_chat.llm_backend import create_backend
 from ai_chat.ai_chatter import AIChatModule
@@ -38,7 +39,19 @@ def main():
     parser.add_argument("--cli", action="store_true", help="使用纯 CLI 模式（默认使用 Textual TUI）")
     parser.add_argument("--debug", type=int, default=0, choices=[0, 1, 2, 3],
                         help="调试级别（0=关闭, 1=基本, 2=详细, 3=完整）")
+    parser.add_argument("--profile", type=str, default="",
+                        help="实验档案（legacy/v2exp/m9-rfc 等）")
+    parser.add_argument("--experiment", action="append", default=[],
+                        help="额外启用实验开关（可多次使用）")
     args = parser.parse_args()
+
+    from engine import experiments
+    if args.profile:
+        if args.profile not in experiments.available_profiles():
+            parser.error(f"未知 profile: {args.profile}")
+        experiments.set_profile(args.profile)
+    for flag in args.experiment:
+        experiments.enable(flag)
 
     total_players = max(2, min(6, args.players))
     host_plays = not args.no_host_play
@@ -575,16 +588,17 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
     ai_pids = {info[0] for info in ai_players_info}
     ai_personality_map = {info[0]: info[2] for info in ai_players_info}
     taken = set()
+    talent_table = talent_table_for_current_profile(game_state)
 
     lines = ["\n  可选天赋（每个天赋仅能被1人选取）："]
-    for num, name, cls, desc in TALENT_TABLE:
+    for num, name, cls, desc in talent_table:
         lines.append(f"    {num}. 【{name}】{desc}")
     lines.append("    0. 不选天赋")
     _broadcast_all({"event": "show_info", "args": ["\n".join(lines)]})
 
     for pid in game_state.player_order:
         player = game_state.get_player(pid)
-        available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+        available = [(n, name, cls, desc) for n, name, cls, desc in talent_table
                      if n not in taken]
         if not available:
             _broadcast_all({"event": "show_info",
@@ -612,11 +626,8 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
                                 "args": [f"  {player.name}（AI）无可用天赋。"]})
                 continue
             n, name, cls = chosen
-            talent_inst = cls(pid, game_state)
-            player.talent = talent_inst
-            player.talent_name = name
-            talent_inst.on_register()
-            talent_inst.show_activation(player_name=player.name, show_lore=True)
+            entry = next(item for item in available if item[0] == n)
+            assign_talent_entry(game_state, player, entry, show_lore=True)
             taken.add(n)
             _broadcast_all({"event": "show_info",
                             "args": [f"  \U0001f916 {player.name}（AI·{personality}）自动选择天赋【{name}】"]})
@@ -649,18 +660,15 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
                 continue
 
             matched = None
-            for n, name, cls, desc in TALENT_TABLE:
+            for n, name, cls, desc in talent_table:
                 if n == choice_num and n not in taken:
                     matched = (n, name, cls)
                     break
 
             if matched:
                 n, name, cls = matched
-                talent_inst = cls(pid, game_state)
-                player.talent = talent_inst
-                player.talent_name = name
-                talent_inst.on_register()
-                talent_inst.show_activation(player_name=player.name, show_lore=True)
+                entry = next(item for item in available if item[0] == n)
+                assign_talent_entry(game_state, player, entry, show_lore=True)
                 taken.add(n)
                 _broadcast_all({"event": "show_info",
                                 "args": [f"  \u2713 {player.name} 获得天赋【{name}】！"]})
@@ -705,23 +713,21 @@ def _network_talent_selection_tui(game_state, ai_players_info, lobby, app):
                     app.push_game_event({"event": "show_error", "args": ["该天赋已被其他玩家选走！"]})
                     continue
 
-                matched = None
-                for n, name, cls, desc in TALENT_TABLE:
-                    if n == choice_num:
-                        matched = (n, name, cls)
-                        break
+                try:
+                    entry = find_talent_entry(
+                        choice_num, available, game_state=game_state,
+                    )
+                except ValueError as exc:
+                    app.push_game_event({"event": "show_error", "args": [str(exc)]})
+                    continue
 
-                if not matched:
+                if entry is None:
                     # 仅给房主看的输入错误
                     app.push_game_event({"event": "show_error", "args": ["无效编号。"]})
                     continue
 
-                n, name, cls = matched
-                talent_inst = cls(pid, game_state)
-                player.talent = talent_inst
-                player.talent_name = name
-                talent_inst.on_register()
-                talent_inst.show_activation(player_name=player.name, show_lore=True)
+                n, name, cls, _ = entry
+                assign_talent_entry(game_state, player, entry, show_lore=True)
                 taken.add(n)
                 _broadcast_all({"event": "show_info",
                                 "args": [f"  \u2713 {player.name} 获得天赋【{name}】！"]})
@@ -815,15 +821,16 @@ def _network_talent_selection(game_state, ai_players_info, lobby):
     ai_pids = {info[0] for info in ai_players_info}
     ai_personality_map = {info[0]: info[2] for info in ai_players_info}
     taken = set()
+    talent_table = talent_table_for_current_profile(game_state)
 
     print(f"\n  可选天赋（每个天赋仅能被1人选取）：")
-    for num, name, cls, desc in TALENT_TABLE:
+    for num, name, cls, desc in talent_table:
         print(f"    {num}. 【{name}】{desc}")
     print(f"    0. 不选天赋")
 
     for pid in game_state.player_order:
         player = game_state.get_player(pid)
-        available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+        available = [(n, name, cls, desc) for n, name, cls, desc in talent_table
                      if n not in taken]
         if not available:
             print(f"  所有天赋已被选完，{player.name} 无天赋。")
@@ -842,11 +849,8 @@ def _network_talent_selection(game_state, ai_players_info, lobby):
                 print(f"  {player.name}（AI）无可用天赋。")
                 continue
             n, name, cls = chosen
-            talent_inst = cls(pid, game_state)
-            player.talent = talent_inst
-            player.talent_name = name
-            talent_inst.on_register()
-            talent_inst.show_activation(player_name=player.name, show_lore=True)
+            entry = next(item for item in available if item[0] == n)
+            assign_talent_entry(game_state, player, entry, show_lore=True)
             taken.add(n)
             print(f"  \U0001f916 {player.name}（AI·{personality}）自动选择天赋【{name}】")
             continue
@@ -871,18 +875,15 @@ def _network_talent_selection(game_state, ai_players_info, lobby):
                 continue
 
             matched = None
-            for n, name, cls, desc in TALENT_TABLE:
+            for n, name, cls, desc in talent_table:
                 if n == choice_num and n not in taken:
                     matched = (n, name, cls)
                     break
 
             if matched:
                 n, name, cls = matched
-                talent_inst = cls(pid, game_state)
-                player.talent = talent_inst
-                player.talent_name = name
-                talent_inst.on_register()
-                talent_inst.show_activation(player_name=player.name, show_lore=True)
+                entry = next(item for item in available if item[0] == n)
+                assign_talent_entry(game_state, player, entry, show_lore=True)
                 taken.add(n)
                 print(f"  \u2713 {player.name} 获得天赋【{name}】！")
             else:
@@ -911,22 +912,20 @@ def _network_talent_selection(game_state, ai_players_info, lobby):
                     print("  该天赋已被其他玩家选走！")
                     continue
 
-                matched = None
-                for n, name, cls, desc in TALENT_TABLE:
-                    if n == choice_num:
-                        matched = (n, name, cls)
-                        break
+                try:
+                    entry = find_talent_entry(
+                        choice_num, available, game_state=game_state,
+                    )
+                except ValueError as exc:
+                    print(f"  {exc}")
+                    continue
 
-                if not matched:
+                if entry is None:
                     print("  无效编号。")
                     continue
 
-                n, name, cls = matched
-                talent_inst = cls(pid, game_state)
-                player.talent = talent_inst
-                player.talent_name = name
-                talent_inst.on_register()
-                talent_inst.show_activation(player_name=player.name, show_lore=True)
+                n, name, cls, _ = entry
+                assign_talent_entry(game_state, player, entry, show_lore=True)
                 taken.add(n)
                 print(f"  \u2713 {player.name} 获得天赋【{name}】！")
                 break

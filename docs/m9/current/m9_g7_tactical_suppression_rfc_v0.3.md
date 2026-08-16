@@ -10,6 +10,12 @@
 > （2026-08-09 B5 修订，忠实恢复手册当前语义）
 > **日期**：2026-08-09  
 > **状态**：用户批准方向下的当前机制候选；数值待风洞  
+>
+> **2026-09 风洞校准修正（实施口径）**：`m9_talents_extended.g7` 已真实接线
+> （cost_base_cap/eye_pellet_damage/shield_block_threshold/halo_initial_layers/
+> archer_break_armor_loss）；终值 Cost 上限 7、弹丸 3、架盾格挡 8、光环 3 层/每层 3、
+> 持盾防御 5、被动防御 3、Terror 伤害 4、Terror 额外生命保底 10。
+> 完整终值见 [`m9_windtunnel_calibration_2026-09.md`](m9_windtunnel_calibration_2026-09.md)。
 > **Profile**：`m9-rfc`  
 > **上游**：[行动系统 RFC v0.8](m9_action_system_rfc_v0.8.md)、
 > [结算合同 RFC v0.3](m9_resolution_contract_rfc_v0.3.md)、

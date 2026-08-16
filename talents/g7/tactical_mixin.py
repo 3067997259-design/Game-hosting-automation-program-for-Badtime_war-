@@ -456,7 +456,8 @@ class TacticalMixin:
                                  is_talent_attack=True)
                     for detail in result.get("details", []):
                         extra_msg += f"\n      {detail}"
-                    if result.get("killed"):
+                    from engine.m9.gate import m9_enabled as _m9_enabled
+                    if result.get("killed") and not _m9_enabled(self.state):
                         self.state.markers.on_player_death(target.player_id)
                         if self.state.police_engine:
                             self.state.police_engine.on_player_death(target.player_id)
@@ -502,7 +503,8 @@ class TacticalMixin:
                 detail_lines = []
                 for detail in result.get("details", []):
                     detail_lines.append(f"    {detail}")
-                if result.get("killed"):
+                from engine.m9.gate import m9_enabled as _m9_enabled
+                if result.get("killed") and not _m9_enabled(self.state):
                     self.state.markers.on_player_death(target.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(target.player_id)
@@ -529,7 +531,8 @@ class TacticalMixin:
         for detail in result.get("details", []):
             detail_lines.append(f"    {detail}")
 
-        if result.get("killed"):
+        from engine.m9.gate import m9_enabled as _m9_enabled
+        if result.get("killed") and not _m9_enabled(self.state):
             self.state.markers.on_player_death(target.player_id)
             if self.state.police_engine:
                 self.state.police_engine.on_player_death(target.player_id)
@@ -628,7 +631,13 @@ class TacticalMixin:
 
         # 检查弹药容量（在消耗物品之前）
         current_total = len(self.ammo)
-        new_bullets = min(4, self.max_ammo - current_total)
+        # M9 机制刀（用户批准）：弹药经济——一件消耗品只转化 2 发（v2exp 仍 4）。
+        try:
+            from engine.m9.gate import m9_enabled
+            reload_batch = 2 if m9_enabled(self.state) else 4
+        except Exception:
+            reload_batch = 4
+        new_bullets = min(reload_batch, self.max_ammo - current_total)
         if new_bullets <= 0:
             return prompt_manager.get_prompt("talent", "g7hoshino.reload_full",
                                           current_total=current_total, max_ammo=self.max_ammo)
@@ -644,7 +653,7 @@ class TacticalMixin:
         # 填充子弹
         for _ in range(new_bullets):
             self.ammo.append({"attribute": attr_str})
-        overflow = 4 - new_bullets
+        overflow = reload_batch - new_bullets
         msg = prompt_manager.get_prompt("talent", "g7hoshino.reload_ok",
                                       item_name=item_name, count=new_bullets, attr=attr_str,
                                       total=current_total + new_bullets, max=self.max_ammo)
@@ -716,7 +725,8 @@ class TacticalMixin:
                                                       target_name=t.name,
                                                       target_hp=r.get('target_hp', '?'),
                                                       details=detail_str))
-                if r.get("killed"):
+                from engine.m9.gate import m9_enabled as _m9_enabled
+                if r.get("killed") and not _m9_enabled(self.state):
                     self.state.markers.on_player_death(t.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(t.player_id)

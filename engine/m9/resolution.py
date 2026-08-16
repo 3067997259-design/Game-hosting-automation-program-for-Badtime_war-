@@ -100,3 +100,30 @@ class AidRestTracker:
 
     def pending(self, actor_id: str) -> bool:
         return self._pending.get(actor_id, False)
+
+
+class SuppressRegistry:
+    """压制通用裁决器（结算合同 §4：压制 > 石化 > 震荡）。
+
+    未来压制来源统一在此登记，R3 每个 actor 实际槽裁决前查询；当前唯一来源
+    G2 世末终曲仍经 `suppress_grant` 钩子消费（同槽 only-once 由 G2 状态保证），
+    本注册表提供新增压制来源的统一通道，避免继续硬编码进 round_manager。
+    """
+
+    def __init__(self) -> None:
+        self._suppressed: Dict[str, str] = {}
+
+    def mark(self, actor_id: str, source_id: str) -> None:
+        self._suppressed[actor_id] = source_id
+
+    def clear(self, actor_id: str) -> None:
+        self._suppressed.pop(actor_id, None)
+
+    def is_suppressed(self, actor_id: str) -> bool:
+        return actor_id in self._suppressed
+
+    def source(self, actor_id: str) -> Optional[str]:
+        return self._suppressed.get(actor_id)
+
+    def clear_round(self) -> None:
+        self._suppressed.clear()

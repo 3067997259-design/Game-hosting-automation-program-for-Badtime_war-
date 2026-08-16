@@ -23,6 +23,9 @@ def award(game_state: Any, player: Any, event_key: str,
     """给玩家发喝彩点。返回是否实际发放（去重/反合谋拦截则 False）。"""
     if not experiments.is_enabled("m6_scoring"):
         return False
+    # M9：喝彩语义被 B4 v0.4 的 PP 取代（PP 合并旧喝彩与星光），m9-rfc 不发喝彩。
+    if experiments.is_enabled("m9_rfc"):
+        return False
     if player is None or not hasattr(player, "player_id"):
         return False
 
@@ -76,6 +79,9 @@ def check_kill_applause(game_state: Any, killer: Any, victim: Any,
                         weapon_arrows_left: Optional[int] = None) -> None:
     """击杀时的喝彩机检集合（死亡总线/攻击善后调用）。"""
     if not experiments.is_enabled("m6_scoring") or killer is None:
+        return
+    # M9：喝彩被 B4 v0.4 的 PP 取代，m9-rfc 不机检喝彩事件。
+    if experiments.is_enabled("m9_rfc"):
         return
     from combat.numeric_v2 import is_severely_injured
 

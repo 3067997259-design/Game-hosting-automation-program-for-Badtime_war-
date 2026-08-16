@@ -78,6 +78,7 @@ class TalentConversionTest(unittest.TestCase):
 
     def test_t7_revive_hp(self):
         from talents.talent_balance import talent_num
+        # legacy/v2exp 转换口径保持 12；M9 的 revive_hp 读 m9_talents_extended.t7
         self.assertEqual(talent_num("t7", "revive_hp", v1=1.0), 12)
 
     def test_t1_double_pierce(self):

@@ -395,7 +395,7 @@
   - G0 明天：[`m9_g0_shiroko_terror_rfc_v0.3.md`](m9_g0_shiroko_terror_rfc_v0.3.md)
   - G1 飞萤：[`m9_g1_firefly_burn_cycle_rfc_v0.3.md`](m9_g1_firefly_burn_cycle_rfc_v0.3.md)
   - G2 追光：[`m9_g2_holographic_presence_rfc_v0.3.md`](m9_g2_holographic_presence_rfc_v0.3.md)
-  - G3 永恒：[`m9_g3_reality_marble_rfc_v0.2.md`](m9_g3_reality_marble_rfc_v0.2.md)
+  - G3 永恒：[`m9_g3_reality_marble_rfc_v0.3.md`](m9_g3_reality_marble_rfc_v0.3.md)
   - G4 负世：[`m9_g4_savior_cycle_rfc_v0.3.md`](m9_g4_savior_cycle_rfc_v0.3.md)
   - G6 欢愉：[`m9_g6_cutaway_joke_rfc_v0.2.md`](m9_g6_cutaway_joke_rfc_v0.2.md)
   - G7 守夜人：[`m9_g7_tactical_suppression_rfc_v0.3.md`](m9_g7_tactical_suppression_rfc_v0.3.md)

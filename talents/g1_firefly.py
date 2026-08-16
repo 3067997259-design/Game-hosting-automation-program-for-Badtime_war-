@@ -408,6 +408,18 @@ class G1MythFire(BaseTalent):
                         level=PromptLevel.IMPORTANT)
 
 
+    def supernova_payload(self):
+        """返回当前规则档案的（伤害、穿甲、灼烧层数）。
+
+        M9 子类覆写此取值钩子；旧档案的数值与行为保持不变。
+        """
+        from talents.talent_balance import m7_enabled, talent_num
+        damage = talent_num("g1", "supernova_damage", v1=1.0)
+        pierce = talent_num("g1", "supernova_pierce", v1=1.0) \
+            if m7_enabled() else 1.0
+        burns = talent_num("g1", "supernova_burn", v1=2)
+        return damage, pierce, burns
+
     def trigger_supernova(self, player, destination, game_state):
         """DHGDR-超新星过载：对目的地所有单位造成2点无视属性克制伤害 + 施加灼烧 + 获得炽愿"""
         from combat.damage_resolver import resolve_location_damage
@@ -423,9 +435,7 @@ class G1MythFire(BaseTalent):
             f"{'='*50}")
 
         # 超新星伤害：v1=1.0 真伤；M7 hp20=AOE8 穿甲50%（§7.2）
-        from talents.talent_balance import m7_enabled, talent_num
-        _nova_dmg = talent_num("g1", "supernova_damage", v1=1.0)
-        _nova_pierce = talent_num("g1", "supernova_pierce", v1=1.0) if m7_enabled() else 1.0
+        _nova_dmg, _nova_pierce, _nova_burn = self.supernova_payload()
         results_dict = resolve_location_damage(
             attacker=player, location=destination,
             game_state=game_state, raw_damage=_nova_dmg,
@@ -449,7 +459,7 @@ class G1MythFire(BaseTalent):
             display.show_info(f"  → {t.name} 受到 {actual_dmg} 伤害（无视克制）")
 
             # 施加灼烧
-            self.apply_burn(t.player_id)
+            self.apply_burn(t.player_id, stacks=_nova_burn)
             display.show_info(f"  🔥 {t.name} 被灼烧！（{self.burn_targets.get(t.player_id, 0)}/2层）")
 
             if res.get("killed"):
@@ -486,7 +496,7 @@ class G1MythFire(BaseTalent):
         """从超新星获得炽愿"""
         self.ardent_wish_charges = min(self.ardent_wish_charges + count, self.max_ardent_wish_charges)
 
-    def apply_burn(self, target_id: str):
+    def apply_burn(self, target_id: str, stacks=None):
         """对目标施加灼烧。v1=G1 专属 burn_targets（0.25/层2层）；
         M7 hp20=接 M4 通用灼烧层（player.burn_stacks，1/层上限3，§11.3 统一实现）。"""
         from talents.talent_balance import m7_enabled
@@ -495,7 +505,9 @@ class G1MythFire(BaseTalent):
             if target is not None:
                 from engine.bow_modules import apply_burn as _apply_burn
                 from talents.talent_balance import talent_num
-                _apply_burn(target, talent_num("g1", "supernova_burn", v1=2))
+                burn_stacks = (talent_num("g1", "supernova_burn", v1=2)
+                               if stacks is None else stacks)
+                _apply_burn(target, burn_stacks)
             return
         current = self.burn_targets.get(target_id, 0)
         self.burn_targets[target_id] = min(current + 1, self.burn_max_stacks)

@@ -65,6 +65,30 @@ class ActionSystemTest(unittest.TestCase):
             ["g4_savior_active_burn", "t4_hexagram_hojump", "g5_poem_earthfire"])
         self.assertEqual(picked, "t4_hexagram_hojump")
 
+    def test_same_parent_arbitration_replaces_lower_priority(self) -> None:
+        """同父事件仲裁（v0.8 §3.2.8）：同父多候选按 T4>地火>负世 只保留最高，
+        且仲裁先于每轮上限（高优先级后到仍可替换低优先级）。"""
+        asys = ActionSystem()
+        parent = asys.issue_standard("a", 1)
+        asys.begin_grant(parent)
+        low = asys.dispatch_full_extra("a", 1, "g5_poem_earthfire")
+        self.assertIsNotNone(low)
+        high = asys.dispatch_full_extra("a", 1, "t4_hexagram_hojump")
+        self.assertIsNotNone(high)  # 高优先级同父后到 → 替换而非被上限拒发
+        pending = asys.drain_pending_full_extra()
+        self.assertEqual([g.source_id for g in pending], ["t4_hexagram_hojump"])
+
+    def test_same_parent_arbitration_drops_late_lower_priority(self) -> None:
+        asys = ActionSystem()
+        parent = asys.issue_standard("b", 1)
+        asys.begin_grant(parent)
+        high = asys.dispatch_full_extra("b", 1, "t4_hexagram_hojump")
+        self.assertIsNotNone(high)
+        low = asys.dispatch_full_extra("b", 1, "g4_savior_active_burn")
+        self.assertIsNone(low)  # 低优先级同父后到 → 整体丢弃
+        pending = asys.drain_pending_full_extra()
+        self.assertEqual([g.source_id for g in pending], ["t4_hexagram_hojump"])
+
     def test_public_queue_head_invalid_no_fill(self) -> None:
         q = PublicPerformanceQueue()
         q.enqueue("a")
@@ -73,8 +97,9 @@ class ActionSystemTest(unittest.TestCase):
         asys.queue = q
         asys.set_sp("a", 0)  # 队首失效（SP<2）
         asys.set_sp("b", 2)
-        self.assertEqual(asys.assign_public_slot(1), "b")
+        self.assertIsNone(asys.assign_public_slot(1))
         self.assertFalse(q.is_in_queue("a"))  # 永久移除
+        self.assertTrue(q.is_in_queue("b"))   # 本轮空位，不递补
         q.reenqueue_from_tail("a")
         self.assertEqual(q.head(), "b")  # 重报从队尾
 
@@ -86,9 +111,16 @@ class ActionSystemTest(unittest.TestCase):
         pub = asys.dispatch_public("a", 1)
         self.assertIsNotNone(pub)
         self.assertTrue(pub.allow_public)
+        self.assertEqual(asys.performance_kind, "public")
         self.assertEqual(asys.get_sp("a"), 0)
         # 即演：SP 不足不派发
         self.assertIsNone(asys.dispatch_improvise("a", 1))
+
+        asys.set_sp("b", 1)
+        instant = asys.dispatch_improvise("b", 1)
+        self.assertIsNotNone(instant)
+        self.assertEqual(asys.performance_actor_id, "b")
+        self.assertEqual(asys.performance_kind, "improvise")
 
     def test_slot_finalization_kinds(self) -> None:
         asys = ActionSystem()
@@ -288,9 +320,10 @@ class PPScoringTest(unittest.TestCase):
     def test_betting_and_blackhorse(self) -> None:
         ledger = PPLedger()
         ledger.earn("d1", 5)
-        self.assertTrue(ledger.place_bet("d1", "p1"))  # 死者押生者
-        self.assertEqual(ledger.balance("d1"), 3)      # transfer_fee=2
+        self.assertTrue(ledger.place_bet("d1", "p1", amount=2))  # 死者押生者 2 PP
+        self.assertEqual(ledger.balance("d1"), 3)
         self.assertTrue(ledger.has_active_bet())
+        self.assertEqual(ledger.bet_targets("d1").get("p1", [])[0]["amount"], 2)
         ledger.recompute_blackhorse(["p1", "p2"], ["d1"])
         self.assertTrue(ledger.is_blackhorse("p2"))
         self.assertFalse(ledger.is_blackhorse("p1"))
@@ -298,8 +331,8 @@ class PPScoringTest(unittest.TestCase):
     def test_scoring_four_step_settle(self) -> None:
         ledger = PPLedger()
         engine = ScoringEngine(ledger)
-        engine.add_arc("p1", 3)
-        engine.add_arc("p2", 1)
+        # arc_weight 暂记 0（裁决）——用 PP 构造 base 优势（名次加成 p2 +2）
+        ledger.earn("p1", 3)
         ledger.recompute_blackhorse(["p1", "p2"], [])
         results = engine.settle(["p1", "p2"], [])
         self.assertTrue(results["p1"].is_winner)
@@ -307,13 +340,80 @@ class PPScoringTest(unittest.TestCase):
         base = results["p1"].base_final_score
         self.assertEqual(results["p1"].display_final_score, base + 10)  # 黑马加成
 
-    def test_retreat_uses_alive_formula_half(self) -> None:
+    def test_retreat_uses_full_formula_plus_placement(self) -> None:
+        from engine.balance import get as bget
+        arc_w = float(bget("m9_system", "scoring_m9", "arc_weight", default=2))
         ledger = PPLedger()
         engine = ScoringEngine(ledger)
         engine.add_arc("g0", 2)
         engine.mark_retreat("g0")
         score = engine.score("g0", alive=False)
-        self.assertEqual(score.base_final_score, 0.5 * (2 + 0))
+        # 名次加成裁决：撤退不再 ×0.5；base = 剧情 + 战果 + PP + 名次（未结算名次=0）
+        self.assertEqual(score.base_final_score, 2 * arc_w + 0 + 0 + 0)
+
+    def test_talent_score_multiplier_applies_by_slot(self) -> None:
+        """槽位得分系数：合计后的 base 按 player.talent_slot_id 乘算。"""
+        from types import SimpleNamespace
+        from engine.balance import get as bget
+        ledger = PPLedger()
+        state = SimpleNamespace(
+            get_player=lambda pid: SimpleNamespace(talent_slot_id="G2"))
+        engine = ScoringEngine(ledger, game_state=state)
+        ledger.earn("p1", 4)
+        raw_table = bget(
+            "m9_system", "scoring_m9", "talent_score_multiplier", default={})
+        mult = float((raw_table or {}).get("G2", 1.0))
+        self.assertEqual(engine.score("p1", alive=True).base_final_score,
+                         4.0 * mult)
+
+    def test_bet_odds_capped_at_2_to_1(self) -> None:
+        """裁决：赔率封顶 2:1——早死者 4-5:1 押中胜者不再产生 12-25 显示分套利，
+        与名次加成（封顶 +10）量级对齐。"""
+        ledger = PPLedger()
+        self.assertEqual(ledger.odds_for(1), 1)
+        self.assertEqual(ledger.odds_for(2), 2)
+        self.assertEqual(ledger.odds_for(5), 2)
+        self.assertEqual(ledger.odds_for(6), 2)
+
+    def test_dead_payout_only_when_pick_wins(self) -> None:
+        """B4 §4.1：死者押注快照胜者 → 派彩本金+本金×赔率；押错者 tranche 销毁。"""
+        ledger = PPLedger()
+        ledger.earn("d1", 6)
+        ledger.earn("d2", 6)
+        ledger.place_bet("d1", "p1", amount=2, alive_count=2)
+        ledger.place_bet("d2", "p2", amount=3, alive_count=2)
+        ledger.recompute_blackhorse(["p1", "p2"], ["d1", "d2"])
+        engine = ScoringEngine(ledger)
+        # arc_weight 暂记 0（裁决）——用 PP 构造 p1 胜者（base 高）
+        ledger.earn("p1", 5)
+        results = engine.settle(["p1", "p2"], ["d1", "d2"])
+        self.assertTrue(results["p1"].is_winner)
+        # d1 押 p1 中：payout = 2 + 2×2 = 6；d2 押 p2 落败：0
+        self.assertEqual(ledger.bet_payout("d1", {"p1"}), 6)
+        self.assertEqual(ledger.bet_payout("d2", {"p1"}), 0)
+
+    def test_parallel_winners_snapshot(self) -> None:
+        """评分指针 §3.1：base 并列者全部冻结为胜者快照（黑马加成只改显示）。
+        名次加成下并列需数值巧合；本测试验证并列时快照并列语义仍成立。"""
+        from engine.balance import get as bget
+        step = float(bget("m9_system", "scoring_m9", "placement_step", default=2))
+        arc_w = float(bget("m9_system", "scoring_m9", "arc_weight", default=2))
+        ledger = PPLedger()
+        engine = ScoringEngine(ledger)
+        # p1 名次低 1 档（无加成）→ 用 PP 补齐与 p2 的差距，构造精确并列
+        engine.add_arc("p1", 1)
+        engine.add_arc("p2", 1)
+        ledger.earn("p1", int(step))
+        ledger.recompute_blackhorse(["p1", "p2"], [])
+        results = engine.settle(["p1", "p2"], [])
+        self.assertEqual(results["p1"].base_final_score,
+                         results["p2"].base_final_score)
+        self.assertTrue(results["p1"].is_winner)
+        self.assertTrue(results["p2"].is_winner)
+        self.assertEqual(results["p1"].display_final_score,
+                         results["p1"].base_final_score + 10)
+        self.assertEqual(results["p2"].display_final_score,
+                         results["p2"].base_final_score + 10)
 
 
 class PoliceStationTest(unittest.TestCase):

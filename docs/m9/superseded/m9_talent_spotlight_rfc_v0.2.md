@@ -18,7 +18,7 @@
 > [`../superseded/m9_g4_savior_cycle_rfc_v0.1.md`](../superseded/m9_g4_savior_cycle_rfc_v0.1.md) 取代；T6 远程举报演出描述由
 > [`../superseded/m9_police_t6_reset_rfc_v0.1.md`](../superseded/m9_police_t6_reset_rfc_v0.1.md) 取代；G2 全桌舞台描述由
 > [`m9_g2_holographic_presence_rfc_v0.2.md`](m9_g2_holographic_presence_rfc_v0.2.md) 取代；G3 猜拳副舞台描述由
-> [`../current/m9_g3_reality_marble_rfc_v0.2.md`](../current/m9_g3_reality_marble_rfc_v0.2.md) 取代。
+> [`../current/m9_g3_reality_marble_rfc_v0.3.md`](../current/m9_g3_reality_marble_rfc_v0.3.md) 取代。
 
 本稿只定义十四天赋如何接入一个标准行动槽、先攻排序和二段 SP 就绪轨。现行效果的完整
 数值仍以 `v2exp` 文档与实现为准；本文没有授权直接修改引擎或天赋代码。

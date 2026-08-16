@@ -2,6 +2,7 @@
 name: python-coder
 description: Python code generation specialist. Implements features following project standards and loaded skill patterns.
 mode: subagent
+model: opencode-go/deepseek-v4-flash
 type: general
 tools:
   read: true

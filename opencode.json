@@ -2,5 +2,13 @@
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     "harness-memory/plugin"
-  ]
+  ],
+  "agent": {
+    "general": {
+      "model": "opencode-go/deepseek-v4-flash"
+    },
+    "explore": {
+      "model": "opencode-go/deepseek-v4-flash"
+    }
+  }
 }

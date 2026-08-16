@@ -52,6 +52,11 @@ logs/
 __pycache__/
 *.pyc
 
+# ── 风洞/诊断/性能输出（2026-09 已归档至 windtunnel_archive/）──
+out_*.txt
+*.pstats
+windtunnel_archive/
+
 # ── 本地敏感配置（含 API key / token，绝不提交）─────────
 config/llm_config.json
 config/airi_config.json
@@ -71,3 +76,4 @@ node_modules/
 .harness-memory/
 .ocx/
 .fallow/
+.dsh-plugin-work/

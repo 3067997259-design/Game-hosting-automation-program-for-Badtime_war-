@@ -42,6 +42,8 @@ PROFILES: Dict[str, List[str]] = {
         "m6_scoring",
         "m7_talents",
         "m9_rfc",
+        # M8.1：BasicAI 打分权重读 balance.ai（风洞通道；默认值与旧魔数一致，行为不变）
+        "m8_ai",
     ],
 }
 
@@ -49,11 +51,19 @@ _config_flags: Optional[Dict[str, bool]] = None
 _config_profile: Optional[str] = None
 _runtime_overrides: Dict[str, bool] = {}
 _runtime_profile: Optional[str] = None
+_merged_cache: Optional[Dict[str, bool]] = None
+
+
+def _invalidate_merged_cache() -> None:
+    """配置/覆盖变化时失效合并结果缓存。"""
+    global _merged_cache
+    _merged_cache = None
 
 
 def _load() -> Dict[str, bool]:
     """惰性加载 game_config.json 的 experiments 分区（首次调用时载入一次）。"""
     global _config_flags, _config_profile
+    _invalidate_merged_cache()
     if _config_flags is not None:
         return _config_flags
     _config_flags = {}
@@ -92,11 +102,15 @@ def _effective_profile_name() -> str:
 
 
 def _merged_flags() -> Dict[str, bool]:
-    """合并 profile、配置显式项和运行时覆盖。"""
+    """合并 profile、配置显式项和运行时覆盖（结果缓存，覆盖/重置时失效）。"""
+    global _merged_cache
+    if _merged_cache is not None:
+        return _merged_cache
     explicit = _load()
     merged: Dict[str, bool] = {flag: True for flag in PROFILES.get(_effective_profile_name(), [])}
     merged.update(explicit)
     merged.update(_runtime_overrides)
+    _merged_cache = merged
     return merged
 
 
@@ -108,17 +122,20 @@ def is_enabled(name: str) -> bool:
 def enable(name: str) -> None:
     """运行时启用实验（CLI 覆盖，优先于配置文件）。"""
     _runtime_overrides[name] = True
+    _invalidate_merged_cache()
 
 
 def disable(name: str) -> None:
     """运行时禁用实验（CLI 覆盖，优先于配置文件）。"""
     _runtime_overrides[name] = False
+    _invalidate_merged_cache()
 
 
 def set_profile(name: str) -> None:
     """运行时设置 profile（CLI 覆盖，优先于配置文件）。"""
     global _runtime_profile
     _runtime_profile = _normalize_profile_name(name)
+    _invalidate_merged_cache()
 
 
 def current_profile() -> str:
@@ -144,3 +161,4 @@ def reset() -> None:
     _config_profile = None
     _runtime_profile = None
     _runtime_overrides.clear()
+    _invalidate_merged_cache()

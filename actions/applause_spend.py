@@ -10,6 +10,7 @@ balance applause_spend 分区给成本。AI/bot 不会用（M8 适配），主�
 """
 from typing import Any, Tuple
 
+from engine import experiments
 from engine.balance import get as bget
 
 # 用途 → 成本
@@ -21,18 +22,27 @@ _USES = {
 }
 
 
+def _m9_replaced() -> bool:
+    """M9：喝彩消耗语义被 B4 v0.4 的 PP 取代，m9-rfc 下不可用。"""
+    return experiments.is_enabled("m9_rfc")
+
+
 def cost_of(use: str) -> int:
     return _USES.get(use, 0)
 
 
 def available_uses(player: Any) -> list:
     """玩家当前喝彩点够用的用途列表（供 special_op 注入选项）。"""
+    if _m9_replaced():
+        return []
     bal = getattr(player, "applause", 0)
     return [u for u, c in _USES.items() if bal >= c]
 
 
 def execute(player: Any, use: str, game_state: Any) -> Tuple[str, bool]:
     """执行喝彩消耗。返回 (消息, 是否消耗回合)。多数不消耗回合（即时增益）。"""
+    if _m9_replaced():
+        return f"❌ 喝彩已被 PP 取代（m9-rfc），无法消耗喝彩", False
     cost = cost_of(use)
     if cost <= 0:
         return f"❌ 未知喝彩用途「{use}」", False

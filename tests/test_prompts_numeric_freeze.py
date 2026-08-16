@@ -65,6 +65,15 @@ _WHITELIST = {
     "talent.t5combo.bonus_round",
     # talent — duet
     "talent.duet.heat.round_end",
+    # m9 — 迁移文本时随源码原文进入 prompts.json 的描述性数值（校准台账终值）
+    "m9.aids.g2_defense_ledger_missing",
+    "m9.aids.g2_defense_no_pp",
+    "m9.aids.t1_defense_no_attacker_or_zero",
+    "m9.aids.t1_defense_no_incoming",
+    "m9.aids.t7_defense_keep1",
+    "m9.game_setup.talent_desc_3",
+    "m9.game_setup.talent_desc_7",
+    "m9.talents.g0.relic_t7_effect",
     # 以下为新增时在此登记（说明数值含义 + 关联的 balance 键）
 }
 

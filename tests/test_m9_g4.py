@@ -98,6 +98,38 @@ class FormEntryTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(t.form, FORM_INCOMPLETE)
 
+    def test_low_ember_entry_is_only_allowed_on_first_lethal(self) -> None:
+        state, p, t = _make()
+        t.divinity = 5
+        first = t.on_death_check(p, None)
+        self.assertIsNotNone(first)
+        self.assertEqual(t.form, FORM_INCOMPLETE)
+
+        t._exit_savior_state()
+        t.divinity = 11
+        second = t.on_death_check(p, None)
+        self.assertIsNone(second)
+        self.assertEqual(t.form, FORM_HUMAN)
+        self.assertEqual(t.divinity, 11)
+
+        t.divinity = 12
+        third = t.on_death_check(p, None)
+        self.assertIsNotNone(third)
+        self.assertEqual(t.form, FORM_FULL)
+
+    def test_full_first_lethal_also_consumes_low_ember_grace(self) -> None:
+        state, p, t = _make()
+        t.divinity = 12
+        first = t.on_death_check(p, None)
+        self.assertIsNotNone(first)
+        self.assertEqual(t.form, FORM_FULL)
+
+        t._exit_savior_state()
+        t.divinity = 11
+        second = t.on_death_check(p, None)
+        self.assertIsNone(second)
+        self.assertEqual(t.form, FORM_HUMAN)
+
     def test_in_savior_lethal_is_consumption_not_death(self) -> None:
         state, p, t = _make()
         t.divinity = 12
@@ -117,15 +149,18 @@ class FormEntryTest(unittest.TestCase):
         self.assertFalse(t.is_savior)
 
     def test_entry_round_r4_does_not_tick(self) -> None:
+        from engine.balance import get as _bget
+        dur = int(_bget("m9_talents_extended", "g4",
+                        "full_duration_r4", default=6))
         state, p, t = _make()
         t.divinity = 12
         t.on_death_check(p, None)
         state.current_round = 5
         t.on_round_end(5)
-        self.assertEqual(t.form_ticks, 6)  # 建立轮不 tick
+        self.assertEqual(t.form_ticks, dur)  # 建立轮不 tick
         state.current_round = 6
         t.on_round_end(6)
-        self.assertEqual(t.form_ticks, 5)
+        self.assertEqual(t.form_ticks, dur - 1)
 
     def test_active_burn_dispatches_full_extra(self) -> None:
         state, p, t = _make()
@@ -137,6 +172,19 @@ class FormEntryTest(unittest.TestCase):
         msg, ok = t.execute_t0(p)
         self.assertTrue(ok)
         self.assertEqual(t.form, FORM_FULL)
+
+    def test_active_first_entry_consumes_low_ember_grace(self) -> None:
+        state, p, t = _make()
+        t.divinity = 12
+        t.ember = 12
+        t.m9_burden_unlocked = True
+        msg, ok = t.execute_t0(p)
+        self.assertTrue(ok, msg)
+
+        t._exit_savior_state()
+        t.divinity = 11
+        self.assertIsNone(t.on_death_check(p, None))
+        self.assertEqual(t.form, FORM_HUMAN)
 
 
 class ChallengePerformanceTest(unittest.TestCase):
@@ -185,16 +233,21 @@ class ChallengePerformanceTest(unittest.TestCase):
         t = Savior9("p1", state)
         p.talent = t
         state.m9_system.set_sp("p1", 2)
+        state.m9_system.register_performance("p1", state.current_round)
+        state.m9_system.allocate_public_slot(state.current_round)
         t.divinity = 12
         t.on_death_check(p, None)  # 完整形态
         return state, p, t
 
     def test_challenge_refuse_gets_judgment_absolute_death(self) -> None:
-        """全员拒战：天裁池 = S×J 全部分给拒战者（DIRECT_DAMAGE+absolute_dead）。"""
+        """全员拒战：天裁池 = S×J 全部分给拒战者（DIRECT_DAMAGE+absolute_dead）。
+
+        R7 机制压顶：judgment_per_segment 2→1，单人池 = 1×1 = 1。
+        """
         state, p, t = self._scene()
         other = Player("p2", "路人", controller=ForfeitController())
         other.location = "商店"
-        other.hp = 3
+        other.hp = 1
         state.add_player(other)
         t.ruin_damage = 3
         msg, ok = t.execute_t0(p)
@@ -226,6 +279,32 @@ class ChallengePerformanceTest(unittest.TestCase):
         self.assertEqual(option["m9_kind"], "g4_challenge")
         t.ruin_damage = 0
         self.assertIsNone(t.get_t0_option(p))
+
+    def test_challenge_forced_exit_cancels_counter_and_judgment(self) -> None:
+        """审计 v0.1 场景 15（G4 真正打断）：某次挑战攻击迫使 G4 退出形态 →
+        停止后续响应并取消反击与天裁，只执行无额外载荷退场清理。"""
+        state, p, t = self._scene(choices=("攻击",))
+        killer = Player("p2", "强者", controller=ForfeitController())
+        killer.location = "商店"
+        killer.hp = 20
+        state.add_player(killer)
+        from models.equipment import Weapon, WeaponRange
+        from utils.attribute import Attribute
+        killer.weapons.append(
+            Weapon("电磁步枪", Attribute.TECH, 30, WeaponRange.RANGED))
+        t.ruin_damage = 3
+        p.hp = 1
+        t.ember_hp = 1  # 单次响应即可耗尽余烬、迫使退出形态
+        msg, ok = t.execute_t0(p)
+        self.assertTrue(ok)
+        # 强制退场：返回消息含退出形态，且不出现实际反击/天裁结算段
+        self.assertIn("退出形态", msg)
+        self.assertNotIn("[反击]", msg)
+        self.assertNotIn("[天裁]", msg)
+        # 无额外载荷的退场清理：毁伤清空、回人形态、拉条减伤清除
+        self.assertEqual(t.form, FORM_HUMAN)
+        self.assertEqual(t.ruin_damage, 0)
+        self.assertEqual(getattr(t, "_challenge_reduction", 0), 0)
 
 
 class ChallengeAdjudicatorTest(unittest.TestCase):
@@ -260,6 +339,105 @@ class ChallengeAdjudicatorTest(unittest.TestCase):
         result = adj.resolve({"low": "attack", "high": "attack"})
         self.assertEqual(result["counters"]["high"], 4.0)
         self.assertEqual(result["counters"]["low"], 3.0)
+
+
+class HumanPerformanceTest(unittest.TestCase):
+    """人形态即演/公演：近战单体 +2 火种 / 公演扫击所有 engaged 目标 +2 火种。"""
+
+    def setUp(self) -> None:
+        _enable("m9_rfc", "hp20")
+
+    def tearDown(self) -> None:
+        experiments.reset()
+
+    def _scene(self, sp=1, choices=()):
+        from controllers.base import PlayerController
+
+        class _C(PlayerController):
+            def __init__(self, seq):
+                self.seq = list(seq)
+                self.i = 0
+
+            def _next(self, options):
+                if self.i < len(self.seq):
+                    c = self.seq[self.i]
+                    self.i += 1
+                    return c if c in options else options[0]
+                return options[0]
+
+            def get_command(self, player, game_state, available_actions,
+                            context=None):
+                return "forfeit"
+
+            def choose(self, prompt, options, context=None):
+                return self._next(options)
+
+            def choose_multi(self, prompt, options, max_count, min_count=0,
+                             context=None):
+                return options[:max_count]
+
+            def confirm(self, prompt, context=None):
+                return True
+
+        state = GameState()
+        ensure_state_mechanisms(state)
+        p = Player("p1", "G4", controller=_C(choices))
+        state.add_player(p)
+        p.max_hp = 20
+        p.hp = 20
+        p.location = "商店"
+        t = Savior9("p1", state)
+        p.talent = t
+        state.m9_system.set_sp("p1", sp)
+        return state, p, t
+
+    def _add_engaged(self, state, p, pid="p2", hp=10):
+        from models.equipment import Weapon, WeaponRange
+        from utils.attribute import Attribute
+        other = Player(pid, pid.upper(), controller=ForfeitController())
+        other.location = p.location
+        other.max_hp = 20
+        other.hp = hp
+        state.add_player(other)
+        p.weapons.append(Weapon("小刀", Attribute.ORDINARY, 4,
+                                WeaponRange.MELEE))
+        state.markers.add_relation(p.player_id, "ENGAGED_WITH", other.player_id)
+        return other
+
+    def test_improvise_attacks_and_grants_ember(self) -> None:
+        state, p, t = self._scene(sp=1, choices=("即演（1 SP）", "小刀", "P2"))
+        other = self._add_engaged(state, p)
+        before = other.hp
+        option = t.get_t0_option(p)
+        self.assertIsNotNone(option)
+        self.assertEqual(option["m9_kind"], "g4_human_performance")
+        msg, ok = t.execute_t0(p)
+        self.assertTrue(ok, msg)
+        self.assertLess(other.hp, before)
+        self.assertEqual(state.m9_system.get_sp("p1"), 0)
+        self.assertEqual(t.divinity, 1)  # R8：human_performance_ember 2→1
+
+    def test_public_hits_all_engaged_and_grants_ember(self) -> None:
+        state, p, t = self._scene(sp=2, choices=("公演（2 SP）", "小刀"))
+        a = self._add_engaged(state, p, pid="p2", hp=10)
+        b = self._add_engaged(state, p, pid="p3", hp=10)
+        state.m9_system.register_performance("p1", state.current_round)
+        state.m9_system.allocate_public_slot(state.current_round)
+        before_a, before_b = a.hp, b.hp
+        msg, ok = t.execute_t0(p)
+        self.assertTrue(ok, msg)
+        self.assertLess(a.hp, before_a)
+        self.assertLess(b.hp, before_b)
+        self.assertEqual(state.m9_system.get_sp("p1"), 0)
+        self.assertEqual(t.divinity, 1)  # R8：human_performance_ember 2→1
+
+    def test_no_option_without_engaged_target(self) -> None:
+        state, p, t = self._scene(sp=2)
+        from models.equipment import Weapon, WeaponRange
+        from utils.attribute import Attribute
+        p.weapons.append(Weapon("小刀", Attribute.ORDINARY, 4,
+                                WeaponRange.MELEE))
+        self.assertIsNone(t.get_t0_option(p))
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 name: python-reviewer
 description: Python code review specialist. Reviews code for quality, security, and best practices.
 mode: subagent
+model: opencode-go/deepseek-v4-flash
 type: general
 tools:
   read: true

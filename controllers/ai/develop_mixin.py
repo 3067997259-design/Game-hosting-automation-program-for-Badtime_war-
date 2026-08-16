@@ -107,9 +107,11 @@ class DevelopMixin(_Base):
             if self.personality == "political":
                 fallback = self._political_fallback_level
                 if fallback in ("full_balanced", "develop_only"):
-                    has_outer = self._count_outer_armor(player) >= 2
-                    has_inner = self._count_inner_armor(player) >= 1
-                    return has_real_weapon and has_outer and has_inner
+                    # 降级后按通用门槛（1 外甲+武器）放行——此前要求
+                    # 2 外甲+1 内甲（全人格最严），political 落回战斗路线
+                    # 后仍在刷三件甲，fallback 修复兑现不了胜率（R34）。
+                    has_outer = self._count_outer_armor(player) >= 1
+                    return has_real_weapon and has_outer
                 is_captain = getattr(player, 'is_captain', False)
                 if not is_captain:
                     return False

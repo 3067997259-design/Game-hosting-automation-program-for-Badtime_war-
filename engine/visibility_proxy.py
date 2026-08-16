@@ -13,6 +13,8 @@ from typing import Any, List
 
 from engine.visibility import can_see
 
+_MISSING = object()
+
 
 class RedactedPlayer:
     """行踪被隐匿的玩家视图：位置不可知，其余明牌字段透传实时数据。"""
@@ -46,22 +48,40 @@ class VisibilityProxy:
 
     get_player() 对被隐匿目标返回 RedactedPlayer；players_at_location/
     alive_players 同步裁剪；其余属性 __getattr__ 透传真实 state。
+
+    性能注记：一个 proxy 实例在单个玩家 T1 决策生命周期内复用；决策期间
+    GameState 不会被行动修改，因此观察者与 conceal 判定均可按 target id
+    缓存（M3 开启时 10 万次/2 局 can_see 直降到每目标一次）。
     """
 
     def __init__(self, real_state: Any, observer_pid: str):
         object.__setattr__(self, "_real", real_state)
         object.__setattr__(self, "_observer_pid", observer_pid)
+        object.__setattr__(self, "_observer_cache", _MISSING)
+        object.__setattr__(self, "_conceal_cache", {})
 
     def _observer(self):
-        return self._real.get_player(self._observer_pid)
+        cached = object.__getattribute__(self, "_observer_cache")
+        if cached is not _MISSING:
+            return cached
+        observer = self._real.get_player(self._observer_pid)
+        object.__setattr__(self, "_observer_cache", observer)
+        return observer
 
     def _is_concealed(self, target: Any) -> bool:
-        if getattr(target, "player_id", None) == self._observer_pid:
+        target_id = getattr(target, "player_id", None)
+        if target_id == self._observer_pid:
             return False
+        cache = object.__getattribute__(self, "_conceal_cache")
+        key = target_id if target_id is not None else id(target)
+        if key in cache:
+            return cache[key]
         observer = self._observer()
         if observer is None:
             return False
-        return not can_see(observer, target, self._real)
+        result = not can_see(observer, target, self._real)
+        cache[key] = result
+        return result
 
     def get_player(self, player_id):
         p = self._real.get_player(player_id)

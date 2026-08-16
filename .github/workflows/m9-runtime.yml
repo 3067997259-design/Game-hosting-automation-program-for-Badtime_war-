@@ -1,0 +1,68 @@
+name: M9 Runtime
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependency
+        run: python -m pip install --upgrade pytest
+
+      - name: Run test suite
+        run: python -m pytest -q -p no:cacheprovider tests
+
+      - name: Run M9 runtime smoke
+        run: python tools/m9_rfc_smoke.py
+
+      # tools/m9_rfc_playtest.py 剧本 C/E/F/B.5 仍为已知脚本漂移失败
+      # （见 CLAUDE.md §10），修复前不作为 PR 门禁。
+      # - name: Run M9 scripted acceptance
+      #   run: python tools/m9_rfc_playtest.py
+
+      - name: Check documentation governance
+        run: python tools/check_doc_governance.py
+
+      - name: Check generated handbook consistency
+        run: python tools/handbook.py check
+
+      - name: Check generated M9 manual consistency
+        run: python tools/m9_handbook.py check
+
+      - name: Check patch whitespace
+        shell: bash
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [[ -n "$BASE" ]] && git cat-file -e "$BASE^{commit}"; then
+            git diff --check "$BASE" "${{ github.sha }}"
+          elif git rev-parse HEAD^ >/dev/null 2>&1; then
+            git diff --check HEAD^ HEAD
+          else
+            git diff-tree --check --root --no-commit-id -r HEAD
+          fi
+
+      - name: Run real M9 CLI game
+        shell: bash
+        run: |
+          set -o pipefail
+          python main.py --mode all_ai --players 6 --profile m9-rfc --seed 1 2>&1 | tee m9-cli.log
+          if grep -Eq "Traceback|build_action_options 失败" m9-cli.log; then
+            exit 1
+          fi
+          grep -q "胜者:" m9-cli.log

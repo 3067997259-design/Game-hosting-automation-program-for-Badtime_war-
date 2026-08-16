@@ -7,6 +7,12 @@
 > **Profile**：`m9-rfc`
 > **日期**：2026-08-10
 > **状态**：当前候选；结构按项目负责人最新重置方向收口，全部数值待风洞
+>
+> **2026-09 风洞校准修正（实施口径）**：影身击杀补第二章（登台前发生则登台后补授）；
+> 终曲歌者不再执行转换前已发行的旧 grant；终值 shadow_hp=34、共享比例 0.2、压制 2 次、
+> 移动偏转 0.6、见证 1 tick、终曲 arc 3、终曲易伤 0；「创建当轮即补标准槽」未实施
+> （见 `docs/contradictions.md` DOC-051）。完整终值见
+> [`m9_windtunnel_calibration_2026-09.md`](m9_windtunnel_calibration_2026-09.md)。
 > **取代**：[`../superseded/m9_g2_holographic_presence_rfc_v0.2.md`](../superseded/m9_g2_holographic_presence_rfc_v0.2.md)
 > 的“无 HP 场景物影像、转播/转场、精确近战白名单、下一 ActionGrant 落幕、完整镜头”模型
 > **保留**：公开双重在场、一个玩家身份、演出感、需要观众、旧全桌舞台与 duet 的

@@ -21,7 +21,7 @@ def _aid(has_g0=True, bets=()):
     ledger = PPLedger()
     for bettor, target in bets:
         ledger.earn(bettor, 5)
-        ledger.place_bet(bettor, target)
+        ledger.place_bet(bettor, target, amount=2)  # 押注 2 PP（托管入账）
     aid = WorldPoemAid(has_g0, ledger)
     return aid, ledger
 

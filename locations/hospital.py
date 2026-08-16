@@ -70,6 +70,9 @@ def can_interact(player, item_name, game_state=None):
     if _m4 and item_name == "治疗":
         if player.hp >= player.max_hp:
             return False, "你的 HP 已满"
+        heal_cap = _bget("hospital", "heal_max_uses", default=3)
+        if getattr(player, '_heal_uses', 0) >= heal_cap:
+            return False, f"本局治疗次数已用尽（{heal_cap} 次上限）"
         cost = _heal_cost(game_state)
         if getattr(player, 'credits', 0) < cost:
             return False, f"治疗需要 {cost} 信用点，你只有 {player.credits}"
@@ -156,7 +159,7 @@ def do_interact(player, item_name, game_state=None):
         if is_module_item(item_name):
             return do_purchase(player, base_name(item_name), game_state)
 
-    # m4 治疗（§2.5：+heal_amount HP，黄昏费用×2）
+    # m4 治疗（§2.5：+heal_amount HP，黄昏费用×2；每局次数上限 heal_max_uses）
     if m4_enabled() and item_name == "治疗":
         from engine.balance import get as _bget
         amount = _bget("hospital", "heal_amount", default=6)
@@ -164,8 +167,9 @@ def do_interact(player, item_name, game_state=None):
         player.credits -= cost
         before = player.hp
         player.hp = min(player.max_hp, player.hp + amount)
+        player._heal_uses = getattr(player, '_heal_uses', 0) + 1
         return (f"💉 {player.name} 接受治疗，HP {before}→{player.hp}"
-                f"（花费 {cost} 信用点）")
+                f"（花费 {cost} 信用点，剩余 {max(0, _bget('hospital', 'heal_max_uses', default=3) - player._heal_uses)} 次）")
 
     if item_name == "打工":
         if m4_enabled():

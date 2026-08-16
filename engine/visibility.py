@@ -19,6 +19,11 @@ def can_see_m(observer: Any, target: Any, markers: Any) -> bool:
     if target_id is None or observer_id is None or target_id == observer_id:
         return True
 
+    # M9 G5 微澜（W4）：目标被 G5 微澜揭示 → G5 对其无视隐身/闪避，直至
+    # G5 下一个实际结算的 ActionGrant 结束（round_manager 槽收尾清除）。
+    if getattr(target, "_m9_ripple_ignore_stealth_from", None) == observer_id:
+        return True
+
     if not experiments.is_enabled("m3_accuracy"):
         return markers.is_visible_to(
             target_id, observer_id, getattr(observer, "has_detection", False))

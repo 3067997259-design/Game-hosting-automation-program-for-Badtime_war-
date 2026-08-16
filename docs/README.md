@@ -13,7 +13,7 @@
 | 查询 Legacy 规则 | `legacy/README.md` | 原大手册已拆为 34 个模块；仍待逐主题语义审计 |
 | 查询当前 V2 规则 | `handbook/README.md` | 模块化手册入口；语义审计完成前以“候选权威”处理 |
 | 查询天赋机制 | `handbook/talents/00_overview.md` | 精确跳转到单个天赋，不再加载整本手册 |
-| 查询 M9 提案 | `m9/README.md` | M9 唯一推荐入口；区分当前候选、部分失效草案与历史推演，均未进入现行规则 |
+| 查询 M9 文档 | `m9/README.md` | M9-rfc 当前开发主线唯一入口；区分 current RFC、失效草案与历史推演 |
 | 查询 V2 设计材料 | `design/v2exp/README.md` | 设计总纲与 M8 计划，均为混合材料而非玩家规则 |
 | 查询历史 | `history/README.md` | 更新日志和开发日记，不定义现行规则 |
 | 查询冻结原件与旧生成链 | `archive/README.md` | 仅用于追溯和差异复核，不定义现行规则 |
@@ -21,11 +21,25 @@
 | 查询已知矛盾 | `contradictions.md` | 冲突、实现偏差和待拍板事项 |
 | 查询治理规则 | `governance.md` | 权威、草案、历史与生成文件的定义 |
 
+## 指令契约文档
+
+命令系统指令契约（`ai/`）是跨 profile 的 AI 指令参考，配合 AI 策略文档阅读：
+
+- `ai/commands.md`：指令总表（通用指令 vs 天赋特异 special op、M9 语义变更注记）；
+- `ai/commands_mapping.md`：RL 137 索引 ↔ AI 生成层 ↔ 引擎解析层三方映射与缺口清单；
+- `ai/commands_choose.md`：T0 选项层（引擎通用 T0 流程 + 14 槽天赋特异 T0/choose 表面）；
+- 代码真源：`controllers/ai/decision/`（snapshot/t0_policy/c_policy/value/action_catalog）、
+  `controllers/ai/m9_adapters.py`、`controllers/ai/minds/`；
+- 治理：`tests/test_commands_sync.py` 保证与 parser/actions/special_op/action_space 源码同步；
+- 联动：天赋决策点见 `m9/ai/talents.md`，指令契约是其命令侧对应物。
+
 ## 版本口径
 
 - `legacy`：默认稳定口径，不自动继承 V2 实验规则。
 - `v2exp`：当前实验档案，启用 M1-M7 系列实验机制。
-- `m9-rfc`：M9 货币、魂援与候选行动机制提案。当前设计采用单行动槽、先攻排序、二段 SP、即时演出与自愿公演；尚未成为 `v2exp` 的现行规则。
+- `m9-rfc`：当前开发主线，已实现为独立 profile（`engine/m9/` + 14 天赋 + AI 决策层），
+  进行风洞与数值校准；尚未并入 `v2exp`/`legacy`，也尚未设为默认 profile。显式以
+  `--profile m9-rfc` 运行。
 - `cross-profile`：不依赖具体规则版本的操作、历史或项目文档。
 
 ## 权威原则
@@ -48,3 +62,6 @@
 
 结构迁移完成时，34 个模块的回组装逻辑文本与 DOCX 基线逐字符一致。模块仍标记为
 `candidate`，表示内容尚待逐主题语义审计，而不是迁移不完整。
+
+当前开发主线是 **M9-rfc**（见 `m9/README.md`）：机制已实现并可运行，当前工作重心是
+风洞、数值校准与文档收口；它不改变 legacy/v2exp 的默认行为。

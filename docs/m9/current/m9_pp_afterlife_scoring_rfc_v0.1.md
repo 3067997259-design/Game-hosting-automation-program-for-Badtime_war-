@@ -3,10 +3,21 @@
 > **当前 M9 评分指针。** 评分主合同与投注/魂援机制见
 > [`m9_pp_afterlife_betting_rfc_v0.4.md`](m9_pp_afterlife_betting_rfc_v0.4.md)（当前版本）；
 > 本文件是评分侧的**当前指针与延伸**，不重复投注与援助规则，不随 B4 版本号联动（保持 v0.1）。
+> **剧情分（arc）通道已升级**：`arc_count` 的章节化计分、全员上限与登台优先以
+> [`m9_arc_universal_rfc_v0.1.md`](m9_arc_universal_rfc_v0.1.md) 为当前合同；
+> 本文件 §五 的“G2/G5 私有挂接”自 2026-08-14 起按该合同并入章节表解释。
 > 总览与阅读路径见 [`../README.md`](../README.md)。
 >
 > **日期**：2026-08-10
 > **状态**：用户批准方向下的当前评分候选；数值待风洞
+>
+> **2026-09 风洞校准修正（实施口径，取代 §二/§三中的存活系数写法）**：
+> `base_final_score = (剧情分 + 战果分 + 剩余PP + 名次加成) × 槽位得分系数`；
+> 死者再额外 `+ 援助收益` 后乘系数（见 §3.1 四步求值与
+> [`m9_windtunnel_calibration_2026-09.md`](m9_windtunnel_calibration_2026-09.md)）。
+> 槽位得分系数表位于 `m9_system.scoring_m9.talent_score_multiplier`，
+> 只在终分判定时乘算，不影响任何玩法动作。当前权重：剧情 1.8/章、击杀 1.5、
+> 伤害 0.05、名次 2/档、唯一生还者 +4。
 > **Profile**：`m9-rfc`
 > **上游**：[行动系统 RFC v0.8](m9_action_system_rfc_v0.8.md)、
 > [结算合同 RFC v0.3](m9_resolution_contract_rfc_v0.3.md)、

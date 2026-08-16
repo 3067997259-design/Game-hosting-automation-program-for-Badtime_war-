@@ -191,3 +191,45 @@ PERSONALITY_NEEDS = {
         # political 的特殊逻辑（去警察局）保留在外部
     ],
 }
+
+
+def need_providers_for(need_key: str):
+    """返回当前实验档案中真实存在的需求来源。
+
+    M4 经济合同把 home 的免费凭证退役；保留静态表用于旧档案和一致性检查，
+    在决策边界按 profile 过滤，避免 BasicAI 反复提交必定失败的交互。
+    """
+    providers = NEED_PROVIDERS.get(need_key, [])
+    if need_key != "voucher":
+        return list(providers)
+    from engine import experiments
+    if not experiments.is_enabled("m4_gear"):
+        return list(providers)
+    return [provider for provider in providers if provider[:2] != ("home", "凭证")]
+
+
+def ai_wallet(player) -> int:
+    """AI 钱包语义：m4 起凭证退役、信用点是唯一货币；此前仍读 vouchers。
+
+    统一全部发育决策的"钱"读点（D3 接地）：m4_gear 开启时返回 credits，
+    未开启逐字节保留旧 vouchers 行为。
+    """
+    from engine import experiments
+    if experiments.is_enabled("m4_gear"):
+        return int(getattr(player, "credits", 0) or 0)
+    return int(getattr(player, "vouchers", 0) or 0)
+
+
+def m4_item_price(location: str, item: str) -> int:
+    """m4 信用点价格（AI 预算用）：打工=单次收入；未定价条目按免费（0）处理。"""
+    from engine.balance import get as bget
+    if item == "打工":
+        return int(bget("economy", "faucets", "打工", default=2))
+    sinks = bget("economy", "sinks", default={}) or {}
+    if item in sinks:
+        return int(sinks[item])
+    if "手术" in item:
+        return int(bget("economy", "surgery_min_cost", default=4))
+    if item in ("通行证", "办理通行证"):
+        return int(bget("economy", "force_pass_min_cost", default=2))
+    return 0

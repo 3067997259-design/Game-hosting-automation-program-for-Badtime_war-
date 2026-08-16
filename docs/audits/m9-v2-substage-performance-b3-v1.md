@@ -10,7 +10,7 @@
 > [M9 结算合同 RFC v0.1](../m9/superseded/m9_resolution_contract_rfc_v0.1.md)、
 > [十四天赋接口 RFC v0.2](../m9/superseded/m9_talent_spotlight_rfc_v0.2.md)、
 > [警察与 T6 重置 RFC v0.1](../m9/superseded/m9_police_t6_reset_rfc_v0.1.md)、
-> [G3 投影固有结界 RFC v0.2](../m9/current/m9_g3_reality_marble_rfc_v0.2.md)
+> [G3 投影固有结界 RFC v0.3](../m9/current/m9_g3_reality_marble_rfc_v0.3.md)
 
 ## 一、B3 正式开批与 G2 分流
 
@@ -95,7 +95,7 @@ ActionGrant，删除了 T0 内递归内部轮。剩余风险集中在 G5：它�
 - 全局行动顺序继续，所有单位使用原有标准行动，普通移动改为破界/攻击锚点；
 - 无限剑制开放兵装、防壁、剑阵并存；不同投影接通理想燃烧，主动幻想崩坏占用正常行动
   并结束结界；
-- 详细合同见 [G3 投影固有结界 RFC v0.2](../m9/current/m9_g3_reality_marble_rfc_v0.2.md)。
+- 详细合同见 [G3 投影固有结界 RFC v0.3](../m9/current/m9_g3_reality_marble_rfc_v0.3.md)。
 
 ### 4.3 G5：仪式与适配器
 

@@ -312,7 +312,8 @@ class TestLLMBackendFactory(unittest.TestCase):
 
     def test_create_backend_no_config_returns_none(self):
         from ai_chat.llm_backend import create_backend
-        result = create_backend(config=None)
+        with patch("ai_chat.llm_backend.load_llm_config", return_value=None):
+            result = create_backend(config=None)
         self.assertIsNone(result)
 
     def test_create_backend_openai_config(self):

@@ -19,7 +19,7 @@ DecisionOrchestrator —— 新架构的核心决策编排器
   2 = 阶段详情（包含 Mind 关键数据）
   3 = 完整 MindAssessment 导出
 
-与旧架构完全独立：通过 new_arch_enabled 开关在 controller.py 中选择管道。
+与旧架构完全独立：C7 后作为唯一决策管道（`new_arch_enabled` 开关已退役）。
 """
 
 from __future__ import annotations
@@ -29,6 +29,39 @@ from controllers.ai.strategies.base_strategy import DecisionPhase
 from controllers.ai.minds.police_mind import PoliceStance
 from controllers.ai.game_query import GameQuery
 from controllers.ai.context import OrchestratorContext
+from engine.m9.text import m9_text
+
+
+def _read_m9_police_summary(state: Any) -> Dict[str, Any]:
+    """M9 警务摘要（m9_police → police_cache 兼容 dict）。
+
+    minds 仍按 v2exp dict 形状读取（cases/leader/captain/disabled 等键），
+    但值来自 m9_police 状态机；无 m9_police 时返回空 dict（minds 降级处理）。
+    """
+    police = getattr(state, "m9_police", None)
+    if police is None:
+        return {}
+    summary: Dict[str, Any] = {"m9_police": True}
+    try:
+        summary["cases"] = len(getattr(police, "cases", []) or [])
+        wanted = police.open_wanted()
+        summary["wanted"] = getattr(wanted, "suspect_id", None) \
+            if wanted is not None else None
+        summary["lead"] = police.lead_id
+        summary["captain"] = police.captain_id
+        summary["disabled"] = police.is_disabled()
+        roster = getattr(police, "_roster", []) or []
+        summary["has_police"] = bool(roster)
+        summary["roster"] = [
+            {"unit_id": u.unit_id, "location": getattr(u, "location", None),
+             "id": u.unit_id, "alive": u.is_alive(),
+             "is_alive": u.is_alive(), "is_active": u.is_active(),
+             "active": u.is_active(), "weapon": u.weapon_name}
+            for u in roster
+        ]
+    except Exception:
+        pass
+    return summary
 from controllers.ai.command_builder import (
     CombatCommandBuilder, DevelopCommandBuilder, PoliceCommandBuilder,
 )
@@ -67,6 +100,7 @@ class DecisionOrchestrator:
         self._strategy = strategy
         self._goal_stack = goal_stack
         self._talent_hooks = talent_hooks
+        self.talent_hook_resolver = None  # (profile, slot_id) 解析器（controller 注入）
         self._minds = minds
         if ai_state is None:
             from controllers.ai.ai_state import AIState
@@ -277,7 +311,18 @@ class DecisionOrchestrator:
 
         s = self._shared_state
         s.round_number = round_num
-        s.police_cache = self._query.read_police_state(state, player.player_id)
+        # 决策快照：供策略/minds 只读消费 M9 世界事实（含被毁地点过滤）
+        from controllers.ai.decision.snapshot import DecisionSnapshot
+        self._snapshot = DecisionSnapshot.build(player, state)
+        # 警务上下文：M9 读 m9_police 摘要；v2exp 走 GameQuery.read_police_state
+        from engine.m9.gate import m9_enabled
+        if m9_enabled(state):
+            s.police_cache = _read_m9_police_summary(state)
+            # police_cache 是全局摘要；按当前玩家补个人队长视图
+            s.police_cache["is_captain"] = (
+                s.police_cache.get("captain") == player.player_id)
+        else:
+            s.police_cache = self._query.read_police_state(state, player.player_id)
         s.political_fallback_level = (
             self._query.political_should_fallback(player, state)
             if self._strategy.supports_political_fallback() else "none"
@@ -296,23 +341,7 @@ class DecisionOrchestrator:
             self._star_prev_uses = current_uses
 
         # ★ 结界内过滤：移除 move、interact、find（结界内只能攻击同地点目标）
-        barrier = getattr(state, 'active_barrier', None)
-        if barrier:
-            in_barrier = False
-            if hasattr(barrier, 'is_in_barrier'):
-                in_barrier = barrier.is_in_barrier(player.player_id)
-            else:
-                barrier_players = getattr(barrier, 'barrier_players', [])
-                in_barrier = player.player_id in barrier_players
-            if in_barrier:
-                available_actions = [
-                    a for a in available_actions
-                    if a not in ("move", "interact", "find")
-                    and not a.startswith("move ")
-                    and not a.startswith("interact ")
-                    and not a.startswith("find ")
-                    and not a.startswith("interact ")
-                ]
+        available_actions = self._filter_barrier_actions(player, state, available_actions)
 
         my_loc = GameQuery.get_location_str(player)
         self._dbg(1, f"R{round_num} 开始决策 | 位置={my_loc} | 可用: {available_actions}")
@@ -322,14 +351,33 @@ class DecisionOrchestrator:
             self._dbg(1, "未起床 → wake")
             return self._finish_generate(["wake"])
 
+        # Step 0.5: 结构性反制必须先于自身天赋 hook。真实 M9 对局中人人有
+        # 天赋；若先让 hook 接管，被 G3 捕捉者会直接提前返回，永远走不到末尾
+        # 的 counter 层（此前 500 局破界候选恒为 0）。
+        try:
+            from controllers.ai.counter import counter_candidates
+            early_counters = counter_candidates(
+                player, self._snapshot, list(available_actions), state=state)
+            barrier_counters = [
+                cmd for cmd in early_counters if "破界" in str(cmd)
+            ]
+            if barrier_counters:
+                self._dbg(1, m9_text(
+                    "ai.orchestrator.counter_priority",
+                    counters=barrier_counters))
+                return self._finish_generate(
+                    self._dedup(barrier_counters + ["forfeit"]))
+        except Exception:
+            pass
+
         # Step 1: 天赋钩子接管
         override = self._check_talent_overrides(player, state, available_actions)
         if override is not None:
             self._dbg(1, f"天赋钩子接管 → {override}")
             return self._finish_generate(override)
 
-        # Step 2: 运行所有 Mind，收集态势快照
-        snapshots = self._run_all_minds(player, state)
+        # Step 2: 运行所有 Mind，收集态势快照（复用 generate 已建的决策快照）
+        snapshots = self._run_all_minds(player, state, projected=self._snapshot)
         self._dbg_mind_snapshots(snapshots)
 
         # ★ 战斗结束窗口管理：使用 combat_just_ended_at 信号
@@ -346,6 +394,39 @@ class DecisionOrchestrator:
         if "special" in available_actions and self._should_release_virus(player, state):
             candidates.append("special 释放病毒")
             self._dbg(1, "放毒: 释放病毒")
+
+        # Step 3.5: 通用治疗策略（所有天赋）——受伤（<40%）且无即时危险时，
+        # 回医院治疗（没钱先打工）。医院治疗是全局机制，任何 AI 都该会用；
+        # G0 等带专属 adapter 的天赋已在 Step 1 接管，不经过这里。
+        threat_snap = snapshots.get("threat")
+        in_danger = bool(threat_snap and threat_snap.data.get("danger", False))
+        if not self._danger_mode and not in_danger:
+            heal_cmds = self._wound_heal_candidates(
+                player, state, available_actions)
+            if heal_cmds:
+                self._dbg(1, f"受伤治疗 → {heal_cmds}")
+                return self._finish_generate(self._dedup(heal_cmds + ["forfeit"]))
+
+        # Step 3.6: 槽位 special 时机候选提前到阶段循环之前——
+        # T6 热线/竞选/指挥是政治线的第一候选，否则 DEVELOP/CAPTAIN 恒先于
+        # special，警察线永远排不上（diag_political_trace 证实 special=0/局）。
+        try:
+            resolver = getattr(self, 'talent_hook_resolver', None)
+            hook = resolver(player) if resolver is not None else None
+            if hook is not None and hasattr(
+                    hook, 'get_talent_special_candidates'):
+                talent_cmds = hook.get_talent_special_candidates(
+                    player, state, list(available_actions),
+                    snapshot=getattr(self, "_snapshot", None))
+                for cmd in talent_cmds:
+                    if cmd not in candidates:
+                        candidates.append(cmd)
+                if talent_cmds:
+                    self._dbg(2, m9_text(
+                        "ai.orchestrator.slot_special_pre",
+                        commands=talent_cmds))
+        except Exception:
+            pass
 
         phase_order = self._strategy.get_phase_order()
         handled_phases: List[str] = []
@@ -427,16 +508,132 @@ class DecisionOrchestrator:
             self._dbg(2, f"GoalStack补充: {goal_cmds}")
         candidates.extend(goal_cmds)
 
+        # Step 5.5: counter 层反制候选（capabilities 类目模板，如结界内破界）
+        try:
+            from controllers.ai.counter import counter_candidates
+            counter_cmds = counter_candidates(
+                player, getattr(self, "_snapshot", None), list(available_actions),
+                state=state)
+            for cmd in counter_cmds:
+                if cmd not in candidates:
+                    candidates.append(cmd)
+            if counter_cmds:
+                self._dbg(2, m9_text(
+                    "ai.orchestrator.counter_supplement",
+                    counters=counter_cmds))
+        except Exception:
+            pass
+
+        # Step 5.6: 槽位 special 时机候选（C 层简单版：T6 热线/竞选/指挥等）
+        try:
+            resolver = getattr(self, 'talent_hook_resolver', None)
+            hook = resolver(player) if resolver is not None else None
+            if hook is not None and hasattr(
+                    hook, 'get_talent_special_candidates'):
+                talent_cmds = hook.get_talent_special_candidates(
+                    player, state, list(available_actions),
+                    snapshot=getattr(self, "_snapshot", None))
+                for cmd in talent_cmds:
+                    if cmd not in candidates:
+                        candidates.append(cmd)
+                if talent_cmds:
+                    self._dbg(2, m9_text(
+                        "ai.orchestrator.slot_special_supplement",
+                        commands=talent_cmds))
+        except Exception:
+            pass
+
         candidates.append("forfeit")
         result = self._finalize(candidates, player, my_loc)
         return self._finish_generate(result)
 
+    def _filter_barrier_actions(self, player: Any, state: Any,
+                                available_actions: List[str]) -> List[str]:
+        """M9 事实接入：结界内（被困）只保留攻击/特殊动作，移除移动类。
+
+        兼容 M9：engine.m9 active_barrier(state) 是天赋实例（Mythland9，
+        用 _is_trapped 判定）；v2exp 读 state.active_barrier 属性。
+        """
+        from engine.m9.gate import m9_enabled
+        barrier = None
+        if m9_enabled(state):
+            try:
+                from engine.m9.talents.g3 import active_barrier as _m9_barrier
+                barrier = _m9_barrier(state)
+            except Exception:
+                barrier = None
+        if barrier is None:
+            barrier = getattr(state, 'active_barrier', None)
+        if barrier:
+            in_barrier = False
+            if hasattr(barrier, '_is_trapped'):
+                in_barrier = barrier._is_trapped(player)
+            elif hasattr(barrier, 'is_in_barrier'):
+                in_barrier = barrier.is_in_barrier(player.player_id)
+            else:
+                barrier_players = getattr(barrier, 'barrier_players', [])
+                in_barrier = player.player_id in barrier_players
+            if in_barrier:
+                return [
+                    a for a in available_actions
+                    if a not in ("move", "interact", "find")
+                    and not a.startswith("move ")
+                    and not a.startswith("interact ")
+                    and not a.startswith("find ")
+                    and not a.startswith("interact ")
+                ]
+        return list(available_actions)
+
     def _finalize(self, candidates: List[str], player, my_loc: str) -> List[str]:
-        """去重 + 过滤无效指令（如 move 到当前位置）"""
+        """去重 + 过滤无效指令（move 到当前位置 / M9 被毁地点 / 高威胁地点）"""
         deduped = self._dedup(candidates)
         filtered = self._filter_invalid_moves(deduped, my_loc)
+        filtered = self._filter_destroyed_moves(filtered)
+        filtered = self._filter_high_threat_moves(filtered, my_loc)
         self._dbg(1, f"最终候选({len(filtered)}条): {filtered}")
         return filtered
+
+    def _filter_high_threat_moves(self, candidates: List[str],
+                                  my_loc: str) -> List[str]:
+        """派生层消费：非战斗状态下，避免 move 到威胁显著高于当前位置的地点。
+
+        AssessmentLayer.location_threat = 每地点对手威胁分之和；威胁分量级
+        ≈ estimate_power（hp20 下单个对手 200-400）。阈值 400 ≈ 2 名对手压点
+        （低于此视为常规抢点/追人，不剔除）；且仅在目的地威胁 > 当前位置 1.5 倍
+        时剔除（已身处热点则移动不再受限）。
+        """
+        asm = getattr(self, "_assessment", None)
+        if asm is None or not asm.location_threat:
+            return candidates
+        if self._in_combat:
+            return candidates
+        my_threat = asm.location_threat.get(my_loc, 0.0)
+        out = []
+        for cmd in candidates:
+            if cmd.startswith("move "):
+                dest = cmd[5:].strip()
+                dest_threat = asm.location_threat.get(dest, 0.0)
+                if dest_threat > 400 and dest_threat > my_threat * 1.5:
+                    continue  # 2+ 对手压点且远高于当前位置，剔除白给移动
+            out.append(cmd)
+        return out
+
+    def _filter_destroyed_moves(self, candidates: List[str]) -> List[str]:
+        """M9：过滤 move 到被毁地点的指令（DecisionSnapshot.m9.destroyed_locations）。"""
+        snap = getattr(self, "_snapshot", None)
+        destroyed = ()
+        if snap is not None and snap.m9 is not None:
+            destroyed = snap.m9.destroyed_locations
+        if not destroyed:
+            return candidates
+        result = []
+        for cmd in candidates:
+            if cmd.startswith("move "):
+                dest = cmd[5:].strip()
+                if dest in destroyed:
+                    continue
+            result.append(cmd)
+        return result
 
     def _get_skip_reason(self, phase: DecisionPhase, snapshots: Dict, player) -> str:
         """返回跳过某个阶段的原因（调试用）"""
@@ -449,10 +646,10 @@ class DecisionOrchestrator:
                 return "无病毒"
         elif phase == DecisionPhase.EMERGENCY_SUPERNOVA:
             if not threat or not threat.data.get("supernova_threat"):
-                return "无超新星威胁"
+                return m9_text("ai.orchestrator.skip_no_supernova")
         elif phase == DecisionPhase.EMERGENCY_TERROR:
             if not threat or not threat.data.get("terror_info"):
-                return "无Terror"
+                return m9_text("ai.orchestrator.skip_no_terror")
         elif phase == DecisionPhase.SURVIVAL:
             if not threat or not threat.data.get("danger"):
                 return "非危险状态"
@@ -479,20 +676,36 @@ class DecisionOrchestrator:
 
     def _check_talent_overrides(self, player, state, available) -> Optional[List[str]]:
         talent_name = getattr(getattr(player, 'talent', None), 'name', '')
-        if talent_name and self._talent_hooks:
+        # 优先按 (profile, slot_id) 解析（M9 adapter 分派层）；回退显示名
+        resolver = getattr(self, 'talent_hook_resolver', None)
+        hook = resolver(player) if resolver is not None else None
+        if hook is None and talent_name and self._talent_hooks:
             hook = self._talent_hooks.get(talent_name)
-            if hook:
-                override = hook.should_override_candidates(player, state, available)
-                if override is not None:
-                    return override
+        if hook:
+            override = hook.should_override_candidates(player, state, available)
+            if override is not None:
+                return override
         return None
 
     # ════════════════════════════════════════════════════════
     #  Step 2: 运行所有 Mind
     # ════════════════════════════════════════════════════════
 
-    def _run_all_minds(self, player, state) -> Dict[str, Any]:
-        """运行所有 Mind，返回 {mind_name: MindAssessment}"""
+    def _run_all_minds(self, player, state, projected=None) -> Dict[str, Any]:
+        """运行所有 Mind，返回 {mind_name: MindAssessment}。
+
+        minds 快照化：构建 ProjectedSnapshot（全量不可变投影）+ AssessmentLayer
+        （派生容器），作为 snapshot/assessment 传入每个 mind；mind 内部优先消费
+        快照字段，缺失回退旧读法（渐进迁移，行为不变）。
+
+        `projected` 可由 generate() 传入（同一决策点已构建过），避免一次决策
+        重复投影 2~3 次。"""
+        from controllers.ai.decision.snapshot import (
+            AssessmentLayer, ProjectedSnapshot)
+        projected = projected or ProjectedSnapshot.build(player, state)
+        assessment = AssessmentLayer()
+        self._snapshot = projected
+        self._assessment = assessment
         snapshots = {}
 
         # 1. PoliceMind (先跑，为其他 Mind 提供 police 上下文)
@@ -507,6 +720,8 @@ class DecisionOrchestrator:
                     threat_scores=self._shared_state.threat_scores,
                     my_location=self._query.get_location_str(player),
                     strategy=self._strategy,
+                    snapshot=projected,
+                    assessment=assessment,
                 )
                 # PoliceMind.assess() 返回 PoliceSituation，包装为 MindAssessment
                 from controllers.ai.minds.base import MindAssessment
@@ -535,6 +750,8 @@ class DecisionOrchestrator:
                     llm_aggression_mod=ctx.llm_aggression_mod,
                     polices_cache=polices_cache,
                     ctx=self._build_ctx(state),
+                    snapshot=projected,
+                    assessment=assessment,
                 )
                 # 更新 EMA 威胁分
                 self._threat_scores = snapshots["threat"].data.get("threat_scores", {})
@@ -544,9 +761,20 @@ class DecisionOrchestrator:
         # 3. DevelopMind
         for mind in self._minds:
             if mind.__class__.__name__ == "DevelopMind":
+                merged_hooks = dict(self._talent_hooks or {})
+                resolver = getattr(self, "talent_hook_resolver", None)
+                if resolver is not None:
+                    try:
+                        slot_hook = resolver(player)
+                        if slot_hook is not None:
+                            merged_hooks["__slot__"] = slot_hook
+                    except Exception:
+                        pass
                 snapshots["develop"] = mind.assess(
                     player, state, self._strategy,
-                    talent_hooks=self._talent_hooks,
+                    talent_hooks=merged_hooks,
+                    snapshot=projected,
+                    assessment=assessment,
                 )
                 break
 
@@ -580,9 +808,13 @@ class DecisionOrchestrator:
                     star_follow_up_rounds=ctx.star_follow_up_rounds,
                     llm_aggression_mod=ctx.llm_aggression_mod,
                     players_who_attacked=ctx.players_who_attacked,
+                    snapshot=projected,
+                    assessment=assessment,
                 )
                 break
 
+        # 派生层回写：minds 写入的 AssessmentLayer 字段由 orchestrator 共享
+        self._assessment = assessment
         return snapshots
 
     def _build_police_context(self, player, state) -> Dict:
@@ -689,7 +921,8 @@ class DecisionOrchestrator:
         # ★ 星野玩家已在 ThreatMind._detect_terror_threat() 中排除，此处无需再检查
 
         target = terror_info["target"]
-        debug_ai_basic(player.name, f"Terror威胁！紧急集火 {target.name}")
+        debug_ai_basic(player.name, m9_text(
+            "ai.orchestrator.terror_threat", target=target.name))
 
         cmds = self._build_forced_attack_commands(player, state, available, target)
         if cmds:
@@ -699,6 +932,42 @@ class DecisionOrchestrator:
         return []
 
     # ── 危险模式 ──
+    _WOUND_HEAL_THRESHOLD_PCT = 0.4  # 通用治疗阈值（与 G0 adapter 一致）
+
+    def _wound_heal_candidates(self, player, state, available) -> List[str]:
+        """通用治疗策略：受伤（<40% HP）→ 医院治疗链（没钱先打工攒费）。
+
+        医院治疗是全局机制（+6 HP / 2 信用点），任何 AI 都应会用；
+        返回空列表 = 无需治疗或无法治疗（交回正常阶段决策）。
+        available 只含类别名（"move"/"interact"），完整命令须经
+        build_action_options 枚举（与 _G0Adapter 同源）。
+        """
+        if "interact" not in available and "move" not in available:
+            return []
+        hp = float(getattr(player, "hp", 0) or 0)
+        max_hp = float(getattr(player, "max_hp", 20) or 20)
+        if hp <= 0 or hp >= max_hp * self._WOUND_HEAL_THRESHOLD_PCT:
+            return []
+        from engine.action_enumerator import build_action_options
+        loc = getattr(player, "location", None)
+        if loc == "医院":
+            if "interact" not in available:
+                return []
+            interacts = set(build_action_options(
+                player, state, ["interact"]).get("interact", []) or [])
+            if "interact 治疗" in interacts:
+                from controllers.ai.constants import ai_wallet
+                if float(ai_wallet(player) or 0) >= 2:
+                    return ["interact 治疗"]
+                return ["interact 打工"] if "interact 打工" in interacts else []
+            return []
+        if "move" in available:
+            moves = set(build_action_options(
+                player, state, ["move"]).get("move", []) or [])
+            if "move 医院" in moves:
+                return ["move 医院"]
+        return []
+
     def _handle_survival(self, player, state, available, snapshots, round_num) -> List[str]:
         threat = snapshots.get("threat")
         if not threat:
@@ -934,6 +1203,26 @@ class DecisionOrchestrator:
         )
         if dev_complete and combat.data.get("combat_ready"):
             best_target = combat.data.get("best_target")
+            if best_target is None:
+                # 派生层消费：CombatMind 未选出目标时，用快照威胁目标降级
+                # （AssessmentLayer.combat_target = 威胁最高的存活对手）
+                asm = getattr(self, '_assessment', None)
+                asm_target = asm.combat_target if asm is not None else None
+                if asm_target:
+                    t = state.get_player(asm_target)
+                    if t and t.is_alive():
+                        best_target = t
+            if best_target:
+                # 对齐 political 禁战门：非队长 political 不主动开新战斗
+                # （should_continue_combat 在持续战斗路径生效，但本开战路径
+                # 此前直接绕过了它）。
+                if not self._query.should_continue_combat(
+                        player, best_target, state, self._strategy,
+                        self._personality,
+                        self._shared_state.political_fallback_level):
+                    self._dbg(1, f"禁战门拦截开战目标 {best_target.name}，"
+                                 f"转交其他阶段处理")
+                    best_target = None
             if best_target:
                 combat_cmds = self._build_forced_attack_commands(player, state, available, best_target)
                 if combat_cmds:

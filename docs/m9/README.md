@@ -1,7 +1,9 @@
 # M9 设计文档入口
 
 > **Profile**：`m9-rfc`
-> **状态**：用户批准方向下的设计候选，尚未进入 `v2exp` 现行规则
+> **状态**：已实现为独立 profile；风洞/数值校准已完成首轮收敛（5000 局验收通过，
+> 见 [`current/m9_windtunnel_calibration_2026-09.md`](current/m9_windtunnel_calibration_2026-09.md)）；
+> 尚未并入 `v2exp`/`legacy`，也尚未设为默认 profile
 > **当前行动规则**：[`current/m9_action_system_rfc_v0.8.md`](current/m9_action_system_rfc_v0.8.md)
 > **当前结算合同**：[`current/m9_resolution_contract_rfc_v0.3.md`](current/m9_resolution_contract_rfc_v0.3.md)
 > **当前天赋接口**：[`current/m9_talent_spotlight_rfc_v0.5.md`](current/m9_talent_spotlight_rfc_v0.5.md)
@@ -10,10 +12,12 @@
 > **当前十四诗篇合同**：[`current/m9_g5_poems_rfc_v0.1.md`](current/m9_g5_poems_rfc_v0.1.md)
 > **当前 PP / 往世层合同**：[`current/m9_pp_afterlife_betting_rfc_v0.4.md`](current/m9_pp_afterlife_betting_rfc_v0.4.md)
 > **当前评分指针**：[`current/m9_pp_afterlife_scoring_rfc_v0.1.md`](current/m9_pp_afterlife_scoring_rfc_v0.1.md)
+> **当前剧情分合同**：[`current/m9_arc_universal_rfc_v0.1.md`](current/m9_arc_universal_rfc_v0.1.md)
 > **当前 G0 世界援助补充合同**：[`current/m9_g0_world_poem_aid_rfc_v0.1.md`](current/m9_g0_world_poem_aid_rfc_v0.1.md)
 > **当前 G3 连续投影补充合同**：[`current/m9_g3_chain_projection_rfc_v0.1.md`](current/m9_g3_chain_projection_rfc_v0.1.md)
 > **单文件玩家手册**：[`m9_player_manual_candidate_v0.1.md`](m9_player_manual_candidate_v0.1.md)
 > **当前维护批次**：[`../audits/m9-b5-paper-simulation-v0.4.md`](../audits/m9-b5-paper-simulation-v0.4.md)
+> **文本治理**：[`text_migration_plan.md`](text_migration_plan.md) + `data/prompts.json` 的 `m9` 命名空间；新增 M9 中文文案受 `tests/test_m9_text_governance.py` 约束
 
 本页是 M9 的唯一推荐入口。它只负责说明“当前读什么、哪些决定已经冻结、哪些仍待验证”，
 不复制详细规则。直接从旧 RFC、旧推演或修改日期判断权威，容易把已经否决的机制重新带回
@@ -23,22 +27,33 @@
 
 | 状态 | 含义 | 玩家现在是否照此游玩 |
 |---|---|---:|
-| `v2exp` 现行规则 | 当前实验档案与实现使用的规则 | 是 |
-| `m9-rfc` 当前候选 | 已接受的下一代设计方向，仍需纸面模型与原型验证 | 否 |
+| `legacy` / `v2exp` 现行规则 | 默认配置与实验档案实现使用的规则 | 是（按所设 profile） |
+| `m9-rfc` 当前开发主线 | 已实现为独立 profile，进行风洞/数值校准 | 是（显式 `--profile m9-rfc`） |
 | M9 历史材料 | 被取代的方案、旧推演和考古证据 | 否 |
 
-要查询现在实际怎么玩，请返回[模块化 V2 手册](../handbook/README.md)。本目录不覆盖现行
-手册，也不表示 M9 已经实装。
+查询现在实际怎么玩：默认 profile 请返回[模块化 V2 手册](../handbook/README.md)；
+M9 规则请以本目录 `current/` RFC 为准，运行口径为 `--profile m9-rfc`。
+本目录不覆盖 legacy/v2exp 手册，但 M9 已实装并可运行。
 
 ## 面向玩家的单文件手册
 
+**模块化装配（推荐）**：`docs/m9/manual/manifest.json` + `tools/m9_handbook.py`。
+作者源是 `docs/m9/manual/core/` 下的模块；`⟦bal:...⟧` 从 `data/balance.json`
+渲染到 `complete.generated.md`。命令：
+
+```powershell
+python tools/m9_handbook.py build   # 生成作者版 + 玩家版
+python tools/m9_handbook.py check   # 校验模块哈希/依赖/权威范围/生成产物
+python tools/m9_handbook.py context milestone --paths-only
+```
+
 [`M9 候选玩法手册 v0.1`](m9_player_manual_candidate_v0.1.md) 把基础游戏、M9 行动/伤害、
 PP/往世层、警察、T1–T4、T6–T7、G0–G7、锚定与十四诗篇整合为一份连续玩家文本。它只用于审阅、
-纸面局与实现验收，不取代下方 19 份规范合同；冲突时始终以 `current/` RFC 为准。
+纸面局与实现验收，不取代下方 20 份规范合同；冲突时始终以 `current/` RFC 为准。
 该手册早于 G0 世界援助与 G3 连续投影两份增量合同，v0.1 尚未整合二者；涉及这些主题时必须
 直接读取对应 `current/` RFC。
 
-当前 `current/` **总计 19 份合同**。其中此前 17 份合同对应的实现权威矩阵与
+当前 `current/` **总计 20 份合同**（不含数值台账 `m9_windtunnel_calibration_2026-09.md`）。其中此前 17 份合同对应的实现权威矩阵与
 Given/When/Then 场景见
 [`M9 实现就绪矩阵 v0.1`](../audits/m9-implementation-readiness-v0.1.md)；该审计早于 G0 世界援助
 与 G3 连续投影两份增量合同。这里的“17”是旧审计的输入范围，不是当前合同计数；两份增量
@@ -59,7 +74,7 @@ Given/When/Then 场景见
 | 额外行动还存在吗？ | 存在，但仅是明文白名单授予的最高级规则豁免 |
 | 完整额外行动来源 | T4「或跃在渊」、G5「地火」诗与 G4 负世主动燃尽 |
 | M9 有哪些天赋？ | 原初 T1–T4、T6–T7，加神代 G0–G7，共 14 个；G0 已取代原 T5 槽位 |
-| T3 天星怎样释放？ | 仅能以 2 SP 公演，选择任一仍存在的地图地点；无即演入口 |
+| T3 天星怎样释放？ | 仅能以 2 SP 公演；在公演实际执行时于发动者当前所在地点原地释放（无地点选择 UI、不远程投放）；无即演入口 |
 | 十四套天赋资源怎么办？ | 只保留会改变玩家决策的专属状态；纯次数、充能和冷却交给 SP |
 
 普通轮次的阅读顺序是：
@@ -78,12 +93,22 @@ R0 自动状态与公演排期
 
 ---
 
+## AI 策略设计参考
+
+新增 `ai/` 子目录，面向 BasicAI/RL 策略设计：`ai/talents.md` 是策略接口事实的单一入口
+（世界模型/交互矩阵/评分器草案/Policy 协议），槽位卡分片为 `ai/slots_*.md`；
+语义权威仍是 `current/` RFC，`ai/` 只承诺决策接口事实；治理：
+`tests/test_talents_md_sync.py` 保证接口清单与 adapter 源码同步。
+
+---
+
 ## 当前权威与推荐阅读顺序
 
 | 顺序 | 文档 | 负责回答 | 身份 |
 |---:|---|---|---|
 | 1 | 本页 | 当前版本、边界、阅读路线 | 导航 |
 | 2 | [行动系统 RFC v0.8](current/m9_action_system_rfc_v0.8.md) | 行动槽、先攻、SP 分层、即演、公演、完整额外行动、自动置 SP2 白名单 | 当前候选 |
+| 2.5 | [AI 策略设计参考](ai/talents.md) | M9 决策接口事实（T0 选项/situation/经济门/世界事实读写）与 AI 策略设计约定 | 设计参考（AI 策略） |
 | 3 | [结算合同 RFC v0.3](current/m9_resolution_contract_rfc_v0.3.md) | 状态、控制优先级、伤害、绝对死亡、公共收尾与 `ActionGrant` | 当前候选 |
 | 4 | [天赋演出接口 RFC v0.5](current/m9_talent_spotlight_rfc_v0.5.md) | 被动、转折、M9 十四个活跃天赋与 G5 诗篇的实现索引 | 当前候选 |
 | 5 | [天赋行动迁移合同 RFC v0.3](current/m9_talent_action_contract_rfc_v0.3.md) | T2/T4/G4/G6/G7 的行动迁移语义与 T5 退役登记 | 当前候选 |
@@ -91,7 +116,7 @@ R0 自动状态与公演排期
 | 6 | [G4 救世主轮回 RFC v0.3](current/m9_g4_savior_cycle_rfc_v0.3.md) | 十二火种轮回、挑战快照、毁伤、焚诏、反击与死星天裁 | 当前候选；数值待风洞 |
 | 7 | [警察与 T6 联合重置 RFC v0.3](current/m9_police_t6_reset_rfc_v0.3.md) | 案件、通缉、固定警力、队长、掩体、停机收尾与 T6 配装 | 当前候选；数值待风洞 |
 | 8 | [G2 光影双身与世末终曲 RFC v0.3](current/m9_g2_holographic_presence_rfc_v0.3.md) | 光身/影身双 actor、真实装备与双槽、消散归还、永久终曲区域 | 当前候选；数值待风洞 |
-| 9 | [G3 投影固有结界 RFC v0.2](current/m9_g3_reality_marble_rfc_v0.2.md) | 魔力、投影白名单、捕捉、剑阵、锚点、破界与幻想崩坏 | 当前候选；数值待风洞 |
+| 9 | [G3 投影固有结界 RFC v0.3](current/m9_g3_reality_marble_rfc_v0.3.md) | 魔力、投影白名单、捕捉、剑阵、锚点、破界、幻想崩坏、兵装池与超限灌注 | 当前候选；数值待风洞 |
 | 9.6 | [G3 连续投影合同 RFC v0.1](current/m9_g3_chain_projection_rfc_v0.1.md) | 宝具连发子循环、累计耗魔阈值、「赤原猎风」即时效果与终段崩坏 | 当前候选；局部取代 G3 v0.2 §8.2 一次性崩坏形态；数值待风洞 |
 | 10 | [G5 轮回培养与锚定脚本 RFC v0.4](current/m9_g5_anchor_contract_rfc_v0.4.md) | 小昔涟轮回、德谬歌有限追忆、玩家自写 K 槽脚本、候选事件、回溯与闭合退场 | 当前候选；数值待风洞 |
 | 10.1 | [G5 十四诗篇合同 RFC v0.1](current/m9_g5_poems_rfc_v0.1.md) | 十四诗篇、七枚简化标记、爱愿与跨合同边界 | 唯一规范正文；数值待风洞 |
@@ -102,6 +127,8 @@ R0 自动状态与公演排期
 | 10.8 | [G0 世界援助合同 RFC v0.1](current/m9_g0_world_poem_aid_rfc_v0.1.md) | 黑马援助更名「此诗，献予世界」；本局含 G0 时替换为「昨日的同伴」两式 | 当前候选；数值待风洞 |
 | 11 | [PP、往世层投注与魂援系统 RFC v0.4](current/m9_pp_afterlife_betting_rfc_v0.4.md) | PP、投注、往世层、交易、26 项援助与简化诗篇入口 | 当前候选；数值待风洞 |
 | 11.5 | [评分系统指针与延伸 RFC v0.1](current/m9_pp_afterlife_scoring_rfc_v0.1.md) | 生死评分、绝对死亡、G0 退场与水晶花评分挂接 | 当前候选；数值待风洞 |
+| 11.55 | [通用剧情分三章制完结条 RFC v0.1](current/m9_arc_universal_rfc_v0.1.md) | 全员 `arc_cap=3`、一章一事、顺序解锁、第一章=首次真实公演、登台优先、十四槽位章节表 | 当前候选；数值待风洞 |
+| 11.6 | [风洞校准与数值台账 2026-09](current/m9_windtunnel_calibration_2026-09.md) | 5000 局验收结果、风洞期间机制校准裁决、`m9_talents_extended`/`m9_system` 终值与槽位得分系数 | 当前数值权威（与 `data/balance.json` 同步） |
 | 12 | [三货币统一系统原稿](drafts/m9_unified_currency_design.md) | 信用点、PP、魂援、投注等原始构想 | 部分失效草案；SP 已被 v0.8 取代，PP/魂援/投注已被 RFC v0.4 取代 |
 | 13 | [矛盾与待决台账](../contradictions.md) | 尚未收口的冲突、实现差异和验证任务 | 决策台账 |
 
@@ -174,7 +201,9 @@ G4（已有完整 RFC）、G1（原作者重置构想已整理为火萤燃烧循
 18. G3 不再迁移单目标时停猜拳。新核心以魔力投影螺旋剑、双刀、七重圆环和见证过的普通
     武器；2 SP 公演把当前地点替换为捕捉全部战斗单位的固有结界，但全局行动顺序继续，
     不生成内部行动。无限剑制开放兵装/防壁/剑阵并存，并以理想燃烧—幻想崩坏收束。
-19. G5 最新重置（2026-08-10）：开局为有限寿命的小昔涟，普通致死/到期回家并封存追忆；
+19. G5 最新重置（2026-08-10；2026-08-13 补充世界时钟裁决）：开局为有限寿命的小昔涟，
+    黎明/白昼普通致死或到期回家并封存追忆；黄昏起本世结束会立即强制诞生德谬歌，终焉
+    或只剩最后两个有效身份时则恢复正常死亡流程；
     有限转世后诞生德谬歌，追忆从此不再增长。锚定支付 K 追忆，由玩家公开填写 K 个基础
     行动，系统顺序投影并从差分抽取击败/摧毁/位移/获得事件；不声明预设结果、不搜索路径、
     不生成真实行动。候选事件按槽截止自然实现或以同一来源动作对实时状态再投影；成功安全
@@ -214,15 +243,15 @@ G4（已有完整 RFC）、G1（原作者重置构想已整理为火萤燃烧循
     终段崩坏保留原统一攻击与解除结界语义。赤原猎风为即时效果，不进入通用状态名录；
     行动 RFC 下次升版应收容“敌意 SP 扣减”公共类目。
 
-“已冻结”只表示后续 M9 设计应以此为前提，不表示已经修改 `v2exp` 或代码。
+“已冻结”只表示后续 M9 设计应以此为前提；代码实现位于 `engine/m9/` 并在
+`--profile m9-rfc` 下运行，但不修改 `v2exp`/`legacy` 行为。
 
 ## 尚未冻结的内容
 
-- 全部 `[待风洞]` 数值：G4 余烬生命/毁伤/减伤/反击/天裁/残缺形态时长，警力数量/案件
-  证据/掩体/威信/队长/T6 配装，G3 魔力/投影/破界/连发段数与成本/赤原猎风阈值，G1 繁育
-  与超击破，G2 影身 HP、终曲
-  易伤/共享/偏转/听众门槛，
-  B4 二十六项援助、世界援助治疗量等；各机制的选择权、时点、目标、生命周期与失败分支已经冻结；
+- 除 [`风洞校准台账`](current/m9_windtunnel_calibration_2026-09.md) 已登记的终值外，仍待风洞/治理的
+  数值：G4 余烬生命池公式（`consumed × 2` 尚未外提）、B4 二十六项援助与诗篇扩展
+  部分键、世界援助治疗量等；各机制的选择权、时点、目标、生命周期与失败分支已经冻结；
+  **出游玩手册请以 `data/balance.json` 与校准台账 §四为数值口径**；
 - 原型必须记录 W1 的监测指标（第一轮即演数、每人连续即演长度、六人每轮演出总数、公演
   队列空置率）；实测连续三轮即演中位数超过 4 次时重开限频；
 - G5 小昔涟寿命/世数/诞生追忆分布、K 选择、候选事件自然/绝对实现率、闭合退场节奏，
@@ -230,7 +259,8 @@ G4（已有完整 RFC）、G1（原作者重置构想已整理为火萤燃烧循
 - 旧天赋、装备与状态来源逐项迁往新状态和伤害合同的细节；
 - 即演并发、公演等待和完整额外行动的模型结果（W1 已接受当前高频即演稳态，模型仍需
   按 v0.8 合同重跑）；
-- M9 迁入 `v2exp` 的版本计划与代码实现。
+- M9 迁入 `v2exp`/默认 profile 的版本计划（代码实现已完成于 `engine/m9/` 与
+  `m9-rfc` profile，风洞与数值校准进行中）。
 
 这些问题应该各自形成小型 RFC、审计或风洞报告；面向玩家的单文件 M9 手册只整合已冻结
 玩法，不承担继续发明机制的职责。

@@ -5,6 +5,7 @@
 """
 
 import getpass
+from engine.m9.text import m9_text
 from engine.prompt_manager import prompt_manager, show_info as pm_show_info, show_error as pm_show_error, show_warning as pm_show_warning
 
 
@@ -128,9 +129,18 @@ def show_action_turn_header(player_name):
 
 
 def show_player_status(player, game_state):
-    """显示单个玩家状态"""
+    """显示单个玩家状态（M9-rfc 使用 cli/m9_ui 的统一视图）。"""
+    try:
+        from engine.m9.gate import m9_enabled
+        if m9_enabled(game_state):
+            from cli.m9_ui import show_player_status as _m9_status
+            _m9_status(player, game_state)
+            return
+    except Exception:
+        pass
     print()
     print(player.describe_status())
+    _print_m9_player_resources(player, game_state)
 
     marker_desc = game_state.markers.describe_markers(player.player_id)
     if marker_desc != "无异常":
@@ -233,8 +243,46 @@ def show_death(player_name, cause):
         print(death_text)
 
 
+def _print_m9_player_resources(player, game_state):
+    """status 输出追加 M9 专属资源：SP / 剧情分 / PP。"""
+    try:
+        from engine.m9.gate import m9_enabled
+        if not m9_enabled(game_state):
+            return
+    except Exception:
+        return
+    m9 = getattr(game_state, "m9_system", None)
+    if m9 is None:
+        return
+    parts = [m9_text("display.status_sp", sp=m9.get_sp(player.player_id))]
+    arc = getattr(game_state, "m9_arc", None)
+    if arc is not None:
+        try:
+            chapters = arc.chapters_of(player.player_id) or set()
+            parts.append(m9_text("display.status_arc", chapters=len(chapters)))
+        except Exception:
+            pass
+    pp = getattr(game_state, "m9_pp", None)
+    if pp is not None:
+        try:
+            parts.append(m9_text("display.status_pp",
+                                 pp=pp.balance(player.player_id)))
+        except Exception:
+            pass
+    print("  " + " | ".join(parts))
+
+
 def show_police_status(game_state):
-    """显示警察系统状态"""
+    """显示警察系统状态（M9-rfc 使用 cli/m9_ui 的统一视图）。"""
+    try:
+        from engine.m9.gate import m9_enabled
+        if m9_enabled(game_state):
+            from cli.m9_ui import show_police_status as _m9_police
+            _m9_police(game_state)
+            return
+    except Exception:
+        pass
+
     header = prompt_manager.get_prompt("game", "police_status_header", default=f"\n{'='*50}\n  🚔 警察系统状态\n{'='*50}")
     print(header)
 
@@ -301,8 +349,17 @@ def show_virus_deaths(dead_players):
             print(virus_death_text)
 
 
-def show_help():
-    """显示指令帮助"""
+def show_help(game_state=None):
+    """显示指令帮助（M9-rfc 使用 cli/m9_ui 的统一视图）。"""
+    try:
+        if game_state is not None:
+            from engine.m9.gate import m9_enabled
+            if m9_enabled(game_state):
+                from cli.m9_ui import show_help as _m9_help
+                _m9_help(game_state)
+                return
+    except Exception:
+        pass
     help_text = prompt_manager.get_prompt("help", "main", default="""\n╔═══════════════════════════════════════════════════════════════╗
 ║                        指令帮助                               ║
 ╠═══════════════════════════════════════════════════════════════╣
@@ -384,7 +441,15 @@ def prompt_choice(prompt_text, options):
 
 
 def show_all_players_status(game_state):
-    """显示全场玩家状态"""
+    """显示全场玩家状态（M9-rfc 使用 cli/m9_ui 的统一视图）。"""
+    try:
+        from engine.m9.gate import m9_enabled
+        if m9_enabled(game_state):
+            from cli.m9_ui import show_all_players_status as _m9_all
+            _m9_all(game_state)
+            return
+    except Exception:
+        pass
     header = prompt_manager.get_prompt("ui", "all_players_status_header", default=f"\n{'='*50}\n  📊 全场玩家状态\n{'='*50}")
     print(header)
 
@@ -394,6 +459,7 @@ def show_all_players_status(game_state):
             alive_str = "存活" if p.is_alive() else "☠️ 已死亡"
             print(f"\n  [{alive_str}]")
             print(p.describe_status())
+            _print_m9_player_resources(p, game_state)
             marker_desc = game_state.markers.describe_markers(pid)
             if marker_desc != "无异常":
                 print(f"  状态标记：{marker_desc}")

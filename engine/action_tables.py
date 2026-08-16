@@ -88,8 +88,9 @@ WEAPONS: List[str] = [
     "电磁步枪",     # 7
     "高斯步枪",     # 8
     "导弹",         # 9
+    "弓",           # 10 — 基础远程武器（商店/掉落可得；M9 G0 自带）
 ]
-assert len(WEAPONS) == 10
+assert len(WEAPONS) == 11
 
 # ══════════════════════════════════════════════════════════════════
 #  法术前置依赖（与 magic_institute.PREREQUISITES 保持一致）

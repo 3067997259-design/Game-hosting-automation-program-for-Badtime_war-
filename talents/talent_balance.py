@@ -21,11 +21,20 @@ def m7_enabled() -> bool:
 def talent_num(talent_key: str, *value_keys: str, v1: Any) -> Any:
     """读天赋数值：m7 下读 balance.json talents.{talent_key}.{value_keys}，否则 v1。
 
-    用法：talent_num("g1", "attack_bonus", v1=2.0)  # m7=3, v1=2.0
-    缺键静默回退 v1（每个天赋只声明自己有的键）。
+    M9-rfc 下 G7 的战术数值路由到 m9_talents_extended.g7（独立分区），
+    使风洞调参真正作用到运行代码；v2exp/legacy 仍读 talents.g7。
     """
     if not m7_enabled():
         return v1
+    if talent_key == "g7" and value_keys \
+            and experiments.is_enabled("m9_rfc"):
+        key = value_keys[0]
+        mapped = {
+            "armor_pierce_durability_cost": "archer_break_armor_loss",
+        }.get(key, key)
+        node = bget("m9_talents_extended", "g7", default={}) or {}
+        if isinstance(node, dict) and mapped in node:
+            return node[mapped]
     node = bget("talents", talent_key, default={}) or {}
     for k in value_keys:
         if not isinstance(node, dict) or k not in node:

@@ -35,7 +35,19 @@ def execute(player, target_id, game_state):
     if m4_enabled():
         piles = getattr(game_state, 'arrow_piles', {})
         ground = piles.get(player.location, 0)
-        if ground > 0 and player.has_weapon("弓"):
+        g0_talent = getattr(player, "talent", None)
+        if (ground > 0 and g0_talent is not None
+                and hasattr(g0_talent, "receive_arrows")):
+            res = g0_talent.receive_arrows(ground, source="find_arrow_pile")
+            consumed = res["arrows_consumed"]
+            loaded = res["bullets_loaded"]
+            if consumed > 0:
+                # 只扣除实际转化的箭数（弹匣空间不足时保留剩余箭堆）
+                piles[player.location] = ground - consumed
+                msg += f"\n   🔫 将 {consumed} 支箭转化并装填 {loaded} 发子弹"
+            else:
+                msg += "\n   🔫 弹匣已满，箭堆未动"
+        elif ground > 0 and player.has_weapon("弓"):
             from engine.balance import get as _bget
             max_arrows = _bget("bow", "max_arrows", default=6)
             take = min(ground, max_arrows - player.arrows)
@@ -61,7 +73,20 @@ def _pick_up_loot(player, loot, game_state):
         player.credits = getattr(player, "credits", 0) + loot["credits"]
         picked.append(f"{loot['credits']} 信用点")
         loot["credits"] = 0
-    if loot.get("arrows", 0) > 0 and player.has_weapon("弓"):
+    g0_talent = getattr(player, "talent", None)
+    if (loot.get("arrows", 0) > 0 and g0_talent is not None
+            and hasattr(g0_talent, "receive_arrows")):
+        arrows = loot["arrows"]
+        res = g0_talent.receive_arrows(arrows, source="ground_loot")
+        consumed = res["arrows_consumed"]
+        loaded = res["bullets_loaded"]
+        if consumed > 0:
+            # 只扣除实际转化的箭数（弹匣空间不足时保留剩余掉落箭）
+            loot["arrows"] = arrows - consumed
+            picked.append(f"{consumed} 支箭→{loaded} 发子弹")
+        else:
+            picked.append("弹匣已满（箭未动）")
+    elif loot.get("arrows", 0) > 0 and player.has_weapon("弓"):
         from engine.balance import get as _bget
         max_arrows = _bget("bow", "max_arrows", default=6)
         take = min(loot["arrows"], max_arrows - player.arrows)
@@ -69,17 +94,44 @@ def _pick_up_loot(player, loot, game_state):
             player.arrows += take
             loot["arrows"] -= take
             picked.append(f"{take} 支箭")
-    from models.equipment import make_weapon, make_armor, make_item
-    for wname in list(loot.get("weapons", [])):
-        w = make_weapon(wname)
+    from models.equipment import make_armor, make_item, make_weapon
+
+    def unpack(entry, kind):
+        if isinstance(entry, dict):
+            return (entry.get("name", ""), entry.get("object"),
+                    entry.get("source_slot", ""))
+        factory = {
+            "weapon": make_weapon,
+            "armor": make_armor,
+            "item": make_item,
+        }[kind]
+        return entry, factory(entry), ""
+
+    def mark_relic(name, source_slot, kind):
+        if (source_slot and g0_talent is not None
+                and hasattr(g0_talent, "mark_relic")):
+            g0_talent.mark_relic(name, source_slot, kind=kind)
+
+    for entry in list(loot.get("weapons", [])):
+        wname, w, source_slot = unpack(entry, "weapon")
         if w and not player.has_weapon(wname):
             player.add_weapon(w)
-            loot["weapons"].remove(wname)
+            loot["weapons"].remove(entry)
             picked.append(wname)
-    for iname in list(loot.get("items", [])):
-        it = make_item(iname)
+            mark_relic(wname, source_slot, "weapon")
+    for entry in list(loot.get("armor", [])):
+        aname, piece, source_slot = unpack(entry, "armor")
+        if piece:
+            ok, _ = player.add_armor(piece)
+            if ok:
+                loot["armor"].remove(entry)
+                picked.append(aname)
+                mark_relic(aname, source_slot, "armor")
+    for entry in list(loot.get("items", [])):
+        iname, it, source_slot = unpack(entry, "item")
         if it:
             player.add_item(it)
-            loot["items"].remove(iname)
+            loot["items"].remove(entry)
             picked.append(iname)
+            mark_relic(iname, source_slot, "item")
     return picked

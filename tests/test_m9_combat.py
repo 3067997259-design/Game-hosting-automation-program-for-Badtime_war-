@@ -65,6 +65,21 @@ class AHPhaseTest(unittest.TestCase):
         r = resolve_damage(_FakePlayer("a"), target, _weapon(damage=4), None)
         self.assertEqual(r["final_damage"], 1)
 
+    def test_probe_is_read_only_on_durability(self) -> None:
+        """同源探针只算账：damage/broken 照出，耐久磨损不落盘（§3.1 只读）。"""
+        target, piece = _shield_target()
+        hit = combat.resolve_hit_probe(target, 5, "普通")
+        self.assertEqual(hit.damage, 3)            # 账目正常（5−2 防）
+        self.assertEqual(piece.durability, 8)      # 耐久未被探针磨损
+        # 耐低盾：探针照报 broken，但世界状态不落盘
+        piece2 = ArmorPiece("盾牌", Attribute.ORDINARY, ArmorLayer.OUTER, 1.0,
+                            defense_map={"普通": 2}, durability=1)
+        target2 = _FakePlayer(
+            hp=20, armor=type("A", (), {"outer": [piece2]})())
+        hit2 = combat.resolve_hit_probe(target2, 5, "普通")
+        self.assertIn("盾牌", hit2.broken)
+        self.assertEqual(piece2.durability, 1)
+
     def test_broken_armor_reported(self) -> None:
         """盾耐久 2、6 伤：吸收 2 磨碎，其余 4 进 HP。"""
         piece = ArmorPiece("盾牌", Attribute.ORDINARY, ArmorLayer.OUTER, 1.0,
@@ -136,6 +151,70 @@ class DeathAdjudicationTest(unittest.TestCase):
         kind = DeathAdjudicator(None).adjudicate(target, None, "g5_anchor")
         self.assertEqual(kind, "dead")
 
+    def test_lethal_root_damage_finalizes_once_at_runtime_boundary(self) -> None:
+        """根目标致死必须在 resolver 内完成一次且仅一次的公共死亡收尾。"""
+        from controllers.forfeit_controller import ForfeitController
+        from engine.game_state import GameState
+        from engine.m9.gate import ensure_state_mechanisms
+        from models.player import Player
+
+        state = GameState()
+        ensure_state_mechanisms(state)
+        attacker = Player("a", "A", controller=ForfeitController())
+        target = Player("b", "B", controller=ForfeitController())
+        state.add_player(attacker)
+        state.add_player(target)
+        attacker.location = target.location = "商店"
+        target.hp = 1
+        state.m9_system.set_sp("b", 2)
+        state.m9_system.register_performance("b", 1)
+        state.markers.set_engaged("a", "b")
+
+        result = resolve_damage(
+            attacker, target, _weapon(damage=4), state,
+            source_kind="runtime_contract_test",
+        )
+
+        self.assertTrue(result["killed"])
+        self.assertTrue(result["death_finalized"])
+        self.assertEqual(attacker.kill_count, 1)
+        self.assertEqual(state.m9_system.get_sp("b"), 0)
+        self.assertFalse(state.m9_system.queue.is_in_queue("b"))
+        self.assertFalse(state.markers.has_relation("a", "ENGAGED_WITH", "b"))
+        deaths = [e for e in state.event_log if e.get("type") == "death"]
+        self.assertEqual(len(deaths), 1)
+
+        self.assertFalse(combat.finalize_death(
+            state, target, attacker, source_kind="runtime_contract_test"))
+        self.assertEqual(attacker.kill_count, 1)
+        self.assertEqual(len([e for e in state.event_log
+                              if e.get("type") == "death"]), 1)
+
+    def test_owner_cleanup_hook_runs_once_on_true_death(self) -> None:
+        class _OwnerTalent:
+            def __init__(self):
+                self.cleanup_count = 0
+
+            def on_death_check(self, target, attacker):
+                return None
+
+            def cleanup_on_death(self):
+                self.cleanup_count += 1
+
+        talent = _OwnerTalent()
+        target = _FakePlayer("b", hp=1, talent=talent)
+        attacker = _FakePlayer("a")
+        attacker.kill_count = 0
+
+        result = resolve_damage(
+            attacker, target, _weapon(damage=4), None,
+            source_kind="runtime_contract_test")
+
+        self.assertTrue(result["death_finalized"])
+        self.assertEqual(talent.cleanup_count, 1)
+        self.assertFalse(combat.finalize_death(None, target, attacker))
+        self.assertEqual(talent.cleanup_count, 1)
+
 
 class TalentHookProtocolTest(unittest.TestCase):
 
@@ -175,6 +254,51 @@ class TalentHookProtocolTest(unittest.TestCase):
         for key in ("success", "raw_damage", "final_damage", "armor_broken",
                     "hp_damage", "target_hp_before", "details"):
             self.assertIn(key, r)
+
+    def test_temp_hp_full_absorb_does_not_shake_petrify(self) -> None:
+        from controllers.forfeit_controller import ForfeitController
+        from engine.game_state import GameState
+        from engine.m9.gate import ensure_state_mechanisms
+        from models.player import Player
+
+        class _TempShield:
+            def receive_damage_to_temp_hp(self, damage, is_embrace=False):
+                return 0
+
+        state = GameState()
+        ensure_state_mechanisms(state)
+        attacker = Player("a", "A", controller=ForfeitController())
+        target = Player("b", "B", controller=ForfeitController())
+        state.add_player(attacker)
+        state.add_player(target)
+        target.talent = _TempShield()
+        state.m9_petrify.apply(state, target, source_pid="p3")
+
+        result = resolve_damage(attacker, target, _weapon(damage=4), state)
+
+        self.assertEqual(result["hp_damage"], 0)
+        self.assertEqual(state.m9_petrify.shake_count("b"), 0)
+
+    def test_m9_damage_records_scoring_and_owned_actor_attribution(self) -> None:
+        from controllers.forfeit_controller import ForfeitController
+        from engine.game_state import GameState
+        from models.player import Player
+
+        experiments.enable("m6_scoring")
+        state = GameState()
+        owner = Player("owner", "Owner", controller=ForfeitController())
+        victim = Player("victim", "Victim", controller=ForfeitController())
+        state.add_player(owner)
+        state.add_player(victim)
+        owner.hp = victim.hp = 20
+        shadow = _FakePlayer("shadow:owner", hp=20)
+        shadow.owner_pid = owner.player_id
+
+        result = resolve_damage(shadow, victim, _weapon(damage=4), state)
+
+        self.assertEqual(result["hp_damage"], 4)
+        self.assertEqual(owner.damage_dealt, 4)
+        self.assertEqual(state.damage_relations["victim"], {"owner"})
 
 
 class GateIsolationTest(unittest.TestCase):

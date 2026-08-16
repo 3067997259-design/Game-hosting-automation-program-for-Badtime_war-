@@ -2,6 +2,7 @@
 name: python-scout
 description: Context discovery specialist. Finds relevant files, patterns, and context for Python development tasks.
 mode: subagent
+model: opencode-go/deepseek-v4-flash
 type: explore
 tools:
   read: true

@@ -609,8 +609,8 @@ def resolve_damage(attacker, target, weapon, game_state,
       displacement_only: duet 模式下攻击只产生位移不产生 HP 伤害
     """
     # M9 结算路径（profile: m9-rfc）：A/H 两阶段 + DIRECT_DAMAGE + absolute_dead 分流
-    from engine import experiments as _m9exp
-    if _m9exp.is_enabled("m9_rfc"):
+    from engine.m9.gate import m9_enabled as _m9_enabled
+    if _m9_enabled(game_state):
         from engine.m9.combat import resolve_damage as _m9_resolve
         return _m9_resolve(
             attacker, target, weapon, game_state,

@@ -25,7 +25,8 @@ if _PROJECT_ROOT not in sys.path:
 
 from engine import experiments
 from engine.m9.action_system import ActionSystem, SP_PUBLIC_COST
-from engine.m9 import g0_world_poem, g3_chain, police, pp, resolution, talents
+from engine.m9 import g0_world_poem, g3_chain, police, pp, resolution
+from engine.m9 import talent_registry
 from engine.m9.g3_chain import ChainConfig
 from engine.m9.pp import PPLedger, ScoringEngine
 
@@ -64,7 +65,7 @@ def main() -> int:
     g1 = asys.dispatch_full_extra("a", 3, "t4_hexagram_hojump")
     check("full_extra_issued", g1 is not None)
     check("full_extra_cap",
-          asys.dispatch_full_extra("a", 3, "g5_earthfire_poem") is None)
+          asys.dispatch_full_extra("a", 3, "g5_poem_earthfire") is None)
     check("full_extra_other_player",
           asys.dispatch_full_extra("b", 3, "g4_savior_active_burn") is not None)
     check("full_extra_whitelist",
@@ -156,9 +157,10 @@ def main() -> int:
     cover.grant("u1", 3)
     check("cover_absorb", cover.absorb("u1", 2) == 0
           and cover.absorb("u1", 5) == 4)
-    check("t6_equipment", "防毒面具" in police.t6_equipment_set())
-    check("slot_migration", talents.resolve_slot("T5") == "G0")
-    check("g3_spotlight", talents.spotlight("G3").uses_sp == 2)
+    check("t6_equipment", "警棍" in police.t6_equipment_set()
+          and "盾牌" in police.t6_equipment_set())
+    check("slot_migration", talent_registry.resolve_slot("T5") == "G0")
+    check("g3_spotlight", talent_registry.spotlight("G3").uses_sp == 2)
 
     # ── 8. PP/评分四步求值 ──
     s_ledger = PPLedger()

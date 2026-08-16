@@ -2,6 +2,11 @@
 
 > **日期**：2026-08-09  
 > **状态**：用户批准方向下的当前机制候选；借用白名单冻结，数值待风洞  
+>
+> **2026-09 风洞校准修正（实施口径）**：模板窗口 4 轮（欢愉同为 4）；借用 G4 强化普攻
+> 倍率 4.0、借用 T1 核心斩击倍率 4.5。BasicAI 持公演位优先公演（无核心可借走召唤援助），
+> 无公演位时仅在窗口能重演 attack 时即演；猜拳目标/出拳已接入 AI 策略。
+> 完整终值见 [`m9_windtunnel_calibration_2026-09.md`](m9_windtunnel_calibration_2026-09.md)。
 > **Profile**：`m9-rfc`  
 > **上游**：[行动系统 RFC v0.8](m9_action_system_rfc_v0.8.md)、
 > [结算合同 RFC v0.3](m9_resolution_contract_rfc_v0.3.md)、

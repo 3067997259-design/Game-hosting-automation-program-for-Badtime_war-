@@ -36,6 +36,14 @@ NEED_PASS = {"AT力场", "电磁步枪", "高斯步枪", "导弹控制权", "雷
 _M4_RETIRED = {"导弹控制权"}
 
 
+def _m9_active(game_state) -> bool:
+    try:
+        from engine.m9.gate import m9_enabled
+        return m9_enabled(game_state)
+    except Exception:
+        return False
+
+
 def get_menu():
     menu = dict(MILITARY_MENU)
     from engine.economy import m4_enabled
@@ -81,6 +89,9 @@ def can_interact(player, item_name, game_state=None):
     if item_name == "办理通行证":
         if player.has_military_pass:
             return False, "你已经有通行证了"
+        if _m9_active(game_state):
+            from engine.economy import can_afford
+            return can_afford(player, "办理通行证")
         return True, ""
 
     # 其他项目需要通行证
@@ -124,7 +135,15 @@ def can_interact(player, item_name, game_state=None):
             return False, "你需要先习得战术动作才能获取战术道具"
         if hasattr(player.talent, 'tactical_items') and len(player.talent.tactical_items) >= 2:
             return False, "你最多同时持有2样战术道具"
+        if _m9_active(game_state):
+            from engine.economy import can_afford
+            return can_afford(player, item_name)
         return True, ""
+
+    # M9 机制刀（用户批准）：军基通行证/装备不再免费，走信用点价格表。
+    if _m9_active(game_state):
+        from engine.economy import can_afford
+        return can_afford(player, item_name)
 
     return True, ""
 
@@ -144,6 +163,11 @@ def do_interact(player, item_name, game_state=None):
             player.add_item(Item("钩索", "tool"))
             game_state.hook_taken = True
             return f"🪝 {player.name} 取得了全图唯一神器·钩索！"
+
+    # M9：军基通行证/装备按 economy.sinks 扣信用点（can_interact 已预检）
+    if _m9_active(game_state) and item_name in MILITARY_MENU:
+        from engine.economy import charge
+        charge(player, item_name)
 
     if item_name == "办理通行证":
         player.has_military_pass = True

@@ -2,7 +2,7 @@
 合法性校验器（Phase 3 完整版 - ver1.9适配）
 """
 
-from actions.move import get_all_valid_locations
+from actions.move import get_all_valid_locations, has_active_supernova
 from actions.interact import get_location_module
 from actions.special_op import get_available_specials
 from cli.parser import resolve_player_target
@@ -138,6 +138,21 @@ def validate(parsed, player, game_state):
     if crime_block:
         return False, crime_block
 
+    # M9：legacy 警察引擎指令与喝彩消耗在 m9-rfc 下退役（commands.md 附录已
+    # 标注"设计已取代、实现未拆除"）。M9 警务走 m9_police 状态机，入口为
+    # `special 热线举报<目标>` / `special 竞选队长` / `special 指挥<警员>移动`；
+    # 喝彩被 B4 v0.4 的 PP 取代。这里在入口统一拒绝，避免退役语义泄漏进 m9-rfc。
+    _M9_RETIRED_ACTIONS = frozenset({
+        "wake_police", "report", "assemble", "track_guide", "recruit",
+        "election", "designate", "study", "police_command", "applause_spend",
+    })
+    if action in _M9_RETIRED_ACTIONS:
+        from engine import experiments
+        if experiments.is_enabled("m9_rfc"):
+            hint = ("警务请用 `special 热线举报<玩家名>` / `special 竞选队长` / "
+                    "`special 指挥<警员id>移动`；喝彩已被 PP 取代")
+            return False, f"❌ 该指令在 M9 规则下已退役（{hint}）"
+
     if action == "wake":
         return validate_wake(player)
     elif action == "wake_police":
@@ -222,7 +237,8 @@ def validate_shoot(player, target_str, game_state):
     target_id = resolve_player_target(target_str, game_state)
     if not target_id:
         return False, f"找不到玩家「{target_str}」"
-    target = game_state.get_player(target_id)
+    actor_getter = getattr(game_state, "get_actor", game_state.get_player)
+    target = actor_getter(target_id)
     if not target or not target.is_alive():
         return False, f"{target_str} 已死亡"
     if target_id == player.player_id:
@@ -265,7 +281,8 @@ def validate_hook(player, parsed, game_state):
     target_id = resolve_player_target(target_str, game_state)
     if not target_id:
         return False, f"找不到玩家「{target_str}」"
-    target = game_state.get_player(target_id)
+    actor_getter = getattr(game_state, "get_actor", game_state.get_player)
+    target = actor_getter(target_id)
     if not target or not target.is_alive():
         return False, f"{target_str} 已死亡"
     if target_id == player.player_id:
@@ -339,7 +356,7 @@ def validate_move(player, destination, game_state):
         return False, f"「{destination}」不是有效地点。可用：{', '.join(valid)}"
     # 超新星过载：允许选择当前地点作为目的地
     if destination == player.location:
-        if player.talent and hasattr(player.talent, 'has_supernova') and player.talent.has_supernova:
+        if has_active_supernova(player):
             return True, ""
         # 半进入状态：允许 move 同地点（突破守点）
         if (getattr(player, '_shield_half_entered', False)
@@ -358,6 +375,10 @@ def validate_interact(player, item_name, game_state):
         return False, "你还没起床！"
     if item_name is None:
         return False, "请指定交互项目。"
+    blocked_getter = getattr(getattr(player, "talent", None),
+                             "m9_blocked_action_types", None)
+    if callable(blocked_getter) and "interact" in blocked_getter():
+        return False, "当前天赋形态禁止 interact。"
     # 半进入状态：禁用 interact
     if getattr(player, '_shield_half_entered', False):
         return False, "🛡️ 你还没完全进入此地点，无法交互。再次 move 到此地点可完全进入。"
@@ -406,6 +427,11 @@ def validate_lock(player, target_str, game_state):
         return False, f"{target.name} 不在地图上"
     if target_id == player.player_id:
         return False, "不能锁定自己"
+    from engine.m9.gate import m9_enabled
+    if m9_enabled(game_state):
+        from engine.m9.talents.g3 import lock_crosses_active_barrier
+        if lock_crosses_active_barrier(game_state, player, target):
+            return False, "无限剑制内部只能锁定同在结界内部的单位"
     # 锁定是远程攻击前置，必须持有远程武器
     from models.equipment import WeaponRange
     has_ranged = any(
@@ -451,13 +477,18 @@ def validate_find(player, target_str, game_state):
         return False, "你还没起床！"
     if target_str is None:
         return False, "请指定目标。"
+    blocked_getter = getattr(getattr(player, "talent", None),
+                             "m9_blocked_action_types", None)
+    if callable(blocked_getter) and "find" in blocked_getter():
+        return False, "当前天赋形态禁止 find。"
     ok, reason = _check_not_disabled(player, game_state)
     if not ok:
         return False, reason
     target_id = resolve_player_target(target_str, game_state)
     if not target_id:
         return False, f"找不到玩家「{target_str}」"
-    target = game_state.get_player(target_id)
+    actor_getter = getattr(game_state, "get_actor", game_state.get_player)
+    target = actor_getter(target_id)
     if not target or not target.is_alive():
         return False, f"{target_str} 已死亡"
     if target_id == player.player_id:
@@ -496,6 +527,33 @@ def validate_find(player, target_str, game_state):
 
     return True, ""
 
+def _resolve_attack_weapon(player, weapon_spec, layer_str=None, attr_str=None):
+    """按持有武器名对 attack 的武器段做最长匹配。
+
+    parser 已把目标名之后的全部 token 拼进 weapon_spec（武器名可含空格，
+    如 G0 的 BLACK FANG 465）。这里先按最长持有武器名精确/前缀匹配，
+    剩余 token 依次回填 layer/attr，保持旧的 attack target weapon layer attr
+    四参语义不变。
+    """
+    names = sorted(
+        {w.name for w in getattr(player, "weapons", []) if w is not None},
+        key=len, reverse=True)
+    weapon_spec = (weapon_spec or "").strip()
+    if not weapon_spec:
+        return None, layer_str, attr_str
+    for name in names:
+        if weapon_spec == name:
+            return player.get_weapon(name), layer_str, attr_str
+        if weapon_spec.startswith(name + " "):
+            suffix = weapon_spec[len(name) + 1:].split()
+            if layer_str is None and suffix:
+                layer_str = suffix[0]
+            if attr_str is None and len(suffix) >= 2:
+                attr_str = suffix[1]
+            return player.get_weapon(name), layer_str, attr_str
+    return None, layer_str, attr_str
+
+
 def validate_attack(player, parsed, game_state):
     if not player.is_awake:
         return False, "你还没起床！"
@@ -518,6 +576,16 @@ def validate_attack(player, parsed, game_state):
             available = ", ".join(w.name for w in player.weapons)
             return False, f"你有多把武器，请指定使用哪一把：{available}"
 
+    weapon, layer_str, attr_str = _resolve_attack_weapon(
+        player, weapon_name, parsed.get("layer"), parsed.get("attr"))
+    if weapon is None:
+        available = ", ".join(w.name for w in player.weapons)
+        return False, f"你没有武器「{weapon_name}」。你持有：{available}"
+    weapon_name = weapon.name
+    parsed["weapon"] = weapon_name
+    parsed["layer"] = layer_str
+    parsed["attr"] = attr_str
+
     # 检查是否为警察目标
     if target_str.lower().startswith("police"):
         # 警察目标特殊验证
@@ -537,7 +605,8 @@ def validate_attack(player, parsed, game_state):
     target_id = resolve_player_target(target_str, game_state)
     if not target_id:
         return False, f"找不到玩家「{target_str}」"
-    target = game_state.get_player(target_id)
+    actor_getter = getattr(game_state, "get_actor", game_state.get_player)
+    target = actor_getter(target_id)
     if not target or not target.is_alive():
         return False, f"{target_str} 已死亡"
     if target_id == player.player_id:
@@ -803,6 +872,9 @@ def validate_police_command(player, parsed, game_state):
 def _validate_melee(player, target, target_id, game_state):
     if target.location != player.location:
         return False, f"近战需要同地点（{target.name}在{target.location}）"
+    if (getattr(target, "_m9_police_actor", False)
+            or getattr(target, "_m9_drone_actor", False)):
+        return True, ""
     engaged = game_state.markers.has_relation(
         player.player_id, "ENGAGED_WITH", target_id)
     if not engaged:
@@ -815,6 +887,10 @@ def _validate_ranged(player, target, target_id, weapon, game_state):
             return False, "导弹发射必须在军事基地"
         if not game_state.markers.has(player.player_id, "MISSILE_CTRL"):
             return False, "你没有导弹控制权"
+    if ((getattr(target, "_m9_police_actor", False)
+            or getattr(target, "_m9_drone_actor", False))
+            and target.location == player.location):
+        return True, ""
     locked = game_state.markers.has_relation(
         target_id, "LOCKED_BY", player.player_id)
     if not locked:
@@ -826,8 +902,12 @@ def _validate_ranged(player, target, target_id, weapon, game_state):
     return True, ""
 
 def _validate_area(player, target, game_state):
-    others = [p for p in game_state.players_at_location(player.location)
-              if p.player_id != player.player_id and p.is_alive()]
+    actors = (game_state.iter_targetable_actors()
+              if hasattr(game_state, "iter_targetable_actors")
+              else game_state.players_at_location(player.location))
+    others = [p for p in actors
+              if p.player_id != player.player_id and p.is_alive()
+              and p.location == player.location]
     if not others:
         return False, "同地点没有其他目标"
     return True, ""

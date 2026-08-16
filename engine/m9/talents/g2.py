@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from engine.balance import get as bget
 from engine.m9.talents.stub import M9TalentStub
+from engine.m9.text import m9_text
 
 
 def _g2(key: str, default):
@@ -41,26 +42,68 @@ class ShadowActor:
 
     def __init__(self, owner_pid: str, location: str, hp: float,
                  controller: Any) -> None:
+        from models.player import ArmorSlots
+
         self.actor_id = shadow_actor_id(owner_pid)
         self.player_id = self.actor_id
+        self.name = m9_text("talents.g2.shadow_actor_name", owner=owner_pid)
         self.owner_pid = owner_pid
         self.location = location
         self.hp = hp
         self.max_hp = hp
+        self.base_attack = 0
         self.is_awake = True
         self.is_chorus = False
         self.weapons: List[Any] = []
-        self.armor = None
+        self.armor = ArmorSlots()
+        self.bow_modules: List[Any] = []       # 弓模块槽（影身可持弓；枚举器依赖该属性）
+        self.inner_defense: Dict[str, int] = {}
         self.held_items: List[Any] = []      # 跨地点持有实物
+        self.items = self.held_items
+        self.vouchers = 0
+        self.credits = 0
+        self.arrows = 0
+        self.progress: Dict[str, Any] = {}
+        self.learned_spells = set()
+        self.is_stunned = False
+        self.is_shocked = False
+        self.is_invisible = False
+        self.is_petrified = False
+        self.is_police = False
+        self.is_captain = False
+        self.has_military_pass = False
+        self.has_detection = False
+        self.moved_this_round = False
+        self.no_action_streak = 0
+        self.total_action_turns = 0
         self.last_action_type = ""
         self.acted_this_round = False
         self.talent = None                   # 影身不使用玩家天赋
         self._m9_shadow_actor = True
         self.controller = controller         # 桥接到 G2 控制器
         self.is_terminal_singer = False
+        self.created_round = 0
 
     def is_alive(self) -> bool:
         return self.hp > 0
+
+    def is_on_map(self) -> bool:
+        return self.is_awake and self.location is not None
+
+    def can_be_targeted(self) -> bool:
+        return self.is_alive() and self.is_on_map()
+
+    def get_initiative_bonus(self) -> int:
+        return 0
+
+    def get_d4_bonus(self) -> int:
+        return 0
+
+    def get_d6_bonus(self) -> int:
+        return 0
+
+    def has_weapon(self, name: str) -> bool:
+        return self.get_weapon(name) is not None
 
     def get_weapon(self, name: str) -> Optional[Any]:
         for w in self.weapons:
@@ -107,66 +150,104 @@ class Hologram9(M9TalentStub):
     def on_round_start(self, *a, **k):
         return None
 
+    def describe_status(self) -> str:
+        """M9 状态口径：影身/终曲区域。"""
+        shadow = self._shadow()
+        parts = []
+        if shadow is None:
+            parts.append(m9_text("talents.g2.status_no_shadow"))
+        elif getattr(shadow, "is_terminal_singer", False):
+            parts.append(m9_text(
+                "talents.g2.status_terminal_singer",
+                hp=f"{float(shadow.hp):g}", location=shadow.location))
+        else:
+            parts.append(m9_text(
+                "talents.g2.status_shadow",
+                hp=f"{float(shadow.hp):g}",
+                max_hp=f"{float(shadow.max_hp):g}",
+                location=shadow.location))
+        if self.terminal_area is not None:
+            parts.append(m9_text(
+                "talents.g2.status_terminal_area",
+                location=self.terminal_area.location,
+                ticks=self.terminal_area.witnessed_ticks))
+        return " | ".join(parts)
+
     def get_t0_option(self, player: Any) -> Optional[dict]:
         from engine.m9.gate import m9_enabled
-        if not m9_enabled():
+        if not m9_enabled(self.state):
             return None
         m9 = getattr(self.state, "m9_system", None)
         if m9 is None:
             return None
         sp = m9.get_sp(self.player_id)
+        round_num = getattr(self.state, "current_round", 1)
+        phase = getattr(self.state, "current_phase", "")
+        seated = m9._public_holder_by_round.get(round_num) == self.player_id
+        public_ready = sp >= 2 and (phase != "r3_actions" or seated)
         shadow = self._shadow()
         options = []
         if self.shadow_creation_eligible and shadow is None and sp >= 1:
-            options.append("创建影身（即演 1 SP）")
-        if self.shadow_creation_eligible and shadow is None and sp >= 2:
-            options.append("创建影身（公演 2 SP）")
-        if shadow is not None and not shadow.is_terminal_singer and sp >= 2:
-            options.append("世末终曲承诺（公演 2 SP，永久锁死再造资格）")
+            options.append(m9_text("talents.g2.t0.desc_create_improvise"))
+        if self.shadow_creation_eligible and shadow is None and public_ready:
+            options.append(m9_text("talents.g2.t0.desc_create_public"))
+        if shadow is not None and not shadow.is_terminal_singer and public_ready:
+            options.append(m9_text("talents.g2.t0.desc_terminal_promise"))
         if not options:
             return None
-        return {"name": "光影双身", "description": "；".join(options),
+        return {"name": m9_text("talents.g2.t0.name"),
+                "description": "；".join(options),
                 "m9_kind": "g2_dualbodies"}
 
     def execute_t0(self, player: Any):
         from engine.m9.gate import m9_enabled
-        if not m9_enabled():
-            return "❌ M9 天赋未启用", False
+        if not m9_enabled(self.state):
+            return m9_text("talents.g2.err_m9_disabled"), False
         m9 = getattr(self.state, "m9_system", None)
         if m9 is None:
-            return "❌ M9 机制未挂载", False
+            return m9_text("talents.g2.err_m9_not_mounted"), False
         round_num = getattr(self.state, "current_round", 1)
         ctrl = getattr(player, "controller", None)
         shadow = self._shadow()
         if shadow is None and self.shadow_creation_eligible:
+            public_ready = (m9.get_sp(self.player_id) >= 2
+                            and m9.assign_public_slot(round_num)
+                            == self.player_id)
+            options = []
+            if m9.get_sp(self.player_id) >= 1:
+                options.append(m9_text("talents.g2.t0.desc_create_improvise"))
+            if public_ready:
+                options.append(m9_text("talents.g2.t0.desc_create_public"))
+            if not options:
+                return m9_text("talents.g2.err_sp_insufficient_create_cancel"), False
             try:
-                want = ctrl.choose("创建影身：", ["创建影身（即演 1 SP）",
-                                                 "创建影身（公演 2 SP）"])
+                want = ctrl.choose(
+                    m9_text("talents.g2.create_choose_prompt"), options)
             except Exception:
-                want = "创建影身（即演 1 SP）"
+                want = options[0]
             if "即演" in want:
                 if m9.dispatch_improvise(self.player_id, round_num) is None:
-                    return "❌ SP 不足，创建取消", False
+                    return m9_text("talents.g2.err_sp_insufficient_create_cancel"), False
             else:
                 if not self._ensure_public_seat(player, m9, round_num):
-                    return "❌ SP/公演位不足", False
+                    return m9_text("talents.g2.err_sp_or_public_seat"), False
             self._create_shadow(player)
-            return f"🌫️ {player.name} 创建影身（{_g2('shadow_hp', 8)} HP）！", True
+            return m9_text("talents.g2.create_shadow_success",
+                           name=player.name, hp=_g2("shadow_hp", 8)), True
         if shadow is not None and not shadow.is_terminal_singer:
             if m9.get_sp(self.player_id) < 2:
-                return "❌ SP 不足，终曲承诺取消", False
+                return m9_text("talents.g2.err_sp_insufficient_terminal_cancel"), False
             if not self._ensure_public_seat(player, m9, round_num):
-                return "❌ SP/公演位不足", False
+                return m9_text("talents.g2.err_sp_or_public_seat"), False
             self._commit_terminal(player, shadow)
-            return (f"🎵 {player.name} 世末终曲承诺！影身转为终曲歌者，"
-                    f"再造资格永久锁定。"), True
-        return "❌ 条件不满足", False
+            return m9_text("talents.g2.terminal_promise_success",
+                           name=player.name), True
+        return m9_text("talents.g2.err_condition_not_met"), False
 
     @staticmethod
     def _ensure_public_seat(player: Any, m9: Any, round_num: int) -> bool:
         if m9.assign_public_slot(round_num) != player.player_id:
-            if not m9.register_performance(player.player_id, round_num):
-                return False
+            return False
         return m9.dispatch_public(player.player_id, round_num) is not None
 
     # ── 影身生命周期 ──
@@ -180,11 +261,44 @@ class Hologram9(M9TalentStub):
             float(_g2("shadow_hp", 8)),
             getattr(player, "controller", None),
         )
+        actor.created_round = getattr(self.state, "current_round", 0)
+        # 拳击保底（裁决 A+ 补全）：影身与所有玩家一样至少持有拳击——
+        # 此前 weapons=[] 使攻击目录恒为空，影身整局无法输出（诊断证据）。
+        from models.equipment import make_weapon
+        fist = make_weapon("拳击")
+        if fist is not None:
+            actor.weapons.append(fist)
+        # 裁决 A+：影身继承光身全部备用实装武器（保留光身主战一件）与半数
+        # 信用点（共享钱包）；消散时武器与信用点无条件归还（贷款语义）。
+        self._transfer_spare_equipment(player, actor)
         shadows[actor.actor_id] = actor
+        self.state.markers.init_player(actor.actor_id)
         self.current_shadow_id = actor.actor_id
         self.state.log_event("SHADOW_CREATED", player=self.player_id,
                              actor=actor.actor_id)
         return actor
+
+    def _transfer_spare_equipment(self, player: Any,
+                                  actor: ShadowActor) -> None:
+        """影身继承光身全部备用实装武器（光身保留伤害最高的一件主战；
+        拳击不算实装）+ 半数信用点。记录在 actor 供消散归还。"""
+        real = [w for w in getattr(player, "weapons", [])
+                if w and getattr(w, "name", "") != "拳击"]
+        actor._inherited_weapons = []
+        actor._inherited_credits = 0
+        if len(real) >= 2:
+            best = max(real, key=lambda w: float(getattr(w, "base_damage", 0) or 0))
+            spares = [w for w in real if w is not best]
+            for w in spares:
+                player.weapons.remove(w)
+                actor.weapons.append(w)
+            actor._inherited_weapons = spares
+        credits = int(getattr(player, "credits", 0) or 0)
+        share = credits // 2
+        if share > 0:
+            player.credits = credits - share
+            actor.credits = share
+            actor._inherited_credits = share
 
     def _shadow(self) -> Optional[ShadowActor]:
         shadows = getattr(self.state, "m9_shadows", {})
@@ -192,15 +306,33 @@ class Hologram9(M9TalentStub):
             return shadows.get(self.current_shadow_id)
         return None
 
+    def cleanup_on_death(self) -> None:
+        """M9 机制刀（用户批准）：光身死亡连坐影身——影身/终曲立即消散，
+        终曲区域结束；消散归还/掉落按既有规则。"""
+        shadow = self._shadow()
+        if shadow is not None:
+            self.dissipate(shadow, reason="owner_death")
+        if self.terminal_area is not None:
+            self._end_terminal_area()
+
     def dissipate(self, actor: ShadowActor, reason: str = "hp_zero") -> None:
-        """消散：至多 return_item_count 件合法实物归还光身，其余掉落；
-        非玩家死亡（无 T7/往世层/击杀）。"""
+        """消散：继承的武器与信用点贷款无条件归还光身；至多 return_item_count
+        件合法实物归还光身，其余掉落；非玩家死亡（无 T7/往世层/击杀）。"""
         shadows = getattr(self.state, "m9_shadows", {})
         shadows.pop(actor.actor_id, None)
         if self.current_shadow_id == actor.actor_id:
             self.current_shadow_id = None
         owner = self.state.get_player(self.player_id)
         if owner is not None and owner.is_alive():
+            for w in list(getattr(actor, "_inherited_weapons", []) or []):
+                if w not in getattr(owner, "weapons", []):
+                    owner.weapons.append(w)
+            actor._inherited_weapons = []
+            back = int(getattr(actor, "_inherited_credits", 0) or 0)
+            if back > 0:
+                owner.credits = int(getattr(owner, "credits", 0) or 0) + back
+                actor.credits = max(0, int(getattr(actor, "credits", 0) or 0) - back)
+                actor._inherited_credits = 0
             limit = int(_g2("return_item_count", 1))
             for item in actor.held_items[:limit]:
                 owner.items.append(item)
@@ -236,7 +368,7 @@ class Hologram9(M9TalentStub):
     def on_round_end(self, round_num: int) -> None:
         """听众 tick：区域有 ≥1 非 G2 存活单位 → +1；首次达标 → arc+1 + PP。"""
         from engine.m9.gate import m9_enabled
-        if not m9_enabled():
+        if not m9_enabled(self.state):
             return None
         area = self.terminal_area
         shadow = self._shadow()
@@ -257,9 +389,18 @@ class Hologram9(M9TalentStub):
             if (not area.arc_granted
                     and area.witnessed_ticks >= int(_g2("terminal_witness_ticks", 3))):
                 area.arc_granted = True
-                pp = getattr(self.state, "m9_pp", None)
-                if pp is not None:
-                    pp.earn(self.player_id, int(pp and 1))
+                if getattr(self.state, "m9_arc", None) is None:
+                    # 无 ledger 的隔离夹具/旧测试兼容：维持旧私有挂接
+                    scoring = getattr(self.state, "m9_scoring", None)
+                    if scoring is not None and hasattr(scoring, "add_arc"):
+                        scoring.add_arc(self.player_id,
+                                        int(_g2("terminal_arc_count", 1)))
+                    pp = getattr(self.state, "m9_pp", None)
+                    if pp is not None:
+                        pp.earn(self.player_id,
+                                int(bget("m9_system", "pp", "arc_progress",
+                                         default=1)))
+                # 终曲被听见：三章制完结条的第三章事件（arc RFC v0.1）
                 self.state.log_event("g2_last_song_heard",
                                      player=self.player_id)
         return None

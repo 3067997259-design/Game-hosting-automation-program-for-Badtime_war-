@@ -19,6 +19,7 @@ from controllers.ai.constants import (
     debug_ai_basic, debug_ai_attack_generation,
 )
 from engine.experiments import is_enabled as _is_exp_enabled
+from engine.m9.text import m9_text
 
 _LLM_AGGRESSION_TARGET_BIAS_SCALE = 0.2
 _LLM_AGGRESSION_TARGET_BIAS_CLAMP = 60.0
@@ -44,6 +45,8 @@ class CombatMind(BaseMind):
         llm_aggression_mod: float = 0.0,
         players_who_attacked: Optional[Set[str]] = None,
         ctx=None,
+        snapshot: Optional[Any] = None,
+        assessment: Optional[Any] = None,
     ) -> MindAssessment:
         """分析战斗态势。
 
@@ -84,6 +87,7 @@ class CombatMind(BaseMind):
             star_follow_up_rounds=star_follow_up_rounds,
             llm_aggression_mod=llm_aggression_mod,
             players_who_attacked=players_who_attacked or set(),
+            snapshot=snapshot,
         )
 
         best_target = scored[0][0] if scored else None  # 元组 (target, score) → 取 target
@@ -100,6 +104,9 @@ class CombatMind(BaseMind):
                 combat_commands = self._build_attack_commands(
                     player, best_target, best_weapon, state
                 )
+
+        # ── 快照化派生输出：对手摘要（存活/残血/受限）写入 AssessmentLayer ──
+        self._snapshot_derived(snapshot, assessment, threat_scores)
 
         return MindAssessment(
             mind_name="combat",
@@ -120,6 +127,38 @@ class CombatMind(BaseMind):
     #  目标评分
     # ════════════════════════════════════════════════════════
 
+    # ── 快照化派生输出（2026-08-12）──
+    def _snapshot_derived(self, snapshot, assessment, threat_scores):
+        """用 ProjectedSnapshot 计算战斗相关派生字段写入 AssessmentLayer。
+
+        新增字段不改变现有决策（行为不变）：
+        - notes["snapshot_opponents"]：存活对手数/残血数（HP≤我武器伤害）/受限数；
+        - combat_target 候选：快照判定的威胁最高存活对手。
+        """
+        if snapshot is None or assessment is None:
+            return
+        alive = 0
+        low_hp = 0
+        cc_count = 0
+        for pid, brief in snapshot.opponent_briefs.items():
+            if not brief.alive:
+                continue
+            alive += 1
+            if brief.cc:
+                cc_count += 1
+            if brief.hp <= 6:  # 残血阈值（可调）
+                low_hp += 1
+        assessment.notes["snapshot_opponents"] = m9_text(
+            "ai.combat_mind.snapshot_opponents",
+            alive=alive, low_hp=low_hp, cc_count=cc_count)
+        top = max(
+            ((pid, threat_scores.get(brief.name, 0.0))
+             for pid, brief in snapshot.opponent_briefs.items()
+             if brief.alive),
+            key=lambda x: x[1], default=None)
+        if top is not None and top[1] > 0:
+            assessment.combat_target = top[0]
+
     def _score_targets(
         self, player, state, strategy, threat_scores,
         combat_target, in_combat, police_protected,
@@ -128,6 +167,7 @@ class CombatMind(BaseMind):
         star_follow_up_rounds: int = 0,
         llm_aggression_mod: float = 0.0,
         players_who_attacked: Optional[Set[str]] = None,
+        snapshot: Optional[Any] = None,
     ) -> List:
         """对所有可攻击目标评分，返回 [(target, score)] 降序列表"""
         scored = []
@@ -164,6 +204,7 @@ class CombatMind(BaseMind):
                 avg_threat=avg_threat,
                 llm_aggression_mod=llm_aggression_mod,
                 players_who_attacked=players_who_attacked or set(),
+                snapshot=snapshot,
             )
             if score > -999:
                 scored.append((target, score))
@@ -180,6 +221,7 @@ class CombatMind(BaseMind):
         avg_threat: float = 0.0,
         llm_aggression_mod: float = 0.0,
         players_who_attacked: Optional[Set[str]] = None,
+        snapshot: Optional[Any] = None,
     ) -> float:
         """对单个目标评分，包含警察保护穿透判定 + 天星补刀加成。"""
         threat_score = threat_scores.get(target.name, 0)
@@ -202,9 +244,16 @@ class CombatMind(BaseMind):
             base += 50
 
         # ★ 天星补刀标记：同地点的石化/残血目标加分
+        # 快照优先（opponent_briefs 的 cc/hp 与 target 投影等价；缺失回退旧读法）
+        brief = snapshot.opponent_briefs.get(target.player_id) \
+            if snapshot is not None else None
         if star_follow_up_rounds > 0 and self._query.same_location(player, target):
-            is_petrified = getattr(target, 'is_petrified', False)
-            is_low_hp = target.hp <= 1.0  # 天星伤害最低1.5，1HP以下是残血
+            if brief is not None:
+                is_petrified = "petrified" in brief.cc
+                is_low_hp = brief.hp <= 1.0
+            else:
+                is_petrified = getattr(target, 'is_petrified', False)
+                is_low_hp = target.hp <= 1.0  # 天星伤害最低1.5，1HP以下是残血
             if is_petrified or is_low_hp:
                 base += 50
 
@@ -246,8 +295,16 @@ class CombatMind(BaseMind):
         elif outer == 0:
             base += 20
 
+        # ── value function 骨架（talents.md §3）：同源探针折算 ──
+        # p_hit·E[dmg] + kill_utility·p_lethal·(1−保险)；v2exp 恒 0。
+        try:
+            from controllers.ai.decision.value import combat_value_adjust
+            base += combat_value_adjust(player, target, state, snapshot)
+        except Exception:
+            pass
+
         # Strategy 调整
-        target_power = self._query.estimate_power(target)
+        target_power = self._query.estimate_power(target, state)
         is_passive = self._query.is_passive_player(target, state)
         base = strategy.modify_target_score(
             target, base, player,

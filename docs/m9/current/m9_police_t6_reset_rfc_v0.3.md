@@ -9,6 +9,10 @@
 > 停机警力执法边界、Terror 队长命令、T6 线索持久化与配装白名单（2026-08-09 B5 裁决）
 > **日期**：2026-08-09
 > **状态**：用户批准的结构候选；数值与原型边界待 B5 / 风洞
+>
+> **2026-09 风洞校准修正（实施口径）**：固定警力 3 名、单位 HP 30、警棍伤害 10、
+> 掩体耐久 2；T6 联防整备去重（不再给同一警员重复换同名装备）。
+> 完整终值见 [`m9_windtunnel_calibration_2026-09.md`](m9_windtunnel_calibration_2026-09.md)。
 > **Profile**：`m9-rfc`
 > **上游**：[`m9_action_system_rfc_v0.8.md`](m9_action_system_rfc_v0.8.md)、
 > [`m9_resolution_contract_rfc_v0.3.md`](m9_resolution_contract_rfc_v0.3.md)、

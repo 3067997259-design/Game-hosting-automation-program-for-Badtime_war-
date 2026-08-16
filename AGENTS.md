@@ -2,33 +2,35 @@
 
 This project uses the Python Expert Agent pack for OpenCode.
 
+> **Project-specific rules are in `CLAUDE.md` — read it before touching code.**
+> The skill tables below are the generic Python pack; only use what the actual
+> change needs. This project is **not** FastAPI/SQLAlchemy.
+
 ## Project Info
 
 | Field | Value |
 |-------|-------|
-| Type | Python |
-| Framework | FastAPI |
-| Python Version | 3.13+ |
+| Type | Python (纯后端/命令行；网络为 TCP socket) |
+| Framework | 无 Web 框架；RL 可选 torch + stable-baselines3 |
+| Python Version | 项目声明 3.8+；当前开发环境实测 3.13 |
+| 当前主线 | `m9-rfc` profile（见 CLAUDE.md §0） |
+| 核心命令 | `python stats_runner.py --profile m9-rfc --players 6 --games 500` |
 
 ## Available Skills
 
 | Skill | Triggers | Purpose |
 |-------|----------|---------|
 | python-fundamentals | `*.py`, `python`, `dataclass` | Core Python patterns |
-| python-fastapi | `fastapi`, `pydantic`, `endpoint` | FastAPI production patterns |
-| python-backend | `sqlalchemy`, `database`, `orm` | SQLAlchemy 2.0 async |
 | python-testing-general | `pytest`, `test`, `mock` | pytest fundamentals |
 | python-testing-deep | `hypothesis`, `property-based` | Advanced testing |
-| python-asyncio | `async`, `await`, `asyncio` | Async patterns |
 | python-type-hints | `typing`, `mypy`, `pyright` | Type system |
-| python-package-management | `uv`, `pip`, `pyproject` | UV package manager |
-| python-tooling | `docker`, `ci`, `cd` | DevOps/CI-CD |
-| python-fundamentals-313 | `3.13`, `jit`, `free-threading` | Python 3.13+ features |
+
+FastAPI / SQLAlchemy / Docker / CI 技能表保留为可选工具，按实际需求选用。
 
 ## Usage
 
 ```
-skill(name="python-fastapi")
+skill(name="python-testing-general")
 ```
 
 ## Subagents
@@ -52,6 +54,7 @@ Main config: `.opencode/config.json`
 
 ## Resources
 
+- 项目规则/架构/禁区：`CLAUDE.md`
 - Skills: `.opencode/skills/*/SKILL.md`
 - Standards: `.opencode/context/python/standards.md`
 - Patterns: `.opencode/context/python/patterns.md`

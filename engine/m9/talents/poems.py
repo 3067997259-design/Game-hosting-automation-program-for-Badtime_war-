@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from engine.balance import get as bget
+from engine.m9.text import m9_text
 
 
 def _g5(key: str, default):
@@ -71,41 +72,41 @@ class PoeticRecital:
     def recite(self, player: Any, poem_name: str, target_pid: str) -> str:
         """共享入口：形态/公演位/SP/追忆/天赋绑定/爱愿 全部预检先于消费。"""
         from engine.m9.gate import m9_enabled
-        if not m9_enabled():
-            return "❌ M9 未启用"
+        if not m9_enabled(self.state):
+            return m9_text("talents.poems.err_m9_disabled")
         if self.g5.form != "demiurge":
-            return "❌ 仅德谬歌可献诗"
+            return m9_text("talents.poems.err_only_demiurge")
         if self.g5.active_anchor:
-            return "❌ 锚定监控期内不可献诗"
+            return m9_text("talents.poems.err_anchor_active")
         slot = POEM_TARGETS.get(poem_name)
         if slot is None:
-            return f"❌ 未知诗篇 {poem_name}"
+            return m9_text("talents.poems.err_unknown_poem", poem=poem_name)
         target = self.state.get_player(target_pid)
         if target is None or not target.is_alive():
-            return "❌ 目标无效"
+            return m9_text("talents.poems.err_target_invalid")
         if slot != "G5" and _talent_slot(target) != slot:
-            return f"❌ 目标未持有 {slot} 天赋"
+            return m9_text("talents.poems.err_target_slot_mismatch", slot=slot)
         if poem_name == "爱与记忆" and target_pid != self.g5.player_id:
-            return "❌ 爱与记忆只可献给自己"
+            return m9_text("talents.poems.err_love_memory_self_only")
         m9 = getattr(self.state, "m9_system", None)
         round_num = getattr(self.state, "current_round", 1)
         cost = int(_g5("poem_cost", 12))
         if m9 is None or m9.get_sp(self.g5.player_id) < 2:
-            return "❌ SP 不足"
+            return m9_text("talents.poems.err_sp_insufficient")
         if self.g5.sealed_reminiscence < cost:
-            return "❌ 追忆不足"
+            return m9_text("talents.poems.err_reminiscence_insufficient")
         if m9.assign_public_slot(round_num) != self.g5.player_id:
-            if not m9.register_performance(self.g5.player_id, round_num):
-                return "❌ 公演位不足"
+            return m9_text("talents.poems.err_public_seat_insufficient")
         if m9.dispatch_public(self.g5.player_id, round_num) is None:
-            return "❌ 公演派发失败"
+            return m9_text("talents.poems.err_public_dispatch_failed")
         self.g5.sealed_reminiscence -= cost
         # 爱愿（目标非自己且非双人局）
         if target_pid != self.g5.player_id and len(self.state.player_order) > 2:
             self._grant_love_wish(target_pid)
         executor = getattr(self, f"_poem_{poem_name}", None)
         if executor is None:
-            return f"❌ 诗篇「{poem_name}」执行器未实现"
+            return m9_text("talents.poems.err_poem_executor_missing",
+                           poem=poem_name)
         return executor(player, target)
 
     def _grant_love_wish(self, target_pid: str) -> None:
@@ -143,7 +144,7 @@ class PoeticRecital:
     def _poem_游侠(self, player, target):
         """T1：游侠的锋刃（下次 T1 斩击公演 chase-move+面对面斩击，用后消耗）。"""
         self._marker(target, "ranger_blade", True)
-        return f"⚔️ 献予「游侠」之诗：{target.name} 获得「游侠的锋刃」标记"
+        return m9_text("talents.poems.ranger_granted", target=target.name)
 
     def _poem_地火(self, player, target):
         """T2：完整额外行动（白名单 g5_poem_earthfire）+ 隐身 + 追猎反应。"""
@@ -154,48 +155,83 @@ class PoeticRecital:
             grant = m9.dispatch_full_extra(target.player_id, round_num,
                                            "g5_poem_earthfire")
         if grant is None:
-            return f"🌋 献予「地火」之诗：{target.name} 完整额外行动已满/递归超限"
+            return m9_text("talents.poems.earthfire_full", target=target.name)
         if not getattr(target, "is_invisible", False):
             target.is_invisible = True
             from engine.m9.gate import m9_enabled
             self.state.markers.add(target.player_id, "INVISIBLE") \
                 if hasattr(self.state.markers, "add") else None
-        return f"🌋 献予「地火」之诗：{target.name} 获得完整额外行动 + 隐身"
+        return m9_text("talents.poems.earthfire_granted", target=target.name)
 
     def _poem_群星(self, player, target):
-        """T3：群星的弹射标记 + 尘世之锁转化（现有石化升级）。"""
+        """T3：群星的弹射标记 + 尘世之锁转化（现有石化升级）。
+
+        尘世之锁：该 T3 施加的全部现存石化升级为锁（无被动解除、不延长时间、
+        重施刷新、锁不消失）；弹射标记由 T3 adapter 读取。
+        """
         self._marker(target, "stars_bounce", True)
+        petrify = getattr(self.state, "m9_petrify", None)
+        upgraded = 0
+        if petrify is not None:
+            upgraded = petrify.convert_to_lock(target.player_id)
         self.state.log_event("poem_stars", player=self.g5.player_id,
-                             target=target.player_id)
-        return f"⭐ 献予「群星」之诗：{target.name} 获得「群星的弹射」标记"
+                             target=target.player_id, dust_lock=upgraded)
+        suffix = m9_text("talents.poems.stars_dust_lock_suffix",
+                         upgraded=upgraded) if upgraded else ""
+        return m9_text("talents.poems.stars_granted", target=target.name,
+                       suffix=suffix)
 
     def _poem_律法(self, player, target):
-        """T6：阶梯判定（通缉结案 → 队长候选 → 威信+2/配装 → 配装）。"""
-        police = getattr(self.state, "police", None)
-        lines = [f"📜 献予「律法」之诗：{target.name}"]
-        if police is not None and not getattr(police, "permanently_disabled", False):
-            wanted = getattr(police, "reported_target_id", None)
-            if wanted == target.player_id:
-                police.reported_target_id = None
-                lines.append("（当前通缉已结案）")
+        """T6：阶梯判定（通缉结案 → 队长威信+2 → 为一名存活警察配装 T6 装备）。"""
+        station = getattr(self.state, "m9_police", None)
+        lines = [m9_text("talents.poems.law_header", target=target.name)]
+        if station is not None and not station.is_disabled():
+            wanted = station.open_wanted()
+            if wanted is not None and wanted.suspect_id == target.player_id:
+                station.close_case(wanted.case_id)
+                lines.append(m9_text("talents.poems.law_case_closed"))
                 return "；".join(lines)
-        if target.player_id == getattr(police, "captain_id", None) if police else False:
-            if hasattr(police, "authority"):
-                police.authority += 2
-                lines.append("（队长威信 +2）")
+            if target.player_id == station.captain_id:
+                station.authority = getattr(station, "authority", 0) + 2
+                lines.append(m9_text("talents.poems.law_captain_authority"))
+                return "；".join(lines)
+        # 配装分支：为一名存活警察整备一件 T6 许可装备（从受赠者真实持有物）。
+        if station is None:
+            lines.append(m9_text("talents.poems.law_no_police"))
+            return "；".join(lines)
+        # 直接复用已注册 GoodCitizen9 的合法候选/选择/应用管线。
+        # 原路径导入了不存在的 SunRise9，并且遗漏了护甲分支。
+        t6 = getattr(target, "talent", None)
+        candidates = (
+            t6._equipment_candidates(target, station)
+            if t6 is not None and hasattr(t6, "_equipment_candidates") else [])
+        plan = (
+            t6._choose_equipment_plan(target, candidates)
+            if candidates and hasattr(t6, "_choose_equipment_plan") else None)
+        if plan:
+            unit, _, equipment = plan
+            t6._apply_equipment_plan(target, plan)
+            plan_text = m9_text("talents.poems.law_equip_plan",
+                                equipment=equipment.name)
+            self.state.log_event(
+                "poem_law_equip", player=self.g5.player_id,
+                target=target.player_id, unit=unit.unit_id,
+                plan=plan_text)
+            lines.append(m9_text("talents.poems.law_equip_line",
+                                 plan=plan_text, unit=unit.unit_id))
         else:
-            lines.append("（为一名存活警察配装 T6 装备——机制挂接随警察层）")
+            lines.append(m9_text("talents.poems.law_no_equipment"))
         return "；".join(lines)
 
     def _poem_阴阳(self, player, target):
         """T4：阴阳的天机 ×2 计数（不得指定或跃在渊）。"""
         self._marker(target, "yin_yang_tianji", 2)
-        return f"☯️ 献予「阴阳」之诗：{target.name} 获得「阴阳的天机」×2"
+        return m9_text("talents.poems.yinyang_granted", target=target.name)
 
     def _poem_永恒(self, player, target):
         """G3：下次结界公演维持费 −poem_eternity_cost_reduction。"""
         self._marker(target, "eternity_discount", True)
-        return f"🌌 献予「永恒」之诗：{target.name} 获得结界维持折扣标记"
+        return m9_text("talents.poems.eternity_granted", target=target.name)
 
     def _poem_爱与记忆(self, player, target):
         """G5 自身：n 段伤害（段数成长 +1，上限 6；前 4 段属性序列）。"""
@@ -210,7 +246,7 @@ class PoeticRecital:
         dmg = int(_g5("poem_destiny_stage_damage", 2))
         attrs = ["科技", "普通", "魔法", "__无视__"]
         me = self.state.get_player(self.g5.player_id)
-        lines = [f"💞 献予「爱与记忆」之诗：{stages} 段伤害"]
+        lines = [m9_text("talents.poems.destiny_header", stages=stages)]
         others = [pid for pid in self.state.player_order
                   if self.state.get_player(pid).is_alive()]
         for i in range(stages):
@@ -221,48 +257,52 @@ class PoeticRecital:
                                raw_damage_override=dmg,
                                damage_attribute_override=attr,
                                source_kind="g5_poem_destiny")
-            lines.append(f"  段{i+1}（{attr}）→ {t.name} {r['hp_damage']} 伤")
+            lines.append(m9_text("talents.poems.destiny_segment",
+                                 index=i + 1, attr=attr, target=t.name,
+                                 damage=r['hp_damage']))
         return "\n".join(lines)
 
     def _poem_飞萤(self, player, target):
         """G1：飞萤的回响标记（R4 失熵 −1、调息 +1、6 ticks）。"""
         self._marker(target, "firefly_echo", int(_g5("poem_firefly_duration", 6)))
-        return f"✨ 献予「飞萤」之诗：{target.name} 获得「飞萤的回响」标记"
+        return m9_text("talents.poems.firefly_granted", target=target.name)
 
     def _poem_欢愉(self, player, target):
         """G6：欢愉的延展标记（窗口 2 轮 + 双借用，6 ticks 到期）。"""
         target.talent.joy_extend = True  # CutawayJoke9 已读此属性
         self._marker(target, "joy_extend", int(_g5("poem_joy_max_duration", 6)))
-        return f"🎭 献予「欢愉」之诗：{target.name} 获得「欢愉的延展」标记"
+        return m9_text("talents.poems.joy_granted", target=target.name)
 
     def _poem_守夜人(self, player, target):
         """G7：必须接受；色彩 null/Terror 移除/永久 HP 转化/代价/恢复。"""
         ctrl = getattr(target, "controller", None)
         try:
-            accept = ctrl.confirm(f"{target.name} 是否接受「守夜人」之诗？")
+            accept = ctrl.confirm(
+                m9_text("talents.poems.watchman_confirm_prompt",
+                        name=target.name))
         except Exception:
             accept = True
         if not accept:
-            return "❌ 目标拒绝守夜人之诗（追忆已消耗，效果不发生）"
+            return m9_text("talents.poems.err_watchman_refused")
         t = target.talent
-        lines = [f"🌙 献予「守夜人」之诗：{target.name}"]
+        lines = [m9_text("talents.poems.watchman_header", target=target.name)]
         if hasattr(t, "color"):
             t.color_is_null = True
-            lines.append("色彩置 null")
+            lines.append(m9_text("talents.poems.watchman_color_null"))
         if getattr(t, "is_terror", False):
             t.is_terror = False
             t.permanent_extra_hp = getattr(t, "permanent_extra_hp", 0.0) \
                 + getattr(t, "terror_extra_hp", 0.0)
             t.terror_extra_hp = 0.0
-            lines.append("Terror 移除，额外 HP 转为永久")
+            lines.append(m9_text("talents.poems.watchman_terror_removed"))
         cap = int(_g5("poem_watchman_spend_cap", 2))
         spend = min(cap, getattr(t, "permanent_extra_hp", 0.0))
         t.permanent_extra_hp = getattr(t, "permanent_extra_hp", 0.0) - spend
-        lines.append(f"代价 {spend}（不触基础 HP）")
+        lines.append(m9_text("talents.poems.watchman_cost", spend=spend))
         if getattr(t, "fusion_shield_done", False):
             t.iron_horus_hp = max(getattr(t, "iron_horus_hp", 0),
                                   int(_g5("poem_watchman_armor_restore", 2)))
-            lines.append("铁之荷鲁斯恢复")
+            lines.append(m9_text("talents.poems.watchman_armor_restore"))
         if hasattr(t, "tactical_unlocked"):
             t.tactical_unlocked = True
         return "；".join(lines)
@@ -270,21 +310,21 @@ class PoeticRecital:
     def _poem_彼岸(self, player, target):
         """T7：彼岸的守望标记（保险复活时 SP2 + 带装备）。"""
         self._marker(target, "far_shore_watch", True)
-        return f"🌸 献予「彼岸」之诗：{target.name} 获得「彼岸的守望」标记"
+        return m9_text("talents.poems.far_shore_granted", target=target.name)
 
     def _poem_追光(self, player, target):
         """G2：追光的聚焦标记（普通影身攻击加值 + 有效伤害治疗）。"""
         self._marker(target, "spotlight_focus", True)
-        return f"☀️ 献予「追光」之诗：{target.name} 获得「追光的聚焦」标记"
+        return m9_text("talents.poems.spotlight_granted", target=target.name)
 
     def _poem_负世(self, player, target):
         """G4：人形态 +2 火种（正来源配额）；救世主形态 → 毁伤；解锁主动燃尽。"""
         t = target.talent
-        lines = [f"🌅 献予「负世」之诗：{target.name}"]
+        lines = [m9_text("talents.poems.burden_header", target=target.name)]
         if hasattr(t, "form") and t.form in ("full_savior", "incomplete_savior"):
             ann = int(_g5("poem_burden_annihilation", 5))
             t.ruin_damage = getattr(t, "ruin_damage", 0) + ann
-            lines.append(f"形态内：毁伤 +{ann}")
+            lines.append(m9_text("talents.poems.burden_annihilation", ann=ann))
         elif hasattr(t, "on_positive_talent_used"):
             before = t.divinity
             t.on_positive_talent_used(player, is_limited=False)
@@ -294,7 +334,7 @@ class PoeticRecital:
                 t.divinity = min(12, t.divinity + (2 - gained))
                 t.ember = t.divinity
                 gained = 2
-            lines.append(f"火种 +{gained}")
+            lines.append(m9_text("talents.poems.burden_ember", gained=gained))
         t.m9_burden_unlocked = True
         return "；".join(lines)
 
@@ -302,7 +342,7 @@ class PoeticRecital:
         """G0：明天的承诺标记（遗物支援不毁装/不耗 HP，6 ticks 或 3 uses）。"""
         self._marker(target, "tomorrow_promise",
                      int(_g5("poem_tomorrow_uses", 3)))
-        return f"🌅 献予「明天」之诗：{target.name} 获得「明天的承诺」标记"
+        return m9_text("talents.poems.tomorrow_granted", target=target.name)
 
     # ── 简化标记（§2.15：B4/G0 魂援专用，非献诗）──
 

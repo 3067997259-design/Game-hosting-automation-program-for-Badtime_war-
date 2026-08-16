@@ -2,6 +2,7 @@
 name: python-tester
 description: Python testing specialist. Writes comprehensive tests using pytest, mocking, and coverage tools.
 mode: subagent
+model: opencode-go/deepseek-v4-flash
 type: general
 tools:
   read: true

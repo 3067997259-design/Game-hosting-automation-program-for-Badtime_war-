@@ -117,6 +117,26 @@ class TalentAdjustedDamageGatedTest(unittest.TestCase):
         p = _FakePlayer([_weapon()], talent=_firefly_talent())
         self.assertEqual(GameQuery.estimate_talent_adjusted_damage(p), 8.0)
 
+    def test_m9_firefly_estimate_tracks_current_form(self) -> None:
+        from engine.balance import get as bget
+        penalty = int(bget("m9_talents_extended", "g1",
+                           "unarmored_atk_penalty", default=2))
+        sam = int(bget("m9_talents_extended", "g1", "sam_atk_bonus", default=3))
+        full = int(bget("m9_talents_extended", "g1",
+                        "full_burn_atk_bonus", default=4))
+        _enable("m8_ai", "m9_rfc", "hp20")
+        talent = SimpleNamespace(
+            name="火萤IV型-完全燃烧", slot_id="G1", form="armorless")
+        p = _FakePlayer([_weapon()], talent=talent)
+        self.assertEqual(GameQuery.estimate_talent_adjusted_damage(p),
+                         4 - penalty)
+        talent.form = "secondary"
+        self.assertEqual(GameQuery.estimate_talent_adjusted_damage(p), 4 + sam)
+        talent.form = "full_burn"
+        self.assertEqual(GameQuery.estimate_talent_adjusted_damage(p), 4 + full)
+        talent.form = "propagation"
+        self.assertEqual(GameQuery.estimate_talent_adjusted_damage(p), 4.0)
+
     def test_savior_live_attributes_both_paths(self) -> None:
         for flags in (("m8_ai",), ()):
             _enable(*flags)

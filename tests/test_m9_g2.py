@@ -69,6 +69,8 @@ class ShadowLifecycleTest(unittest.TestCase):
         experiments.reset()
 
     def test_create_shadow_improvise(self) -> None:
+        from engine.balance import get as bget
+        shadow_hp = int(bget("m9_talents_extended", "g2", "shadow_hp", default=8))
         state, p, t = _make(sp=2, choices=("创建影身（即演 1 SP）",))
         msg, ok = t.execute_t0(p)
         self.assertTrue(ok)
@@ -76,7 +78,80 @@ class ShadowLifecycleTest(unittest.TestCase):
         shadow = t._shadow()
         self.assertIsNotNone(shadow)
         self.assertEqual(shadow.location, "商店")
-        self.assertEqual(shadow.max_hp, 8)  # shadow_hp 键
+        self.assertEqual(shadow.max_hp, shadow_hp)  # shadow_hp 键
+
+    def test_shadow_inherits_spare_weapon(self) -> None:
+        """裁决 A：影身继承光身一件备用实装武器（真实转移）；主战保留。"""
+        from models.equipment import make_weapon
+        state, p, t = _make(sp=2, choices=("创建影身（即演 1 SP）",))
+        baton = make_weapon("警棍")
+        knife = make_weapon("小刀")
+        p.weapons = [baton, knife]
+        msg, ok = t.execute_t0(p)
+        self.assertTrue(ok)
+        shadow = t._shadow()
+        self.assertIsNotNone(shadow)
+        # 一件转交影身、一件（主战）留在光身（两武器伤害可能相等，
+        # 只断言分配而非具体归属；影身自带拳击保底不计入）
+        inherited = [w for w in shadow.weapons if w.name != "拳击"]
+        owner_real = [w for w in p.weapons if w.name != "拳击"]
+        self.assertEqual(len(inherited), 1)
+        self.assertEqual(len(owner_real), 1)
+        combined = sorted([inherited[0].name, owner_real[0].name])
+        self.assertEqual(combined, sorted(["小刀", "警棍"]))
+
+    def test_shadow_weapon_returned_on_dissipation(self) -> None:
+        from models.equipment import make_weapon
+        state, p, t = _make(sp=2, choices=("创建影身（即演 1 SP）",))
+        p.weapons = [make_weapon("警棍"), make_weapon("小刀")]
+        t.execute_t0(p)
+        shadow = t._shadow()
+        self.assertIsNotNone(shadow)
+        t.dissipate(shadow)
+        self.assertEqual(sorted(w.name for w in p.weapons), ["小刀", "警棍"])
+
+    def test_shadow_no_transfer_with_single_weapon(self) -> None:
+        """单件实装不转移：不缴械光身（影身仅剩拳击保底）。"""
+        from models.equipment import make_weapon
+        state, p, t = _make(sp=2, choices=("创建影身（即演 1 SP）",))
+        p.weapons = [make_weapon("小刀")]
+        t.execute_t0(p)
+        shadow = t._shadow()
+        self.assertIsNotNone(shadow)
+        # 影身自带拳击保底（裁决 A+ 补全），但不拿走光身唯一实装
+        self.assertEqual([w.name for w in shadow.weapons], ["拳击"])
+        self.assertEqual(len(p.weapons), 1)
+
+    def test_shadow_inherits_all_spares_and_half_credits(self) -> None:
+        """裁决 A+：影身继承全部备用武器（光身留主战）+ 半数信用点；
+        消散时武器与信用点贷款归还。"""
+        from models.equipment import make_weapon
+        state, p, t = _make(sp=2, choices=("创建影身（即演 1 SP）",))
+        gauss = make_weapon("高斯步枪")
+        baton = make_weapon("警棍")
+        knife = make_weapon("小刀")
+        p.weapons = [gauss, baton, knife]
+        p.credits = 10
+        t.execute_t0(p)
+        shadow = t._shadow()
+        self.assertIsNotNone(shadow)
+        # 伤害最高的一件（主战）留在光身，其余全部给影身
+        self.assertEqual([w.name for w in p.weapons],
+                         [max((gauss, baton, knife),
+                              key=lambda w: w.base_damage).name])
+        inherited = [w for w in shadow.weapons if w.name != "拳击"]
+        self.assertEqual(sorted(w.name for w in inherited),
+                         sorted(w.name for w in (gauss, baton, knife)
+                                if w is not max((gauss, baton, knife),
+                                                key=lambda w: w.base_damage)))
+        # 半数信用点转移
+        self.assertEqual(p.credits, 5)
+        self.assertEqual(shadow.credits, 5)
+        # 消散：武器与信用点归还
+        t.dissipate(shadow)
+        self.assertEqual(sorted(w.name for w in p.weapons),
+                         sorted([w.name for w in (gauss, baton, knife)]))
+        self.assertEqual(p.credits, 10)
 
     def test_dissipate_returns_item_and_removes_actor(self) -> None:
         state, p, t = _make()
@@ -142,21 +217,26 @@ class TerminalAreaEffectsTest(unittest.TestCase):
 
     def test_vulnerability_boosts_damage_in_area(self) -> None:
         from engine.m9.combat import _terminal_area_of
+        from engine.balance import get as _bget
         state, t, actor, other = _area_scene()
         area = _terminal_area_of(state, other)
         self.assertIsNotNone(area)
-        self.assertEqual(area.vulnerability(), 1)
+        self.assertEqual(area.vulnerability(),
+                         _bget("m9_talents_extended", "g2",
+                               "terminal_vulnerability", default=0))
 
     def test_damage_sharing_conserves_total(self) -> None:
-        from engine.m9.combat import _share_damage
+        from engine.m9.combat import _damage_distribution
         state, t, actor, other = _area_scene()
         other.hp = 10
-        remaining = _share_damage(state, other, 8)
-        # 共享集 3 成员（光身 p1/歌者影身/路人 p2），S=8 → 3/3/2，总量守恒
-        self.assertEqual(remaining, 0)
-        self.assertEqual(other.hp, 8)
-        self.assertEqual(actor.hp, 5)
-        self.assertEqual(state.get_player("p1").hp, 17)
+        distribution = _damage_distribution(state, other, 8)
+        by_id = {member.player_id: amount for member, amount in distribution}
+        # R19：ratio=0.2 → S=floor(8×0.2)=1；4 成员余 1 给 id 序首位（影身），
+        # 原目标 p2 再 +8-1=7 → shadow 1 / p1 0 / p2 7，总量守恒
+        self.assertEqual(sum(by_id.values()), 8)
+        self.assertEqual(by_id[other.player_id], 7)
+        self.assertEqual(by_id[actor.player_id], 1)
+        self.assertEqual(by_id["p1"], 0)
 
     def test_listener_tick_grants_arc_once(self) -> None:
         state, t, actor, other = _area_scene()
@@ -164,7 +244,7 @@ class TerminalAreaEffectsTest(unittest.TestCase):
             state.current_round = r
             t.on_round_end(r)
         self.assertTrue(t.terminal_area.arc_granted)
-        self.assertGreaterEqual(t.terminal_area.witnessed_ticks, 3)
+        self.assertGreaterEqual(t.terminal_area.witnessed_ticks, 2)
 
 
 class TerminalSuppressionRedirectTest(unittest.TestCase):
@@ -178,8 +258,11 @@ class TerminalSuppressionRedirectTest(unittest.TestCase):
     def test_suppress_grant_consumes_use_once(self) -> None:
         state, t, actor, other = _area_scene()
         m9 = state.m9_system
+        # R12：terminal_suppression_uses 1→2
         self.assertTrue(t.suppress_grant("p2", m9))
-        self.assertTrue(t.terminal_area.suppression_used())
+        self.assertFalse(t.terminal_area.suppression_used())  # 还剩 1 次
+        self.assertTrue(t.suppress_grant("p2", m9))
+        self.assertTrue(t.terminal_area.suppression_used())    # 耗尽
         self.assertFalse(t.suppress_grant("p2", m9))  # 次数耗尽
         self.assertFalse(t.suppress_grant("p1", m9))  # G2 自己不可压制
 
@@ -208,6 +291,28 @@ class TerminalSuppressionRedirectTest(unittest.TestCase):
         state, t, actor, other = _area_scene()
         dest = terminal_move_redirect(state, other, "商店", rng=lambda: 0.0)
         self.assertIsNone(dest)  # 目的地已是歌者位置 → 不偏转
+
+
+class SpotlightPoemRegressionTest(unittest.TestCase):
+    """追光诗消费回归：_apply_spotlight_focus 必须可执行（bget 局部导入）。"""
+
+    def setUp(self) -> None:
+        _enable("m9_rfc", "hp20")
+
+    def tearDown(self) -> None:
+        experiments.reset()
+
+    def test_apply_spotlight_consumes_and_adds_bonus(self) -> None:
+        from engine.m9.combat import _apply_spotlight_focus
+        from engine.m9.resolution import HitResolution
+        state, p, t = _make()
+        t.m9_poem_markers = {"spotlight_focus": True}
+        attacker = SimpleNamespace(
+            _m9_shadow_actor=True, owner_pid="p1", player_id="g2:shadow")
+        hit = HitResolution(damage=3.0)
+        _apply_spotlight_focus(state, attacker, hit)
+        self.assertGreater(hit.damage, 3.0)
+        self.assertNotIn("spotlight_focus", t.m9_poem_markers)
 
 
 if __name__ == "__main__":

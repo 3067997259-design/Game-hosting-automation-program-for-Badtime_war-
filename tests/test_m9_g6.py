@@ -60,10 +60,10 @@ class TemplatePoolTest(unittest.TestCase):
 
     def test_record_and_dedupe_by_category(self) -> None:
         pool = G6TemplatePool()
-        self.assertTrue(pool.record(3, "attack", "商店", "p1"))
-        self.assertFalse(pool.record(3, "attack", "商店", "p2"))  # 同轮同类别去重
-        self.assertTrue(pool.record(3, "move", "医院", "p2"))
-        cats = pool.categories(3)
+        self.assertTrue(pool.record(2, "attack", "商店", "p1"))
+        self.assertFalse(pool.record(2, "attack", "商店", "p2"))  # 同轮同类别去重
+        self.assertTrue(pool.record(2, "move", "医院", "p2"))
+        cats = pool.categories(3)  # RFC §6.1：保留上一轮
         self.assertEqual(len(cats), 2)
 
     def test_exclusions_and_normalization(self) -> None:
@@ -75,10 +75,17 @@ class TemplatePoolTest(unittest.TestCase):
         self.assertTrue(pool.record(3, "find", "商店", "p2"))
 
     def test_window_trim(self) -> None:
+        from engine.balance import get as bget
         pool = G6TemplatePool()
         pool.record(3, "attack", "A", "p1")
-        pool.record(5, "move", "B", "p2")
-        self.assertEqual(len(pool.categories(5)), 1)  # 3 轮已出窗
+        pool.record(4, "move", "B", "p2")
+        window = int(bget("m9_talents_extended", "g6",
+                          "template_window_rounds", default=1))
+        if window >= 2:
+            # 窗口 2：R3/R4 都在窗口内
+            self.assertEqual(len(pool.categories(5)), 2)
+        else:
+            self.assertEqual(len(pool.categories(5)), 1)  # 3 轮已出窗
         self.assertEqual(len(pool.categories(5, joy_extended=True)), 2)
 
     def test_improvise_legal_needs_weapon_and_target_for_attack(self) -> None:
@@ -95,12 +102,31 @@ class TemplatePoolTest(unittest.TestCase):
         mech = G6Mechanics(pool)
         naked = p1
         naked.weapons.clear()  # Player 自带拳击，清空后无武器
-        self.assertEqual(mech.improvise_legal_categories(naked, 2, state), ["move"])
+        self.assertEqual(mech.improvise_legal_categories(naked, 3, state),
+                         ["move"])
         armed = p1
         armed.weapons.append(Weapon("小刀", Attribute.ORDINARY, 4,
                                     WeaponRange.MELEE))
-        self.assertEqual(mech.improvise_legal_categories(armed, 2, state),
+        state.markers.add_relation(p1.player_id, "ENGAGED_WITH", p2.player_id)
+        self.assertEqual(mech.improvise_legal_categories(armed, 3, state),
                          ["move", "attack"])
+
+    def test_interact_template_uses_real_location_precheck(self) -> None:
+        pool = G6TemplatePool()
+        pool.record(2, "interact", "商店", "p2")
+        state = GameState()
+        player = Player("p1", "G6", controller=ForfeitController())
+        player.location = "home_p1"
+        state.add_player(player)
+
+        mech = G6Mechanics(pool)
+
+        self.assertEqual(
+            mech.improvise_legal_categories(player, 3, state),
+            ["interact"],
+        )
+        player.location = "不存在的地点"
+        self.assertEqual(mech.improvise_legal_categories(player, 3, state), [])
 
 
 class BorrowPrecheckTest(unittest.TestCase):
@@ -122,11 +148,20 @@ class BorrowPrecheckTest(unittest.TestCase):
 
     def test_precheck_requires_weapon_for_attack_cores(self) -> None:
         mech = G6Mechanics()
-        naked = SimpleNamespace(weapons=[])
-        armed = SimpleNamespace(weapons=[object()])
-        self.assertFalse(mech.precheck_borrow(naked, "t1_one_slash"))
-        self.assertTrue(mech.precheck_borrow(armed, "t1_one_slash"))
-        self.assertTrue(mech.precheck_borrow(naked, "t4_hexagram"))  # 猜拳不依赖装备
+        state = GameState()
+        p1 = Player("p1", "G6", controller=ForfeitController())
+        p1.location = "商店"
+        p1.weapons.append(Weapon("小刀", Attribute.ORDINARY, 4,
+                                 WeaponRange.MELEE))
+        p2 = Player("p2", "路人", controller=ForfeitController())
+        p2.location = "商店"
+        state.add_player(p1)
+        state.add_player(p2)
+        state.markers.add_relation(p1.player_id, "ENGAGED_WITH", p2.player_id)
+        self.assertFalse(mech.precheck_borrow(SimpleNamespace(weapons=[]),
+                                              "t1_one_slash", state))
+        self.assertTrue(mech.precheck_borrow(p1, "t1_one_slash", state))
+        self.assertTrue(mech.precheck_borrow(p1, "t4_hexagram", state))  # 猜拳不依赖装备
 
     def test_hexagram_reroll_never_hojump(self) -> None:
         self.assertEqual(
@@ -171,8 +206,9 @@ class G6T0EntryTest(unittest.TestCase):
         state.current_round = 2
         p.weapons.append(Weapon("小刀", Attribute.ORDINARY, 4, WeaponRange.MELEE))
         other = Player("p2", "路人", controller=ForfeitController())
-        other.location = "商店"
+        other.location = "医院"  # 与 G6 同地点 → attack 类别合法
         state.add_player(other)
+        state.markers.add_relation(p.player_id, "ENGAGED_WITH", other.player_id)
         option = t.get_t0_option(p)
         self.assertEqual(option["m9_kind"], "g6_improvise")  # 即演优先
 
@@ -207,7 +243,10 @@ class G6T0EntryTest(unittest.TestCase):
                                                 "石头", "剪刀"))  # 亢龙有悔
         state.current_round = 2
         other = Player("p2", "路人", controller=_FixedChoiceController("布", "剪刀"))
+        other.talent_slot_id = "T4"  # 借用核心合同：来源必须实际在场
         state.add_player(other)
+        state.m9_system.register_performance("p1", state.current_round)
+        state.m9_system.allocate_public_slot(state.current_round)
         msg, ok = t.execute_t0(p)
         self.assertTrue(ok)
         self.assertEqual(state.m9_system.get_sp("p1"), 0)  # 公演扣 2 SP

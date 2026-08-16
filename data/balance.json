@@ -76,9 +76,10 @@
     },
 
     "hospital": {
-        "_comment": "M5 治疗条目（v0.2 §2.5）：1 行动 + heal_cost 信用点 → +heal_amount HP",
+        "_comment": "M5 治疗条目（v0.2 §2.5）：1 行动 + heal_cost 信用点 → +heal_amount HP；heal_max_uses=每局治疗次数上限（防终焉被无限治疗拖成僵局）",
         "heal_amount": 6,
-        "heal_cost": 2
+        "heal_cost": 2,
+        "heal_max_uses": 3
     },
 
     "hp20": {
@@ -99,7 +100,12 @@
         "inner_armor_weight": 15,
         "stealth_weight": 10,
         "detection_weight": 5,
-        "iron_horus_weight": 15
+        "iron_horus_weight": 15,
+        "sp_weight": 12,
+        "pp_weight": 2,
+        "arc_weight": 15,
+        "public_holder_weight": 10,
+        "terminal_area_weight": 8
     },
 
     "weapons": {
@@ -159,7 +165,18 @@
             "修理陶瓷护甲": 1,
             "力量模块": 3,
             "无限模块": 4,
-            "钩索": 2
+            "钩索": 2,
+            "办理通行证": 2,
+            "AT力场": 3,
+            "电磁步枪": 4,
+            "高斯步枪": 4,
+            "雷达": 3,
+            "隐形涂层": 3,
+            "破片手雷": 2,
+            "震撼弹": 2,
+            "闪光弹": 2,
+            "烟雾弹": 2,
+            "燃烧瓶": 2
         },
         "surgery_min_cost": 4,
         "force_pass_min_cost": 2,
@@ -397,6 +414,7 @@
             "aid_hp_threshold": 4,
             "aid_passive_reward": 1,
             "aid_quota_per_round": 4,
+            "aid_provider_cap": 4,
             "t1_counter_ratio": 0.5,
             "t2_armor_steal": 2,
             "t2_evasion_boost": 15,
@@ -423,12 +441,30 @@
             "g7_cover_duration": 2
         },
         "scoring_m9": {
-            "_comment": "M9 评分系统（§六）",
-            "arc_weight": 2,
-            "kill_weight": 3,
-            "damage_weight": 0.1,
+            "_comment": "M9 评分系统（§六）；名次加成裁决：出局越晚赚得越多，唯一生还者额外加成。三章制完结条（arc RFC v0.1）：arc_weight 1.5、全员 arc_cap 3，数值待风洞（R21 极差压缩：arc_weight 1.5→3.0、kill_weight 3→1.5、damage_weight 0.1→0.05；R22 G5 爆顶，arc_weight 回退 2.25；R23 再回退 1.8）",
+            "arc_weight": 1.8,
+            "arc_cap": 3,
+            "kill_weight": 1.5,
+            "damage_weight": 0.05,
+            "placement_step": 2,
+            "last_survivor_bonus": 4,
             "g0_relic_bonus": 5,
-            "g0_breath_survive_bonus": 10
+            "g0_breath_survive_bonus": 10,
+            "talent_score_multiplier": {
+                "_comment": "槽位得分系数（R24 用户批准）：终分合计后乘算，仅用于胜率极差收敛；R25 二轮校准",
+                "T1": 1.0, "T2": 0.85, "T3": 1.0, "T4": 0.85,
+                "T6": 1.05, "T7": 0.85,
+                "G0": 0.82, "G1": 1.16, "G2": 1.17, "G3": 1.0,
+                "G4": 0.85, "G5": 0.85, "G6": 1.15, "G7": 1.1
+            }
+        },
+        "police": {
+            "_comment": "M9 警察系统（数值待风洞；R37 上调警力战力支撑 T6 警察线；风洞调参轮1 再上调；R9 再抬底；R10 抬底 T6：unit_hp 20→24、baton 7→8）",
+            "fixed_roster": 3,
+            "unit_hp": 30,
+            "authority_initial": 3,
+            "baton_damage": 10,
+            "cover_durability": 2
         },
         "action": {
             "_comment": "M9 行动系统（行动 RFC v0.8，[待风洞]）：full_extra_per_round=每人每轮完整额外行动上限；grant_depth=ActionGrant 递归深度闸；attention_per_round=每轮关注额度",
@@ -440,10 +476,15 @@
 
     "m9_talents_extended": {
         "_comment": "M9 天赋扩展数值（RFCs 中的占位符）",
+        "t1": {
+            "_comment": "T1 一刀缭断（核心斩击数值；R42 温和刀 2.0→1.75，R50 第二刀→1.5；R14 压顶 1.5→1.25）",
+            "melee_multiplier": 1.25,
+            "defense_coefficient": 0.5
+        },
         "g1": {
-            "_comment": "G1 火萤燃烧循环 RFC v0.3；全部数值仍待风洞",
-            "unarmored_atk_penalty": 2,
-            "unarmored_def_penalty": 2,
+            "_comment": "G1 火萤燃烧循环 RFC v0.3；全部数值仍待风洞（风洞调参轮1：无甲惩罚 -1、次级/满燃攻击 +1）",
+            "unarmored_atk_penalty": 1,
+            "unarmored_def_penalty": 1,
             "unarmored_acc_penalty": 15,
             "entropy_gain_unarmored": 1,
             "entropy_gain_sam": 2,
@@ -452,35 +493,38 @@
             "entropy_cap": 12,
             "entropy_threshold": 6,
             "entropy_reset_amount": 4,
-            "entropy_hp_loss": 4,
+            "entropy_hp_loss": 6,
             "entropy_armor_loss": 5,
             "sam_atk_bonus": 3,
-            "sam_def_bonus": 2,
+            "sam_def_bonus": 1,
             "full_burn_rounds": 3,
-            "full_burn_atk_bonus": 4,
+            "full_burn_atk_bonus": 2,
             "full_burn_heal": 2,
             "full_burn_supernova_bonus": 2,
-            "supernova_damage": 8,
+            "supernova_damage": 6,
             "supernova_pierce": 0.5,
             "supernova_burn": 2,
             "break_bonus_damage": 2,
             "ardent_initial": 1,
-            "ardent_cap": 6,
+            "ardent_cap": 4,
             "ardent_temp_hp": 3,
             "propagation_rounds": 3,
             "propagation_hp": 1,
-            "propagation_initiative": 10
+            "propagation_initiative": 10,
+            "supernova_grant_cap": 3,
+            "dress_cooldown_rounds": 1,
+            "burnout_dress_lockout_rounds": 2
         },
         "g2": {
-            "_comment": "G2 光影双身与世末终曲 RFC v0.3；全部数值待风洞",
-            "shadow_hp": 8,
+            "_comment": "G2 光影双身与世末终曲 RFC v0.3；全部数值待风洞（长期风洞 R63 机制刀：shadow_hp 16、终曲收益+自伤减、连坐实装；R7 机制压顶：见证 2→1 tick；R8 抬底：shadow_hp 16→18、共享 0.5→0.4）",
+            "shadow_hp": 34,
             "return_item_count": 1,
-            "terminal_vulnerability": 1,
-            "terminal_damage_share_ratio": 1.0,
-            "terminal_suppression_uses": 1,
-            "terminal_move_redirect_chance": 0.5,
-            "terminal_witness_ticks": 3,
-            "terminal_arc_count": 1
+            "terminal_vulnerability": 0,
+            "terminal_damage_share_ratio": 0.2,
+            "terminal_suppression_uses": 2,
+            "terminal_move_redirect_chance": 0.6,
+            "terminal_witness_ticks": 1,
+            "terminal_arc_count": 3
         },
         "g3": {
             "_comment": "G3 投影固有结界 RFC v0.2 + 连续投影 v0.1；结构冻结，数值待风洞",
@@ -518,24 +562,33 @@
             "collapse_style_cap": 5,
             "collapse_terminal_min_magic": 2,
             "barrier_anchor_durability": 10,
-            "break_action_power": 2
+            "break_action_power": 2,
+            "armament_overload_cost": 2,
+            "armament_overload_bonus": 2,
+            "dual_blade_base_damage": 3
         },
         "g4": {
-            "_comment": "G4 救世主轮回 RFC v0.3；机制已冻结，数值待风洞",
+            "_comment": "G4 救世主轮回 RFC v0.3；机制已冻结，数值待风洞（R7 机制压顶：反击/天裁池随毁伤成长减半；R8 再压：人形态演出火种 2→1；R10 再压：公演加成 1→0、毁伤成长 2→1）",
             "ember_cap": 12,
+            "human_performance_ember": 1,
+            "human_public_bonus": 0,
             "ember_floor": 1,
-            "ember_gain_hostile": 1,
+            "ember_gain_hostile": 0,
             "ember_gain_positive": 1,
             "ember_gain_per_round_cap": 2,
-            "full_duration_r4": 6,
+            "full_duration_r4": 5,
             "challenge_punch": 2,
+            "challenge_reduction": 3,
+            "counter_pool_per_ruin": 0.5,
+            "judgment_per_segment": 1.0,
+            "ruin_gain_per_attack": 1,
             "ruin_start": 3,
             "ruin_cap": 9
         },
         "g5": {
             "_comment": "G5 轮回培养与锚定脚本 RFC v0.4、诗篇合同 v0.1；全部数值待风洞",
             "reminiscence_cap": 24,
-            "cyrene_hp": 8,
+            "cyrene_hp": 10,
             "cyrene_life_ticks": 4,
             "cyrene_max_incarnations": 3,
             "demiurge_birth_threshold": 12,
@@ -543,12 +596,12 @@
             "reminiscence_combat_personal_bonus": 1,
             "reminiscence_loss_gain": 1,
             "reminiscence_pp_event_gain": 1,
-            "reminiscence_idle_gain": 0.5,
+            "reminiscence_idle_gain": 1,
             "anchor_min_k": 3,
             "anchor_max_k": 8,
             "crystal_flower_arc_count": 1,
             "double_anchor_arc_count": 1,
-            "poem_cost": 12,
+            "poem_cost": 10,
             "poem_lovewish_ticks": 6,
             "poem_destiny_stage_damage": 5,
             "poem_destiny_max_stages": 6,
@@ -577,27 +630,35 @@
             "poem_tomorrow_duration": 6,
             "poem_tomorrow_uses": 3
         },
+        "g6": {
+            "_comment": "G6 要有笑声（重演/借用核心；长期风洞 R66 抬底借用/窗口，R70 3.5/3.0 试后回退到 R69 检查点，R7 机制压顶：窗口 2→3；R8 再抬底：借用 3.0/3.5→3.5/4.0）",
+            "template_window_rounds": 4,
+            "joy_template_window_rounds": 4,
+            "g4_borrow_basic_multiplier": 4.0,
+            "core_slash_multiplier": 4.5,
+            "core_slash_defense_coefficient": 0.5
+        },
         "g7": {
-            "_comment": "G7 战术压制 RFC v0.3（Cost/光环/Terror 数值）",
+            "_comment": "G7 战术压制 RFC v0.3（Cost/光环/Terror 数值；长期风洞 R58 G7-only 束：halo 3→2、hold 5→4、passive 3→2；R8 抬底：cost 6→8、eye 3→4；R11 再抬底：cost 8→10、halo 2→3、hold 4→5、passive 2→3、eye 4→5、terror 3→4；R17 接入真实数值后过强，回调 cost 10→7、eye 5→3、halo 4→3）",
             "iron_horus_repair": 8,
             "halo_value": 3,
-            "cost_base_cap": 5,
+            "cost_base_cap": 7,
             "halo_initial_layers": 3,
             "iron_horus_durability": 20,
             "adrenaline_cap": 10,
             "adrenaline_initiative_bonus": 3,
-            "shield_block_threshold": 6,
+            "shield_block_threshold": 8,
             "shield_overflow_durability_cost": 3,
             "hold_defense": 5,
             "passive_defense": 3,
             "passive_break_reserve": 2,
-            "eye_pellet_damage": 2,
-            "archer_break_armor_loss": 6,
+            "eye_pellet_damage": 3,
+            "archer_break_armor_loss": 3,
             "halo_revive_hp": 12,
             "terror_armor_per_piece": 3,
             "terror_horus_divisor": 4,
             "terror_halo_per_layer": 3,
-            "terror_hp_floor": 12,
+            "terror_hp_floor": 10,
             "terror_attack_cost": 6,
             "terror_attack_damage": 4,
             "terror_move_cost": 2,
@@ -606,19 +667,21 @@
         "g0": {
             "_name": "我还欠她们一个明天（砂狼白子*Terror，M9 新增神代零号）",
             "_comment": "G0 核心数值：AR、无人机、遗物支援技、调整呼吸",
-            "ar_magazine": 30,
-            "ar_base_damage": 3,
+            "ar_magazine": 15,
+            "ar_base_damage": 1,
             "arrow_to_bullet_ratio": 3,
             "drone_hp_cost": 20,
-            "drone_duration": 3,
-            "drone_hp": 5,
-            "drone_bonus_damage": 1,
+            "drone_duration": 2,
+            "drone_hp": 3,
+            "drone_bonus_damage": 0,
             "crossfire_hp_cost": 20,
-            "crossfire_damage": 3,
-            "relic_support_hp_cost": 20,
+            "crossfire_damage": 1,
+            "relic_support_hp_cost": 15,
             "breath_max_uses": 1,
             "breath_min_hp": 1,
-            "breath_duration": 2,
+            "breath_duration": 1,
+            "breath_forfeit_heal": 2,
+            "breath_recovery_threshold_pct": 30,
             "relic_t1_mult": 1.5,
             "relic_t2_duration": 2,
             "relic_t3_damage": 2,
@@ -635,19 +698,31 @@
             "relic_g7_duration": 2,
             "g7_synergy_bonus": 20
         },
+        "t2": {
+            "_comment": "T2 剪刀手一突（攻击回盾恢复量；长期风洞 R66 压顶 2→1；R70 抬底 1→2；R10 回退 2→1）",
+            "shield_recovery_durability": 1
+        },
         "t3": {
-            "_comment": "T3 天星 RFC（石化持续）",
-            "petrify_duration": 2,
-            "starfall_damage": 4
+            "_comment": "T3 天星 RFC（石化持续；长期风洞 R65 压顶 petrify_duration 2→1；R9 压顶 starfall 4→3；R12 再压 3→2）",
+            "petrify_duration": 1,
+            "starfall_damage": 2,
+            "break_success_probability": 0.5
+        },
+        "t4": {
+            "_comment": "T4 六爻 RFC（猜拳结果数值）",
+            "qianlong_pierce_damage": 10,
+            "weapon_disable_rounds": 3
         },
         "t7": {
-            "_comment": "T7 死者苏生 RFC（复活 HP）",
-            "revive_hp": 12
+            "_comment": "T7 死者苏生 RFC（复活 HP；R42 12→14；长期风洞 R65 回退 14→12 压顶；R9 再压 12→10；R14 再压 10→8）",
+            "revive_hp": 8
         },
         "t6": {
             "_comment": "T6 朝阳好市民（远程配装选项数，待 B5 定义具体列表）；equipment=机制默认配装表",
             "remote_equip_options": 3,
-            "equipment": ["防毒面具", "热成像仪"]
+            "equipment": ["防毒面具", "热成像仪"],
+            "weapon_whitelist": ["警棍", "高斯步枪", "魔法弹幕"],
+            "armor_whitelist": ["盾牌", "陶瓷护甲", "魔法护盾", "AT力场"]
         }
     },
 

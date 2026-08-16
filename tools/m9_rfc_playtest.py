@@ -114,7 +114,13 @@ def script_a_g1_burn() -> None:
     """G1：着装 → 完全燃烧 → 致死繁育 → 倒计时绝对死亡。"""
     from engine.m9.talents.g1 import G1MythFire9
     ctrl = ScriptController()
-    ctrl.enqueue_choices("发动天赋", "完全燃烧（公演 2 SP）")
+    ctrl.enqueue_choices(
+        "保留",
+        "发动天赋",
+        "报名公演",
+        "发动天赋",
+        "完全燃烧（公演 2 SP）",
+    )
     state, rm = _state([
         ("p1", G1MythFire9, ctrl, "商店"),
         ("p2", None, ScriptController(), "商店"),
@@ -223,6 +229,9 @@ def script_c_g5_anchor() -> None:
     p1.weapons.append(Weapon("小刀", Attribute.ORDINARY, 4, WeaponRange.MELEE))
     p1.hp = 5
     state.m9_system.set_sp("p1", 2)
+    state.m9_system.begin_round(state.current_round)
+    state.m9_system.register_performance("p1", state.current_round)
+    state.m9_system.allocate_public_slot(state.current_round)
     msg, ok = t.execute_anchor(p1, [("attack", "p2", "小刀"),
                                     ("move", "医院"),
                                     ("attack", "p2", "小刀")])
@@ -334,11 +343,9 @@ SCRIPTS = [
 
 
 def main() -> int:
-    # 剧本专注机制：不用 profile（避免 k_initiative 坐牢随机性干扰），
-    # 显式启用 hp20 结算 + m9_rfc 机制（伤害走 M9 结算路径）。
+    # 验收必须经过真实 profile；剧本内部仍以固定输入隔离先攻随机性。
     experiments.reset()
-    for flag in ("hp20", "m9_rfc"):
-        experiments.enable(flag)
+    experiments.set_profile("m9-rfc")
     for name, fn in SCRIPTS:
         try:
             fn()

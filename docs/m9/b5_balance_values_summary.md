@@ -1,10 +1,14 @@
-﻿# M9 balance.json 数值占位符汇总
+# M9 balance.json 数值占位符汇总
 
 > **日期**：2026-08-08  
 > **状态**：B5 第一步历史快照；当前合同已由 PP RFC v0.4 收口，且作者复核后 T5/G0 槽位
 > 改为 26 项魂援，本文下方原 28 项表只保留当时取值证据；2026-08-10 的 v0.4.6 增量值
 > 另见 §2.3  
 > **版本**：历史基线 balance.json v0.4.0；当前增量 v0.4.6
+>
+> **2026-09 更新**：风洞/数值校准已收敛（5000 局验收通过）。**当前游玩/开发数值以
+> [`current/m9_windtunnel_calibration_2026-09.md`](current/m9_windtunnel_calibration_2026-09.md)
+> 及其引用的 `data/balance.json` 为准**；本文的历史初始值表不再作为 M9 数值依据。
 
 本文档记录 B5 第一步添加到 balance.json 的所有 M9 新增数值占位符，
 其最终位置按 v0.4.0 落在 `m9_talents_extended`（天赋扩展）与 `m9_system`（系统数值）两个命名空间。
@@ -30,6 +34,8 @@
 | `breath_max_uses` | 1 | 调整呼吸每局触发次数 |
 | `breath_min_hp` | 1 | 调整呼吸最低 HP |
 | `breath_duration` | 2 | 调整呼吸持续轮数 |
+| `breath_forfeit_heal` | 4 | 呼吸期内每次 forfeit 回血 |
+| `breath_recovery_threshold_pct` | 40 | T+4 止损线（最大 HP 百分比） |
 | `relic_t1_mult` | 1.5 | T1 遗物支援技伤害倍率 |
 | `relic_t2_duration` | 2 | T2 遗物支援技隐身持续 |
 | `relic_t3_damage` | 2 | T3 遗物支援技 AOE 伤害 |

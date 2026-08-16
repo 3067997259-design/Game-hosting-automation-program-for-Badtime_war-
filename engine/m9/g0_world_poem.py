@@ -26,6 +26,22 @@ def heal_value() -> float:
     return float(bget("m9_system", "pp", "world_poem_g0_heal", default=1))
 
 
+def world_poem_aid_of(game_state: Any) -> Optional["WorldPoemAid"]:
+    """本局世界援助状态机：由 G0 持有者天赋挂载（G0 存活/撤退/离场均不影响）。
+
+    无 G0 局返回 None（「昨日的同伴」不适用，黑马机制原样继承）。
+    """
+    if game_state is None:
+        return None
+    for pid in getattr(game_state, "player_order", []):
+        p = game_state.get_player(pid)
+        if p is not None and p.talent is not None:
+            aid = getattr(p.talent, "world_aid", None)
+            if aid is not None:
+                return aid
+    return None
+
+
 class WorldPoemAid:
     """「昨日的同伴」：G0 世界援助的机制状态机。"""
 

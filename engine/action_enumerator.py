@@ -32,20 +32,32 @@ from engine.action_tables import (
 # ══════════════════════════════════════════════════════════════════
 
 def _get_opponents(player, game_state) -> list:
-    """获取所有存活对手列表（按 player_order 顺序，排除自身）。包含 Chorus。"""
-    opponents = []
-    for pid in getattr(game_state, 'player_order', []):
-        if pid == player.player_id:
-            continue
-        p = game_state.get_player(pid)
-        if p and p.is_alive():
-            opponents.append(p)
-    # Chorus 单位也可成为目标
-    if getattr(game_state, 'ish_bosheth', None) and game_state.ish_bosheth.phase == "active":
-        for c in game_state.ish_bosheth.chorus_list:
-            if c.is_alive() and c.player_id != getattr(player, 'player_id', None):
-                opponents.append(c)
-    return opponents
+    """获取所有存活对手；同一玩家拥有的附属 actor 不互相视为敌人。"""
+    owner_pid = getattr(player, "owner_pid", None) or player.player_id
+
+    def is_opponent(actor) -> bool:
+        actor_owner = getattr(actor, "owner_pid", None) or getattr(
+            actor, "player_id", None)
+        return actor_owner != owner_pid and actor.is_alive()
+
+    if getattr(game_state, "m9_enabled", False) and hasattr(
+            game_state, "iter_targetable_actors"):
+        return [
+            actor for actor in game_state.iter_targetable_actors()
+            if is_opponent(actor)
+        ]
+    if hasattr(game_state, "iter_actors"):
+        return [
+            actor for actor in game_state.iter_actors()
+            if is_opponent(actor)
+        ]
+    return [
+        game_state.get_player(pid)
+        for pid in getattr(game_state, "player_order", [])
+        if pid != player.player_id
+        and game_state.get_player(pid) is not None
+        and game_state.get_player(pid).is_alive()
+    ]
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -69,7 +81,7 @@ def build_action_options(
 
     # ── move ──────────────────────────────────────────────────────
     if "move" in name_set:
-        opts = _enumerate_move(player)
+        opts = _enumerate_move(player, game_state)
         if opts:
             options["move"] = opts
 
@@ -95,19 +107,32 @@ def build_action_options(
 
     # ── lock ──────────────────────────────────────────────────────
     if "lock" in name_set:
-        opts = _enumerate_lock(player, opponents, markers)
+        opts = _enumerate_lock(
+            player,
+            [opp for opp in opponents
+             if not (getattr(opp, "_m9_drone_actor", False)
+                     or getattr(opp, "_m9_police_actor", False))],
+            markers,
+            game_state,
+        )
         if opts:
             options["lock"] = opts
 
     # ── find ──────────────────────────────────────────────────────
     if "find" in name_set:
-        opts = _enumerate_find(player, opponents, markers)
+        opts = _enumerate_find(
+            player,
+            [opp for opp in opponents
+             if not (getattr(opp, "_m9_drone_actor", False)
+                     or getattr(opp, "_m9_police_actor", False))],
+            markers,
+        )
         if opts:
             options["find"] = opts
 
     # ── attack ────────────────────────────────────────────────────
     if "attack" in name_set:
-        opts = _enumerate_attack(player, opponents, markers)
+        opts = _enumerate_attack(player, opponents, markers, game_state)
         if opts:
             options["attack"] = opts
 
@@ -135,16 +160,23 @@ def build_action_options(
 #  各 action type 枚举子函数
 # ══════════════════════════════════════════════════════════════════
 
-def _enumerate_move(player: Player) -> List[str]:
+def _enumerate_move(player: Player, game_state: GameState = None) -> List[str]:
     """枚举可移动到的地点"""
     norm_loc = _normalize_location(player.location)
-    has_supernova = bool(
-        getattr(getattr(player, "talent", None), "has_supernova", False)
-    )
+    from actions.move import has_active_supernova
+    has_supernova = has_active_supernova(player)
     # 架盾时禁止 move
     shield_mode = getattr(getattr(player, "talent", None), "shield_mode", None)
     if shield_mode == "架盾":
         return []
+
+    # 固有结界中的普通 move 无法离场。枚举器必须提前移除这些命令，避免
+    # G6 等消费者在扣除资源后才由执行器拒绝。
+    if game_state is not None and getattr(game_state, "m9_enabled", False):
+        from engine.m9.talents.g3 import active_barrier
+        barrier = active_barrier(game_state)
+        if barrier is not None and barrier._is_trapped(player):
+            return [f"move {norm_loc}"] if has_supernova and norm_loc else []
 
     result: List[str] = []
     for loc in LOCATIONS:
@@ -152,11 +184,31 @@ def _enumerate_move(player: Player) -> List[str]:
             result.append(f"move {loc}")
         elif has_supernova:
             result.append(f"move {loc}")
+    # 他人住宅也是合法移动目的地（cli.parser 只把裸 "home" 映射为自己的家；
+    # "home_pX" 原样通过，validator 的合法地点表含全部 home_{pid}）。
+    # AI 目录此前漏列 → 追入他人住宅的命令被候选校验丢弃（G7 追敌空转根因）。
+    if game_state is not None:
+        for pid in getattr(game_state, "player_order", []):
+            if pid == player.player_id:
+                continue
+            other = game_state.get_player(pid)
+            if other is None:
+                continue
+            home_loc = f"home_{pid}"
+            if home_loc != player.location:
+                result.append(f"move {home_loc}")
     return result
 
 
 def _enumerate_interact(player: Player, game_state: GameState) -> List[str]:
     """枚举当前位置可交互的所有项目"""
+    # actions.interact 是执行器本身使用的权威动态菜单；以它作为最终结果，
+    # 避免这里的 legacy 静态表覆盖 M4/M9 credits 动态规则。
+    from actions.interact import get_available_items
+    dynamic_commands = [f"interact {item}"
+                        for item in get_available_items(player, game_state)]
+
+    # 静态筛选仍执行以维持旧表的内部一致性检查；不再充当合法性权威。
     norm_loc = _normalize_location(player.location)
     if not norm_loc:
         return []
@@ -248,11 +300,8 @@ def _enumerate_interact(player: Player, game_state: GameState) -> List[str]:
         if item == "磨刀石":
             if "磨刀石" in owned_items:
                 continue
-            has_unsharpened = any(
-                getattr(w, 'name', '') == "小刀" and getattr(w, 'base_damage', 0) < 2
-                for w in (getattr(player, 'weapons', None) or []) if w
-            )
-            if not has_unsharpened:
+            from models.equipment import has_unsharpened_knife
+            if not has_unsharpened_knife(player):
                 continue
         if item in ("隐身衣", "隐形涂层"):
             if getattr(player, 'is_invisible', False):
@@ -287,13 +336,17 @@ def _enumerate_interact(player: Player, game_state: GameState) -> List[str]:
 
         result.append(f"interact {item}")
 
-    return result
+    # 参数枚举必须服从与真实执行相同的权威预检。上面的静态过滤仍用于稳定
+    # 排序与旧 profile，但 M4/M9 已把凭证经济迁移为信用点和动态费用；若只看
+    # vouchers，会把买不起的陶瓷护甲/手术伪装成合法候选，令 AI 无限重试。
+    return dynamic_commands
 
 
 def _enumerate_lock(
     player: Player,
     opponents: List[Player],
     markers,
+    game_state=None,
 ) -> List[str]:
     """枚举可锁定的目标"""
     from models.equipment import WeaponRange
@@ -308,6 +361,10 @@ def _enumerate_lock(
 
     result: List[str] = []
     for opp in opponents:
+        if game_state is not None and getattr(game_state, "m9_enabled", False):
+            from engine.m9.talents.g3 import lock_crosses_active_barrier
+            if lock_crosses_active_barrier(game_state, player, opp):
+                continue
         if not opp.is_on_map():
             continue
         already_locked = markers.has_relation(
@@ -344,6 +401,7 @@ def _enumerate_attack(
     player: Player,
     opponents: List[Player],
     markers,
+    game_state=None,
 ) -> List[str]:
     """枚举所有合法攻击组合（目标 × 武器）"""
     from models.equipment import WeaponRange
@@ -358,20 +416,32 @@ def _enumerate_attack(
     weapon_ranges["拳击"] = WeaponRange.MELEE
 
     result: List[str] = []
+    equipped_names = {
+        getattr(w, "name", "")
+        for w in (getattr(player, "weapons", None) or []) if w
+    }
+    # RL 固定动作表维持既有顺序；天赋注入的专属武器追加到动态目录，不能
+    # 因未写入固定表而永远被 BasicAI 看不见（例如 G0 BLACK FANG 465）。
+    weapon_names = list(WEAPONS) + sorted(equipped_names - set(WEAPONS))
     for opp in opponents:
+        if game_state is not None and getattr(game_state, "m9_enabled", False):
+            from engine.m9.talents.g3 import attack_crosses_active_barrier
+            if attack_crosses_active_barrier(game_state, player, opp):
+                continue
         same_loc = (opp.location == player.location)
+        is_m9_npc = bool(getattr(opp, "_m9_police_actor", False)
+                         or getattr(opp, "_m9_drone_actor", False))
         is_engaged = markers.has_relation(
             player.player_id, "ENGAGED_WITH", opp.player_id)
         is_locked = markers.has_relation(
             opp.player_id, "LOCKED_BY", player.player_id)
-
-        for wname in WEAPONS:
+        for wname in weapon_names:
             if wname not in owned:
                 continue
             wr = weapon_ranges.get(wname, WeaponRange.MELEE)
 
             # 检查武器是否可用（蓄力、禁用等）
-            w_obj = next((w for w in (getattr(player, 'weapons', None) or [])
+            w_obj = next((w for w in (getattr(player, "weapons", None) or [])
                           if w and w.name == wname), None)
             if w_obj and getattr(w_obj, 'requires_charge', False) \
                     and getattr(w_obj, 'charge_mandatory', True) \
@@ -381,10 +451,10 @@ def _enumerate_attack(
                 continue
 
             if wr == WeaponRange.MELEE:
-                if same_loc and is_engaged:
+                if same_loc and (is_engaged or is_m9_npc):
                     result.append(f"attack {opp.name} {wname}")
             elif wr == WeaponRange.RANGED:
-                if is_locked:
+                if is_locked or (is_m9_npc and same_loc):
                     result.append(f"attack {opp.name} {wname}")
             elif wr == WeaponRange.AREA:
                 if same_loc:

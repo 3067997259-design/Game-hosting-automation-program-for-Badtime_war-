@@ -184,8 +184,15 @@ class TerrorMixin:
                     RoundManager.notify_all_talents_of_death(
                         self.state, t.player_id, killer_id=player.player_id)
 
-            # 伤害结算后扣除额外HP（不同归于尽）
-            # ★ 若本轮击杀全场最后一批敌人 → 免扣HP，直接判胜
+            # 伤害结算后扣除额外HP
+            # M9 机制刀（用户批准）：Terror「全歼即胜免扣 HP」改为普通胜利——
+            # 主炮永远按 attack_cost 烧额外生命；全歼判定由全局胜负流程承接。
+            # v2exp 保留旧语义（profile 隔离）。
+            try:
+                from engine.m9.gate import m9_enabled
+                m9_active = m9_enabled(self.state)
+            except Exception:
+                m9_active = False
             all_others_dead = True
             for pid in self.state.player_order:
                 if pid == player.player_id:
@@ -195,7 +202,7 @@ class TerrorMixin:
                     all_others_dead = False
                     break
 
-            if not all_others_dead:
+            if not all_others_dead or m9_active:
                 # 主炮耗额外 HP：v1=1，m7=6（§7.4）
                 attack_cost = talent_num("g7", "terror_attack_cost", v1=1)
                 self.terror_extra_hp = round(max(0, self.terror_extra_hp - attack_cost), 2)
