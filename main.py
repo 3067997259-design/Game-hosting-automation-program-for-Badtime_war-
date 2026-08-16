@@ -276,7 +276,9 @@ def setup_game_cli(args) -> GameState:
 # ════════════════════════════════════════════════════════════
 
 def setup_game_interactive(args) -> GameState:
-    """原有的交互式 setup_game（C7 后统一走新架构 DecisionOrchestrator）"""
+    """原有的交互式 setup_game（C7 后统一走新架构 DecisionOrchestrator），支持 --debug-level"""
+    if args.debug_level > 0:
+        enable_debug(args.debug_level)
     from engine.game_setup import setup_game as _orig_setup
     # 调用原版交互式流程（--debug-level 显式传入，不再重复询问）
     state = _orig_setup(debug_level=args.debug_level)
