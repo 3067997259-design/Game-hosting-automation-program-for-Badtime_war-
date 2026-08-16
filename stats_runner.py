@@ -27,7 +27,9 @@ try:
     )
     from models.player import Player
     from controllers.ai_basic import BasicAIController
+    from controllers.bots import BOT_REGISTRY
     from cli import display as _display_module
+    from engine import experiments
     from engine.prompt_manager import prompt_manager
 
     # RL 模型支持（可选）
@@ -214,8 +216,6 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         start_idx = 1  # AI 从 p2 开始
     else:
         start_idx = 0
-
-    from controllers.bots import BOT_REGISTRY
 
     bot_pids: set[str] = set()
     ai_count = num_players - (1 if rl_controller else 0)
@@ -1312,16 +1312,14 @@ def main():
         if len(lineup) != ai_seats:
             print(f"错误：--lineup 共 {len(lineup)} 个席位，但 AI 席位数为 {ai_seats}")
             sys.exit(1)
-        from controllers.bots import BOT_REGISTRY
-        from engine.game_setup import AI_PERSONALITIES as _PERS
-        unknown = [s for s in lineup if s not in BOT_REGISTRY and s not in _PERS]
+        unknown = [s for s in lineup
+                   if s not in BOT_REGISTRY and s not in AI_PERSONALITIES]
         if unknown:
             print(f"错误：未知席位名 {unknown}；可用 bot: {sorted(BOT_REGISTRY)}，"
-                  f"可用人格: {_PERS}")
+                  f"可用人格: {AI_PERSONALITIES}")
             sys.exit(1)
         print(f"  🤖 席位配置: {', '.join(lineup)}")
 
-    from engine import experiments
     if args.profile:
         experiments.set_profile(args.profile)
     for exp_name in args.experiment:

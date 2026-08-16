@@ -17,6 +17,7 @@ M9 天赋钩子协议（六天赋机制模块实现，阶段 2-7）：
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any, Dict, List, Optional
 
@@ -24,6 +25,13 @@ from engine import experiments
 from combat import numeric_v2
 from engine.m9.resolution import HitResolution
 from engine.m9.text import m9_text
+
+_LOGGER = logging.getLogger("engine.m9.combat")
+
+
+def _log_hook_failure(context: str, exc: Exception) -> None:
+    """天赋/援助钩子异常不炸全局回合，但必须留下可诊断痕迹。"""
+    _LOGGER.warning("M9 combat %s failed: %s", context, exc)
 
 
 # 绝对死亡来源白名单（t3_t7 §2.2/§2.5：G5 锚定强制、G4 死星天裁、G7 Terror、
@@ -122,7 +130,8 @@ def _in_apocalypse(game_state: Any) -> bool:
     try:
         from engine import world_clock
         return world_clock.current_phase(game_state) == world_clock.APOCALYPSE
-    except Exception:
+    except Exception as exc:
+        _log_hook_failure("world clock phase check", exc)
         return False
 
 
@@ -173,7 +182,8 @@ class DeathAdjudicator:
         if talent is not None and hasattr(talent, "m9_on_lethal"):
             try:
                 kind = talent.m9_on_lethal(target, attacker, source_kind)
-            except Exception:
+            except Exception as exc:
+                _log_hook_failure("m9_on_lethal", exc)
                 kind = None
             if kind:
                 return kind
@@ -243,8 +253,8 @@ def _apply_attack(target: Any, raw_int: int, attr: str, *,
         for piece, dur in snapshot:
             try:
                 piece.durability = dur
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_hook_failure("read-only armor snapshot restore", exc)
     return HitResolution(
         raw=raw_int,
         attribute=attr,
@@ -297,8 +307,8 @@ def _feed_g5_combat(game_state: Any, attacker: Any, target: Any,
             )
             try:
                 p.talent.feed_combat_round(personal=personal)
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_hook_failure("G5 feed_combat_round", exc)
             break
 
 
@@ -358,8 +368,8 @@ def _world_poem_followup(game_state: Any, attacker: Any, target: Any,
         if w is not None and getattr(w, "get_effective_damage", None) is not None:
             try:
                 base = max(base, float(w.get_effective_damage()))
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_hook_failure("world poem weapon damage read", exc)
     punch = aid.followup_punch_raw(base)
     punch = max(0.0, float(punch))
     if punch <= 0:
@@ -372,7 +382,8 @@ def _world_poem_followup(game_state: Any, attacker: Any, target: Any,
             source_kind="world_poem_followup",
             _skip_outgoing_hook=True,
         )
-    except Exception:
+    except Exception as exc:
+        _log_hook_failure("world poem followup resolve", exc)
         return
     if not getattr(target, "is_alive", lambda: False)():
         return
@@ -460,8 +471,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                 attacker, target, weapon, raw)
             if isinstance(candidate, dict):
                 outgoing_plan = candidate
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_hook_failure("m9_prepare_outgoing", exc)
     if outgoing_plan is not None:
         raw = float(outgoing_plan.get("raw", raw))
         attr = str(outgoing_plan.get("attribute", attr))
@@ -478,8 +489,8 @@ def resolve_damage(attacker, target, weapon, game_state,
           and hasattr(t_attacker, "m9_modify_outgoing")):
         try:
             raw = t_attacker.m9_modify_outgoing(attacker, target, weapon, raw)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_hook_failure("m9_modify_outgoing", exc)
 
     raw_int = max(0, int(round(raw)))
     result["raw_damage"] = float(raw)
@@ -520,8 +531,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                         result["details"].append(
                             m9_text("combat.hit_roll_grazed", chance=chance,
                                     roll=roll))
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_hook_failure("accuracy hit roll", exc)
 
     # 被动进攻援助（B4 §5.1）：首攻 + 往世层非空 → 系统指派死者提供效果。
     # 在伤害结算前触发，标记型效果（如 T1 防御归零）可附着于本次攻击。
@@ -530,8 +541,8 @@ def resolve_damage(attacker, target, weapon, game_state,
         try:
             from engine.m9.aids import trigger_passive_attack_aid
             trigger_passive_attack_aid(attacker, target, game_state, None)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_hook_failure("passive attack aid", exc)
 
     # A/H 两阶段账目（DIRECT_DAMAGE 身份由调用方经 source_kind 或 direct 标志给出）
     hit = _apply_attack(
@@ -552,8 +563,8 @@ def resolve_damage(attacker, target, weapon, game_state,
     if t_target is not None and hasattr(t_target, "m9_modify_incoming"):
         try:
             t_target.m9_modify_incoming(hit)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_hook_failure("m9_modify_incoming", exc)
 
     # 终曲区域：全员易伤（攻击方侧固定加值，合同 G2 §8.1）
     area = _terminal_area_of(game_state, target)
@@ -564,8 +575,8 @@ def resolve_damage(attacker, target, weapon, game_state,
     if t_target is not None and hasattr(t_target, "m9_on_hit"):
         try:
             t_target.m9_on_hit(hit)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_hook_failure("m9_on_hit", exc)
 
     # 攻击方侧 M9 钩子（T2 攻击回盾等；借用来源不触发）
     if attacker is not None and not getattr(
@@ -575,8 +586,8 @@ def resolve_damage(attacker, target, weapon, game_state,
                 t_attacker_hook, "m9_on_attack"):
             try:
                 t_attacker_hook.m9_on_attack(hit, target)
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_hook_failure("m9_on_attack", exc)
 
     # 近战攻击造成伤害后：隐身临时失效（README 9.3.3；M9 收敛同语义——
     # T2 零击杀隐身豁免）
@@ -597,8 +608,8 @@ def resolve_damage(attacker, target, weapon, game_state,
             game_state.markers.on_engaged_melee_attack_by_invisible(
                 attacker.player_id, getattr(target, "player_id", ""))
             result["stealth_suppressed"] = True
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_hook_failure("stealth suppress marker", exc)
 
     result["final_damage"] = float(hit.damage)
     result["armor_broken"] = bool(hit.broken)
@@ -618,8 +629,8 @@ def resolve_damage(attacker, target, weapon, game_state,
             remaining = t_target.receive_damage_to_temp_hp(
                 remaining, is_embrace=False)
             remaining = max(0, float(remaining))
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_hook_failure("receive_damage_to_temp_hp", exc)
     # 终曲伤害共享（shared_post_mitigation）：每个承受者独立进入死亡裁决。
     allocations = _damage_distribution(game_state, target, int(remaining))
     adjudicator = DeathAdjudicator(game_state)
@@ -656,8 +667,8 @@ def resolve_damage(attacker, target, weapon, game_state,
         try:
             from engine.m9.aids import trigger_passive_defense_aid
             trigger_passive_defense_aid(target, attacker, game_state, hit)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_hook_failure("passive defense aid", exc)
     # 死亡裁决
     if getattr(target, "hp", 0) <= 0:
         adjudicator = DeathAdjudicator(game_state)
@@ -751,7 +762,8 @@ def _terminal_area_of(game_state: Any, target: Any):
         if hasattr(talent, "area_for_target"):
             try:
                 area = talent.area_for_target(target)
-            except Exception:
+            except Exception as exc:
+                _log_hook_failure("terminal area_for_target", exc)
                 area = None
             if area is not None:
                 return area
@@ -866,8 +878,8 @@ def finalize_death(game_state: Any, target: Any, attacker: Any = None, *,
         if m9_pp is not None and hasattr(m9_pp, "freeze"):
             try:
                 m9_pp.freeze(target.player_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_hook_failure("PP freeze on absolute death", exc)
 
     if attacker is not None and hasattr(attacker, "kill_count"):
         attacker.kill_count += 1

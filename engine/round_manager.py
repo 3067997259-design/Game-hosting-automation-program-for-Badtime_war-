@@ -375,6 +375,9 @@ class RoundManager:
             total = roll + bonus
             tiebreak = roll_d6()  # 补掷（仅同点时有意义，统一掷保证消耗序稳定）
             rolls[pid] = (roll, bonus, total)
+            # 兜底 order_map.get(pid, 99) 只覆盖不在 player_order 的 Chorus 类临时单位；
+            # 这些单位 ID 使用 chorus_N 命名，字符串序与数字序一致（0-9 单数字段），
+            # 因此字典序兜底不会破坏同点先攻排序。新增 Chorus 位时保持该命名约定。
             entries.append((total, tiebreak, bonus, -order_map.get(pid, 99), pid, name))
         entries.sort(reverse=True)
 
@@ -487,6 +490,7 @@ class RoundManager:
             self.state.round_winners = sorted_conflict + non_conflict
         else:
             order_map = {pid: i for i, pid in enumerate(self.state.player_order)}
+            # Chorus 兜底 99 依赖 chorus_N 字符串序=数字序（见 _phase_r1 同点排序注释）。
             self.state.round_winners.sort(key=lambda pid: order_map.get(pid, 99))
 
     # ============================================

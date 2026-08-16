@@ -104,15 +104,15 @@ class Player:
             controller = HumanController()
         self.controller: PlayerController = controller
 
-        # 基础属性（hp20 实验开关下为 20 整数量纲，v2.0 §2.1）
+        # 基础属性（hp20 实验开关下为 20 整数量纲，v2.0 §2.1；v1 也用 int 统一类型）
         from engine import experiments as _exp
         if _exp.is_enabled("hp20"):
             from engine.balance import get as _bget
             self.hp = _bget("hp20", "player_max_hp", default=20)
             self.max_hp = self.hp
         else:
-            self.hp = 1.0
-            self.max_hp = 1.0
+            self.hp = 1
+            self.max_hp = 1
         self.base_attack = 0.5
 
         # HP20 数值模型字段（v1 路径下保持空值无副作用）
