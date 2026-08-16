@@ -32,18 +32,66 @@ HOSHINO_TACTICAL = {"破片手雷", "震撼弹", "闪光弹", "烟雾弹", "燃�
 NEED_PASS = {"AT力场", "电磁步枪", "高斯步枪", "导弹控制权", "雷达", "隐形涂层"} | HOSHINO_TACTICAL
 
 
+# m4 退役：导弹生态位由弓继承，攻城/反龟缩职责移交钩索（v2.0 §2.2 处决名单）
+_M4_RETIRED = {"导弹控制权"}
+
+
+def _m9_active(game_state) -> bool:
+    try:
+        from engine.m9.gate import m9_enabled
+        return m9_enabled(game_state)
+    except Exception:
+        return False
+
+
 def get_menu():
-    return dict(MILITARY_MENU)
+    menu = dict(MILITARY_MENU)
+    from engine.economy import m4_enabled
+    if m4_enabled():
+        for r in _M4_RETIRED:
+            menu.pop(r, None)
+        from engine.bow_modules import menu_entries
+        menu.update(menu_entries("军事基地"))
+        menu["钩索"] = "神器·钩索（通行证+信用点，全图唯一）：拉人/拉己位移"
+    return menu
 
 
 def can_interact(player, item_name, game_state=None):
+    from engine.economy import m4_enabled
+    _m4 = m4_enabled()
+
+    # m4 弓模块（穿甲/冲击，军基走通行证权限，免信用点）
+    if _m4:
+        from engine.bow_modules import is_module_item, check_purchase, base_name
+        if is_module_item(item_name):
+            if not player.has_military_pass:
+                return False, "军事基地的弓模块需要通行证"
+            return check_purchase(player, base_name(item_name), game_state)
+        # 钩索（神器×1）
+        if item_name == "钩索":
+            if not player.has_military_pass:
+                return False, "钩索需要通行证"
+            if getattr(game_state, 'hook_taken', False):
+                return False, "钩索是全图唯一神器，已被取走"
+            if any(getattr(i, 'name', '') == "钩索" for i in getattr(player, 'items', [])):
+                return False, "你已经持有钩索"
+            from engine.economy import can_afford
+            return can_afford(player, "钩索")
+
     if item_name not in MILITARY_MENU:
         return False, f"军事基地没有「{item_name}」"
+
+    # m4 退役武器：断新增（已持有者不剥夺）
+    if _m4 and item_name in _M4_RETIRED:
+        return False, f"「{item_name}」已退役（远程交给弓，攻城交给钩索）"
 
     # 办理通行证不需要已有通行证
     if item_name == "办理通行证":
         if player.has_military_pass:
             return False, "你已经有通行证了"
+        if _m9_active(game_state):
+            from engine.economy import can_afford
+            return can_afford(player, "办理通行证")
         return True, ""
 
     # 其他项目需要通行证
@@ -87,13 +135,39 @@ def can_interact(player, item_name, game_state=None):
             return False, "你需要先习得战术动作才能获取战术道具"
         if hasattr(player.talent, 'tactical_items') and len(player.talent.tactical_items) >= 2:
             return False, "你最多同时持有2样战术道具"
+        if _m9_active(game_state):
+            from engine.economy import can_afford
+            return can_afford(player, item_name)
         return True, ""
+
+    # M9 机制刀（用户批准）：军基通行证/装备不再免费，走信用点价格表。
+    if _m9_active(game_state):
+        from engine.economy import can_afford
+        return can_afford(player, item_name)
 
     return True, ""
 
 
 def do_interact(player, item_name, game_state=None):
     """执行军事基地交互"""
+    from engine.economy import m4_enabled
+    # m4 弓模块（穿甲/冲击）：委托 do_purchase
+    if m4_enabled():
+        from engine.bow_modules import is_module_item, do_purchase, base_name
+        if is_module_item(item_name):
+            return do_purchase(player, base_name(item_name), game_state)
+        if item_name == "钩索":
+            from engine.economy import charge
+            from models.equipment import Item
+            charge(player, "钩索")
+            player.add_item(Item("钩索", "tool"))
+            game_state.hook_taken = True
+            return f"🪝 {player.name} 取得了全图唯一神器·钩索！"
+
+    # M9：军基通行证/装备按 economy.sinks 扣信用点（can_interact 已预检）
+    if _m9_active(game_state) and item_name in MILITARY_MENU:
+        from engine.economy import charge
+        charge(player, item_name)
 
     if item_name == "办理通行证":
         player.has_military_pass = True
@@ -138,10 +212,12 @@ def do_interact(player, item_name, game_state=None):
     elif item_name == "雷达":
         player.add_item(make_item("雷达"))
         player.has_detection = True
+        player.grant_visibility_item("雷达")
         return f"📡 {player.name} 获得了雷达并改造完成！获得探测能力。"
 
     elif item_name == "隐形涂层":
         player.is_invisible = True
+        player.grant_visibility_item("隐形涂层")
         if game_state:
             game_state.markers.on_player_go_invisible(
                 player.player_id, list(game_state.players.values()))
@@ -164,6 +240,17 @@ def try_force_entry(player, game_state):
     """
     if player.has_military_pass:
         return True, "已有通行证"
+    from engine.economy import m4_enabled, pay_all
+    if m4_enabled():
+        # m4 财产税：强买 = 全部信用点（下限 force_pass_min_cost）
+        ok, paid = pay_all(player, "force_pass_min_cost")
+        if not ok:
+            return False, "信用点不足，无法强买通行证。请先花1回合办理通行证。"
+        player.has_military_pass = True
+        if game_state:
+            game_state.log_event("military_pass", player=player.player_id,
+                                 method="force_buy", credits_spent=paid)
+        return True, f"🪪 {player.name} 支付了全部信用点（{paid}），强买通行证！"
     if player.vouchers < 1:
         return False, "你没有购买凭证，无法强买通行证。请先花1回合办理通行证。"
     old = player.vouchers

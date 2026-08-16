@@ -37,13 +37,35 @@ PREREQUISITES = {
 }
 
 
+# m4 退役武器（弓接管远程，地动震荡让位电磁唯一性；v2.0 §2.2 处决名单）
+_M4_RETIRED = {"远程魔法弹幕", "地动山摇"}
+
+
 def get_menu():
-    return dict(MAGIC_MENU)
+    menu = dict(MAGIC_MENU)
+    from engine.economy import m4_enabled
+    if m4_enabled():
+        for r in _M4_RETIRED:
+            menu.pop(r, None)
+        from engine.bow_modules import menu_entries
+        menu.update(menu_entries("魔法所"))
+    return menu
 
 
 def can_interact(player, item_name, game_state=None):
+    from engine.economy import m4_enabled
+    # m4 弓模块（火矢/魔导，魔法所走学习1回合=普通 interact 回合成本，免信用点）
+    if m4_enabled():
+        from engine.bow_modules import is_module_item, check_purchase, base_name
+        if is_module_item(item_name):
+            return check_purchase(player, base_name(item_name), game_state)
+
     if item_name not in MAGIC_MENU:
         return False, f"魔法所没有「{item_name}」"
+
+    # m4 退役武器：断新增（已习得者不剥夺）
+    if m4_enabled() and item_name in _M4_RETIRED:
+        return False, f"「{item_name}」已退役（弓接管远程 / 震荡归电磁）"
 
     # 检查是否已学会
     if item_name in player.learned_spells:
@@ -59,6 +81,13 @@ def can_interact(player, item_name, game_state=None):
 
 def do_interact(player, item_name, game_state=None):
     """执行学习。使用进度系统。"""
+    from engine.economy import m4_enabled
+    # m4 弓模块（火矢/魔导）：即时安装（学习成本由本行动回合体现，免信用点）
+    if m4_enabled():
+        from engine.bow_modules import is_module_item, do_purchase, base_name
+        if is_module_item(item_name):
+            return do_purchase(player, base_name(item_name), game_state)
+
     required = LEARN_TURNS.get(item_name, 1)
     progress_key = f"learn_{item_name}"
 
@@ -117,6 +146,7 @@ def _apply_learned_spell(player, spell_name, game_state):
 
     elif spell_name == "隐身术":
         player.is_invisible = True
+        player.grant_visibility_item("隐身术")
         if game_state:
             game_state.markers.on_player_go_invisible(
                 player.player_id, list(game_state.players.values()))
@@ -124,6 +154,7 @@ def _apply_learned_spell(player, spell_name, game_state):
 
     elif spell_name == "探测魔法":
         player.has_detection = True
+        player.grant_visibility_item("探测魔法")
         return f"✨ {player.name} 学会了探测魔法！可以发现隐身目标。🔍"
 
     return f"✨ {player.name} 学会了「{spell_name}」！"

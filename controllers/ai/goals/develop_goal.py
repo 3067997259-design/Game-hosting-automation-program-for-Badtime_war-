@@ -104,6 +104,18 @@ class DevelopGoal(BaseGoal):
         if self.target_location == "军事基地" and self.target_item in military_items:
             if not getattr(player, 'has_military_pass', False) and self.target_item != "通行证":
                 return "interact 通行证"
+        # m4 信用点经济：按价格表检查 credits（防 AI 凭证检查死循环的最小适配，
+        # 完整经济决策归 M8）
+        from engine.economy import m4_enabled, price
+        if m4_enabled():
+            from engine.balance import get as _bget
+            if self.target_location in ("商店", "医院") and self.target_item != "打工":
+                cost = price(self.target_item)
+                if self.target_item in {"晶化皮肤手术", "额外心脏手术", "不老泉手术"}:
+                    cost = _bget("economy", "surgery_min_cost", default=4)
+                if cost > 0 and getattr(player, 'credits', 0) < cost:
+                    return "interact 打工"
+            return None
         # 商店物品需要凭证（小刀除外）
         shop_paid_items = {"陶瓷护甲", "磨刀石", "热成像仪", "隐身衣", "防毒面具"}
         if self.target_location == "商店" and self.target_item in shop_paid_items:

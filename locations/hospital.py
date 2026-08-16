@@ -34,25 +34,77 @@ HOSHINO_MEDICINES = {"EPO", "海豚巧克力", "肾上腺素"}
 
 
 def get_menu():
-    return dict(HOSPITAL_MENU)
+    menu = dict(HOSPITAL_MENU)
+    from engine.economy import m4_enabled
+    if m4_enabled():
+        from engine.bow_modules import menu_entries
+        menu.update(menu_entries("医院"))
+        menu["治疗"] = "恢复 HP（信用点；黄昏阶段费用翻倍）"
+    return menu
+
+
+def _heal_cost(game_state):
+    """治疗信用点费用（黄昏阶段 ×heal_cost_multiplier，v2.0 §3）。"""
+    from engine.balance import get as _bget
+    cost = _bget("hospital", "heal_cost", default=2)
+    from engine import experiments
+    if game_state is not None and experiments.is_enabled("m5_clock"):
+        from engine import world_clock
+        cost = int(cost * world_clock.active_value(
+            game_state, "heal_cost_multiplier", default=1))
+    return cost
 
 
 def can_interact(player, item_name, game_state=None):
+    from engine.economy import m4_enabled
+    from engine.balance import get as _bget
+    _m4 = m4_enabled()
+
+    # m4 弓模块（无限）：委托 bow_modules
+    if _m4:
+        from engine.bow_modules import is_module_item, check_purchase, base_name
+        if is_module_item(item_name):
+            return check_purchase(player, base_name(item_name), game_state)
+
+    # m4 治疗条目（§2.5，动态菜单不在 HOSPITAL_MENU）
+    if _m4 and item_name == "治疗":
+        if player.hp >= player.max_hp:
+            return False, "你的 HP 已满"
+        heal_cap = _bget("hospital", "heal_max_uses", default=3)
+        if getattr(player, '_heal_uses', 0) >= heal_cap:
+            return False, f"本局治疗次数已用尽（{heal_cap} 次上限）"
+        cost = _heal_cost(game_state)
+        if getattr(player, 'credits', 0) < cost:
+            return False, f"治疗需要 {cost} 信用点，你只有 {player.credits}"
+        return True, ""
+
     if item_name not in HOSPITAL_MENU:
         return False, f"医院没有「{item_name}」"
 
-    # 打工：已有凭证时不允许（凭证是资格开关，有1张就够了）
-    if item_name == "打工" and player.vouchers >= 1:
+    # 打工：v1 已有凭证时不允许；m4 信用点可累积无此限制
+    if item_name == "打工" and not _m4 and player.vouchers >= 1:
         return False, "你已经有购买凭证了，不需要再打工。"
 
     if item_name in FREE_ITEMS:
         return True, ""
 
-    # 手术需要凭证
+    # 手术需要凭证（v1）/ 信用点财产税下限（m4）
     if item_name in SURGERY_ITEMS:
-        if player.vouchers < 1:
+        if _m4:
+            min_cost = _bget("economy", "surgery_min_cost", default=4)
+            if getattr(player, 'credits', 0) < min_cost:
+                return False, (f"手术费 = 你的全部信用点（下限 {min_cost}）。"
+                               f"你只有 {player.credits}，不足以支付。")
+        elif player.vouchers < 1:
             return False, "手术需要至少1张购买凭证！（手术会消耗你所有凭证）"
-        # 检查是否已有该内层护甲（同名护甲不能重复装备）
+        # hp20：手术=永久身体改造，终身一次（无内甲 piece 可查重，走 surgeries_done）
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            surgery_name = item_name.replace("手术", "")
+            if surgery_name in getattr(player, 'surgeries_done', set()):
+                return False, f"{surgery_name}手术终身只能进行一次。"
+            return True, ""
+        # v1：检查是否已有该内层护甲（同名护甲不能重复装备）
         armor_name_map = {
             "晶化皮肤手术": "晶化皮肤",
             "额外心脏手术": "额外心脏",
@@ -74,6 +126,9 @@ def can_interact(player, item_name, game_state=None):
         items = getattr(player, 'items', [])
         if any(getattr(i, 'name', '') == "防毒面具" for i in items):
             return False, "你已经有防毒面具了"
+        if _m4:
+            from engine.economy import can_afford
+            return can_afford(player, "防毒面具")
         if player.vouchers < 1:
             return False, "防毒面具需要购买凭证（不消耗凭证）。"
         return True, ""
@@ -96,26 +151,60 @@ def can_interact(player, item_name, game_state=None):
 
 def do_interact(player, item_name, game_state=None):
     """执行医院交互"""
+    from engine.economy import m4_enabled, charge, work_income
+
+    # m4 弓模块（无限）：委托 do_purchase
+    if m4_enabled():
+        from engine.bow_modules import is_module_item, do_purchase, base_name
+        if is_module_item(item_name):
+            return do_purchase(player, base_name(item_name), game_state)
+
+    # m4 治疗（§2.5：+heal_amount HP，黄昏费用×2；每局次数上限 heal_max_uses）
+    if m4_enabled() and item_name == "治疗":
+        from engine.balance import get as _bget
+        amount = _bget("hospital", "heal_amount", default=6)
+        cost = _heal_cost(game_state)
+        player.credits -= cost
+        before = player.hp
+        player.hp = min(player.max_hp, player.hp + amount)
+        player._heal_uses = getattr(player, '_heal_uses', 0) + 1
+        return (f"💉 {player.name} 接受治疗，HP {before}→{player.hp}"
+                f"（花费 {cost} 信用点，剩余 {max(0, _bget('hospital', 'heal_max_uses', default=3) - player._heal_uses)} 次）")
 
     if item_name == "打工":
+        if m4_enabled():
+            income = work_income()
+            player.credits += income
+            return f"{player.name} 在医院打工，获得 {income} 信用点。当前：{player.credits}"
         player.vouchers += 1
         return f"{player.name} 在医院打工，获得1张购买凭证。当前：{player.vouchers}张"
 
     elif item_name == "防毒面具":
+        if m4_enabled():
+            charge(player, "防毒面具")
         player.add_item(make_item("防毒面具"))
         return f"{player.name} 获得了防毒面具，免疫病毒！😷"
 
     elif item_name == "晶化皮肤手术":
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            return _do_surgery_hp20(player, "晶化皮肤", game_state)
         return _do_surgery(player, "晶化皮肤",
                            ArmorPiece("晶化皮肤", Attribute.TECH, ArmorLayer.INNER, 1.0),
                            game_state)
 
     elif item_name == "额外心脏手术":
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            return _do_surgery_hp20(player, "额外心脏", game_state)
         return _do_surgery(player, "额外心脏",
                            ArmorPiece("额外心脏", Attribute.ORDINARY, ArmorLayer.INNER, 1.0),
                            game_state)
 
     elif item_name == "不老泉手术":
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            return _do_surgery_hp20(player, "不老泉", game_state)
         return _do_surgery(player, "不老泉",
                            ArmorPiece("不老泉", Attribute.MAGIC, ArmorLayer.INNER, 1.0),
                            game_state)
@@ -127,6 +216,55 @@ def do_interact(player, item_name, game_state=None):
         return f"💊 {player.name} 获得了药物「{item_name}」！（当前持有 {count}/2）"
 
     return "❌ 未知项目"
+
+
+def _do_surgery_hp20(player, surgery_name, game_state):
+    """HP20 手术：永久身体改造而非内甲 piece（v2.0 §2.4，外层不破不打内层规则随之消失）。"""
+    from engine.balance import get as bget
+
+    if surgery_name in player.surgeries_done:
+        return f"❌ {surgery_name}手术终身只能进行一次。（凭证未消耗）"
+
+    spec = bget("surgery", surgery_name, default=None)
+    if not isinstance(spec, dict):
+        return f"❌ 系统错误：手术「{surgery_name}」无数值定义"
+
+    from engine.economy import m4_enabled, pay_all
+    log_kwargs = {}
+    if m4_enabled():
+        # m4 财产税：手术费 = 全部信用点（下限已在 can_interact 拦截）
+        ok, paid = pay_all(player, "surgery_min_cost")
+        if not ok:
+            return f"❌ 信用点不足，无法进行{surgery_name}手术。"
+        cost_note = f"\n   手术费：全部信用点（{paid} → 0）"
+        log_kwargs["credits_spent"] = paid
+    else:
+        old_vouchers = player.vouchers
+        player.clear_all_vouchers()
+        cost_note = f"\n   消耗了所有购买凭证（{old_vouchers}张→0张）"
+        log_kwargs["vouchers_spent"] = old_vouchers  # 保持与 hp20 golden 锚点一致
+    player.surgeries_done.add(surgery_name)
+
+    if surgery_name == "额外心脏":
+        player.max_hp += spec.get("max_hp_bonus", 4)
+        player.hp = min(player.hp + spec.get("heal_on_surgery", 4), player.max_hp)
+        effect = f"生命上限 +{spec.get('max_hp_bonus', 4)}（当前 {player.hp}/{player.max_hp}）"
+    elif surgery_name == "晶化皮肤":
+        for attr_name, value in spec.get("inner_defense", {}).items():
+            player.inner_defense[attr_name] = (
+                player.inner_defense.get(attr_name, 0) + value)
+        defs = "/".join(f"{k}-{v}" for k, v in spec.get("inner_defense", {}).items())
+        effect = f"永久防御 {defs}（不可破坏）"
+    elif surgery_name == "不老泉":
+        player.regen_per_round += spec.get("regen_per_round", 1)
+        effect = f"每轮再生 {player.regen_per_round} HP"
+    else:
+        effect = "？"
+
+    if game_state:
+        game_state.log_event("surgery", player=player.player_id,
+                             surgery=surgery_name, **log_kwargs)
+    return f"🏥 {player.name} 完成了{surgery_name}手术！{effect}{cost_note}"
 
 
 def _do_surgery(player, surgery_name, armor_piece, game_state):

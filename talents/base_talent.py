@@ -32,6 +32,16 @@ class BaseTalent:
         """R4：轮次结束结算"""
         pass
 
+    # ---- 通用追加回合 ----
+
+    def grant_extra_turn(self, player, n: int = 1) -> None:
+        """授予 player n 个追加行动回合（通用通道，round_manager R3 消费）。
+
+        替代为每个天赋在 round_manager 新增具名分支——天赋只需调本方法置位，
+        引擎侧仅一段通用分支读取 `pending_extra_turns`。
+        """
+        player.pending_extra_turns = getattr(player, "pending_extra_turns", 0) + n
+
     # ---- 行动回合钩子 ----
 
     def on_turn_start(self, player):

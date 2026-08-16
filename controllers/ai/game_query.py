@@ -13,6 +13,7 @@ from controllers.ai.constants import (
     EFFECTIVE_AGAINST, POLICE_AOE_WEAPONS, LOCATIONS,
     debug_ai_basic,
 )
+from engine.experiments import is_enabled as _is_exp_enabled
 
 
 class GameQuery:
@@ -375,6 +376,24 @@ class GameQuery:
 
     @staticmethod
     def has_effective_aoe_against(player, target) -> bool:
+        if _is_exp_enabled("m8_ai"):
+            # D1：无硬克制——AOE"有效" = 对该目标净伤 > 0
+            aoe_names = GameQuery.get_all_aoe_weapon_names(player)
+            for aoe_name in aoe_names:
+                aoe_weapon = next((w for w in getattr(player, 'weapons', [])
+                                   if w and w.name == aoe_name), None)
+                if not aoe_weapon:
+                    from models.equipment import make_weapon
+                    aoe_weapon = make_weapon(aoe_name)
+                if not aoe_weapon:
+                    continue
+                if (getattr(aoe_weapon, 'requires_charge', False)
+                        and getattr(aoe_weapon, 'charge_mandatory', True)
+                        and not getattr(aoe_weapon, 'is_charged', False)):
+                    continue
+                if GameQuery.net_damage(player, aoe_weapon, target) > 0:
+                    return True
+            return False
         target_armor_attrs = GameQuery.get_outer_armor_attr(target)
         if not target_armor_attrs:
             target_armor_attrs = GameQuery.get_inner_armor_attr(target)
@@ -558,7 +577,7 @@ class GameQuery:
         threat_scores = threat_scores or {}
         players_who_attacked = players_who_attacked or set()
         max_power = max(
-            (GameQuery.estimate_power(state.get_player(other_pid))
+            (GameQuery.estimate_power(state.get_player(other_pid), state)
              for other_pid in state.player_order
              if other_pid != player.player_id
              and state.get_player(other_pid) and state.get_player(other_pid).is_alive()),
@@ -572,7 +591,7 @@ class GameQuery:
             if target and target.is_alive():
                 target_loc = GameQuery.get_location_str(target)
                 threat = threat_scores.get(target.name, 0)
-                target_power = GameQuery.estimate_power(target)
+                target_power = GameQuery.estimate_power(target, state)
                 if personality == "aggressive":
                     target_name = getattr(target, 'name', '')
                     target_pid = getattr(target, 'player_id', '')
@@ -621,11 +640,75 @@ class GameQuery:
         return "home"
 
     # ════════════════════════════════════════════════════════
+    #  信源统一原语（m8_ai，D1 根）
+    #  net_damage / rounds_to_kill —— 全部经 combat.numeric_v2 与
+    #  engine.anchor_eval.simulate_path，与引擎/锚定神谕三方并轨同一套数值。
+    #  消费端（best_effective / estimate_power / _score_target / weapon_score /
+    #  _armor_counters / can_damage_through_protection / hoshino 射击判定）只准
+    #  调这两个原语，不允许各自再实现伤害数学。
+    # ════════════════════════════════════════════════════════
+
+    @staticmethod
+    def net_damage(attacker, weapon, target) -> float:
+        """单发净伤：numeric_v2 减法防御后的伤害（m8_ai 原语）。
+
+        = compute_damage(raw, compute_defense(target, attr))。
+        raw 与引擎 damage_resolver 同口径：max(0, int(round(武器有效伤害)))；
+        attr 取武器属性中文名（防御表键）。纯估算不磨耐久、不改目标。
+        attacker 预留（天赋钩子等消费端扩展用，本原语不读）。
+        """
+        from combat import numeric_v2
+        if not weapon:
+            return 0.0
+        raw = max(0, int(round(GameQuery.get_weapon_damage(weapon))))
+        attr_name = GameQuery.get_weapon_attr(weapon).value
+        defense, _ = numeric_v2.compute_defense(target, attr_name)
+        return float(numeric_v2.compute_damage(raw, defense))
+
+    @staticmethod
+    def rounds_to_kill(attacker, target, state=None, horizon: int = 8) -> Optional[int]:
+        """推演打死 target 的最短命数（m8_ai 原语，复用 anchor_eval）。
+
+        武器先经 anchor_eval.resolve_weapons（弓按已装模块解析），再走
+        build_direct_sequence 直取底线 + simulate_path；achieved → 返回命数，
+        horizon 内打不死 → None。state 可缺省（无 markers 时前置动作退化为
+        move/find/lock 全做）。纯估算，在目标投影上推演，不改真目标。
+        """
+        from engine import anchor_eval
+        weapons = anchor_eval.resolve_weapons(attacker)
+        if not weapons:
+            return None
+        seq = anchor_eval.build_direct_sequence(
+            state, attacker, target, weapons, goal="kill", horizon=horizon)
+        if not seq:
+            return None
+        res = anchor_eval.simulate_path(target, weapons, seq,
+                                        goal="kill", horizon=horizon)
+        if res.achieved:
+            return res.rounds
+        return None
+
+    # ════════════════════════════════════════════════════════
     #  战力与伤害估算（从 evaluation_mixin 复制）
     # ════════════════════════════════════════════════════════
 
     @staticmethod
     def get_effective_hp(player) -> float:
+        if _is_exp_enabled("m8_ai"):
+            # D5：炽愿每层 HP 读 talent_num 活值（m7=balance.talents.g1.ardent_temp_hp），
+            # 不再写死 ×0.5。注：引擎 receive_damage_to_temp_hp 仍硬编码 0.5（引擎侧债，
+            # 已记录），balance 为唯一信源，AI 先并轨。
+            from talents.talent_balance import talent_num
+            hp = player.hp
+            talent = getattr(player, 'talent', None)
+            if talent:
+                temp_hp = getattr(talent, 'temp_hp', 0.0)
+                if temp_hp > 0:
+                    hp += temp_hp
+                charges = getattr(talent, 'ardent_wish_charges', 0)
+                if charges > 0:
+                    hp += charges * float(talent_num("g1", "ardent_temp_hp", v1=0.5))
+            return hp
         hp = player.hp
         talent = getattr(player, 'talent', None)
         if talent:
@@ -639,6 +722,51 @@ class GameQuery:
 
     @staticmethod
     def estimate_talent_adjusted_damage(player, weapon=None) -> float:
+        if _is_exp_enabled("m8_ai"):
+            # D5：火萤 ×2.0 写死 → 读活天赋已换算加成（m7=balance.talents.g1.attack_bonus）
+            from talents.talent_balance import talent_num
+            if weapon is not None:
+                base_dmg = GameQuery.get_weapon_damage(weapon)
+            else:
+                weapons = getattr(player, 'weapons', [])
+                if not weapons:
+                    return 0.0
+                base_dmg = max((GameQuery.get_weapon_damage(w) for w in weapons if w), default=0.0)
+            talent = getattr(player, 'talent', None)
+            if not talent:
+                return base_dmg
+            # M9 G1 是四形态状态机，不再是旧版恒定 +3。估值必须与
+            # G1MythFire9.m9_modify_outgoing 的当前形态一致，否则卸甲态会把
+            # 弓的实际 1 伤高估为 6 伤，压过撤离/生存候选。
+            form = getattr(talent, 'form', None)
+            if (hasattr(talent, 'name')
+                    and talent.name == "火萤IV型-完全燃烧"
+                    and form is not None):
+                from engine.balance import get as bget
+                if form == "armorless":
+                    penalty = float(bget(
+                        "m9_talents_extended", "g1", "unarmored_atk_penalty",
+                        default=2))
+                    return max(0.0, base_dmg - penalty)
+                if form == "secondary":
+                    bonus = float(bget(
+                        "m9_talents_extended", "g1", "sam_atk_bonus", default=3))
+                    return base_dmg + bonus
+                if form == "full_burn":
+                    bonus = float(bget(
+                        "m9_talents_extended", "g1", "full_burn_atk_bonus",
+                        default=4))
+                    return base_dmg + bonus
+                return base_dmg
+            if hasattr(talent, 'name') and talent.name == "火萤IV型-完全燃烧":
+                return base_dmg + float(talent_num("g1", "attack_bonus", v1=3.0))
+            if hasattr(talent, 'is_savior') and talent.is_savior:
+                bonus = getattr(talent, 'temp_attack_bonus', 0.0)
+                aoe_bonus = getattr(talent, 'aoe_bonus', 0.0)
+                if weapon and GameQuery.get_weapon_range(weapon) == "area":
+                    return base_dmg + aoe_bonus
+                return base_dmg + bonus
+            return base_dmg
         if weapon is not None:
             base_dmg = GameQuery.get_weapon_damage(weapon)
         else:
@@ -710,7 +838,80 @@ class GameQuery:
         )
 
     @staticmethod
-    def estimate_power(player) -> float:
+    def _m9_resource_bonus(player, state) -> float:
+        """M9 评分资源折算：SP/PP/arc 章节/公演位/终曲区（state 感知）。
+
+        v2exp 或 state 未挂 m9_system 时恒 0，不改变旧 profile 行为。
+        """
+        if state is None or getattr(state, "m9_system", None) is None:
+            return 0.0
+        pid = getattr(player, "player_id", None) \
+            or getattr(player, "unit_id", None)
+        if not pid:
+            return 0.0
+        from engine.balance import get as _bget
+        sp_w = float(_bget("ai", "sp_weight", default=12))
+        pp_w = float(_bget("ai", "pp_weight", default=2))
+        arc_w = float(_bget("ai", "arc_weight", default=15))
+        seat_w = float(_bget("ai", "public_holder_weight", default=10))
+        terminal_w = float(_bget("ai", "terminal_area_weight", default=8))
+        m9 = state.m9_system
+        bonus = float(m9.get_sp(pid)) * sp_w
+        pp = getattr(state, "m9_pp", None)
+        if pp is not None:
+            try:
+                bonus += float(pp.balance(pid)) * pp_w
+            except Exception:
+                pass
+        arc = getattr(state, "m9_arc", None)
+        if arc is not None:
+            try:
+                bonus += float(len(arc.chapters_of(pid))) * arc_w
+            except Exception:
+                pass
+        holders = getattr(m9, "_public_holder_by_round", {}) or {}
+        if holders.get(getattr(state, "current_round", -1)) == pid:
+            bonus += seat_w
+        loc = getattr(player, "location", None)
+        if loc:
+            for area in getattr(state, "m9_terminal_areas", {}).values():
+                if getattr(area, "location", None) == loc:
+                    bonus += terminal_w
+                    break
+        return bonus
+
+    @staticmethod
+    def estimate_power(player, state=None) -> float:
+        if _is_exp_enabled("m8_ai"):
+            # D6：打分权重全部读 balance.ai（[待风洞]），不写死魔数
+            from engine.balance import get as _bget
+            hp_w = float(_bget("ai", "hp_weight", default=10))
+            dmg_w = float(_bget("ai", "damage_weight", default=15))
+            outer_w = float(_bget("ai", "outer_armor_weight", default=20))
+            inner_w = float(_bget("ai", "inner_armor_weight", default=15))
+            stealth_w = float(_bget("ai", "stealth_weight", default=10))
+            detect_w = float(_bget("ai", "detection_weight", default=5))
+            horus_w = float(_bget("ai", "iron_horus_weight", default=15))
+            power = 0.0
+            power += GameQuery.get_effective_hp(player) * hp_w
+            weapons = getattr(player, 'weapons', [])
+            for w in weapons:
+                power += GameQuery.estimate_talent_adjusted_damage(player, w) * dmg_w if w else 0
+            outer = GameQuery.count_outer_armor(player)
+            inner = GameQuery.count_inner_armor(player)
+            power += outer * outer_w
+            power += inner * inner_w
+            if GameQuery.has_stealth(player):
+                power += stealth_w
+            if getattr(player, 'has_detection', False):
+                power += detect_w
+            t_talent = getattr(player, 'talent', None)
+            if t_talent and hasattr(t_talent, 'iron_horus_hp'):
+                iron_hp = getattr(t_talent, 'iron_horus_hp', 0)
+                if iron_hp > 0:
+                    power += iron_hp * horus_w
+            power += GameQuery._m9_resource_bonus(player, state)
+            return power
         power = 0.0
         power += GameQuery.get_effective_hp(player) * 10
         weapons = getattr(player, 'weapons', [])
@@ -729,6 +930,7 @@ class GameQuery:
             iron_hp = getattr(t_talent, 'iron_horus_hp', 0)
             if iron_hp > 0:
                 power += iron_hp * 15
+        power += GameQuery._m9_resource_bonus(player, state)
         return power
 
     # ════════════════════════════════════════════════════════
@@ -902,10 +1104,11 @@ class GameQuery:
                 return False
         if GameQuery.has_love_wish_for(player.player_id, target):
             return False
-        if getattr(target, 'is_invisible', False) and not getattr(player, 'has_detection', False):
+        if getattr(target, 'is_invisible', False):
             markers_obj = getattr(state, 'markers', None)
             if markers_obj and hasattr(markers_obj, 'is_visible_to'):
-                if not markers_obj.is_visible_to(target.player_id, player.player_id, player.has_detection):
+                from engine.visibility import can_see_m
+                if not can_see_m(player, target, markers_obj):
                     return False
         return True
 
@@ -934,6 +1137,16 @@ class GameQuery:
 
     @staticmethod
     def all_weapons_countered(player, target) -> bool:
+        if _is_exp_enabled("m8_ai"):
+            # D1：hp20 无硬克制——武器"有效" = 净伤 > 0（保底 25% 恒可磨血）。
+            # 属性不利只是"净伤更低"，不再整把作废。
+            weapons = [
+                weapon for weapon in getattr(player, 'weapons', [])
+                if weapon and not getattr(weapon, '_hexagram_disabled', False)
+            ]
+            if not weapons:
+                return True
+            return all(GameQuery.net_damage(player, w, target) <= 0 for w in weapons)
         weapons = [
             weapon for weapon in getattr(player, 'weapons', [])
             if weapon and not getattr(weapon, '_hexagram_disabled', False)
@@ -953,8 +1166,9 @@ class GameQuery:
         return True
 
     @staticmethod
-    def is_at_disadvantage(player, target) -> bool:
-        return GameQuery.estimate_power(player) < GameQuery.estimate_power(target) * 0.7
+    def is_at_disadvantage(player, target, state=None) -> bool:
+        return GameQuery.estimate_power(player, state) < \
+            GameQuery.estimate_power(target, state) * 0.7
 
     @staticmethod
     def should_continue_combat(
@@ -973,7 +1187,7 @@ class GameQuery:
                 total_armor += 2
         if total_armor == 0 and GameQuery.get_effective_hp(player) <= 1.0:
             return False
-        disadvantage = GameQuery.is_at_disadvantage(player, target)
+        disadvantage = GameQuery.is_at_disadvantage(player, target, state)
         if strategy and hasattr(strategy, 'should_continue_combat'):
             try:
                 result = strategy.should_continue_combat(
@@ -1075,6 +1289,27 @@ class GameQuery:
 
     @staticmethod
     def best_effective_weapon_damage(player, target) -> float:
+        if _is_exp_enabled("m8_ai"):
+            # D1：逐武器净伤取 max（无硬克制过滤），天赋钩子照旧叠加
+            weapons = getattr(player, 'weapons', [])
+            if not weapons:
+                return 0.0
+            best = 0.0
+            for w in weapons:
+                if not w:
+                    continue
+                dmg = GameQuery.net_damage(player, w, target)
+                if GameQuery.has_firefly_talent(player):
+                    talent = getattr(player, 'talent', None)
+                    if talent and hasattr(talent, 'modify_outgoing_damage'):
+                        mod = talent.modify_outgoing_damage(player, target, w, dmg)
+                        if mod and "damage_multiplier_override" in mod:
+                            dmg = dmg * mod["damage_multiplier_override"]
+                        if mod and "bonus_damage" in mod:
+                            dmg += mod["bonus_damage"]
+                if dmg > best:
+                    best = dmg
+            return best
         weapons = getattr(player, 'weapons', [])
         if not weapons:
             return 0.0
@@ -1152,6 +1387,33 @@ class GameQuery:
     @staticmethod
     def political_should_fallback(player, state) -> str:
         """Political 人格在警察路线不可用时的降级级别。"""
+        # M9 的权威状态在 m9_police，不在旧 PoliceData。若继续读
+        # state.police，已有队长后 political 仍会无限走“竞选”路线。
+        station = getattr(state, "m9_police", None)
+        if getattr(state, "m9_enabled", False) and station is not None:
+            if station.is_disabled():
+                return "full_balanced"
+            captain_id = getattr(station, "captain_id", None)
+            if captain_id == getattr(player, "player_id", None):
+                return "none"
+            if captain_id is not None:
+                return "full_balanced"
+            # 无队长：T6（朝阳好市民）的整套胜利路径就是警察线
+            # （竞选/联防/指挥），永不降级；其他政治系天赋无竞选入口，
+            # 竞选窗口（R5）过后仍无队长 → 政治路线已死，降级战斗路线
+            # （降级逐轮重算，后续当上队长自动回到 "none"）。
+            round_num = int(getattr(state, "current_round", 0) or 0)
+            talent = getattr(player, "talent", None)
+            is_t6 = False
+            if talent is not None:
+                try:
+                    from controllers.ai.decision.snapshot import _slot_id_for
+                    is_t6 = _slot_id_for(talent) == "T6"
+                except Exception:
+                    is_t6 = "朝阳" in str(getattr(talent, "name", ""))
+            if not is_t6 and round_num >= 5:
+                return "full_balanced"
+            return "none"
         police = getattr(state, 'police', None)
         if not police:
             return "full_balanced"

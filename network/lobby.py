@@ -17,9 +17,7 @@ from controllers.network_controller import NetworkController
 from controllers.forfeit_controller import ForfeitController
 from controllers.ai_basic import BasicAIController
 from engine.game_setup import (
-    TALENT_TABLE, AI_TALENT_PREFERENCE, AI_PERSONALITIES,
-    AI_NAME_POOL, TALENT_DECAY_FACTOR, _ai_pick_talent,
-    AI_DISABLED_TALENTS, _talent_selection,
+    AI_PERSONALITIES, AI_NAME_POOL,
 )
 from network.protocol import MessageType
 

@@ -45,11 +45,29 @@
 
 ---
 
+## Profile 分层
+
+| profile | 说明 |
+|---|---|
+| `legacy` | 默认稳定口径，不带 `--profile` 时使用 |
+| `v2exp` | V2.0-exp 实验档案（M1–M7 系列） |
+| `m9-rfc` | 当前开发主线：单行动槽、SP 即演/公演、14 天赋、PP/警察/剧情分；风洞与数值校准进行中 |
+
+各 profile 由 `engine/experiments.py` 统一开关；默认配置见 `config/game_config.json`。
+
+---
+
 ## 快速开始
 
 ```bash
-# 本地热座
+# 本地热座（默认 legacy 口径）
 python main.py
+
+# V2.0-exp 档案
+python main.py --profile v2exp
+
+# M9 当前开发主线（独立 profile；风洞/数值校准口径）
+python main.py --profile m9-rfc
 
 # 联机模式（房主）
 python main_server.py --players 3
@@ -57,9 +75,22 @@ python main_server.py --players 3
 # 联机模式（客户端）
 python main_client.py --host <服务器IP> --name <你的名字>
 
-# 全AI胜率统计
+# 全AI胜率统计（legacy）
 python stats_runner.py --players 6 --games 5000
+
+# V2.0-exp 档案风洞
+python stats_runner.py --profile v2exp --players 6 --games 5000
+
+# M9 风洞（当前开发主线常用命令）
+python stats_runner.py --profile m9-rfc --players 6 --games 500
+
+# M9 运行时烟雾 / 剧本验收
+python tools/m9_rfc_smoke.py
+python tools/m9_rfc_playtest.py
 ```
+
+不带 `--profile` 时，默认运行 v1 稳定口径（`legacy`）。`m9-rfc` 是当前开发主线
+（独立 profile，不修改 legacy/v2exp 行为）；其风洞与平衡数值仍在迭代。
 
 ---
 
@@ -67,12 +98,13 @@ python stats_runner.py --players 6 --games 5000
 
 | 文档 | 内容 |
 |------|------|
-| [完全游玩手册](docs/完全游玩手册.md) | 完整游戏规则（人类阅读，含闭合补丁、FAQ、开发日志） |
-| [天赋参考](docs/talents.md) | 14 个天赋的机械规格（以代码为准，AI 可读） |
-| [使用说明](docs/usage.md) | CLI 参数详解、RL 训练管线、联机配置、LLM 聊天、AIRI 接入 |
-| [指令表](docs/commands.md) | 电子裁决系统支持的所有指令及星野战术宏子系统 |
-| [更新日志](docs/changelog.md) | 版本历史（含开发日志与胜率统计） |
-| [AIRI 接入](docs/airi_bridge.md) | AIRI Bot 的三种接入模式详细配置 |
+| [文档中心](docs/README.md) | 文档身份、适用版本、权威范围和冲突台账的统一入口 |
+| [M9 文档中心](docs/m9/README.md) | M9-rfc 当前开发主线：合同、AI 策略接口、风洞与待冻结数值 |
+| [V2.0-exp 模块化手册](docs/handbook/README.md) | 按主题和天赋拆分的候选玩家规则；支持模型按需读取 |
+| [Legacy 模块化手册](docs/legacy/README.md) | 旧版规则的按主题入口；不要与 V2.0-exp 规则混用 |
+| [旧天赋参考](docs/talents.md) | 混合 legacy、V2 与实现说明，语义审计完成前只用于定位 |
+| [操作与接入](docs/operations/README.md) | 使用说明、指令表和 AIRI 接入的统一入口 |
+| [历史文档](docs/history/README.md) | 版本更新日志与开发日记，只解释演化 |
 
 ---
 
@@ -82,6 +114,9 @@ python stats_runner.py --players 6 --games 5000
 - **联机模式**（`main_server.py` / `main_client.py`）：可选安装 `textual`（`pip install textual`）
 - **LLM 聊天**：可选安装 `openai` 或 `requests`（Ollama）
 - **RL 训练**：需要 `torch`、`stable-baselines3`、`sb3-contrib`、`gymnasium`、`numpy`
+
+> 风洞提示：`stats_runner.py` 启动时会尝试 import RL 依赖（torch/sb3）。未安装时
+> BasicAI 风洞仍可运行，但建议在长期风洞环境预装，避免启动慢或回退噪声。
 
 ---
 
@@ -100,16 +135,25 @@ python stats_runner.py --players 6 --games 5000
 ## 项目架构
 
 ```
-engine/         — 游戏引擎核心（GameState, RoundManager, ActionTurnManager）
-models/         — 数据模型（Player, Equipment, Markers, PoliceData）
-actions/        — 玩家行动（每个文件导出 execute() 函数）
-talents/        — 天赋系统，所有天赋继承 BaseTalent
-cli/            — 命令行解析（parser.py）与验证（validator.py）
-controllers/    — 玩家控制器（Human, BasicAI, RL, Network）
-combat/         — 战斗系统（damage_resolver.py）
-ai_chat/        — LLM 聊天集成（可选模块）
-rl/             — 强化学习训练管线（可选模块）
-data/           — prompts.json（所有面向用户的文本模板）
-config/         — 配置文件
-docs/           — 文档
+engine/              — 游戏引擎核心（GameState, RoundManager, ActionTurnManager）
+engine/m9/           — M9-rfc 独立机制层（行动系统/结算/评分/警察/十四天赋）
+engine/experiments.py — profile 与实验开关（legacy/v2exp/m9-rfc）
+engine/balance.py    — 数值读取入口（data/balance.json 唯一信源）
+combat/              — 伤害结算系统（22 步流水线；M9 下由 engine/m9/combat 承接）
+actions/             — 玩家行动（每个文件导出 execute() 函数）
+models/              — 数据模型（Player, Equipment, Markers, PoliceData）
+talents/             — 天赋系统，所有天赋继承 BaseTalent
+cli/                 — 命令行解析（parser.py）与验证（validator.py）
+controllers/         — 玩家控制器（Human, BasicAI, RL, Network, Chorus）
+controllers/ai/      — BasicAI 新架构：orchestrator/minds/decision/game_query/adapters
+locations/           — 地点交互逻辑
+network/             — 联机网络层
+rl/                  — 强化学习训练管线（可选模块）
+ai_chat/             — LLM 聊天集成（可选模块）
+tui/                 — Textual TUI 界面（联机）
+data/                — prompts.json（所有面向用户的文本模板）
+config/              — 配置文件
+docs/                — 文档（docs/m9 为 M9 当前开发主线入口）
+tools/               — 运行时验收/诊断脚本
+tests/               — unittest 测试
 ```

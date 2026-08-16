@@ -58,10 +58,12 @@ class Hexagram(BaseTalent):
     # ============================================
 
     def on_round_start(self, round_num):
-        """每5轮充能+1；清理过期的金身和武器禁用"""
+        """充能（v1 每9轮，M7 hp20 每5轮 §7.6）；清理过期的金身和武器禁用"""
         # 充能
         self.round_counter += 1
-        if self.round_counter >= 9:
+        from talents.talent_balance import talent_num
+        _interval = talent_num("t4", "charge_interval_rounds", v1=9)
+        if self.round_counter >= _interval:
             self.round_counter = 0
             if self.charges < self.max_charges:
                 self.charges += 1
@@ -265,19 +267,23 @@ class Hexagram(BaseTalent):
 
         lines = [f"☯️ 潜龙勿用——⚡天雷降临！目标：{thunder_target.name}"]
 
-        # 1. 造成1点无视克制伤害
+        # 天雷伤害：v1=1.0 无视克制；M7 hp20=6 点穿甲（防御按50%计，§7.6）
+        from talents.talent_balance import m7_enabled, talent_num
+        _dmg = talent_num("t4", "qianlong_pierce_damage", v1=1.0)
+        _pierce = 0.5 if m7_enabled() else 1.0
         result = resolve_damage(
             attacker=player,
             target=thunder_target,
             weapon=None,
             game_state=self.state,
-            raw_damage_override=1.0,
+            raw_damage_override=_dmg,
             damage_attribute_override="无视属性克制",
             ignore_counter=True,
             is_talent_attack=True,
+            armor_pierce_factor=_pierce,
         )
 
-        lines.append(f"   ⚡ 对 {thunder_target.name} 造成 1.0 无视克制伤害")
+        lines.append(f"   ⚡ 对 {thunder_target.name} 造成 {_dmg} 穿甲伤害")
         for detail in result.get("details", []):
             lines.append(f"   {detail}")
 

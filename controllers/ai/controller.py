@@ -8,10 +8,11 @@ import random
 
 from controllers.base import PlayerController
 from controllers.ai.constants import (
-    NEED_PROVIDERS,
+    NEED_PROVIDERS, need_providers_for,
     debug_ai_basic, debug_ai_detailed, debug_ai_candidate_commands,
     debug_ai_combat_state, debug_ai_development_plan,
 )
+from engine.m9.text import m9_text
 from controllers.ai.helpers_mixin import HelpersMixin
 from controllers.ai.hoshino_mixin import HoshinoMixin
 from controllers.ai.evaluation_mixin import EvaluationMixin
@@ -19,6 +20,9 @@ from controllers.ai.choose_mixin import ChooseMixin
 from controllers.ai.combat_mixin import CombatMixin
 from controllers.ai.develop_mixin import DevelopMixin
 from controllers.ai.police_mixin import PoliceMixin
+from controllers.ai.decision.action_spec import ActionSpec, ScoredActionSpec
+from controllers.ai.decision.action_catalog import ActionCatalog
+from controllers.ai.decision.snapshot import DecisionSnapshot
 from controllers.ai.events_mixin import EventsMixin
 
 # 新架构模块（组合优于继承）
@@ -93,6 +97,20 @@ class BasicAIController(
         self._last_action: Optional[str] = None
         self._develop_plan: List[str] = []
         self._attempt_index: int = 0
+        # 决策内核（I/O 地基）：快照/目录/评分候选标注
+        self._snapshot: Optional[DecisionSnapshot] = None
+        self._catalog: Optional[ActionCatalog] = None
+        self._candidate_specs: List[ScoredActionSpec] = []
+        self._catalog_hits: int = 0
+        self._catalog_misses: int = 0
+        self._catalog_misses_raw: List[str] = []
+        # M9 过程指标（stats_runner 风洞采集：T0 激活/公演报名/挣脱/破界）
+        self._decision_stats: Dict[str, int] = {
+            "t0_activated": 0,
+            "public_registered": 0,
+            "breakout_attempts": 0,
+            "barrier_break_offered": 0,
+        }
         self.player_name: Optional[str] = None
         self._my_id: Optional[str] = None
         self._combat_target = None
@@ -158,6 +176,7 @@ class BasicAIController(
         self._talent_hook_instances = {
             "大叔我啊，剪短发了": HoshinoAIHook(self),
             "请一直，注视着我": HologramAIHook(self),
+            "神代天赋-请一直注视着我": HologramAIHook(self),
             "愿负世，照拂黎明": SaviorAIHook(self),
             "火萤IV型-完全燃烧": FireflyAIHook(self),
             "神话之外": MythlandAIHook(self),
@@ -165,9 +184,13 @@ class BasicAIController(
             "天星": StarAIHook(self),
             "六爻": HexagramAIHook(self),
             "往世的涟漪": RippleAIHook(self),
+            "神代天赋-往世的涟漪": RippleAIHook(self),
         }
         self._terror_defense = TerrorDefenseAI(debug_name="AI")
         self._ai_state.terror_defense = self._terror_defense
+        # M9 天赋 adapter 分派层（profile × slot_id；显示名映射保持 v2exp 兼容）
+        from controllers.ai.m9_adapters import build_slot_hook_map
+        self._slot_hook_instances = build_slot_hook_map(self)
 
         # DecisionOrchestrator：所有 Mind 实例 + 编排器
         self._minds = [
@@ -186,6 +209,10 @@ class BasicAIController(
             query=self._query,
             personality=personality,
         )
+        # 供 orchestrator 按 (profile, slot_id) 解析天赋 hook（显示名回退兼容）
+        from controllers.ai.m9_adapters import resolve_talent_hook
+        self._orchestrator.talent_hook_resolver = lambda player: \
+            resolve_talent_hook(self, player)
 
         # ════════════════════════════════════════════════════
         #  LLM 行为调整接口（由 AIChatModule 通过 [ADJUST] 写入）
@@ -365,7 +392,8 @@ class BasicAIController(
                 )
                 self._attempt_index = 0
                 debug_ai_candidate_commands(self._pname(),
-                    [f"插入式笑话候选命令（共{len(self._candidates)}条）"])
+                    [m9_text("ai.controller.cutaway_candidates",
+                             count=len(self._candidates))])
                 for i, cmd in enumerate(self._candidates, 1):
                     debug_ai_detailed(player.name, f"   {i}. {cmd}")
             else:
@@ -373,7 +401,9 @@ class BasicAIController(
 
             if self._attempt_index < len(self._candidates):
                 cmd = self._candidates[self._attempt_index]
-                debug_ai_basic(player.name, f"插入式笑话尝试第{attempt}条：{cmd}")
+                debug_ai_basic(player.name,
+                    m9_text("ai.controller.cutaway_attempt",
+                            attempt=attempt, cmd=cmd))
                 if str(cmd).strip().lower() == "forfeit" and self._diag:
                     self._diag.record_forfeit(
                         round_num=self._round_number,
@@ -387,7 +417,8 @@ class BasicAIController(
                     )
             else:
                 cmd = "forfeit"
-                debug_ai_basic(player.name, "插入式笑话候选耗尽，兜底forfeit")
+                debug_ai_basic(player.name,
+                    m9_text("ai.controller.cutaway_exhausted"))
                 if self._diag:
                     self._diag.record_forfeit(
                         round_num=self._round_number,
@@ -407,6 +438,50 @@ class BasicAIController(
                 player, game_state, available_actions,
                 getattr(game_state, 'current_round', 0)
             )
+            # 决策内核（I/O 地基）：构建不可变快照 + 合法动作目录，把 Orchestrator
+            # 候选标注为 ScoredActionSpec，未命中项替换/剔除——保证返回给引擎的
+            # 每条命令都来自 ActionCatalog（唯一合法信源强制）。
+            # 性能注记：orchestrator.generate 已为同一决策点构建过快照，直接复用。
+            snapshot = getattr(self._orchestrator, "_snapshot", None)
+            if snapshot is not None \
+                    and getattr(snapshot, "actor_id", None) == player.player_id \
+                    and int(getattr(snapshot, "state_version", 0) or 0) \
+                    == int(getattr(game_state, "current_round", 0) or 0):
+                self._snapshot = snapshot
+            else:
+                self._snapshot = DecisionSnapshot.build(player, game_state)
+            self._catalog = ActionCatalog.build(
+                player, game_state, list(available_actions),
+                prebuilt_options=(context or {}).get("action_options"))
+            self._candidate_specs = []
+            self._catalog_hits = 0
+            self._catalog_misses = 0
+            self._catalog_misses_raw = []
+            kept = []
+            for cmd in self._candidates:
+                m = self._catalog.match(str(cmd))
+                if m is not None:
+                    anchor, exec_raw = m
+                    self._catalog_hits += 1
+                    kept.append((anchor, exec_raw))
+                else:
+                    # 唯一合法信源：未命中候选替换为目录内同 action_type 合法项；
+                    # 无则剔除（不返回绕过 catalog 的命令）。实测命中率 100%。
+                    self._catalog_misses += 1
+                    self._catalog_misses_raw.append(str(cmd))
+                    sub = self._catalog.substitute(str(cmd))
+                    if sub is not None:
+                        kept.append((sub.spec, sub.spec.raw))
+            self._candidate_specs = [ScoredActionSpec(spec=a) for a, _ in kept]
+            self._candidates = [raw for _, raw in kept]
+            # 过程指标：本轮候选中出现破界（counter 层产出）
+            if any("破界" in str(c) for c in self._candidates):
+                self._decision_stats["barrier_break_offered"] += 1
+            # 决策痕迹（每候选一条；goal/breakdown 由后续 minds 阶段填充）
+            from controllers.ai.decision.snapshot import TraceEntry
+            self._decision_trace = [
+                TraceEntry(raw=raw, score=0.0, source="orchestrator")
+                for _, raw in kept]
             if hasattr(self, '_ai_state'):
                 self._threat_scores = self._ai_state.threat_scores
                 self._been_attacked_by = self._ai_state.been_attacked_by
@@ -416,7 +491,9 @@ class BasicAIController(
                 self._danger_mode = self._ai_state.danger_mode
             self._attempt_index = 0
             debug_ai_candidate_commands(self._pname(),
-                [f"候选命令列表（共{len(self._candidates)}条）"])
+                [f"候选命令列表（共{len(self._candidates)}条，"
+                 f"catalog 命中 {self._catalog_hits}/"
+                 f"{self._catalog_hits + self._catalog_misses}）"])
             for i, cmd in enumerate(self._candidates, 1):
                 debug_ai_detailed(player.name, f"   {i}. {cmd}")
         else:
@@ -468,13 +545,36 @@ class BasicAIController(
     ) -> str:
         situation = (context or {}).get("situation", "")
 
+        # ★ M9 通用决策面（slot_id 分派）：talent_t0 / R0 公演报名 / 石化挣脱 /
+        # 焚诏拉条。返回非 None 直接采用；None 放行旧层（v2exp hook/ChooseMixin）。
+        try:
+            from engine.m9.gate import m9_enabled
+            state_hint = ((context or {}).get("game_state")
+                          if isinstance(context, dict) else None)
+            state = state_hint or getattr(self, '_game_state', None)
+            if state is not None and m9_enabled(state):
+                from controllers.ai.decision.t0_policy import m9_decide_choose
+                decision = m9_decide_choose(
+                    self, prompt, list(options), context, state)
+                if decision is not None:
+                    self._record_decision_stat(
+                        situation, (context or {}).get("phase", ""),
+                        prompt, decision)
+                    return decision
+                # C 层简单版：choose 目标选择启发式（通用决策面未接管时）
+                from controllers.ai.decision.c_policy import c_decide_choose
+                decision = c_decide_choose(
+                    self, prompt, list(options), context, state)
+                if decision is not None:
+                    return decision
+        except Exception:
+            pass
+
         # ★ 天赋AI钩子分发：天赋覆盖 choose() 决策
         # 返回非 None 时直接采用，返回 None 时走旧逻辑（super().choose() → ChooseMixin）
-        talent_name = getattr(getattr(self._player, 'talent', None), 'name', '')
-        if talent_name:
-            hook_instances = getattr(self, '_talent_hook_instances', {})
-            hook = hook_instances.get(talent_name)
-            if hook and hasattr(hook, 'handle_choose'):
+        from controllers.ai.m9_adapters import resolve_talent_hook
+        hook = resolve_talent_hook(self, getattr(self, '_player', None))
+        if hook and hasattr(hook, 'handle_choose'):
                 hook_ctx = {
                     "situation": situation,
                     "personality": getattr(self, 'personality', 'balanced'),
@@ -491,6 +591,28 @@ class BasicAIController(
                     return result
 
         return super().choose(prompt, options, context)
+
+    def _record_decision_stat(self, situation: str, phase: str,
+                              prompt: str, decision: str) -> None:
+        """M9 过程指标计数（stats_runner 风洞采集）。"""
+        stats = getattr(self, "_decision_stats", None)
+        if stats is None:
+            return
+        # “不发动，正常行动”也包含“发动”二字，必须按肯定选项精确计数。
+        if situation == "talent_t0" and decision.startswith("发动"):
+            stats["t0_activated"] += 1
+        if phase == "M9_PUBLIC_REGISTRATION" and "报名" in decision:
+            stats["public_registered"] += 1
+        if situation == "petrified" and "尝试挣脱" in decision:
+            stats["breakout_attempts"] += 1
+        if "是否再尝试一次" in str(prompt) and "继续" in decision:
+            stats["breakout_attempts"] += 1
+
+    def choose_anchor_script(self, player, state):
+        """G5 锚定脚本（引擎 `_collect_anchor_script` 接入层）：
+        C 层最小启发 = K 个低威胁普通地点；非法/异常回退引擎确定性兜底。"""
+        from controllers.ai.decision.c_policy import anchor_script
+        return anchor_script(player, state)
 
     # ════════════════════════════════════════════════════════
     #  插入式笑话专用：候选命令生成
@@ -937,19 +1059,16 @@ class BasicAIController(
 
     def _is_hoshino_handled_by_hook(self, player: Any) -> bool:
         """检查Hoshino逻辑是否已被天赋钩子处理"""
-        talent_name = getattr(getattr(player, 'talent', None), 'name', '')
-        if talent_name and hasattr(self, '_talent_hook_instances'):
-            hook = self._talent_hook_instances.get(talent_name)
-            if hook and getattr(hook, 'talent_name', '') == "大叔我啊，剪短发了":
-                return True
+        from controllers.ai.m9_adapters import resolve_talent_hook
+        hook = resolve_talent_hook(self, player)
+        if hook and getattr(hook, 'talent_name', '') == "大叔我啊，剪短发了":
+            return True
         return False
 
     def _is_talent_handled_by_hook(self, player: Any) -> bool:
-        """检查当前天赋是否有活跃钩子（通用版本）"""
-        talent_name = getattr(getattr(player, 'talent', None), 'name', '')
-        if talent_name and hasattr(self, '_talent_hook_instances'):
-            return talent_name in self._talent_hook_instances
-        return False
+        """检查当前天赋是否有活跃钩子（通用版本；slot_id 分派优先）"""
+        from controllers.ai.m9_adapters import resolve_talent_hook
+        return resolve_talent_hook(self, player) is not None
 
 
     def _pick_fallback_destination(self, player, state) -> Optional[str]:
@@ -962,7 +1081,7 @@ class BasicAIController(
         # 收集所有能满足至少一个需求的地点
         useful_locs = set()
         for need_key, _ in unmet_needs:
-            for (ploc, item_name, _) in NEED_PROVIDERS.get(need_key, []):
+            for (ploc, item_name, _) in need_providers_for(need_key):
                 if not self._already_has_item(player, item_name):
                     useful_locs.add(ploc)
 
@@ -1197,9 +1316,10 @@ class BasicAIController(
         debug_ai_basic(player.name,
             f"响应事件: type={event_type}, data={event_data}")
 
+        from controllers.ai.m9_adapters import resolve_talent_hook
         talent_name = getattr(getattr(player, 'talent', None), 'name', '')
         if talent_name and event_type == "天赋触发":
-            hook = self._talent_hook_instances.get(talent_name)
+            hook = resolve_talent_hook(self, player)
             if hook and hasattr(hook, 'handle_event_response'):
                 result = hook.handle_event_response(player, state, event_data)
                 if result is not None:

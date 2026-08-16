@@ -6,6 +6,7 @@ from combat.damage_resolver import resolve_damage
 from combat.damage_resolver import quantize_damage
 from models.equipment import make_weapon, make_armor, WeaponRange, ArmorLayer
 from utils.attribute import Attribute, is_effective
+from engine.action_tables import EQUIPMENT_LOCATION
 from engine.prompt_manager import prompt_manager
 
 
@@ -15,16 +16,8 @@ class PoliceEngine:
     def __init__(self, game_state):
         self.state = game_state
         self.police = game_state.police
-        # 警察获得各种物品的地点
-        self.EQUIPMENT_LOCATION = {
-            "警棍": {"警察局"},
-            "高斯步枪": {"军事基地"},
-            "魔法弹幕": {"魔法所"},
-            "盾牌": {"商店", "home"},
-            "陶瓷护甲": {"商店"},
-            "魔法护盾": {"魔法所"},
-            "AT力场": {"军事基地"},
-        }
+        # D4 归并：警察获得各种物品的地点，与 AI 同读 engine.action_tables 单表
+        self.EQUIPMENT_LOCATION = EQUIPMENT_LOCATION
 
         # 允许攻击警察的AOE手段
         self.ALLOWED_AOE = {"地震", "地动山摇", "电磁步枪", "天星"}
@@ -386,6 +379,20 @@ class PoliceEngine:
         hologram_bonus = self._get_hologram_bonus_for_unit(unit)
         if hologram_bonus > 0:
             raw_damage += hologram_bonus
+
+        # ---- hp20：警察无甲，整数直击，无量化无克制（v2.0 §2.6） ----
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            dmg = max(0, int(round(raw_damage)))
+            unit.hp = max(0, unit.hp - dmg)
+            if weapon is not None and weapon.special_tags and "stun_on_hit" in weapon.special_tags:
+                if unit.is_alive() and not (unit.is_stunned or getattr(unit, 'is_shocked', False)):
+                    unit.is_shocked = True
+                    return f"⚡ {unit.unit_id} 受 {dmg} 伤害并进入震荡！HP: {unit.hp}"
+            if unit.hp <= 0:
+                return f"💀 {unit.unit_id} 被击杀！"
+            return f"受 {dmg} 伤害 → HP: {unit.hp}"
+
         final_damage = quantize_damage(raw_damage)
         remaining = final_damage
 
@@ -498,6 +505,13 @@ class PoliceEngine:
 
     def get_protection_threshold(self, player_id):
         """返回警察保护的伤害无效化阈值。0 = 无保护。"""
+        # M5 警察分级坠落：黄昏起撤保护（留执法），v2.0 §3
+        from engine import experiments
+        if experiments.is_enabled("m5_clock"):
+            from engine import world_clock
+            if world_clock.active_value(self.state, "police_protection",
+                                        default=True) is False:
+                return 0.0
         if not self.is_protected_by_police(player_id):
             return 0.0
         player = self.state.get_player(player_id)
@@ -1180,6 +1194,14 @@ class PoliceEngine:
         """
         if self.police.permanently_disabled:
             return []
+
+        # M5 警察分级坠落：终焉全停（秩序彻底崩塌），v2.0 §3
+        from engine import experiments
+        if experiments.is_enabled("m5_clock"):
+            from engine import world_clock
+            if world_clock.active_value(self.state, "police_disabled",
+                                        default=False) is True:
+                return []
 
         messages = []
         # [FIX] 用局部集合代替临时属性 _just_arrived

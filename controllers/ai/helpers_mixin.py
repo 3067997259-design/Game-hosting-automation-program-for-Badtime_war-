@@ -115,7 +115,8 @@ class HelpersMixin(_Base): # type: ignore
         return False
 
     def _firefly_supernova_threat(self, player, state) -> bool:
-        """检测场上是否有火萤持有超新星（对所有非火萤AI构成威胁）"""
+        """AOE 清场威胁（所有非持有者 AI 应分散）：火萤持超新星 / G0 Terror
+        持无人机蓄力十字炮火（DIRECT_DAMAGE 全地点，含自身）。"""
         if self._has_firefly_talent(player):
             return False  # 火萤自己不怕自己的超新星
         for pid in state.player_order:
@@ -124,6 +125,11 @@ class HelpersMixin(_Base): # type: ignore
             t = state.get_player(pid)
             if t and t.is_alive() and t.talent:
                 if getattr(t.talent, 'has_supernova', False):
+                    return True
+                # G0 Terror：无人机在场 + SP≥2 = 十字炮火蓄力中
+                m9 = getattr(state, "m9_system", None)
+                sp = m9.get_sp(pid) if m9 is not None else 0
+                if getattr(t.talent, 'drone', None) is not None and sp >= 2:
                     return True
         return False
 

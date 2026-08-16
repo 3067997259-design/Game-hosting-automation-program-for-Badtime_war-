@@ -125,6 +125,15 @@ class ThreatEvaluationTest(unittest.TestCase):
                 self.assertTrue(strategy_called)
                 self.assertTrue(result)
 
+    def test_m9_firefly_low_hp_is_critical_even_with_outer_armor(self):
+        talent = SimpleNamespace(
+            name="火萤IV型-完全燃烧", slot_id="G1", form="armorless")
+        firefly = _player(
+            "Firefly", "g1", talent=talent, hp=3, max_hp=20,
+            armor=SimpleNamespace(get_active=lambda layer: [object()]))
+        self.assertTrue(ThreatMind()._is_critical_firefly(
+            firefly, _state(firefly), {}))
+
     def test_legacy_arch_preserves_terror_threat_boost(self):
         talent = SimpleNamespace(
             name=HOSHINO_TALENT_NAME,
@@ -183,7 +192,7 @@ class ThreatEvaluationTest(unittest.TestCase):
 
     def test_llm_aggression_is_not_added_uniformly_to_threat_mind_scores(self):
         mind = ThreatMind()
-        mind._query.estimate_power = lambda target: 100.0
+        mind._query.estimate_power = lambda target, state=None: 100.0
 
         observer = _player("Observer", "p1")
         enemy_a = _player("EnemyA", "p2")

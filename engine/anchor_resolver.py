@@ -6,7 +6,7 @@
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List
 
 from utils.attribute import Attribute, is_effective
@@ -18,9 +18,10 @@ class AnchorVerification:
     """锚定验证结果"""
     feasible: bool          # 是否可行
     fate: int               # 命数
-    variance: int           # 变数 = 5 - 命数
+    variance: int           # 变数
     path_description: list  # 每回合做什么
     reason: str             # 不可行时的原因
+    attr_counts: dict = field(default_factory=dict)  # 路径属性命中数（m7 开拓·防御公式用）
 
 
 class AnchorVerifier:
@@ -72,11 +73,20 @@ class AnchorVerifier:
 
     def _simulate_combat_anchor(self, caster, target,
                                  goal="kill",
-                                 target_armor_desc=None) -> AnchorVerification:
+                                 target_armor_desc=None,
+                                 sequence=None) -> AnchorVerification:
         """
         模拟5回合无干扰，每回合做一件事：移动 或 攻击
         现在考虑攻击前置条件：近战需要find，远程需要lock
+
+        m7_talents 开 → 走信源统一评估器（anchor_eval，hp20 正确）；
+        关 → 保留下方旧闭式公式（v1 字节不变）。
         """
+        from talents.talent_balance import m7_enabled
+        if m7_enabled():
+            return self._eval_verify(caster, target, goal,
+                                     target_armor_desc=target_armor_desc,
+                                     sequence=sequence)
         # 1. 选最优武器
         best_weapon = self._pick_best_weapon(caster, target)
         if best_weapon is None:
@@ -150,6 +160,74 @@ class AnchorVerifier:
             ),
             reason="可行",
         )
+
+    # ================================================================
+    #  hp20 评估器路径（m7，信源统一）
+    # ================================================================
+
+    def verify_sequence(self, caster, target, goal: str, sequence: list,
+                        target_armor_desc=None) -> AnchorVerification:
+        """判断**发动者自传的动作序列**能否在 horizon 内达成事件（人类自定路径）。
+
+        G5 的特权：不认神谕发的牌，就自己编一条路。AI 永不走此路（只用神谕底线/模板）。
+        """
+        return self._eval_verify(caster, target, goal,
+                                 target_armor_desc=target_armor_desc,
+                                 sequence=sequence)
+
+    def _eval_verify(self, caster, target, goal,
+                     target_armor_desc=None, sequence=None) -> AnchorVerification:
+        """信源统一评估：候选序列 = 自传序列 OR（预留模板 + 直取底线）→ 取 min-命数 可行者。"""
+        from engine import anchor_eval, anchor_templates
+        from engine.balance import get as bget
+
+        horizon = int(bget("anchor", "window", default=8))   # K：可行上限=监控轮（单值）
+        break_piece = None
+        if goal == "break_armor":
+            piece = self._find_armor_by_desc(target, target_armor_desc)
+            if piece is None:
+                return AnchorVerification(
+                    feasible=False, fate=0, variance=0, path_description=[],
+                    reason=f"目标没有该护甲：{target_armor_desc}")
+            break_piece = piece.name
+
+        weapons = anchor_eval.resolve_weapons(caster)     # 评估器弓感知（弓走 compute_shot）
+        if sequence is not None:
+            candidates = [sequence]                       # 人类自定路径
+        else:
+            # 命运路线模板（直取限定枚举已注册）；空则退直取底线
+            candidates = anchor_templates.propose_paths(
+                self.state, caster, target, goal, break_piece)
+            if not candidates:
+                candidates = [anchor_eval.build_direct_sequence(
+                    self.state, caster, target, weapons,
+                    goal=goal, break_piece=break_piece, horizon=horizon)]
+
+        best = None
+        for seq in candidates:
+            res = anchor_eval.simulate_path(
+                target, weapons, seq, goal=goal,
+                break_piece=break_piece, horizon=horizon)
+            if res.achieved and (best is None or res.rounds < best.rounds):
+                best = res
+
+        if best is None:
+            probe = anchor_eval.simulate_path(
+                target, weapons, candidates[-1], goal=goal,
+                break_piece=break_piece, horizon=horizon)
+            return AnchorVerification(
+                feasible=False, fate=probe.rounds, variance=0,
+                path_description=list(probe.log),
+                reason=f"命数 {probe.rounds} 超过可行上限 {horizon}",
+                attr_counts=dict(probe.attr_counts))
+
+        # 变数 = clamp(variance_base + (K − 命数), 0, K−1)：越短越稳，永远留 ≥1 干净轮
+        variance_base = int(bget("anchor", "variance_base", default=2))
+        variance = max(0, min(variance_base + (horizon - best.rounds), horizon - 1))
+        return AnchorVerification(
+            feasible=True, fate=best.rounds, variance=variance,
+            path_description=list(best.log), reason="可行",
+            attr_counts=dict(best.attr_counts))
 
     def _calculate_prep_rounds(self, caster, target, weapon):
         """计算前置回合数：移动、find、lock"""

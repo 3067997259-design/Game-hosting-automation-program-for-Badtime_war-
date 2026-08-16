@@ -425,8 +425,19 @@ class PoemMixin:
         1. 立刻给予一个享受奖励的额外行动（+1HP/+1ATK）
         2. 下一次天赋触发只需要连续2次获得行动权
         """
-        lines = []
+        from talents.talent_balance import m7_enabled
         talent = target.talent
+
+        # m7：T5 已是音游谱面 → 旋律诗保证一次 FC（发谱+受限行动+整谱判FC）
+        if m7_enabled() and hasattr(talent, 'poem_force_full_combo'):
+            talent.poem_force_full_combo(target)
+            return prompt_manager.get_prompt(
+                "talent", "g5ripple.poem_rhythm_fc",
+                default="🎵🌊 {target_name} 的谱面被旋律诗点亮——FULL COMBO，手感火热！"
+            ).format(target_name=target.name)
+
+        # v1：旧 combo 奖励关
+        lines = []
 
         # 1. 激活奖励状态
         if hasattr(talent, 'activate_poem_bonus'):
@@ -718,13 +729,15 @@ class PoemMixin:
 
     def _poem_bear(self, target):
         """献予「负世」之诗：愿负世增强（可重复）"""
+        from talents.talent_balance import talent_num
+        ember = int(talent_num("g5", "poem_bear_ember", v1=2))   # hp20 火种量纲 [待风洞]
         talent = target.talent
 
-        # 基础：给予 2 点火种（每次都给）
+        # 基础：给予火种（每次都给）
         if hasattr(talent, 'gain_divinity'):
-            talent.gain_divinity(2, "涟漪方式2-基础奖励")
+            talent.gain_divinity(ember, "涟漪方式2-基础奖励")
         elif hasattr(talent, 'divinity'):
-            talent.divinity += 2
+            talent.divinity += ember
 
         # 增强效果
         if hasattr(talent, 'enhance_by_ripple'):
@@ -759,9 +772,10 @@ class PoemMixin:
         V1.92+: 段数随使用次数成长。
         基础段数由开局人数决定（2人=2段, 4人=3段, 6人+=4段）。
         每多发动一次，段数+1。达到4段后，额外段数为真伤。
-        消耗递增：min(24, 12 + 3 × 已用次数)（已在 _execute_poem 中处理）
+        消耗递增：min(24, 12 + 4 × 已用次数)（已在 _execute_poem 中处理）
         """
         ALL_DAMAGE_TYPES = ["科技", "普通", "魔法", "无视属性克制"]
+        from talents.talent_balance import talent_num
 
         # Base stages from player count
         initial_count = len(self.state.player_order)
@@ -785,10 +799,12 @@ class PoemMixin:
         damage_assignments = []
 
         cost = self.get_destiny_cost()
+        stage_dmg = talent_num("g5", "poem_destiny_stage_damage", v1=0.5)
+        stage_dmg_label = f"{stage_dmg:g}" if isinstance(stage_dmg, float) else str(stage_dmg)
         display.show_info(
             f"\n🌊 献予「爱与记忆」之诗！（第{self.destiny_use_count}次，消耗{cost}层追忆）\n"
             f"   选择{total_stages}个单体单位（可重复），分别承受：\n"
-            f"   {'/'.join(DAMAGE_TYPES)} 各1点伤害"
+            f"   {'/'.join(DAMAGE_TYPES)} 各{stage_dmg_label}点伤害"
         )
 
         all_alive = [p for p in self.state.alive_players()]
@@ -805,8 +821,8 @@ class PoemMixin:
             display.show_info(
                 prompt_manager.get_prompt(
                     "talent", "g5ripple.poem_destiny_damage_selection",
-                    default="\n   选择承受「{damage_type}」1点伤害的目标："
-                ).format(damage_type=dtype)
+                    default="\n   选择承受「{damage_type}」{damage_value}点伤害的目标："
+                ).format(damage_type=dtype, damage_value=stage_dmg_label)
             )
 
             target_name = caster.controller.choose(
@@ -843,7 +859,7 @@ class PoemMixin:
             result = resolve_damage(
                 attacker=caster, target=target, weapon=None,
                 game_state=self.state,
-                raw_damage_override=0.5,
+                raw_damage_override=stage_dmg,
                 damage_attribute_override=damage_attr,
                 ignore_counter=True,
                 is_talent_attack=True,
@@ -952,23 +968,26 @@ class PoemMixin:
         - 后续「插入式笑话」需要的forfeit数减少2
         README 第 2162 行
         """
+        from talents.talent_balance import m7_enabled, talent_num
         talent = target.talent
         if not talent or talent.name != "要有笑声！":
             return "❌ 目标天赋不是「要有笑声！」"
 
-        # 立刻获得1次插入式笑话（附带 D4/D6 保证）
-        if hasattr(talent, 'cutaway_charges'):
-            talent.cutaway_charges = getattr(talent, 'cutaway_charges', 0) + 1
-        else:
-            talent.cutaway_charges = 1
-        talent._d4_force = True
-        talent._d6_force = True
+        # 立刻获得1次插入式笑话
+        talent.cutaway_charges = getattr(talent, 'cutaway_charges', 0) + 1
 
-        # forfeit需求减少2
-        if hasattr(talent, 'forfeit_threshold'):
-            talent.forfeit_threshold = max(0, talent.forfeit_threshold - 2)
+        if m7_enabled():
+            # 新 G6：D4 退役 → 不再置 _d4/_d6；"减 forfeit 需求"改为直接给笑点 +X
+            talent.laugh_points = getattr(talent, 'laugh_points', 0) + int(
+                talent_num("g5", "poem_joy_laugh_bonus", v1=2))
         else:
-            talent.forfeit_reduction = getattr(talent, 'forfeit_reduction', 0) + 2
+            # v1：D4/D6 保证 + 减 forfeit 需求
+            talent._d4_force = True
+            talent._d6_force = True
+            if hasattr(talent, 'forfeit_threshold'):
+                talent.forfeit_threshold = max(0, talent.forfeit_threshold - 2)
+            else:
+                talent.forfeit_reduction = getattr(talent, 'forfeit_reduction', 0) + 2
 
         charges = getattr(talent, 'cutaway_charges', 1)
         return (
@@ -1037,8 +1056,9 @@ class PoemMixin:
             permanent_extra = int(talent.terror_extra_hp)
             talent.terror_extra_hp = 0
 
-            # 额外扣除2点（不致死，不足2点的话有多少扣多少）
-            deduct = min(permanent_extra, 2)
+            # 额外扣除（不致死，不足的话有多少扣多少）；hp20 量纲 [待风洞]
+            from talents.talent_balance import talent_num
+            deduct = min(permanent_extra, int(talent_num("g5", "poem_nightwatch_hp_deduct", v1=2)))
             permanent_extra -= deduct
 
             # 将永久额外HP存储到talent上（用于 receive_damage_to_temp_hp）
@@ -1048,9 +1068,10 @@ class PoemMixin:
                 default="sensei，我回来了。永久额外HP: {permanent_extra}"
             ).format(permanent_extra=permanent_extra))
 
-            # 恢复护甲值为2的铁之荷鲁斯
-            talent.iron_horus_hp = 2
-            talent.iron_horus_max_hp = 2
+            # 恢复铁之荷鲁斯（耐久值 [待风洞]，对齐 G7 hp20 量纲；默认沿用 2）
+            horus = int(talent_num("g5", "poem_nightwatch_horus", v1=2))
+            talent.iron_horus_hp = horus
+            talent.iron_horus_max_hp = horus
             talent.fusion_shield_done = True
             msg_parts.append(prompt_manager.get_prompt("talent", "g7hoshino.poem_horus_restore",
                 default="铁之荷鲁斯恢复（护甲值2）"))

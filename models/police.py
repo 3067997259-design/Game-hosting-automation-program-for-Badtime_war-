@@ -12,12 +12,23 @@ class PoliceUnit:
 
     def __init__(self, unit_id):
         self.unit_id = unit_id
-        self.hp = 1.0
+        # hp20：HP12 无甲（v0.2 §2.6——v1 盾对全部合法反警武器无效，虚假资产）
+        from engine import experiments as _exp
+        self._hp20 = _exp.is_enabled("hp20")
+        if self._hp20:
+            from engine.balance import get as _bget
+            self.hp = _bget("police", "hp", default=12)
+        else:
+            self.hp = 1.0
         self.weapon_name = "警棍"   # 可被队长更换
 
         # 护甲槽位：最多1件外层 + 1件内层，新装备替换旧的同层护甲
-        self.outer_armor_name = "盾牌"
-        self.outer_armor: Optional[ArmorPiece] = make_armor("盾牌")
+        if self._hp20:
+            self.outer_armor_name = None
+            self.outer_armor: Optional[ArmorPiece] = None
+        else:
+            self.outer_armor_name = "盾牌"
+            self.outer_armor: Optional[ArmorPiece] = make_armor("盾牌")
         self.inner_armor_name: str | None = None
         self.inner_armor: Optional[ArmorPiece] = None                  # 内层，初始无
 
@@ -89,20 +100,29 @@ class PoliceUnit:
             "killed_by_petrify": False,
         }
 
+        # hp20 量纲（石化解除伤害 / 唤醒回满值）
+        if getattr(self, '_hp20', False):
+            from engine.balance import get as _bget
+            petrify_dmg = _bget("hp20", "petrify_release_damage", default=2)
+            full_hp = _bget("police", "hp", default=12)
+        else:
+            petrify_dmg = 0.5
+            full_hp = 1.0
+
         # 1. 石化状态额外扣血
         if self.is_petrified and self.is_alive():
             result["was_petrified"] = True
-            result["petrified_damage"] = 0.5
+            result["petrified_damage"] = petrify_dmg
             result["old_hp"] = self.hp
-            self.hp = max(0, self.hp - 0.5)
+            self.hp = max(0, self.hp - petrify_dmg)
 
         # 2. 清除所有debuff
         self.clear_all_debuffs()
 
-        # 3. 如果仍然存活，恢复HP至1.0；否则标记死亡
+        # 3. 如果仍然存活，恢复HP至满；否则标记死亡
         if self.is_alive():
-            self.hp = 1.0
-            result["new_hp"] = 1.0
+            self.hp = full_hp
+            result["new_hp"] = full_hp
         else:
             result["new_hp"] = 0
             result["killed_by_petrify"] = True
@@ -159,11 +179,17 @@ class PoliceUnit:
         }
 
     def reset_to_initial(self):
-        """重置为初始状态（威信归零/队长下台时调用）"""
-        self.hp = 1.0
+        """重置为初始状态（威信归零/队长下台时调用）。"""
         self.weapon_name = "警棍"
-        self.outer_armor_name = "盾牌"
-        self.outer_armor = make_armor("盾牌")
+        if getattr(self, "_hp20", False):
+            from engine.balance import get as _bget
+            self.hp = _bget("police", "hp", default=12)
+            self.outer_armor_name = None
+            self.outer_armor = None
+        else:
+            self.hp = 1.0
+            self.outer_armor_name = "盾牌"
+            self.outer_armor = make_armor("盾牌")
         self.inner_armor_name = None
         self.inner_armor = None
         self.location = None  # 不在地图上

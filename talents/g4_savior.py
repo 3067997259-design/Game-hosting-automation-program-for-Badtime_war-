@@ -173,21 +173,43 @@ class Savior(BaseTalent):
         consumed = self.divinity
         self.divinity = 0
 
-        # 生命值增益：直接提升 max_hp（上限 3.0）
-        hp_bonus = float(consumed) * 0.5
-        old_max = player.max_hp
-        player.max_hp = min(old_max + hp_bonus, 3.0)
-        actual_gain = player.max_hp - old_max
-        player.hp = min(1.0 + actual_gain, player.max_hp)  # 免死 + HP增益
+        from talents.talent_balance import m7_enabled, talent_num
+        import math as _math
+        if m7_enabled():
+            # M7 hp20（§7.3）：独立临时血池（第二血条）+ 免死HP=1，不污染 max_hp
+            self.temp_hp = min(consumed * talent_num("g4", "temp_hp_per_ember", v1=2),
+                               12 * talent_num("g4", "temp_hp_per_ember", v1=2))  # 满12=24
+            self.temp_hp_max = self.temp_hp
+            player.hp = max(player.hp, talent_num("g4", "revive_hp", v1=1))
+            self.temp_attack_bonus = min(
+                consumed * talent_num("g4", "attack_per_ember", v1=1),
+                talent_num("g4", "attack_cap", v1=6))
+            self.savior_duration = min(
+                talent_num("g4", "duration_base", v1=2) + _math.ceil(consumed / 3),
+                talent_num("g4", "duration_cap", v1=6))
+            self.aoe_bonus = (talent_num("g4", "aoe_bonus_low", v1=2)
+                              if consumed <= talent_num("g4", "aoe_high_threshold", v1=6)
+                              else talent_num("g4", "aoe_bonus_high", v1=4))
+            self._savior_max_hp_bonus = 0.0
+            self._savior_original_max_hp = player.max_hp
+            self.is_savior = True
+            old_max = player.max_hp  # 仅供显示
+        else:
+            # 生命值增益：直接提升 max_hp（上限 3.0）
+            hp_bonus = float(consumed) * 0.5
+            old_max = player.max_hp
+            player.max_hp = min(old_max + hp_bonus, 3.0)
+            actual_gain = player.max_hp - old_max
+            player.hp = min(1.0 + actual_gain, player.max_hp)  # 免死 + HP增益
 
-        self.is_savior = True
-        self.savior_duration = consumed
-        self._savior_max_hp_bonus = actual_gain      # 记录增益量，退出时扣回
-        self._savior_original_max_hp = old_max        # 记录原始上限
-        self.temp_hp = 0.0                             # 不再使用
-        self.temp_hp_max = 0.0
-        self.temp_attack_bonus = consumed * 0.5
-        self.aoe_bonus = 0.5 if consumed <= 6 else 1.0
+            self.is_savior = True
+            self.savior_duration = consumed
+            self._savior_max_hp_bonus = actual_gain      # 记录增益量，退出时扣回
+            self._savior_original_max_hp = old_max        # 记录原始上限
+            self.temp_hp = 0.0                             # 不再使用
+            self.temp_hp_max = 0.0
+            self.temp_attack_bonus = consumed * 0.5
+            self.aoe_bonus = 0.5 if consumed <= 6 else 1.0
 
         trigger_type = "主动发动" if is_manual else "被动触发"
         display.show_info(
@@ -267,6 +289,15 @@ class Savior(BaseTalent):
             f"\n  攻击力恢复为原始值。"
             f"\n  天赋永久失效。"
             f"\n{'='*50}")
+
+    def receive_damage_to_temp_hp(self, damage, is_embrace=False):
+        """M7 hp20：救世主第二血条吸收（temp_hp 池）。相拥伤害(G2)不被吸收。"""
+        from talents.talent_balance import m7_enabled
+        if not m7_enabled() or is_embrace or self.temp_hp <= 0 or damage <= 0:
+            return damage
+        absorbed = min(self.temp_hp, damage)
+        self.temp_hp -= absorbed
+        return damage - absorbed
 
     # ============================================
     #  攻击力加成

@@ -1,0 +1,254 @@
+[
+  {
+    "file": "docs/handbook/complete.generated.src.md",
+    "fingerprint": "伤害 +2，受到伤害 -1",
+    "check": "CHECK3",
+    "reason": "flavor: 元叙事修辞，永不迁移",
+    "render": "keep"
+  },
+  {
+    "file": "docs/handbook/complete.generated.src.md",
+    "fingerprint": "氪不起6+5",
+    "check": "CHECK3",
+    "reason": "flavor: 元叙事修辞，永不迁移",
+    "render": "keep"
+  },
+  {
+    "file": "docs/handbook/complete.generated.src.md",
+    "fingerprint": "时停5轮会让外面的玩家无聊至极",
+    "check": "CHECK3",
+    "reason": "flavor: 元叙事修辞，永不迁移",
+    "render": "keep"
+  },
+  {
+    "file": "docs/handbook/complete.generated.src.md",
+    "fingerprint": "它继承了旧导弹的\"攻城/反龟缩\"职责",
+    "check": "CHECK4",
+    "reason": "legacy: 退役职责陈述，保留历史语义",
+    "render": "keep"
+  },
+  {
+    "file": "docs/handbook/complete.generated.src.md",
+    "fingerprint": "| 2 人 | 第 10 轮 |",
+    "check": "CHECK3",
+    "reason": "derived: 待 calc 占位符改造后删除本条",
+    "render": "keep"
+  },
+  {
+    "file": "docs/handbook/complete.generated.src.md",
+    "fingerprint": "| 3 人 | 第 12 轮 |",
+    "check": "CHECK3",
+    "reason": "derived: 待 calc 占位符改造后删除本条",
+    "render": "keep"
+  },
+  {
+    "file": "docs/handbook/complete.generated.src.md",
+    "fingerprint": "| 4 人 | 第 14 轮 |",
+    "check": "CHECK3",
+    "reason": "derived: 待 calc 占位符改造后删除本条",
+    "render": "keep"
+  },
+  {
+    "file": "docs/handbook/complete.generated.src.md",
+    "fingerprint": "| 5 人 | 第 16 轮 |",
+    "check": "CHECK3",
+    "reason": "derived: 待 calc 占位符改造后删除本条",
+    "render": "keep"
+  },
+  {
+    "file": "docs/handbook/complete.generated.src.md",
+    "fingerprint": "| 6 人 | 第 18 轮 |",
+    "check": "CHECK3",
+    "reason": "derived: 待 calc 占位符改造后删除本条",
+    "render": "keep"
+  },
+  {
+    "file": "docs/history/changelog.md",
+    "fingerprint": "m4_economy",
+    "check": "CHECK5",
+    "reason": "legacy: changelog 旧 flag 别名注记与历史正文",
+    "render": "keep"
+  },
+  {
+    "file": "docs/history/changelog.md",
+    "fingerprint": "m8_ai",
+    "check": "CHECK5",
+    "reason": "derived: 未来计划中的预留 flag，当前未注册",
+    "render": "keep"
+  },
+  {
+    "file": "docs/history/changelog.md",
+    "fingerprint": "m8_basicai_refactor",
+    "check": "CHECK5",
+    "reason": "derived: 文档文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/history/changelog.md",
+    "fingerprint": "k_sitout_count",
+    "check": "CHECK5",
+    "reason": "derived: balance 键名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/design/v2exp/m8_basicai_refactor.md",
+    "fingerprint": "m8_ai",
+    "check": "CHECK5",
+    "reason": "derived: 未来计划中的预留 flag，当前未注册",
+    "render": "keep"
+  },
+  {
+    "file": "docs/design/v2exp/v2.0_exp_design_draft_v0.2.md",
+    "fingerprint": "tests/golden/",
+    "check": "CHECK5",
+    "reason": "derived: golden 存档文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/design/v2exp/v2.0_exp_design_draft_v0.2.md",
+    "fingerprint": "m7_talents_s42_n20.jsonl",
+    "check": "CHECK5",
+    "reason": "derived: golden 存档文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/design/v2exp/v2.0_exp_design_draft_v0.2.md",
+    "fingerprint": "k_sitout_count",
+    "check": "CHECK5",
+    "reason": "derived: balance 键名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/inheritor_decision_map.md",
+    "fingerprint": "m8_basicai_refactor",
+    "check": "CHECK5",
+    "reason": "derived: 文档文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/inheritor_decision_map.md",
+    "fingerprint": "k_sitout_count",
+    "check": "CHECK5",
+    "reason": "derived: balance 键名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/inheritor_decision_map.md",
+    "fingerprint": "m9_unified_currency_design",
+    "check": "CHECK5",
+    "reason": "derived: 文档文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/inheritor_decision_map.md",
+    "fingerprint": "m9_action_system_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 决策地图引用的当前行动 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/inheritor_decision_map.md",
+    "fingerprint": "m9_talent_spotlight_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 决策地图引用的当前天赋 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/m9/drafts/m9_unified_currency_design.md",
+    "fingerprint": "m9_action_system_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 原始 M9 草案引用的替代行动 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/m9/superseded/m9_action_system_rfc_v0.1.md",
+    "fingerprint": "m9_action_system_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 当前 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/m9/superseded/m9_action_system_rfc_v0.1.md",
+    "fingerprint": "m9_unified_currency_design",
+    "check": "CHECK5",
+    "reason": "derived: 前置阅读引用的 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/m9/superseded/m9_action_system_rfc_v0.4.md",
+    "fingerprint": "m9_action_system_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 当前最终候选 RFC 文件名与版本历史引用，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/m9/current/m9_action_system_rfc_v0.5.md",
+    "fingerprint": "m9_action_system_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 当前行动 RFC 文件名与版本历史引用，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/m9/current/m9_action_system_rfc_v0.5.md",
+    "fingerprint": "m9_talent_spotlight_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 当前行动 RFC 引用的配套天赋 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/audits/m9-action-paper-simulation-v0.1.md",
+    "fingerprint": "m9_action_system_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 纸面推演引用的 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/README.md",
+    "fingerprint": "m9_unified_currency_design",
+    "check": "CHECK5",
+    "reason": "derived: 文档中心引用的 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/README.md",
+    "fingerprint": "m9_action_system_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 文档中心引用的 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/contradictions.md",
+    "fingerprint": "m9_action_system_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 矛盾台账引用的 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/m9/superseded/m9_talent_spotlight_rfc_v0.1.md",
+    "fingerprint": "m9_action_system_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 天赋聚光候选引用的行动 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/m9/superseded/m9_talent_spotlight_rfc_v0.1.md",
+    "fingerprint": "m9_talent_spotlight_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 历史天赋 RFC 引用的替代版本文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/m9/current/m9_talent_spotlight_rfc_v0.2.md",
+    "fingerprint": "m9_action_system_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 天赋演出候选引用的行动 RFC 文件名，非实验 flag",
+    "render": "keep"
+  },
+  {
+    "file": "docs/m9/current/m9_talent_spotlight_rfc_v0.2.md",
+    "fingerprint": "m9_talent_spotlight_rfc_v0",
+    "check": "CHECK5",
+    "reason": "derived: 当前天赋 RFC 文件名与版本历史引用，非实验 flag",
+    "render": "keep"
+  }
+]

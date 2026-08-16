@@ -30,9 +30,10 @@ from sb3_contrib import MaskablePPO
 from engine.game_state import GameState
 from engine.round_manager import RoundManager
 from engine.game_setup import (
-    TALENT_TABLE,
     AI_PERSONALITIES,
     AI_DISABLED_TALENTS,
+    assign_talent_entry,
+    talent_table_for_current_profile,
 )
 from models.player import Player
 from controllers.ai_basic import BasicAIController
@@ -161,23 +162,21 @@ def wrap_controller(player: Player, stats: TimingStats):
 def assign_talents(game_state: GameState):
     """为所有玩家随机分配天赋（均匀随机，排除 AI_DISABLED_TALENTS）。"""
     taken: set = set()
+    talent_table = talent_table_for_current_profile(game_state)
     for pid in game_state.player_order:
         player = game_state.get_player(pid)
         if player is None:
             continue
         available = [
             (n, name, cls, desc)
-            for n, name, cls, desc in TALENT_TABLE
+            for n, name, cls, desc in talent_table
             if n not in taken and n not in AI_DISABLED_TALENTS
         ]
         if not available:
             continue
         chosen = random.choice(available)
         n, name, cls, desc = chosen
-        talent_inst = cls(pid, game_state)
-        player.talent = talent_inst
-        player.talent_name = name
-        talent_inst.on_register()
+        assign_talent_entry(game_state, player, chosen)
         taken.add(n)
 
 

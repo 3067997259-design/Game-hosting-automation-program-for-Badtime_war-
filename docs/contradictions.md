@@ -1,0 +1,68 @@
+# 文档矛盾与待决事项
+
+本台账只登记，不自动修改规则。状态使用：`open`、`decision-needed`、`planned`、`resolved`、`false-positive`。
+
+| ID | 主题 | Profile | 证据与冲突 | 当前处理 | 状态 |
+|---|---|---|---|---|---|
+| DOC-001 | V2 作者源分叉 | v2exp | 迁移 DOCX 与旧单体 Markdown 只有约 55% 文本相似度，且 DOCX包含大量 Markdown 中不存在的内容 | 已从 DOCX逻辑文本迁移 34 个模块；模块成为唯一作者源，DOCX 与旧 Markdown 移至 `docs/archive/` | resolved |
+| DOC-002 | 两货币与三货币 | v2exp / m9-rfc | V2 草案 §0.6 规定最多两种全局货币；M9 原稿提议信用点、SP、PP 三种 | [行动 RFC v0.8](m9/current/m9_action_system_rfc_v0.8.md) 已冻结：SP 是不可交易、不可计分、不可兑换的 0/1/2 能力层级（即演固定 −1、公演 −2，不允许逐效果定价），不计入全局货币；全局货币仍为信用点与 PP | resolved |
+| DOC-003 | 天赋权威混合 | legacy / v2exp | `talents.md`、V2 手册、设计草案和代码对部分天赋存在不同口径 | 已建立 `audits/m9-v2-talent-reconciliation-baseline-v1.md` 的四列审计口径；下一步按主题建立 V2 事实底稿 | planned |
+| DOC-004 | M8 状态漂移 | v2exp | M8 文档仍包含计划态描述，当前 BasicAI 已统一走 Orchestrator | 将计划历史与当前架构说明分离 | open |
+| DOC-005 | AIRI 模式数量 | cross-profile | 部分说明按两种模式描述，仓库指导文件描述三种模式 | 对照当前入口和配置后更新集成文档 | open |
+| DOC-006 | G2 设计稿引用 | v2exp | 指导文件引用 G2 reset 草案和未完整实装表，但当前工作树未见对应正式草案文件 | 核查被删除/分支文件与当前代码，避免丢失独有设计 | open |
+| DOC-007 | 项目入口手册链接 | legacy / v2exp | 根 README 的手册入口没有清晰区分 legacy 与 v2exp | 根 README 与代理指导已改为先进入文档中心，并区分 legacy/V2 | resolved |
+| DOC-008 | M9 内部协议矛盾 | m9-rfc | 赔率是否考虑强度/市场、援助报价方、被动触发作用域和“下一步”描述不一致 | B4 已拍板：赔率人数反比不做强度/市场修正、生者发起出价死者接受/拒绝、被动援助全局首攻/首次濒死触发。见 [PP/往世层投注与魂援 RFC v0.4](m9/current/m9_pp_afterlife_betting_rfc_v0.4.md) §4.2/§5 | resolved |
+| DOC-009 | lint flag 误报 | cross-profile | CHECK 5 曾把决策地图中的文件名与 balance 键当成 flag | 已按精确文件+指纹加入白名单，保留真实 flag 检查 | resolved |
+| DOC-010 | 单体手册过大 | v2exp | 约 1090 行、5 万字符；天赋章占 60% 以上，G2 单项约 1 万字符 | 已拆为 34 个模块并支持按主题装配；语义审计仍继续 | resolved |
+| DOC-011 | 权威源未跟踪 | v2exp / m9-rfc | V2 DOCX、M9、决策地图和 lint 工具当前均未被 Git 跟踪 | 本轮保留并纳入维护交付范围；是否提交由后续 Git 流程处理 | open |
+| DOC-012 | 生成链分裂 | v2exp | `lint_docs.py` 默认扫描根 DOCX，`render_docs.py` 只装配 `docs/*.src.md` | 新 `tools/handbook.py` 已能装配、注入 balance 并检查；旧链暂留作历史兼容 | resolved |
+| DOC-013 | 天赋注册简介陈旧 | legacy / v2exp | `engine/game_setup.py` 仍称 T4 每 4 轮充能、T5 连续行动奖励；balance 与 V2 规则已不同 | 用户可见简介应迁入 prompts，并按 profile 生成 | open |
+| DOC-014 | Orchestrator 文件头陈旧 | cross-profile | `controllers/ai/orchestrator.py` 文件头仍称通过 `new_arch_enabled` 切换，但该开关已退役 | 修正文档字符串，不改变运行逻辑 | open |
+| DOC-015 | G5 方式二未收口 | v2exp | 迁移源自身标注“尚未完成信源统一的编辑”，且存在大量裸数值；诗篇批次页头仍写“待终审” | W12 已按 14/14 终审事实统一批次页头为“迁移候选已终审，数值待风洞”，并清理白名单（地火/负世为完整额外行动白名单、阴阳不能指定或跃、彼岸复活置 SP2 登记为行动 RFC 自动就绪白名单） | resolved |
+| DOC-016 | K 行动配额与 SP 替代 | v2exp / m9-rfc | V2 当前 K=N−1，每轮稳定一人轮空；M9 原稿把 SP 叠在行动消耗上，可能形成双重行动门槛 | [行动 RFC v0.8](m9/current/m9_action_system_rfc_v0.8.md) 已决定删除 K、全员标准行动、先攻只排序，并把 SP 固定为即演 1 / 公演 2 的能力层级；B0 已冻结带来源 `ActionGrant` 与统一收尾；W1 已接受互相施压的高频即演稳态并设原型监测指标。尚未迁入实现 | planned |
+| DOC-017 | 完整额外行动的定位 | m9-rfc | 早期 B1 把 `v2exp` 的 T5 FC 一并迁入 M9，但 G0 当前 RFC 已明文规定“原 T5 槽位转为 G0”，两者不能同时为活跃天赋 | [行动 RFC v0.8](m9/current/m9_action_system_rfc_v0.8.md) 保留稀有白名单和防递归边界；作者复核后按 G0 槽位合同收口为三个来源：T4「或跃在渊」、地火诗、负世主动燃尽。T5 不迁入 M9 | resolved |
+| DOC-018 | 完整额外行动迁移 | v2exp / m9-rfc | B0 枚举出响应窗口、T4、T2 犯罪、G4、G2 聚光灯/合影、G7 起床、T2 警觉和通用追加通道；当前队列只有玩家 ID，无法执行来源白名单与递归上限 | B0 已冻结迁移身份和 `ActionGrant` 合同；B1 已冻结 T4/G7 时序并登记 T5 退役；旧 G2 聚光灯/合影随全桌舞台整体冻结，不迁入新 G2 | planned |
+| DOC-019 | 天赋频率资源迁移 | v2exp / m9-rfc | M9 要求 SP 接管纯次数、充能和冷却，但代码、AI、prompts 与测试仍直接依赖 `uses_remaining`、T4 充能、G1 过载、G6 充能及 G7 冷却 | 先按“频率旋钮 / 战术资源 / 故事进度 / 局部预算”分类，禁止批量删除字段 | planned |
+| DOC-020 | 公演待遇缺少现行合同 | m9-rfc | 即演/公演接口依赖 PP、魂援、投注、喝彩与完结条；这些内容仍主要位于部分失效的统一货币草案，报价方、时点与收益责任尚有矛盾 | B4 已形成 [PP/往世层投注/魂援 RFC v0.4](m9/current/m9_pp_afterlife_betting_rfc_v0.4.md) 与独立评分指针（含 B5 推演 A1–A8 与 W4 裁决），公演经济合同成立；数值待风洞，实现待迁移批次 | resolved |
+| DOC-021 | 全员行动下的控制 | v2exp / m9-rfc | B0 已确认：睡眠仅起床；普通眩晕在实现中清除后继续；震荡恢复会结束行动；石化可付代价继续或保持并跳过；多个提前返回绕过 T2。V2 手册、实现和 M9 受限菜单三方不一致 | M9 已裁决：眩晕退役、震荡为普通受限行动、石化保留选择、压制消费下一行动槽，并统一进入系统收尾。V2 仍维持旧行为，等待迁移 | resolved |
+| DOC-022 | 行动完成记账过载 | v2exp / m9-rfc | `acted_this_round` 与 `action_type` 不能区分获得行动位、控制替代、真实根行动、自愿放弃和完整额外行动；睡眠/石化跳过会算已行动，震荡恢复却算未行动 | B0 已冻结六项显式事实和三层公共收尾；原型需按合同拆分，不得用单一布尔值推导 M9 规则 | planned |
+| DOC-023 | 伤害乘区与下限漂移 | v2exp / m9-rfc | T1、易伤、属性防御、最后内层吸收与最小伤害分散在手册、prompt、天赋钩子和数值函数中；旧最小伤害函数还可能把 `0` 恢复为 `1` | B0 已冻结攻击方 `A`、承受方 `H`、以 `A` 为基准的 `25%` 下限、攻击归零白名单及 T1 的 `×2 / 0.5` 位置；B2/B5 再迁移来源与实现 | planned |
+| DOC-024 | T5 FC 追加并不即时 | v2exp / m9-rfc | `v2exp` 音符在 T2 判定但谱面只在 R4 结算；早期 M9 迁移稿曾尝试修补该追加时点 | 作者确认 T5 已被 G0 取代，不迁入 M9；M9 无需实现谱面或 FC。`v2exp` 的既有时序问题继续留在其自身 profile，不得反向污染 M9 | resolved |
+| DOC-025 | T2 隐藏响应与三条追加通道 | v2exp / m9-rfc | 犯罪、警觉和响应窗口都能插入完整回合；响应窗口未写入 V2 玩家模块，且当前可在任意其他玩家行动后触发 | M9 T2 adapter 已按 B1-D04 收口：犯罪/发现只登记关注，整局一次追猎反应仅执行合法 find/lock；`v2exp` 旧行为由 profile 隔离保留 | resolved |
+| DOC-026 | G6 轮空充能与责任借用 | v2exp / m9-rfc | G6 依赖 `acted_this_round=false` 或放弃积笑点，并使用其他玩家的权限、钱包和犯罪责任；与全员行动及公共收尾冲突 | M9 G6 adapter 已删除笑点和借用身份，只按自身状态重演最近一轮五类公开模板；欢愉之诗为两轮；`v2exp` 旧实现隔离保留 | resolved |
+| DOC-027 | G7 起床完整额外行动 | v2exp / m9-rfc | 临战-Archer 每次起床设置专用追加字段，随后进入完整 T0/T1/T2；该来源不在完整额外行动白名单 | M9 G7 adapter 已实现 wake grant 内一次受限衔接，不新建 ActionGrant；`v2exp` 专用追加字段不进入 M9 | resolved |
+| DOC-028 | G4 主动燃尽与 SP 收尾 | v2exp / m9-rfc | 主动燃尽当前以额外行动补偿启动；删除追加后，若先置 SP=2 再执行演出收尾会立即归零。代码火种上限 12 也与 balance 的 20 不同 | M9 G4 adapter 已按公共收尾后置 SP=2，火种上限统一为 12；数值仍标记待风洞但运行时口径已唯一，`v2exp` 旧实现隔离保留 | resolved |
+| DOC-029 | T3/G1 真伤与穿甲自相抵消 | v2exp / m9-rfc | 两者都同时传入“无视属性克制”和 50% 防御系数；HP20 按属性字符串查防御，真伤路径通常得到 0 防御，使穿甲系数没有对象 | 已裁决并批准（最终口径不同于原“普通属性+0.5”推荐）：T3 = 无属性 + defense_coefficient=0（完全穿防，仍受减伤与 25% 下限），见 [T3/T7 迁移合同 v0.3](m9/current/m9_t3_t7_migration_rfc_v0.3.md) §1.3；G1 超新星 = 普通属性 + defense_coefficient 折减（系数风洞），见 [G1 燃烧循环 RFC v0.3](m9/current/m9_g1_firefly_burn_cycle_rfc_v0.3.md) §四；直接伤害身份已统一为 `DIRECT_DAMAGE`（W9），各 RFC 禁止自造真伤 | resolved |
+| DOC-030 | T6 远程举报身份与接口断裂 | v2exp / m9-rfc | 玩家模块称远程举报常驻，M9 旧候选把它作为演出根入口；T6 实现 `allows_remote_report()`，警方与 AI 却调用 `can_remote_report()`，菜单可见但实际合法性失败 | M9 已接入不读 SP 的市民热线标准根行动，预检失败不消费槽/证据；特别线索与 SP2 配装走独立入口，`v2exp` 旧接口隔离保留。见 [警察/T6 RFC v0.3](m9/current/m9_police_t6_reset_rfc_v0.3.md) | resolved |
+| DOC-031 | T7 固定三槽前置与 SP 双重预热 | v2exp / m9-rfc | 当前需魔法所学习两次再挂载一次；M9 已用 SP 表达准备时间，继续保留会让一次性伏笔稳定占用三轮 | B2-D04 已批准：删除学习，一次演出直接挂载，死亡时自动兑现；见 [T3/T7 迁移合同 v0.3](m9/current/m9_t3_t7_migration_rfc_v0.3.md) §二；待实现与 V2 同步 | resolved |
+| DOC-032 | G1 失熵、炽愿与周期先攻三套规则 | v2exp / m9-rfc | 玩家模块、V2 设计草案和代码分别采用摧毁单甲/全外甲减耐久/单内甲减 1；代码还保留行动不足延迟、D4/D6 双加成和已失去触发环境的眩晕免疫 | [G1 火萤燃烧循环 RFC v0.3](m9/current/m9_g1_firefly_burn_cycle_rfc_v0.3.md) 已整体取代 B2-D05/D06 旧候选：三段形态阶梯、失熵改形态驱动量表+调息回落、繁育状态与地点摧毁；换装宣言与免费 find 已于 2026-08-08 裁决；繁育超新星改为每轮一次合法 move 触发（W7）并登记绝对死亡白名单、保留最后安全地点兜底（W8）；数值待风洞 | resolved |
+| DOC-033 | G4 火种标尺与救世主核心缺失 | v2exp / m9-rfc | balance/玩家模块上限 20、代码上限及余烬生命截断 12；当前实现形态后永久失效，且 B1 的 SP=2 没有可消费的救世主演出核心 | M9 G4 adapter 已落实 12 火种、残缺/完整形态、6 tick、毁伤拉条、反击/天裁与退场归零重开；运行值仍待风洞，但结构冲突已由 profile+balance 单信源消除。见 [G4 RFC v0.3](m9/current/m9_g4_savior_cycle_rfc_v0.3.md) | resolved |
+| DOC-034 | 举报、队长与警察配装互相覆盖 | v2exp / m9-rfc | 举报需举报者连续集结/追踪；队长上任会刷新三名警察、关闭举报并取得移动/攻击/配装；V2 手册又省略了实现仍保留的配装规则 | M9 警察状态机已接入案件、R2/R4 执法、固定警力、队长、掩体、停机与 T6 独占配装；警察成为可攻击统一 actor，影身案件归共享玩家，终曲不暂停警务。`v2exp` 旧警务隔离保留 | resolved |
+| DOC-035 | G2 标准天赋与全局模式尺度错位 | v2exp / m9-rfc | 旧 G2 是地点群控；V2 Reset 又让一次天赋替换全桌地点、阵营、行动和结局。无论删牌或缩轮，标准天赋仍取得了接管整局玩法的权限 | 旧舞台整体冻结为 V2/独立模式材料；M9 G2 v0.3 改为共享一个玩家身份的光身/影身双 actor 与局部世末终曲区域，不接管全桌阵营/菜单/胜负。见 [G2 v0.3](m9/current/m9_g2_holographic_presence_rfc_v0.3.md) | resolved |
+| DOC-036 | G3 只有轮数与全封锁两个调节悬崖 | v2exp / m9-rfc | V2/实现以开场额外行动、五轮猜拳唯一行动者、目标全部天赋失效和 G3 控制免疫构成同步小黑屋；balance 也注明唯一连续旋钮只有结界轮数，封锁是二元悬崖 | M9 G3 adapter 已重置为魔力投影与仅公演固有结界，并接入捕捉、边界、破界、防壁/拦截、连续投影、赤原猎风和维持费；正常行动顺序继续，`v2exp` 旧舞台隔离保留 | resolved |
+| DOC-037 | 直接伤害/真伤身份漂移 | v2exp / m9-rfc | G0 十字炮火、G4 死星天裁与 G7 Terror 各写“真伤”，结算合同没有该伤害身份；G0 神秘属性示例把普通克制当攻击归零 | W9/W10 已统一：`DIRECT_DAMAGE` 为唯一直接伤害身份，跳过属性防御/护甲/普通固定减伤并令 `H=A`，仍可被替身/重定向/绝对免疫承接且触发伤害/关注/死亡流程，只有额外带 `absolute_death` 标签才进入绝对死亡。见 [结算合同 RFC v0.3](m9/current/m9_resolution_contract_rfc_v0.3.md) 与 [G0 砂狼白子 RFC v0.3](m9/current/m9_g0_shiroko_terror_rfc_v0.3.md) | resolved |
+| DOC-038 | M9 数值命名空间漂移 | m9-rfc | 旧版 `data/balance.json` 为 0.3.0，部分 RFC 占位符曾指向 `talents.*` 旧块或 `scoring.*`；G1/G7 新旧块并存 | W11 已裁决：M9 数值统一进入 `m9_talents_extended.*` 与 `m9_system.*`，不覆盖仍服务 `v2exp` 的 `talents.*`；G2 v0.3 双身/终曲键并入后数值文件现为 0.4.5 | resolved |
+| DOC-039 | G5 结果声明与轮回培养冲突 | m9-rfc | G5 v0.3 假定常驻单一形态并先声明击杀/破甲/获取/到达结果；最新重置要求小昔涟多世培养德谬歌，并由玩家支付 K 追忆填写基础行动脚本后自动抽取事件 | [G5 v0.4](m9/current/m9_g5_anchor_contract_rfc_v0.4.md) 已取代 v0.3：追忆只在小昔涟阶段生成；德谬歌预算有限；锚定不再接受结果目标或搜索路径，改为四类差分事件逐槽兑现；v2exp 实现保持 profile 隔离 | resolved |
+| DOC-040 | G2 场景物影像与完整双身冲突 | m9-rfc | G2 v0.2 规定影像无 HP/装备/槽且下一行动落幕；最新重置要求影身为无限持续的完整代理 actor，并在终曲承诺后永久锁死再造资格 | [G2 v0.3](m9/current/m9_g2_holographic_presence_rfc_v0.3.md) 已取代 v0.2：光身/影身各有标准槽，影身持有真实物品；消散至多一件归还；终曲歌者无槽并建立局部共享区域；旧舞台/duet 继续 profile 隔离 | resolved |
+| DOC-041 | G0 撤退后无玩家决策；世界援助仅保留机制遗产 | m9-rfc | G0 不进往世层、无魂援、PP 冻结、不能行动（G0 v0.3 §7.3），因此撤退玩家仍是纯旁观者；开启往世层/魂援或重新授予操作会模糊死亡/撤退/绝对死亡三档终态，并违背已批准的“她没有偏向”边界 | 已批准的解决范围是“离场后仍以机制遗产影响棋局”，不是恢复玩家决策：本局含 G0 时，黑马援助替换为「昨日的同伴」两式；G0 不提供/结算/获得资源或决策权。若未来目标改为让撤退玩家继续操作，必须另开设计决定，不能把 DOC-041 当前 `resolved` 解释为已恢复参与。见 [G0 世界援助合同 v0.1](m9/current/m9_g0_world_poem_aid_rfc_v0.1.md) | resolved |
+| DOC-042 | G3 幻想崩坏形态、根内连发与敌意 SP 扣减类目缺失 | m9-rfc | G3 v0.2 §8.2 幻想崩坏为一次性统一攻击（爆气），与无限剑制持续齐射意象不符；行动 v0.8 的普通追演每根至多一次，无法直接表达宝具连发；M9 也无“敌意 SP 扣减”与“强制公演队列移除”的公共类目 | 已批准连续投影合同（2026-08-10）：结界内螺旋剑进入关闭列举、有硬上限的 `projection_chain` 根内子循环（非普通追演），累计耗魔阈值触发「赤原猎风」（SP −1、按失效纪律移出公演队列），终段崩坏保留原语义；行动 RFC 升版时收容根内连发与敌意 SP 扣减类目。见 [G3 连续投影合同 v0.1](m9/current/m9_g3_chain_projection_rfc_v0.1.md)；数值待风洞 | resolved |
+| DOC-043 | 最终赢家、投注派彩与黑马加分的求值顺序 | m9-rfc | V2 以综合评分判定胜负；M9 死者终分又包含投注收益，黑马也只在“胜利时”取得终分加成。若先用含派彩/黑马加分的终分找赢家，再按赢家派彩，会形成循环 | 已冻结四步求值：先算排除投注派彩/黑马加成的 `base_final_score`，最高者并列进入 `game_winner_snapshot`；随后锁市、派彩和发放黑马加成；显示终分可改变排名但不得重算胜者。见 B4 v0.4 §4.1.1 与评分指针 v0.1 §3.1 | resolved |
+| DOC-044 | G7 战术宏内部事件与根行动粒度 | m9-rfc | 战术宏占一个标准槽，但内部可依次射击、投掷、find/lock 等；旧合同未说明各步骤与公共根行动收尾的关系 | 已冻结为一个标准 `ActionGrant` 内的复合根容器：内部步骤各自产生完整领域事件并独立结算合法性、费用、犯罪、关注、反应与命中；不创建新 T0/行动授予/追演/完整额外行动；整宏仅一次 `root_action_performed`、根收尾与系统收尾。见 G7 v0.3 §2.4 | resolved |
+| DOC-045 | T3 天星的入口与地点射程 | v2exp / m9-rfc | V2 写“你所在地点除你外”，M9 v0.3 一度采用即演/公演双入口并写“选择一个地点”，入口与合法地点集合未冻结 | 2026-08-10 已裁决：天星删除即演入口，只能以 2 SP 公演；只结算一次完整 AOE+石化，不追加第二次攻击。2026-08-11 追加裁决：天星在**公演实际执行时读取发动者当前所在地点**原地释放，取消地点选择 UI，报名公演时不锁定地点；只有当前地点内除发动者外的其他合法单位受影响。见 T3/T7 v0.3 §1 | resolved |
+| DOC-046 | G5 `combat` 追忆事件的作用域 | m9-rfc | 追忆表只写“至少一次攻击造成有效伤害”，未说明必须由小昔涟造成、命中小昔涟、发生在她所在地，还是全局任意攻击 | 已冻结为两层、各每轮至多一次：地图任意有效战斗取得 `reminiscence_combat_gain=1`；若小昔涟是有效攻击者或承受有效伤害的目标，再取得 `reminiscence_combat_personal_bonus=1`，合计 2；未命中/无有效伤害不算亲历。见 G5 v0.4 §三 | resolved |
+| DOC-047 | 世界援助治疗是否计入 G4 外来正面转移 | m9-rfc | G4 把其他玩家/受控单位提供的外部治疗计入火种；世界援助没有玩家提供者 | 已冻结为不计入：绫音急救登记 `source_kind=WORLD_RULE`、`source_id=world_poem_g0_aid`，即使实际治疗 G4 也不产生火种。见 G0 世界援助 v0.1 §4.3 与 G4 v0.3 §2.1 | resolved |
+| DOC-048 | 两份增量合同存在 5 个悬空 balance 键 | m9-rfc | 世界援助与 G3 连续投影此前共有 5 个占位符无法从唯一数值信源解析 | `data/balance.json` v0.4.6 已登记首轮值：`world_poem_g0_heal=1`、`chain_max_repeats=2`、`chain_cost_step=2`、`chain_gale_threshold=6`、`collapse_terminal_min_magic=2`；仍需风洞，但实现不得另设隐藏默认值 | resolved |
+| DOC-049 | 两份增量合同的实现就绪语义审计缺口 | m9-rfc | v0.1 就绪审计明确不覆盖 G0 世界援助与 G3 连续投影（结论不能推广到增量合同） | [实现就绪审计 v0.2](audits/m9-implementation-readiness-v0.2.md) 已补齐两份增量合同的权威矩阵、结构语义与 17 个 Given/When/Then 场景：P0/P1/P2=0；星野追演与 `projection_chain` 同根互斥、赤原猎风频率闸、`WORLD_RULE` 来源纪律均已冻结；行动 RFC 升版收容根内连发与敌意 SP 扣减类目为 P2 观察项 | resolved |
+| DOC-050 | 剧情分通道全局不对称 | m9-rfc | 风洞 R48 发现 `arc_count` 只有 G2/G5 有入口，`arc_weight` 暂记 0；“arc += 公演次数”因各槽位公演需求不等（T3 高频、T7 低频）不可行 | [通用剧情分三章制完结条 RFC v0.1](m9/current/m9_arc_universal_rfc_v0.1.md) 已冻结：全员 `arc_cap=3`、一章一事、顺序解锁、第一章=首次真实公演、登台优先队列规则；G2/G5 私有挂接并入章节表；数值待风洞 | resolved |
+| DOC-051 | G2 影身“创建当轮即补标准槽”未实现 | m9-rfc | 2026-09 用户批准的 G2 抬底方案包含影身创建当轮即补标准槽；但 R3 在 R1 已复制 `m9_round_grants`，当轮补发 grant 需要修改 `round_manager.py` 时序（项目禁改区） | 当前口径保持“影身自下一轮 R1 进入先攻”；补偿措施为影身输出修复、arc 补章、终曲见证 1 tick 等。若未来要改，需先单开轮次时序设计决定 | planned |
+| DOC-052 | 槽位得分系数是终分新平衡通道 | m9-rfc | 2026-09 用户批准 `talent_score_multiplier` 用于胜率极差收敛；该系数只乘在 `base_final_score`，不影响玩法动作，但旧评分文档未登记 | 已实现于 `engine/m9/pp.py::ScoringEngine.score`，终值登记于 [风洞校准台账](m9/current/m9_windtunnel_calibration_2026-09.md) §4.2，并回写评分指针 RFC 头部修正 | resolved |
+
+## 处理顺序
+
+1. DOC-016、DOC-018、DOC-021、DOC-022、DOC-023：B0 已完成，目标合同见 [M9 结算合同 RFC v0.3](m9/current/m9_resolution_contract_rfc_v0.3.md)；实现漂移留待后续批次。
+2. DOC-003、DOC-013、DOC-019、DOC-024 至 DOC-028：B1 合同与 M9 adapter 已完成；T4/G4/T2/G6/G7 的批准语义及 T5 退役登记见 [M9 天赋行动迁移合同 RFC v0.3](m9/current/m9_talent_action_contract_rfc_v0.3.md)，`v2exp` 旧行为由 profile 隔离保留。
+3. DOC-019、DOC-023、DOC-028 至 DOC-034：B2 事实审计、实现就绪与 M9 运行时接入已完成；T1、G4、警察/T6 共用公共伤害、死亡、actor 与 grant 收尾，数值仍待自动风洞。
+4. DOC-008、DOC-015、DOC-018、DOC-020、DOC-033 至 DOC-040：G2 光影双身/世末终曲、G3 投影固有结界、G5 轮回锚定、B5 诗篇、G1 繁育、警察局停机与 G0/G7 联动均已进入 M9 adapter；`DIRECT_DAMAGE` 与 M9 数值命名空间已统一，剩余为自动风洞调参而非运行时迁移。
+5. DOC-004、DOC-005、DOC-006、DOC-014：作为独立架构与集成文档批次处理，不混入机制裁决。
+6. DOC-043 至 DOC-048 已于 2026-08-10 完成裁决并回写合同及 `data/balance.json`；DOC-049 于 2026-08-11 补齐两份增量合同的实现就绪审计 v0.2（结构语义 P0/P1/P2=0）。剩余工作为数值风洞、合同测试补缺与配置档迁移决策，不能只凭设计收口宣称整体已实装。
+7. 每项设计决定完成后再建立原型；通过并发模型、双人/六人场景与运行时验证后，才讨论迁入现行 profile。

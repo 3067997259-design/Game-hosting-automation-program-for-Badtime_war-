@@ -19,6 +19,13 @@ class HexagramAIHook(BaseTalentAIHook):
     def __init__(self, controller: Any):
         self._ctrl = controller
 
+    @staticmethod
+    def _max_threat(options: List[str], threat_scores: Dict) -> Optional[str]:
+        """按威胁分选目标；空选项返回 None（引擎菜单空候选时不得崩溃）。"""
+        if not options:
+            return None
+        return max(options, key=lambda name: threat_scores.get(name, 0))
+
     def handle_choose(
         self, player: Any, state: Any, situation: str,
         options: List[str], context: Dict,
@@ -31,31 +38,31 @@ class HexagramAIHook(BaseTalentAIHook):
             caster = self._find_hexagram_caster(state) if state else None
             if caster and state:
                 return self._hexagram_pick_opponent(caster, state, options)
-            return random.choice(options)
+            return random.choice(options) if options else None
 
         if situation == "hexagram_thunder_target":
-            return max(options, key=lambda name: threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options, threat_scores)
         if situation == "hexagram_pick_armor":
             armor_priority = ["AT力场", "陶瓷护甲", "魔法护盾", "盾牌", "晶化皮肤", "不老泉", "额外心脏"]
             for preferred in armor_priority:
                 if preferred in options:
                     return preferred
-            return options[0]
+            return options[0] if options else None
         if situation == "hexagram_pick_opponent":
-            return max(options, key=lambda name: threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options, threat_scores)
         if situation == "hexagram_steal_target":
-            return max(options, key=lambda name: threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options, threat_scores)
         if situation == "hexagram_disarm_target":
-            return max(options, key=lambda name: threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options, threat_scores)
         if situation == "hexagram_free_target":
-            return max(options, key=lambda name: threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options, threat_scores)
         if situation == "hexagram_steal_pick":
             armor_priority = ["AT力场", "陶瓷护甲", "魔法护盾", "盾牌", "晶化皮肤"]
             for preferred in armor_priority:
                 for opt in options:
                     if preferred in opt:
                         return opt
-            return options[0]
+            return options[0] if options else None
 
         if situation == "talent_t0":
             talent_name = context.get("talent_name", "")

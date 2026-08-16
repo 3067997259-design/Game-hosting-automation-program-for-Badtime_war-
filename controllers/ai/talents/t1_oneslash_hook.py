@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Any
 from controllers.ai.talents.base_hook import BaseTalentAIHook
 from controllers.ai.game_query import GameQuery
+from models.equipment import is_knife_sharpened
 
 
 class OneSlashAIHook(BaseTalentAIHook):
@@ -42,10 +43,7 @@ class OneSlashAIHook(BaseTalentAIHook):
                 for w in getattr(player, 'weapons', []):
                     if w and w.name in options:
                         dmg = GameQuery.get_weapon_damage(w)
-                        is_sharpened_knife = (
-                            w.name == "小刀"
-                            and getattr(w, 'base_damage', 0) >= 2
-                        )
+                        is_sharpened_knife = is_knife_sharpened(w)
                         if (is_sharpened_knife and not best_is_sharpened_knife) or \
                            (is_sharpened_knife == best_is_sharpened_knife and dmg > best_dmg):
                             best_dmg = dmg
@@ -53,9 +51,11 @@ class OneSlashAIHook(BaseTalentAIHook):
                             best_is_sharpened_knife = is_sharpened_knife
                 if best_name:
                     return best_name
-            return options[0]
+            return options[0] if options else None
 
         if situation == "oneslash_pick_target":
+            if not options:
+                return None
             return max(options, key=lambda name: threat_scores.get(name, 0), default=options[0])
 
         if situation == "talent_t0":
@@ -76,7 +76,7 @@ class OneSlashAIHook(BaseTalentAIHook):
                             return opt
 
                 has_sharpened_knife = any(
-                    w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
+                    w is not None and is_knife_sharpened(w)
                     for w in getattr(player, 'weapons', [])
                 )
                 has_charged_gauss = any(
@@ -188,8 +188,8 @@ class OneSlashAIHook(BaseTalentAIHook):
 
         # 武器就绪 → 不干预
         has_sharpened = any(
-            w.name == "小刀" and getattr(w, 'base_damage', 0) >= 2
-            for w in weapons if w
+            w is not None and is_knife_sharpened(w)
+            for w in getattr(player, 'weapons', [])
         )
         has_charged_gauss = any(
             w.name == "高斯步枪" and getattr(w, 'is_charged', False)
@@ -203,5 +203,25 @@ class OneSlashAIHook(BaseTalentAIHook):
         if has_knife:
             return ["whetstone"]
 
-        # 还没刀 → 让正常 "weapon" 需求处理
+        # 还没近战武器 → 由 get_develop_commands 直接拉去拿小刀。
+        # 不能依赖通用 weapon 需求：M9 起始弓会把它判为“已有武器”，
+        # 导致 T1 永远拿不到近战刀。
         return []
+
+    def get_develop_commands(
+        self, player: Any, state: Any, available: List[str]
+    ) -> Optional[List[str]]:
+        """T1 发育命令：没有近战武器时优先回家拿小刀。"""
+        from models.equipment import WeaponRange
+        has_melee = any(
+            w is not None and getattr(w, "name", "") != "拳击"
+            and getattr(w, "weapon_range", None) == WeaponRange.MELEE
+            for w in getattr(player, "weapons", [])
+        )
+        if has_melee:
+            return None  # 后续磨刀/战斗交给通用链
+        if GameQuery.is_at_home(player) and "interact" in available:
+            return ["interact 小刀", "forfeit"]
+        if "move" in available:
+            return ["move home", "forfeit"]
+        return None

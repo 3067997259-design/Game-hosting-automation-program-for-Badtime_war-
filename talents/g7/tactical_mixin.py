@@ -386,8 +386,9 @@ class TacticalMixin:
                     if not target:
                         return prompt_manager.get_prompt("talent", "g7hoshino.shoot_invalid_target")
 
-        # 弹丸分配逻辑（每发3颗弹丸，每颗0.5伤害）
-        pellet_damage = 0.5
+        # 弹丸分配逻辑（每发3颗弹丸）：v1 每颗 0.5；m7 每颗 2（单发裸伤 6，§7.4）
+        from talents.talent_balance import talent_num
+        pellet_damage = talent_num("g7", "eye_pellet_damage", v1=0.5)
         results = []
 
         if mode == "持盾射击":
@@ -444,21 +445,27 @@ class TacticalMixin:
             armor_break = random.random() < break_chance
             if armor_break:
                 extra_msg += "（破甲！）"
-                from combat.damage_resolver import resolve_damage
-                result = resolve_damage(player, target, weapon=None, game_state=self.state,
-                             raw_damage_override=1.0, damage_attribute_override="无视属性克制",
-                             is_talent_attack=True)
-                for detail in result.get("details", []):
-                    extra_msg += f"\n      {detail}"
-                if result.get("killed"):
-                    self.state.markers.on_player_death(target.player_id)
-                    if self.state.police_engine:
-                        self.state.police_engine.on_player_death(target.player_id)
-                    player.kill_count += 1
-                    from engine.round_manager import RoundManager
-                    RoundManager.notify_all_talents_of_death(
-                        self.state, target.player_id, killer_id=player.player_id)
-                    extra_msg += prompt_manager.get_prompt("talent", "g7hoshino.shoot_kill")
+                from talents.talent_balance import m7_enabled
+                if m7_enabled():
+                    # m7 §7.4：破甲 = 额外扣目标护甲耐久（不造真伤）
+                    extra_msg += "\n      " + self._armor_pierce_durability(target)
+                else:
+                    from combat.damage_resolver import resolve_damage
+                    result = resolve_damage(player, target, weapon=None, game_state=self.state,
+                                 raw_damage_override=1.0, damage_attribute_override="无视属性克制",
+                                 is_talent_attack=True)
+                    for detail in result.get("details", []):
+                        extra_msg += f"\n      {detail}"
+                    from engine.m9.gate import m9_enabled as _m9_enabled
+                    if result.get("killed") and not _m9_enabled(self.state):
+                        self.state.markers.on_player_death(target.player_id)
+                        if self.state.police_engine:
+                            self.state.police_engine.on_player_death(target.player_id)
+                        player.kill_count += 1
+                        from engine.round_manager import RoundManager
+                        RoundManager.notify_all_talents_of_death(
+                            self.state, target.player_id, killer_id=player.player_id)
+                        extra_msg += prompt_manager.get_prompt("talent", "g7hoshino.shoot_kill")
             else:
                 for _ in range(3):
                     r = self._apply_pellet_damage(player, target, pellet_damage, bullet_attr)
@@ -484,6 +491,11 @@ class TacticalMixin:
         if getattr(target, '_hoshino_fragile', False):
             armor_break = random.random() < 0.2
             if armor_break:
+                from talents.talent_balance import m7_enabled
+                if m7_enabled():
+                    # m7 §7.4：破甲 = 额外扣目标护甲耐久（不造真伤）
+                    return prompt_manager.get_prompt("talent", "g7hoshino.armor_pierce_prefix",
+                        default="💥破甲！") + self._armor_pierce_durability(target)
                 from combat.damage_resolver import resolve_damage
                 result = resolve_damage(player, target, weapon=None, game_state=self.state,
                             raw_damage_override=1.0, damage_attribute_override="无视属性克制",
@@ -491,7 +503,8 @@ class TacticalMixin:
                 detail_lines = []
                 for detail in result.get("details", []):
                     detail_lines.append(f"    {detail}")
-                if result.get("killed"):
+                from engine.m9.gate import m9_enabled as _m9_enabled
+                if result.get("killed") and not _m9_enabled(self.state):
                     self.state.markers.on_player_death(target.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(target.player_id)
@@ -518,7 +531,8 @@ class TacticalMixin:
         for detail in result.get("details", []):
             detail_lines.append(f"    {detail}")
 
-        if result.get("killed"):
+        from engine.m9.gate import m9_enabled as _m9_enabled
+        if result.get("killed") and not _m9_enabled(self.state):
             self.state.markers.on_player_death(target.player_id)
             if self.state.police_engine:
                 self.state.police_engine.on_player_death(target.player_id)
@@ -533,6 +547,30 @@ class TacticalMixin:
         if detail_lines:
             return summary + "\n" + "\n".join(detail_lines)
         return summary
+
+    def _armor_pierce_durability(self, target):
+        """破甲（m7 §7.4）：扣目标最外层一件护甲耐久（balance armor_pierce_durability_cost=6），
+        归零即碎；优先外层、其次内层；无可破护甲则无效。返回结算文本。"""
+        from talents.talent_balance import talent_num
+        from models.equipment import ArmorLayer
+        cost = talent_num("g7", "armor_pierce_durability_cost", v1=6)
+        outer = [a for a in target.armor.get_active(ArmorLayer.OUTER)
+                 if not a.is_broken and a.durability > 0]
+        inner = [a for a in target.armor.get_active(ArmorLayer.INNER)
+                 if not a.is_broken and a.durability > 0]
+        pool = outer if outer else inner
+        if not pool:
+            return prompt_manager.get_prompt("talent", "g7hoshino.armor_pierce_none",
+                default="（无可破护甲）")
+        piece = pool[0]
+        piece.durability = max(0, piece.durability - cost)
+        if piece.durability <= 0:
+            target.armor.remove_piece(piece)
+            return prompt_manager.get_prompt("talent", "g7hoshino.armor_pierce_break",
+                default="护甲「{name}」耐久耗尽碎裂！", name=piece.name)
+        return prompt_manager.get_prompt("talent", "g7hoshino.armor_pierce_durability",
+            default="护甲「{name}」耐久 -{cost} →{cur}/{mx}",
+            name=piece.name, cost=cost, cur=piece.durability, mx=piece.max_durability)
 
     # ---- 重新装填 ----
     def _tac_reload(self, player, item_name):
@@ -593,7 +631,13 @@ class TacticalMixin:
 
         # 检查弹药容量（在消耗物品之前）
         current_total = len(self.ammo)
-        new_bullets = min(4, self.max_ammo - current_total)
+        # M9 机制刀（用户批准）：弹药经济——一件消耗品只转化 2 发（v2exp 仍 4）。
+        try:
+            from engine.m9.gate import m9_enabled
+            reload_batch = 2 if m9_enabled(self.state) else 4
+        except Exception:
+            reload_batch = 4
+        new_bullets = min(reload_batch, self.max_ammo - current_total)
         if new_bullets <= 0:
             return prompt_manager.get_prompt("talent", "g7hoshino.reload_full",
                                           current_total=current_total, max_ammo=self.max_ammo)
@@ -609,7 +653,7 @@ class TacticalMixin:
         # 填充子弹
         for _ in range(new_bullets):
             self.ammo.append({"attribute": attr_str})
-        overflow = 4 - new_bullets
+        overflow = reload_batch - new_bullets
         msg = prompt_manager.get_prompt("talent", "g7hoshino.reload_ok",
                                       item_name=item_name, count=new_bullets, attr=attr_str,
                                       total=current_total + new_bullets, max=self.max_ammo)
@@ -681,7 +725,8 @@ class TacticalMixin:
                                                       target_name=t.name,
                                                       target_hp=r.get('target_hp', '?'),
                                                       details=detail_str))
-                if r.get("killed"):
+                from engine.m9.gate import m9_enabled as _m9_enabled
+                if r.get("killed") and not _m9_enabled(self.state):
                     self.state.markers.on_player_death(t.player_id)
                     if self.state.police_engine:
                         self.state.police_engine.on_player_death(t.player_id)

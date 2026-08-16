@@ -29,6 +29,12 @@ class ChooseMixin(_Base):
     #  choose：单选决策
     # ════════════════════════════════════════════════════════
 
+    def _max_threat(self, options: List[str]) -> Optional[str]:
+        """按威胁分选目标；空选项返回 None（引擎菜单空候选时不得崩溃）。"""
+        if not options:
+            return None
+        return max(options, key=lambda name: self._threat_scores.get(name, 0))
+
     def choose(
         self, prompt: str, options: List[str],
         context: Optional[Dict] = None
@@ -42,16 +48,16 @@ class ChooseMixin(_Base):
         if situation == "hexagram_my_choice":
             if self._player and self._game_state:
                 return self._hexagram_pick_caster(self._player, self._game_state, options)
-            return random.choice(options)
+            return random.choice(options) if options else ""
         if situation == "hexagram_opp_choice":
             # 对手视角：需要找到发动者（六爻的 caster）
             # context 里没有 caster 信息，但可以从 game_state 找持有六爻天赋的玩家
             caster = self._find_hexagram_caster(self._game_state) if self._game_state else None
             if caster and self._game_state:
                 return self._hexagram_pick_opponent(caster, self._game_state, options)
-            return random.choice(options)
+            return random.choice(options) if options else ""
         if situation == "mythland_rps":
-            return random.choice(options)  # 幻想乡猜拳仍然随机
+            return random.choice(options) if options else ""  # 幻想乡猜拳仍然随机
 
         # ---- 星野形态选择 ----
         if situation == "hoshino_form_choice":
@@ -68,15 +74,36 @@ class ChooseMixin(_Base):
 
         # ---- 星野自我怀疑 ----
         if situation == "hoshino_self_doubt":
-            # 场上人越少，选 Terror 概率越高
-            alive_count = 0
-            if self._game_state:
-                for pid in self._game_state.player_order:
-                    p = self._game_state.get_player(pid)
-                    if p and p.is_alive():
-                        alive_count += 1
-            # 2人或以下：选 Terror；3人以上：拒绝
-            if alive_count <= 2:
+            # 残局且 Terror 两轮直伤够斩杀最强敌人，或自身 1 HP 翻盘才接受。
+            alive_others = [
+                p for pid in self._game_state.player_order
+                if (p := self._game_state.get_player(pid)) is not None
+                and p.is_alive()
+                and pid != getattr(self._player, "player_id", None)
+            ]
+            accept = bool(alive_others) and len(alive_others) <= 2
+            if accept:
+                from engine.balance import get as _bget
+                try:
+                    dmg = float(_bget(
+                        "m9_talents_extended", "g7",
+                        "terror_attack_damage", default=3))
+                    cost = float(_bget(
+                        "m9_talents_extended", "g7",
+                        "terror_attack_cost", default=6))
+                    floor_hp = float(_bget(
+                        "m9_talents_extended", "g7",
+                        "terror_hp_floor", default=10))
+                    shots = max(1, int(floor_hp // max(1.0, cost)))
+                except Exception:
+                    dmg, shots = 3.0, 1
+                accept = all(
+                    float(getattr(p, "hp", 0) or 0)
+                    + 2.0 * self._count_outer_armor(p)
+                    + self._count_inner_armor(p) <= dmg * shots
+                    for p in alive_others
+                ) or float(getattr(self._player, "hp", 0) or 0) <= 1.0
+            if accept:
                 for opt in options:
                     if "接受" in opt or "terror" in opt.lower():
                         return opt
@@ -177,7 +204,7 @@ class ChooseMixin(_Base):
             for opt in options:
                 if "解除" in opt:
                     return opt
-            return options[0]
+            return options[0] if options else ""
         if situation == "oneslash_pick_weapon":
             # 一刀缭断武器选择：磨过的小刀优先于蓄好力的高斯步枪
             if self._player:
@@ -201,7 +228,7 @@ class ChooseMixin(_Base):
                     return best_name
             return options[0]
         if situation == "oneslash_pick_target":
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options)
         # ---- 天赋T0 ----
         if situation == "talent_t0":
             talent_name = (context or {}).get("talent_name", "")
@@ -582,7 +609,7 @@ class ChooseMixin(_Base):
             return options[0]
         # ---- 六爻 ----
         if situation == "hexagram_thunder_target":
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options)
         if situation == "hexagram_pick_armor":
             armor_priority = ["AT力场", "陶瓷护甲", "魔法护盾", "盾牌", "晶化皮肤", "不老泉", "额外心脏"]
             for preferred in armor_priority:
@@ -590,18 +617,18 @@ class ChooseMixin(_Base):
                     return preferred
             return options[0]
         if situation == "hexagram_pick_opponent":
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options)
         if situation == "hexagram_steal_target":
             # 飞龙在天: pick target with best outer armor
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options)
 
         if situation == "hexagram_disarm_target":
             # 亢龙有悔: pick target with fewest weapons (most impactful to disable)
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options)
 
         if situation == "hexagram_free_target":
             # 涟漪自由选择: pick highest threat target
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options)
 
         if situation == "hexagram_steal_pick":
             # 飞龙在天: pick which armor to steal - prefer AT力场 > 陶瓷 > 魔法护盾 > 盾牌
@@ -870,7 +897,7 @@ class ChooseMixin(_Base):
         state = self._game_state
         player = self._player
         if not state or not player:
-            return max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+            return self._max_threat(options)
 
         # 优先读取 hint（由 _ripple_choose_method 设置的目标）
         hint = getattr(self, '_ripple_destiny_target_hint', None)
@@ -900,7 +927,7 @@ class ChooseMixin(_Base):
                 best_score = eff
                 best_target = name
 
-        return best_target or max(options, key=lambda name: self._threat_scores.get(name, 0), default=options[0])
+        return best_target or self._max_threat(options)
 
     # ════════════════════════════════════════════════════════
     #  G5 涟漪 AI 辅助判定方法

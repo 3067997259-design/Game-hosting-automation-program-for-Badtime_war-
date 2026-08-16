@@ -45,12 +45,14 @@ from engine.prompt_manager import prompt_manager as _prompt_manager
 
 # 天赋系统导入
 from engine.game_setup import (
-    TALENT_TABLE, AI_DISABLED_TALENTS, AI_TALENT_PREFERENCE,
-    AI_PERSONALITIES, TALENT_DECAY_FACTOR,
+    AI_DISABLED_TALENTS, AI_TALENT_PREFERENCE,
+    AI_PERSONALITIES, TALENT_DECAY_FACTOR, assign_talent_entry,
+    find_talent_entry, talent_table_for_current_profile,
 )
 
 _DISPLAY_FUNCS = [
     "show_banner", "show_round_header", "show_phase", "show_d4_results",
+    "show_initiative_results",
     "show_action_turn_header", "show_player_status", "show_available_actions",
     "show_result", "show_error", "show_info", "show_victory", "show_death",
     "show_police_status", "show_virus_status", "show_police_enforcement",
@@ -339,6 +341,7 @@ class BadtimeWarEnv(gym.Env):
         self._action_event = threading.Event()
         self._game_over_flag = False
         self._game_thread: Optional[threading.Thread] = None
+        self._thread_error: BaseException | None = None
         self._max_rounds_reached = False
 
         # ── 临时引用（由 _SyncRLController 写入）──
@@ -470,6 +473,7 @@ class BadtimeWarEnv(gym.Env):
         self._obs_event.clear()
         self._action_event.clear()
         self._game_over_flag = False
+        self._thread_error = None
         self._max_rounds_reached = False
         self._choose_mode = False
         self._choose_options = []
@@ -486,6 +490,7 @@ class BadtimeWarEnv(gym.Env):
                 "Possible cause: unguarded input() call in game engine code."
             )
         self._obs_event.clear()
+        self._raise_thread_error()
 
         # 初始化奖励追踪器基线
         assert self._rl_player is not None
@@ -515,23 +520,21 @@ class BadtimeWarEnv(gym.Env):
         assert self._state is not None
 
         taken: set = set()
+        talent_table = talent_table_for_current_profile(self._state)
 
         # 强制随机模式下，RL 先选（确保均匀分布，不受 AI 偏好影响）
         if self.force_random_talent:
             rl_player = self._state.get_player("rl_0")
             if rl_player is not None:
                 all_available = [
-                    (n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                    (n, name, cls, desc) for n, name, cls, desc in talent_table
                 ]
                 if all_available:
                     chosen = all_available[self.np_random.integers(len(all_available))]
                     n, name, cls, desc = chosen
-                    talent_inst = cls("rl_0", self._state)
-                    rl_player.talent = talent_inst
-                    rl_player.talent_name = name
                     self._pre_game_phase = True
                     try:
-                        talent_inst.on_register()
+                        assign_talent_entry(self._state, rl_player, chosen)
                     finally:
                         self._pre_game_phase = False
                     taken.add(n)
@@ -545,7 +548,7 @@ class BadtimeWarEnv(gym.Env):
 
             # 可用天赋列表（排除已选走的）
             available = [
-                (n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                (n, name, cls, desc) for n, name, cls, desc in talent_table
                 if n not in taken
             ]
             if not available:
@@ -574,10 +577,8 @@ class BadtimeWarEnv(gym.Env):
                 continue
 
             n, name, cls = result
-            talent_inst = cls(pid, self._state)
-            player.talent = talent_inst
-            player.talent_name = name
-            talent_inst.on_register()
+            entry = next(item for item in available if item[0] == n)
+            assign_talent_entry(self._state, player, entry)
             taken.add(n)
 
         # 保存已选天赋集合，供 _assign_rl_talent 使用
@@ -601,20 +602,18 @@ class BadtimeWarEnv(gym.Env):
             return
 
         taken = getattr(self, '_taken_talents', set())
+        talent_table = talent_table_for_current_profile(self._state)
 
         # 强制随机分配模式（训练前期探索用）
         if self.force_random_talent:
             available = [
-                (n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                (n, name, cls, desc) for n, name, cls, desc in talent_table
                 if n not in taken
             ]
             if available:
                 chosen = available[self.np_random.integers(len(available))]
                 n, name, cls, desc = chosen
-                talent_inst = cls("rl_0", self._state)
-                self._rl_player.talent = talent_inst
-                self._rl_player.talent_name = name
-                talent_inst.on_register()
+                assign_talent_entry(self._state, self._rl_player, chosen)
             return
 
         # 明确不要天赋
@@ -623,19 +622,18 @@ class BadtimeWarEnv(gym.Env):
 
         # 指定天赋编号：直接分配
         if self.rl_talent is not None and self.rl_talent != 0:
-            for n, name, cls, desc in TALENT_TABLE:
-                if n == self.rl_talent and n not in taken:
-                    talent_inst = cls("rl_0", self._state)
-                    self._rl_player.talent = talent_inst
-                    self._rl_player.talent_name = name
-                    talent_inst.on_register()
-                    return
+            entry = find_talent_entry(
+                self.rl_talent, talent_table, game_state=self._state,
+            )
+            if entry is not None and entry[0] not in taken:
+                assign_talent_entry(self._state, self._rl_player, entry)
+                return
             # 指定的天赋已被选走，回退到 choose
             # （继续往下走 choose 路径）
 
         # RL 自主选择：通过 choose 同步
         available = [
-            (n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+            (n, name, cls, desc) for n, name, cls, desc in talent_table
             if n not in taken
         ]
         if not available:
@@ -663,10 +661,9 @@ class BadtimeWarEnv(gym.Env):
         # 查找选中的天赋并分配
         for n, name, cls, desc in available:
             if name == chosen_name:
-                talent_inst = cls("rl_0", self._state)
-                self._rl_player.talent = talent_inst
-                self._rl_player.talent_name = name
-                talent_inst.on_register()
+                assign_talent_entry(
+                    self._state, self._rl_player, (n, name, cls, desc),
+                )
                 return
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -679,6 +676,7 @@ class BadtimeWarEnv(gym.Env):
         assert self._rl_player is not None
         assert self._reward_tracker is not None
         assert self._rl_controller is not None
+        self._raise_thread_error()
 
         # 游戏已在上一步结束（防御性检查）
         if self._game_over_flag or (self._state and self._state.game_over):
@@ -731,6 +729,7 @@ class BadtimeWarEnv(gym.Env):
                 "Possible cause: unguarded input() call in game engine code."
             )
         self._obs_event.clear()
+        self._raise_thread_error()
 
         # 读取上一次动作结果（仅 get_command 模式有意义）
         if not self._choose_mode:
@@ -971,6 +970,7 @@ class BadtimeWarEnv(gym.Env):
             pass
         except Exception as e:
             import sys, traceback
+            self._thread_error = e
             sys.stderr.write(f"[ENV ERROR] _run_game crashed: {e}\n")
             traceback.print_exc(file=sys.stderr)
         finally:
@@ -978,6 +978,14 @@ class BadtimeWarEnv(gym.Env):
             # 如果 env 线程正在等待 choose 同步，也需要唤醒
             self._choose_mode = False
             self._obs_event.set()  # 唤醒 env 线程
+
+    def _raise_thread_error(self) -> None:
+        """把后台游戏线程异常传播给 Gym 调用方，禁止生成坏 episode。"""
+        error = self._thread_error
+        if error is None:
+            return
+        self._thread_error = None
+        raise error
 
     # ══════════════════════════════════════════════════════════════════════════
     #  清理
@@ -990,6 +998,7 @@ class BadtimeWarEnv(gym.Env):
             self._action_event.set()  # 唤醒阻塞的游戏线程
             self._game_thread.join(timeout=5)
         self._game_thread = None
+        self._thread_error = None
         self._current_player = None
         self._current_game_state = None
         # 重置 choose 模式状态

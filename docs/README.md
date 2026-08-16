@@ -1,0 +1,67 @@
+# Badtime War 文档中心
+
+本目录是项目文档的统一入口。根目录 `README.md` 负责项目介绍、安装与运行；本文件只负责说明文档的身份、适用版本、权威范围和阅读路径。
+
+> 当前处于文档治理过渡期。不要因为文件名包含“完全”“手册”“设计”或修改日期较新，就默认它是现行规则。阅读前先查 `document_registry.json`；发现冲突时查 `contradictions.md`。
+
+## 从哪里开始
+
+| 目的 | 入口 | 说明 |
+|---|---|---|
+| 了解项目与运行方式 | `../README.md`、`operations/README.md` | 项目入口和操作说明 |
+| 查询指令 | `operations/commands.md` | 指令参考，仍需按 profile 复核 |
+| 查询 Legacy 规则 | `legacy/README.md` | 原大手册已拆为 34 个模块；仍待逐主题语义审计 |
+| 查询当前 V2 规则 | `handbook/README.md` | 模块化手册入口；语义审计完成前以“候选权威”处理 |
+| 查询天赋机制 | `handbook/talents/00_overview.md` | 精确跳转到单个天赋，不再加载整本手册 |
+| 查询 M9 文档 | `m9/README.md` | M9-rfc 当前开发主线唯一入口；区分 current RFC、失效草案与历史推演 |
+| 查询 V2 设计材料 | `design/v2exp/README.md` | 设计总纲与 M8 计划，均为混合材料而非玩家规则 |
+| 查询历史 | `history/README.md` | 更新日志和开发日记，不定义现行规则 |
+| 查询冻结原件与旧生成链 | `archive/README.md` | 仅用于追溯和差异复核，不定义现行规则 |
+| 查询文档身份 | `document_registry.json` | 机器可读登记表 |
+| 查询已知矛盾 | `contradictions.md` | 冲突、实现偏差和待拍板事项 |
+| 查询治理规则 | `governance.md` | 权威、草案、历史与生成文件的定义 |
+
+## 指令契约文档
+
+命令系统指令契约（`ai/`）是跨 profile 的 AI 指令参考，配合 AI 策略文档阅读：
+
+- `ai/commands.md`：指令总表（通用指令 vs 天赋特异 special op、M9 语义变更注记）；
+- `ai/commands_mapping.md`：RL 137 索引 ↔ AI 生成层 ↔ 引擎解析层三方映射与缺口清单；
+- `ai/commands_choose.md`：T0 选项层（引擎通用 T0 流程 + 14 槽天赋特异 T0/choose 表面）；
+- 代码真源：`controllers/ai/decision/`（snapshot/t0_policy/c_policy/value/action_catalog）、
+  `controllers/ai/m9_adapters.py`、`controllers/ai/minds/`；
+- 治理：`tests/test_commands_sync.py` 保证与 parser/actions/special_op/action_space 源码同步；
+- 联动：天赋决策点见 `m9/ai/talents.md`，指令契约是其命令侧对应物。
+
+## 版本口径
+
+- `legacy`：默认稳定口径，不自动继承 V2 实验规则。
+- `v2exp`：当前实验档案，启用 M1-M7 系列实验机制。
+- `m9-rfc`：当前开发主线，已实现为独立 profile（`engine/m9/` + 14 天赋 + AI 决策层），
+  进行风洞与数值校准；尚未并入 `v2exp`/`legacy`，也尚未设为默认 profile。显式以
+  `--profile m9-rfc` 运行。
+- `cross-profile`：不依赖具体规则版本的操作、历史或项目文档。
+
+## 权威原则
+
+文档权威以“主题 + profile”为单位，而不是以整份文件为单位：
+
+- 数值配置以 `../data/balance.json` 为唯一信源；
+- 当前程序行为以代码和测试为证据；
+- 玩家应该遵循的规则以已审定的模块化手册为准；
+- 设计草案只有在记录为已接受决定后才能转入正式手册；
+- 生成文件只用于阅读和发布，禁止手工编辑；
+- 发现文档与代码冲突时登记差异，不静默选择一方覆盖另一方。
+
+## 当前过渡说明
+
+归档文件 `archive/v2-migration/完全游玩手册V2.0-exp.src.docx` 是本轮迁移的冻结内容基线。它与
+旧单体 Markdown 明显分叉，因此模块化手册曾从 DOCX 的逻辑文本迁移，而不是从旧 Markdown
+复制。迁移现已完成：`handbook/` 模块是唯一继续维护的 V2 作者源；合订 Markdown 是生成物，
+旧 Markdown 与 DOCX 均只在 `archive/` 保存证据。
+
+结构迁移完成时，34 个模块的回组装逻辑文本与 DOCX 基线逐字符一致。模块仍标记为
+`candidate`，表示内容尚待逐主题语义审计，而不是迁移不完整。
+
+当前开发主线是 **M9-rfc**（见 `m9/README.md`）：机制已实现并可运行，当前工作重心是
+风洞、数值校准与文档收口；它不改变 legacy/v2exp 的默认行为。

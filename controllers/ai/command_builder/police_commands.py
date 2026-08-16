@@ -39,6 +39,11 @@ class PoliceCommandBuilder:
         commands: List[str] = []
         if "police_command" not in available:
             return commands
+        # M9：队长指挥走 dynamic special（`special 指挥X移动/攻击`），由
+        # 槽位 special 候选层产出；legacy police_command 在 M9 下必失败，
+        # 直接短路避免空转。
+        if getattr(state, "m9_enabled", False):
+            return commands
         pc = ctx.police_cache or {}
         if not pc.get("is_captain"):
             return commands
@@ -125,6 +130,18 @@ class PoliceCommandBuilder:
         Q = self._query
         fallback = ctx.political_fallback_level
         if fallback in ("full_balanced", "develop_only"):
+            return []
+        # M9 队长申请是 dynamic special，不再经过旧 recruit/election
+        # 动作。政治人格应直接消费这个合法目录项。
+        station = getattr(state, "m9_police", None)
+        if getattr(state, "m9_enabled", False) and station is not None:
+            if station.is_disabled():
+                return []
+            captain_id = getattr(station, "captain_id", None)
+            if (captain_id is None
+                    and player.player_id not in station.candidates()
+                    and "special" in available):
+                return ["special 竞选队长"]
             return []
         commands: List[str] = []
         loc = Q.get_location_str(player)

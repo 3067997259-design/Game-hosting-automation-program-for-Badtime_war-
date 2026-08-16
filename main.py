@@ -9,6 +9,7 @@
 日志系统：
   --debug-level 0-3 控制调试输出详细度
   --log-file 指定日志保存路径
+（C7 后仅保留新架构 DecisionOrchestrator，--new-arch 已移除）
 """
 
 import argparse
@@ -20,8 +21,9 @@ from typing import Optional, List, Any
 from engine.game_state import GameState
 from engine.round_manager import RoundManager
 from engine.game_setup import (
-    TALENT_TABLE, AI_PERSONALITIES, AI_NAME_POOL,
-    _ai_pick_talent, AI_DISABLED_TALENTS,
+    AI_PERSONALITIES, AI_NAME_POOL,
+    _ai_pick_talent, AI_DISABLED_TALENTS, assign_talent_entry,
+    find_talent_entry, talent_table_for_current_profile,
 )
 from models.player import Player
 from controllers.ai.controller import BasicAIController
@@ -47,10 +49,21 @@ def parse_args():
     p.add_argument("--log-file", type=str, default="",
                    help="日志保存路径（留空则输出到stdout）")
     # --new-arch 已移除（C7 后仅保留新架构 DecisionOrchestrator）
+    p.add_argument("--experiment", action="append", default=[],
+                   help="启用实验开关（可多次使用），如 --experiment k_initiative")
+    p.add_argument("--profile", type=str, default="",
+                   help="启用实验档案（legacy/m1/m2/m3/m4/m5/m6/v2exp/m9-rfc）")
     p.add_argument("--ai", action="append", default=[],
                    help="指定AI配置, 格式: name:talent:personality (可多次使用)")
+    p.add_argument("--human-names", type=str, default="",
+                   help="CLI 模式人类玩家名（逗号分隔）")
+    p.add_argument("--human-talents", type=str, default="",
+                   help="CLI 模式人类玩家天赋（逗号分隔，按人类顺序分配，"
+                        "如 T3,G4,一刀缭断）")
     p.add_argument("--force-talent", type=str, default="",
                    help="强制第一个AI使用指定天赋名(如 G5, G7, 一刀缭断)")
+    p.add_argument("--seed", type=int, default=None,
+                   help="固定随机种子（用于可复现的 E2E/风洞）")
     return p.parse_args()
 
 
@@ -61,12 +74,29 @@ def parse_args():
 TALENT_SHORT = {
     "T1": "一刀缭断", "T2": "剪刀手一突", "T3": "天星",
     "T4": "六爻", "T5": "combo", "T6": "朝阳好市民", "T7": "死者苏生",
+    "G0": "砂狼白子*Terror",
     "G1": "火萤IV型-完全燃烧", "G2": "请一直注视着我",
     "G3": "神话之外", "G4": "愿负世，照拂黎明",
     "G5": "往世的涟漪", "G6": "要有笑声！",
     "G7": "大叔我啊，剪短发了",
 }
 TALENT_REVERSE = {v: k for k, v in TALENT_SHORT.items()}
+
+def talent_short_name(name: str) -> str:
+    """天赋名 → 槽位缩写（兼容 M9 注册表带「神代天赋-」前缀的全名）。"""
+    if not name:
+        return ""
+    if name in TALENT_REVERSE:
+        return TALENT_REVERSE[name]
+    for short, full in TALENT_SHORT.items():
+        if name.endswith(full) or full in name:
+            return short
+    return ""
+
+def _split_cli_list(raw: str) -> List[str]:
+    """逗号/中文逗号分隔的 CLI 列表，去空白。"""
+    return [part.strip() for part in str(raw).replace("，", ",").split(",")
+            if part.strip()]
 
 def resolve_talent(name: str) -> Optional[str]:
     """解析天赋名: G5 → 往世的涟漪, 一刀缭断 → 一刀缭断"""
@@ -85,6 +115,7 @@ def resolve_talent(name: str) -> Optional[str]:
 def setup_game_cli(args) -> GameState:
     """根据命令行参数创建游戏，不询问任何交互问题"""
     game_state = GameState()
+    talent_table = talent_table_for_current_profile(game_state)
     used_names = set()
 
     # 确定人数
@@ -116,20 +147,55 @@ def setup_game_cli(args) -> GameState:
         name = parts[0] if len(parts) > 0 and parts[0] else ""
         talent_raw = parts[1] if len(parts) > 1 else ""
         personality = parts[2] if len(parts) > 2 else ""
-        talent = resolve_talent(talent_raw) if talent_raw else ""
+        talent = talent_raw.strip()
         ai_configs.append((name, talent, personality))
+
+    human_names = _split_cli_list(getattr(args, "human_names", ""))
+    human_talents = _split_cli_list(getattr(args, "human_talents", ""))
 
     player_index = 1
     taken_talents = set()
+    human_pids = []
 
-    # 创建人类玩家
+    # 创建人类玩家（名称 + 天赋都可经 CLI 指定）
     for i in range(num_human):
-        name = f"人类{i+1}"
+        if i < len(human_names):
+            name = human_names[i]
+            if name in used_names:
+                name = f"{name}_{i}"
+        else:
+            name = f"人类{i+1}"
         pid = f"p{player_index}"
         player = Player(pid, name, controller=HumanController())
         game_state.add_player(player)
         used_names.add(name)
+        human_pids.append(pid)
+
+        assigned_talent = human_talents[i] if i < len(human_talents) else ""
+        if assigned_talent:
+            entry = find_talent_entry(
+                assigned_talent, talent_table, game_state=game_state)
+            if entry is None or entry[0] in taken_talents:
+                from engine.m9.gate import m9_enabled
+                if m9_enabled(game_state):
+                    from engine.m9.text import m9_text
+                    raise ValueError(
+                        m9_text("main.err_assign_human", name=name,
+                                talent=repr(assigned_talent))
+                    )
+                print(f"  ⚠ 人类玩家 {name} 的天赋 '{assigned_talent}' "
+                      "不可用，本次不分配")
+            else:
+                assign_talent_entry(game_state, player, entry)
+                taken_talents.add(entry[0])
+                print(f"  👤 {pid}: {name:8s} [{talent_short_name(player.talent_name or '') or '无':6s}]")
+        else:
+            print(f"  👤 {pid}: {name:8s} [{'无':6s}]")
         player_index += 1
+
+    if num_human and not human_talents:
+        print("  ℹ️ 未指定 --human-talents：CLI 模式的人类玩家将以无天赋开始；"
+              "可用 --human-talents T3,G4,一刀缭断 指定（逗号分隔）")
 
     # 创建AI玩家
     for i in range(num_ai):
@@ -165,37 +231,38 @@ def setup_game_cli(args) -> GameState:
             assigned_talent = ai_configs[i][1]
         # --force-talent（仅第一个AI）
         elif args.force_talent and i == 0:
-            assigned_talent = resolve_talent(args.force_talent) or args.force_talent
+            assigned_talent = args.force_talent.strip()
 
         if assigned_talent:
-            for n, tname, cls, desc in TALENT_TABLE:
-                # TALENT_TABLE 中 T1-T7 为短名(如"一刀缭断")、G1-G7 带前缀(如"神代天赋-往世的涟漪")
-                # resolve_talent() 返回短名，此处匹配短名或全名包含关系
-                if (tname == assigned_talent or assigned_talent in tname) and n not in taken_talents:
-                    inst = cls(pid, game_state)
-                    player.talent = inst
-                    player.talent_name = tname
-                    inst.on_register()
-                    taken_talents.add(n)
-                    break
+            entry = find_talent_entry(
+                assigned_talent, talent_table, game_state=game_state)
+            if entry is not None and entry[0] not in taken_talents:
+                n, tname, _, _ = entry
+                assign_talent_entry(game_state, player, entry)
+                taken_talents.add(n)
             else:
+                from engine.m9.gate import m9_enabled
+                if m9_enabled(game_state):
+                    from engine.m9.text import m9_text
+                    raise ValueError(
+                        m9_text("main.err_assign_ai",
+                                talent=repr(assigned_talent))
+                    )
                 print(f"  ⚠ 天赋 '{assigned_talent}' 不可用，随机分配")
                 assigned_talent = ""
 
         if not assigned_talent:
-            avail = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+            avail = [(n, name, cls, desc) for n, name, cls, desc in talent_table
                      if n not in taken_talents and n not in AI_DISABLED_TALENTS]
             if avail:
                 chosen = _ai_pick_talent(personality, avail, taken_talents)
                 if chosen:
                     n, tname, cls = chosen
-                    inst = cls(pid, game_state)
-                    player.talent = inst
-                    player.talent_name = tname
-                    inst.on_register()
+                    entry = next(item for item in avail if item[0] == n)
+                    assign_talent_entry(game_state, player, entry)
                     taken_talents.add(n)
 
-        short = TALENT_REVERSE.get(player.talent_name or "", "")
+        short = talent_short_name(player.talent_name or "")
         print(f"  {pid}: {ai_name:8s} [{short or player.talent_name or '无':6s}] 人格={personality:12s}")
         player_index += 1
 
@@ -209,12 +276,12 @@ def setup_game_cli(args) -> GameState:
 # ════════════════════════════════════════════════════════════
 
 def setup_game_interactive(args) -> GameState:
-    """原有的交互式 setup_game，但支持 --debug-level"""
+    """原有的交互式 setup_game（C7 后统一走新架构 DecisionOrchestrator），支持 --debug-level"""
     if args.debug_level > 0:
         enable_debug(args.debug_level)
     from engine.game_setup import setup_game as _orig_setup
-    # 调用原版交互式流程
-    state = _orig_setup()
+    # 调用原版交互式流程（--debug-level 显式传入，不再重复询问）
+    state = _orig_setup(debug_level=args.debug_level)
 
     # 打印所有 AI 玩家的信息
     print("\n  ═══ AI 玩家信息 ═══")
@@ -225,9 +292,11 @@ def setup_game_interactive(args) -> GameState:
             pers = getattr(ctrl, 'personality', '?')
             talent_name = getattr(p, 'talent_name', '') or '无'
             # 缩写天赋名
-            short = TALENT_REVERSE.get(talent_name, '')
+            short = talent_short_name(talent_name)
             talent_str = short if short else talent_name
-            print(f"    {pid}: {p.name:8s} | 人格={pers:12s} | 天赋={talent_str:6s}")
+            arch = type(ctrl).__name__
+            print(f"    {pid}: {p.name:8s} | 人格={pers:12s} "
+                  f"| 天赋={talent_str:6s} | 控制器={arch}")
     print("  ════════════════\n")
     return state
 
@@ -238,6 +307,17 @@ def setup_game_interactive(args) -> GameState:
 
 def main():
     args = parse_args()
+    if args.seed is not None:
+        random.seed(args.seed)
+
+    # 实验开关（V2.0 EXP）
+    if args.profile or args.experiment:
+        from engine import experiments
+        if args.profile:
+            experiments.set_profile(args.profile)
+        for exp_name in args.experiment:
+            experiments.enable(exp_name)
+        print(f"  ⚗️ 实验开关: {', '.join(experiments.active())}")
 
     # 日志文件
     log_fp = None

@@ -7,6 +7,12 @@ if TYPE_CHECKING:
     from engine.ish_bosheth import IshBosheth
 
 
+def _melody_seq(balance_key: str, v1_seq: list) -> list:
+    """旋律伤害序列：m7 下读 balance.talents.g2.{key}（hp20 §11.4），否则 v1。"""
+    from engine.ish_bosheth import _g2_num
+    return list(_g2_num(balance_key, v1=v1_seq))
+
+
 class Overture(BaseSong):
     """序曲：开幕免费触发 1 次，不计入 melody_1_used。"""
     name = "旋律·序曲"
@@ -25,7 +31,7 @@ class Overture(BaseSong):
 
     def execute(self, g2_player, target, ish, game_state):
         ish.execute_melody(game_state, g2_player,
-                           base_dmg_seq=self.base_dmg_seq)
+                           base_dmg_seq=_melody_seq("melody_seq_1", self.base_dmg_seq))
         return f"🎵 {self.name}"
 
 
@@ -49,7 +55,7 @@ class Melody1(BaseSong):
     def execute(self, g2_player, target, ish, game_state):
         ish.melody_1_used = True
         ish.execute_melody(game_state, g2_player,
-                           base_dmg_seq=self.base_dmg_seq)
+                           base_dmg_seq=_melody_seq("melody_seq_1", self.base_dmg_seq))
         return f"🎵 {self.name}"
 
 
@@ -73,7 +79,7 @@ class Melody2(BaseSong):
     def execute(self, g2_player, target, ish, game_state):
         ish.melody_2_used = True
         ish.execute_melody(game_state, g2_player,
-                           base_dmg_seq=self.base_dmg_seq)
+                           base_dmg_seq=_melody_seq("melody_seq_2", self.base_dmg_seq))
         return f"🎵 {self.name}"
 
 
@@ -97,5 +103,5 @@ class Melody3(BaseSong):
     def execute(self, g2_player, target, ish, game_state):
         ish.melody_3_used = True
         ish.execute_melody(game_state, g2_player,
-                           base_dmg_seq=self.base_dmg_seq)
+                           base_dmg_seq=_melody_seq("melody_seq_3", self.base_dmg_seq))
         return f"🎵 {self.name}"

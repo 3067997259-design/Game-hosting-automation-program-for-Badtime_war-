@@ -59,14 +59,34 @@ def parse(raw_input, player_id):
             return None
         return {"action": "find", "target": parts[1]}
 
+    # ---- 喝彩消耗（M6） ----
+    if cmd in ("applause", "喝彩", "cheer"):
+        if len(parts) < 2:
+            return None
+        return {"action": "applause_spend", "use": parts[1]}
+
+    # ---- 射箭（M4 弓） ----
+    if cmd in ("shoot", "射箭", "射"):
+        if len(parts) < 2:
+            return None
+        return {"action": "shoot", "target": parts[1]}
+
+    # ---- 钩索（M4） ----
+    if cmd in ("hook", "钩索", "钩"):
+        if len(parts) < 2:
+            return None
+        if parts[1] in ("self", "自己") and len(parts) >= 3:
+            return {"action": "hook", "mode": "self", "destination": parts[2]}
+        return {"action": "hook", "mode": "pull", "target": parts[1]}
+
     # ---- 攻击 ----
     if cmd in ("attack", "攻击", "atk", "打"):
         target = parts[1] if len(parts) >= 2 else None
-        weapon = parts[2] if len(parts) >= 3 else None
-        layer_str = parts[3] if len(parts) >= 4 else None
-        attr_str = parts[4] if len(parts) >= 5 else None
+        # 武器名可能含空格（如 G0 的 BLACK FANG 465）：把剩余 token 全量
+        # 保留，由 validator 按持有武器名做最长匹配，再把尾部 layer/attr 拆出。
+        weapon = " ".join(parts[2:]) if len(parts) >= 3 else None
         return {"action": "attack", "target": target, "weapon": weapon,
-                "layer": layer_str, "attr": attr_str}
+                "layer": None, "attr": None}
 
     # ---- 特殊操作 ----
     if cmd in ("special", "特殊", "sp", "操作", "sing", "演唱", "唱"):
@@ -186,12 +206,21 @@ def parse(raw_input, player_id):
 
 
 def resolve_player_target(target_str, game_state):
-    if game_state.get_player(target_str):
+    getter = getattr(game_state, "get_actor", game_state.get_player)
+    if getter(target_str):
         return target_str
-    for p in game_state.players.values():
+    actors = (game_state.iter_targetable_actors()
+              if hasattr(game_state, "iter_targetable_actors")
+              else game_state.iter_actors() if hasattr(game_state, "iter_actors")
+              else game_state.players.values())
+    for p in actors:
         if p.name == target_str:
             return p.player_id
-    for p in game_state.players.values():
+    actors = (game_state.iter_targetable_actors()
+              if hasattr(game_state, "iter_targetable_actors")
+              else game_state.iter_actors() if hasattr(game_state, "iter_actors")
+              else game_state.players.values())
+    for p in actors:
         if p.name.lower() == target_str.lower():
             return p.player_id
     return None

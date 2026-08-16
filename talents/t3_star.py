@@ -57,9 +57,15 @@ class Star(BaseTalent):
             police_at_loc = [u for u in self.state.police.units_at(player.location)
                              if u.is_alive()]
 
-        # V1.92: 动态伤害公式 = min(1 + 0.5 * 命中单位数, 3)
+        # 伤害公式：v1 = min(1+0.5×命中数, 2)；M7 hp20 = min(4+命中数, 8)（§7.6）
         target_count = len(targets) + len(police_at_loc)
-        damage_per_target = min(1.0 + 0.5 * target_count, 2.0)
+        from talents.talent_balance import m7_enabled, talent_num
+        if m7_enabled():
+            damage_per_target = min(
+                talent_num("t3", "aoe_base", v1=4) + talent_num("t3", "aoe_per_hit", v1=1) * target_count,
+                talent_num("t3", "aoe_cap", v1=8))
+        else:
+            damage_per_target = min(1.0 + 0.5 * target_count, 2.0)
 
         # 记录伤害前的 HP（resolve_location_damage 内部会直接扣血）
         player_old_hp = {}
@@ -77,12 +83,15 @@ class Star(BaseTalent):
                                           player_name=player.name)]
 
         # 使用 resolve_location_damage 统一处理玩家+警察伤害
+        # M7 hp20：天星穿甲 50%（§7.6）
+        _pierce = talent_num("t3", "armor_pierce", v1=1.0) if m7_enabled() else 1.0
         results_dict = resolve_location_damage(
             attacker=player, location=player.location,
             game_state=self.state, raw_damage=damage_per_target,
             ignore_counter=True, exclude_self=True,
             damage_attribute_override="无视属性克制",
             is_talent_attack=True,
+            armor_pierce_factor=_pierce,
         )
 
         # 处理玩家结果：伤害 + 石化
@@ -149,8 +158,10 @@ class Star(BaseTalent):
 
         # ===== 涟漪增强：额外弹射伤害 =====
         if self.ripple_enhanced:
+            from talents.talent_balance import talent_num
+            bounce_dmg = talent_num("g5", "poem_stars_bounce_damage", v1=0.5)
             bounce_count = getattr(self, 'ripple_bounce_count', 2)
-            lines.append(f"\n   ⭐🌊 涟漪增强：额外指定{bounce_count}次目标，各造成0.5无视属性伤害！")
+            lines.append(f"\n   ⭐🌊 涟漪增强：额外指定{bounce_count}次目标，各造成{bounce_dmg}无视属性伤害！")
 
             # 收集同地点存活的可选目标（发动者以外的玩家+警察）
             bounce_player_targets = [p for p in self.state.players_at_location(player.location)
@@ -191,20 +202,20 @@ class Star(BaseTalent):
                         result = resolve_damage(
                             attacker=player, target=target_obj, weapon=None,
                             game_state=self.state,
-                            raw_damage_override=0.5,
+                            raw_damage_override=bounce_dmg,
                             damage_attribute_override="无视属性克制",
                             ignore_counter=True,
                             is_talent_attack=True,
                         )
-                        lines.append(f"   ⭐🌊 弹射→ {target_obj.name} 受到0.5伤害 HP: {old_hp} → {target_obj.hp}")
+                        lines.append(f"   ⭐🌊 弹射→ {target_obj.name} 受到{bounce_dmg}伤害 HP: {old_hp} → {target_obj.hp}")
                         if result.get("killed", False):
                             player.kill_count += 1
                             self.state.markers.on_player_death(target_obj.player_id)
                             lines.append(f"   💀 {target_obj.name} 被弹射击杀！")
                     elif target_obj and is_police_target:
                         old_hp = target_obj.hp
-                        target_obj.take_damage(0.5, attacker_id=player.player_id)
-                        lines.append(f"   ⭐🌊 弹射→ 警察{target_obj.unit_id} 受到0.5伤害 HP: {old_hp} → {target_obj.hp}")
+                        target_obj.take_damage(bounce_dmg, attacker_id=player.player_id)
+                        lines.append(f"   ⭐🌊 弹射→ 警察{target_obj.unit_id} 受到{bounce_dmg}伤害 HP: {old_hp} → {target_obj.hp}")
                         if target_obj.hp <= 0:
                             pe = getattr(self.state, 'police_engine', None)
                             if pe:

@@ -9,6 +9,7 @@ from typing import Callable, List, Optional, Dict, Any
 from controllers.base import PlayerController
 from cli import display
 from cli.async_output import set_current_prompt, clear_current_prompt
+from engine.prompt_manager import prompt_manager
 
 # 模块级聊天回调：由 main_server 在游戏启动前注入，
 # 使得 HumanController 可在回合中拦截 /chat 和 /whisper 命令。
@@ -32,20 +33,24 @@ class HumanController(PlayerController):
         context: Optional[Dict] = None
     ) -> str:
         """
-        显示状态，等待人类输入命令。
-        注意：available_actions 的展示已经在 _phase_t1 中由
-        display.show_available_actions 完成，这里只负责读输入。
-        如果输入是聊天命令（/chat, /whisper），交由 _chat_handler 处理后重新提示。
+        等待人类输入命令。行动菜单已在 _phase_t1 中显示；
+        这里接受数字编号（context["menu"] 顺序）或原生命令。
+        聊天命令（/chat, /whisper）交由 _chat_handler 处理后重新提示。
         """
-        display.show_player_status(player, game_state)
+        menu = (context or {}).get("menu") if isinstance(context, dict) else None
         while True:
-            prompt_text = f"\n  [{player.name}] 请输入指令 > "
+            prompt_text = prompt_manager.get_prompt(
+                "ui", "command_prompt", name=player.name)
             set_current_prompt(prompt_text)
             raw = display.prompt_input(player.name)
             clear_current_prompt()
             if _chat_handler and raw.startswith(("/chat ", "/whisper ")):
                 _chat_handler(raw)
                 continue
+            if raw.isdigit() and isinstance(menu, list):
+                index = int(raw) - 1
+                if 0 <= index < len(menu):
+                    return menu[index]
             return raw
 
     def choose(
@@ -58,7 +63,7 @@ class HumanController(PlayerController):
         向人类展示选项列表，等待选择。
         直接调用 display.prompt_choice。
         """
-        prompt_text = "  请选择（输入编号或名称）> "
+        prompt_text = prompt_manager.get_prompt("ui", "choose_prompt")
         set_current_prompt(prompt_text)
         result = display.prompt_choice(prompt, options)
         clear_current_prompt()
@@ -80,14 +85,17 @@ class HumanController(PlayerController):
 
         while len(selected) < max_count:
             if len(selected) >= min_count:
-                remaining_with_done = remaining + ["跳过"]
+                remaining_with_done = remaining + [
+                    prompt_manager.get_prompt("ui", "option_skip")]
             else:
                 remaining_with_done = list(remaining)
 
-            prompt_text = "  请选择（输入编号或名称）> "
+            prompt_text = prompt_manager.get_prompt("ui", "choose_prompt")
             set_current_prompt(prompt_text)
             choice = display.prompt_choice(
-                f"{prompt} (已选{len(selected)}/{max_count})",
+                prompt + prompt_manager.get_prompt(
+                    "ui", "choose_multi_suffix",
+                    selected=len(selected), max_count=max_count),
                 remaining_with_done
             )
             clear_current_prompt()
@@ -109,8 +117,11 @@ class HumanController(PlayerController):
         """
         是/否确认。
         """
-        prompt_text = "  请选择（输入编号或名称）> "
+        prompt_text = prompt_manager.get_prompt("ui", "choose_prompt")
         set_current_prompt(prompt_text)
-        choice = display.prompt_choice(prompt, ["是", "否"])
+        choice = display.prompt_choice(
+            prompt,
+            [prompt_manager.get_prompt("ui", "option_yes"),
+             prompt_manager.get_prompt("ui", "option_no")])
         clear_current_prompt()
         return choice == "是"

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "profile": "m9-rfc",
+  "modules": [
+    {
+      "doc_id": "manual.m9.frontmatter",
+      "path": "core/00_frontmatter.md",
+      "status": "candidate",
+      "profile": "m9-rfc",
+      "canonical_for": ["manual.m9.frontmatter"],
+      "requires": [],
+      "topics": ["entry", "profile", "m9"],
+      "source_start": null,
+      "batch": "core_a"
+    },
+    {
+      "doc_id": "manual.m9.milestone",
+      "path": "core/01_milestone_overview.md",
+      "status": "candidate",
+      "profile": "m9-rfc",
+      "canonical_for": ["manual.m9.overview", "manual.m9.milestone"],
+      "requires": ["manual.m9.frontmatter"],
+      "topics": ["overview", "milestone", "m9"],
+      "source_start": null,
+      "batch": "core_a"
+    }
+  ]
+}

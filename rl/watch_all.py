@@ -28,7 +28,7 @@ from typing import Optional
 import numpy as np
 from sb3_contrib import MaskablePPO
 
-from engine.game_setup import TALENT_TABLE
+from engine.game_setup import talent_table_for_current_profile
 from rl.env import BadtimeWarEnv
 from rl.action_space import (
     ACTION_COUNT, LOCATIONS, INTERACT_ITEMS, WEAPONS,
@@ -45,14 +45,16 @@ def _resolve_rl_talent(raw: str | None) -> int | None:
     """将 --rl-talent 参数解析为 BadtimeWarEnv 接受的 int | None。
 
     - None / "none" → None（RL 自选）
-    - "random"      → 从 TALENT_TABLE 中随机选一个编号
+    - "random"      → 从当前 profile 注册表中随机选一个编号
     - "0"           → 0（无天赋）
     - "1"-"14"      → 对应天赋编号
     """
     if raw is None or raw.lower() == "none":
         return None
     if raw.lower() == "random":
-        available = [n for n, name, cls, desc in TALENT_TABLE]
+        available = [
+            n for n, name, cls, desc in talent_table_for_current_profile()
+        ]
         return _random.choice(available)
     try:
         return int(raw)

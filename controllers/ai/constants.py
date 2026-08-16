@@ -5,14 +5,16 @@
 - SPELL_PREREQUISITES → 从 action_tables 推导（引擎唯一定义）
 - EFFECTIVE_AGAINST → utils.attribute（属性层唯一定义）
 - LOCATION_ITEMS → 硬编码顺序（AI 行为敏感），与 ITEM_LOCATIONS 一致性由模块级 assert 保证
-- EQUIPMENT_LOCATION / NEED_PROVIDERS / PERSONALITY_NEEDS / POLICE_AOE_WEAPONS → AI 层专属数据
+- EQUIPMENT_LOCATION → engine.action_tables（D4 归并：AI 与 police_system 同读，此处仅再导出）
+- NEED_PROVIDERS / PERSONALITY_NEEDS / POLICE_AOE_WEAPONS → AI 层专属数据
 """
-from typing import Dict, List
+from typing import Dict, List, Set
 
 from utils.attribute import Attribute, EFFECTIVE_AGAINST
 from engine.action_tables import (
     LOCATIONS, ITEM_LOCATIONS as _ENGINE_ITEM_LOCATIONS,
     SPELL_PREREQUISITES as _ENGINE_SPELL_PREREQUISITES,
+    EQUIPMENT_LOCATION,
 )
 from engine.debug_config import (
     debug_ai, debug_ai_basic, debug_ai_detailed, debug_ai_full,
@@ -36,7 +38,8 @@ assert set(SPELL_PREREQUISITES.keys()) == _MAGIC_ITEMS, \
     f"SPELL_PREREQUISITES keys mismatch: {set(SPELL_PREREQUISITES.keys()) ^ _MAGIC_ITEMS}"
 
 
-EQUIPMENT_LOCATION = {
+# D4 归并防回退：冻结旧 AI 拷贝，断言引擎单表与旧值相等（仅加载期检查，不参与运行）
+_LEGACY_EQUIPMENT_LOCATION: Dict[str, set] = {
     "警棍": {"警察局"},
     "高斯步枪": {"军事基地"},
     "魔法弹幕": {"魔法所"},
@@ -45,6 +48,8 @@ EQUIPMENT_LOCATION = {
     "魔法护盾": {"魔法所"},
     "AT力场": {"军事基地"},
 }
+assert EQUIPMENT_LOCATION == _LEGACY_EQUIPMENT_LOCATION, \
+    "EQUIPMENT_LOCATION D4 归并漂移：engine.action_tables 与旧 AI 拷贝不一致"
 
 # ── 信源归并：LOCATION_ITEMS 逆映射自 ITEM_LOCATIONS ──────────────────
 # LOCATIONS 直接来自顶部 import（engine.action_tables 同一对象），此处不再重复绑定。
@@ -186,3 +191,45 @@ PERSONALITY_NEEDS = {
         # political 的特殊逻辑（去警察局）保留在外部
     ],
 }
+
+
+def need_providers_for(need_key: str):
+    """返回当前实验档案中真实存在的需求来源。
+
+    M4 经济合同把 home 的免费凭证退役；保留静态表用于旧档案和一致性检查，
+    在决策边界按 profile 过滤，避免 BasicAI 反复提交必定失败的交互。
+    """
+    providers = NEED_PROVIDERS.get(need_key, [])
+    if need_key != "voucher":
+        return list(providers)
+    from engine import experiments
+    if not experiments.is_enabled("m4_gear"):
+        return list(providers)
+    return [provider for provider in providers if provider[:2] != ("home", "凭证")]
+
+
+def ai_wallet(player) -> int:
+    """AI 钱包语义：m4 起凭证退役、信用点是唯一货币；此前仍读 vouchers。
+
+    统一全部发育决策的"钱"读点（D3 接地）：m4_gear 开启时返回 credits，
+    未开启逐字节保留旧 vouchers 行为。
+    """
+    from engine import experiments
+    if experiments.is_enabled("m4_gear"):
+        return int(getattr(player, "credits", 0) or 0)
+    return int(getattr(player, "vouchers", 0) or 0)
+
+
+def m4_item_price(location: str, item: str) -> int:
+    """m4 信用点价格（AI 预算用）：打工=单次收入；未定价条目按免费（0）处理。"""
+    from engine.balance import get as bget
+    if item == "打工":
+        return int(bget("economy", "faucets", "打工", default=2))
+    sinks = bget("economy", "sinks", default={}) or {}
+    if item in sinks:
+        return int(sinks[item])
+    if "手术" in item:
+        return int(bget("economy", "surgery_min_cost", default=4))
+    if item in ("通行证", "办理通行证"):
+        return int(bget("economy", "force_pass_min_cost", default=2))
+    return 0

@@ -74,5 +74,12 @@ class BaseMind(ABC):
 
         Returns:
             MindAssessment: 结构化的态势评估结果
+
+        快照化约定（2026-08-12）：Orchestrator 会以 kwargs 传入
+        `snapshot`（ProjectedSnapshot，全量不可变投影）与 `assessment`
+        （AssessmentLayer，派生容器）。Mind 应：
+        1. 优先从 snapshot 读取可投影字段（自身/环境/对手/窗口），缺失回退旧读法；
+        2. 把派生输出（威胁分/地点威胁等）写入 assessment（不污染投影）；
+        3. 保持纯函数：不修改 snapshot，不持有跨轮次状态。
         """
         ...

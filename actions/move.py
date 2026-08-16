@@ -7,6 +7,15 @@ ALL_LOCATIONS = [
 ]
 
 
+def has_active_supernova(player) -> bool:
+    """是否可用旧式 move 超新星载荷；M9 G1 还需满足形态门槛。"""
+    talent = getattr(player, "talent", None)
+    if not talent or not getattr(talent, "has_supernova", False):
+        return False
+    gate = getattr(talent, "can_use_legacy_supernova", None)
+    return bool(gate()) if callable(gate) else True
+
+
 def _talent_crime_hook(player, crime_type):
     """非攻击类犯罪的天赋钩子（犯罪再动等）"""
     if player.talent and hasattr(player.talent, 'on_crime_check'):
@@ -27,8 +36,87 @@ def get_all_valid_locations(game_state):
     return locations
 
 
+def _best_melee_weapon(player):
+    """借机攻击选武器：伤害最高的可用近战武器（蓄力未满/被封印的跳过）。"""
+    from models.equipment import WeaponRange
+    best = None
+    for w in player.weapons:
+        if w is None or w.weapon_range != WeaponRange.MELEE:
+            continue
+        if getattr(w, '_hexagram_disabled', False):
+            continue
+        if (getattr(w, 'requires_charge', False)
+                and getattr(w, 'charge_mandatory', True)
+                and not getattr(w, 'is_charged', False)):
+            continue
+        if best is None or w.base_damage > best.base_damage:
+            best = w
+    return best
+
+
+def _resolve_opportunity_attacks(player, old_location, destination, game_state):
+    """借机攻击（v2.0 §1.3，experiment: k_initiative）。
+
+    交战中（ENGAGED_WITH）主动移动离开地点 → 每名同地点交战对手获得
+    1 次免费近战攻击（每名对手每轮限 1 次）。被动位移（六爻放逐 / G5
+    强制位移 / 最后一曲吸引）豁免。返回 True 表示移动中止（mover 被
+    打死或眩晕，留在原地）。
+    """
+    from engine import experiments
+    if not experiments.is_enabled("k_initiative"):
+        return False
+    if destination == old_location:
+        return False
+    # 被动位移豁免（与架盾阻碍同一套豁免标记）
+    if (getattr(player, '_hexagram_forced_move', False)
+            or getattr(player, '_ripple_forced_move', False)
+            or getattr(player, '_hologram_pull', False)):
+        return False
+
+    from cli import display
+    from engine.prompt_manager import prompt_manager
+
+    engaged = game_state.markers.get_related(player.player_id, "ENGAGED_WITH")
+    rnd = game_state.current_round
+    for opp_id in sorted(engaged):  # 排序迭代保证确定性
+        opp = game_state.get_player(opp_id)
+        if (not opp or not opp.is_alive()
+                or not getattr(opp, 'is_awake', False)
+                or opp.location != old_location):
+            continue
+        if getattr(opp, '_aoo_used_round', 0) == rnd:
+            continue
+        weapon = _best_melee_weapon(opp)
+        if weapon is None:
+            continue
+
+        opp._aoo_used_round = rnd
+        from combat.damage_resolver import resolve_damage
+        result = resolve_damage(attacker=opp, target=player,
+                                weapon=weapon, game_state=game_state,
+                                is_opportunity_attack=True)
+        msg = prompt_manager.get_prompt(
+            "combat", "opportunity_attack",
+            default="⚡ {attacker} 对试图脱离交战的 {mover} 发动借机攻击！")
+        if isinstance(msg, str):
+            try:
+                display.show_info(msg.format(attacker=opp.name, mover=player.name))
+            except (KeyError, ValueError):
+                display.show_info(msg)
+        for detail in result.get("details", []):
+            display.show_info(f"   {detail}")
+        game_state.log_event("opportunity_attack", attacker=opp_id,
+                             target=player.player_id, weapon=weapon.name,
+                             result=result)
+        if not player.is_alive() or result.get("stunned"):
+            return True
+    return False
+
+
 def get_location_display_name(loc_id, game_state):
-    """将地点ID转为显示名"""
+    """将地点ID转为显示名（loc_id 为空时返回安全占位）。"""
+    if not loc_id:
+        return "未知"
     if loc_id.startswith("home_"):
         pid = loc_id[5:]
         p = game_state.get_player(pid)
@@ -44,9 +132,34 @@ def execute(player, destination, game_state):
     效果：玩家从当前地点移动到目标地点。
     触发标记联动（清锁定/清面对面）。
     如果目标是军事基地且玩家有凭证但无通行证，提供强买选项。
+    M9 G3 固有结界：被困单位普通移动不能离开结界地点（强制位移豁免，
+    但带出结界地点后同步释出结界身份）。
     返回结果描述字符串。
     """
     old_location = player.location
+    # M9 G3 固有结界移动限制（固有结界 RFC v0.2 §5.3）：被困单位普通移动
+    # 不能离开结界地点；强制退场等最高级位移豁免（与架盾阻碍/借机攻击同
+    # 一套豁免标记），但带出结界地点后须同步结界身份（§214 主目标立即清空）。
+    from engine.m9.talents.g3 import active_barrier
+    barrier = active_barrier(game_state)
+    g3_forced_exit = False  # 强制豁免且将离开结界地点 → 移动成功后释出结界身份
+    if (barrier is not None
+            and destination != old_location
+            and barrier._is_trapped(player)
+            and destination != getattr(barrier, "barrier_location", None)):
+        if (getattr(player, '_hexagram_forced_move', False)
+                or getattr(player, '_ripple_forced_move', False)
+                or getattr(player, '_hologram_pull', False)):
+            g3_forced_exit = True
+        else:
+            game_state.log_event("move_blocked", player=player.player_id,
+                                 reason="g3_barrier")
+            from cli import display
+            display.show_info(
+                f"🌀 {player.name} 被困在「无限剑制」固有结界中，普通移动无法离开！"
+                f"请使用「破界」特殊行动，或以武器攻击结界锚点。")
+            return (f"🌀 {player.name} 被固有结界困住，移动未执行"
+                    f"（需破界或破坏锚点才能离开）。")
     # 星野架盾移动阻碍：正面敌人离开需多花1回合
     # 半进入状态处理：再次 move 同地点 → 突破（正面→背面 + engage 断裂）
     if (destination == old_location
@@ -106,8 +219,7 @@ def execute(player, destination, game_state):
                 if getattr(player, '_shield_half_entered', False):
                     is_exempt = True
                 # 超新星过载豁免
-                if (player.talent and hasattr(player.talent, 'has_supernova')
-                        and player.talent.has_supernova):
+                if has_active_supernova(player):
                     is_exempt = True
                 # 插入式笑话豁免（神代6）
                 if getattr(player, '_in_cutaway_joke', False):
@@ -138,7 +250,18 @@ def execute(player, destination, game_state):
                         # 已经花过一回合，清除标记，允许移动
                         delattr(player, delay_key)
                         break
+
+    # K 模式借机攻击：在位置变更与 engagement 清除之前结算
+    if _resolve_opportunity_attacks(player, old_location, destination, game_state):
+        return f"⚡ {player.name} 在脱离交战时被截住，移动中止！"
+
     player.location = destination
+    if destination != old_location:
+        player.moved_this_round = True  # M3 移动闪避来源（每轮 R0 重置）
+    # G3 结界强制退场同步：被困单位已被带出结界地点 → 释出其结界身份
+    #（不传送回原地点；主目标立即清空；幂等）
+    if g3_forced_exit:
+        barrier.release_from_barrier(player.player_id, reason="forced_exit")
 
     # 半进入玩家移动到其他地点：清除半进入标记，从正面移除
     if (destination != old_location
@@ -253,8 +376,7 @@ def execute(player, destination, game_state):
     new_name = get_location_display_name(destination, game_state)
     game_state.log_event("move", player=player.player_id,
                          from_loc=old_location, to_loc=destination)
-    if (player.talent and hasattr(player.talent, 'has_supernova')
-        and player.talent.has_supernova):
+    if has_active_supernova(player):
         # Check if there are any targets at destination before triggering
         targets_at_dest = [p for p in game_state.players_at_location(destination)
                         if p.player_id != player.player_id and p.is_alive()]

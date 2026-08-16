@@ -104,10 +104,45 @@ class Player:
             controller = HumanController()
         self.controller: PlayerController = controller
 
-        # 基础属性
-        self.hp = 1.0
-        self.max_hp = 1.0
+        # 基础属性（hp20 实验开关下为 20 整数量纲，v2.0 §2.1；v1 也用 int 统一类型）
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            from engine.balance import get as _bget
+            self.hp = _bget("hp20", "player_max_hp", default=20)
+            self.max_hp = self.hp
+        else:
+            self.hp = 1
+            self.max_hp = 1
         self.base_attack = 0.5
+
+        # HP20 数值模型字段（v1 路径下保持空值无副作用）
+        self.inner_defense: dict = {}      # 晶化皮肤等永久身体改造（属性名→防御）
+        self.regen_per_round: int = 0      # 不老泉每轮再生
+        self.surgeries_done: set = set()   # 终身一次手术记录（hp20 下无内甲 piece 可查重）
+        self.general_resistance: int = 0   # 负面效果通用抗性 0-100（§2.5.1）
+        self.resist_pulse_rounds: int = 0  # 韧性脉冲剩余轮数
+
+        # M3 命中/闪避与属性分轨字段（v1 路径下空值零副作用，v2.0 §2.7）
+        self.stealth_attrs: set = set()    # 隐身覆盖的属性（隐身衣=普/隐身术=魔/隐形涂层=科）
+        self.detection_attrs: set = set()  # 探测覆盖的属性（热成像=普/探测魔法=魔/雷达=科）
+        self.moved_this_round: bool = False  # 本轮主动移动（移动闪避来源，每轮重置）
+
+        # M4 消耗层字段（experiment: m4_gear，v1 路径下零副作用，v2.0 §2.8/§6）
+        self.credits: int = 0              # 信用点（凭证退役后的经济通货，占位名）
+        self.arrows: int = 0               # 箭矢（弓弹药，上限见 balance bow.max_arrows）
+        self.bow_modules: list = []        # 已安装弓模块名（双槽）
+        self.burn_stacks: int = 0          # 灼烧层数（R4 每层 1 伤，获甲扑灭 1 层）
+        self._last_hook_round: int = -99   # 钩索共享冷却（拉人/拉己同钟）
+        self.is_suspect: bool = False      # M5 白昼首攻嫌疑（不记罪但留痕）
+
+        # M6 评分制字段（experiment: m6_scoring，v1/无 m6 零副作用，v2.0 §4/§5）
+        self.damage_dealt: int = 0         # 累计造成的有效伤害（战果分）
+        self.death_round: int = 0          # 死于第几轮（0=未死，存活系数用）
+        self.applause: int = 0             # 喝彩点（两用资源：可消耗/计入终分）
+        self.is_star: bool = False         # 往世层：死后成星
+        self.starlight: int = 0            # 星光（每轮+1上限3，做星光行动）
+        self.afterlife_score: int = 0      # 往世分（×0.5 计入终分）
+        self.story_score: int = 0          # 剧情分（完结条，M7 天赋接入）
 
         # 位置
         self.location = None
@@ -117,6 +152,12 @@ class Player:
         self.armor = ArmorSlots()
         self.items = []
         self._armor_gained_this_round = False
+        if _exp.is_enabled("m4_gear"):
+            # 弓是起始装备（人手一份的跨地点武器，v2.0 §2.8）
+            from models.equipment import make_bow
+            from engine.balance import get as _bget_bow
+            self.weapons.append(make_bow())
+            self.arrows = _bget_bow("bow", "initial_arrows", default=3)
 
         # 经济
         self.vouchers = 0
@@ -152,7 +193,12 @@ class Player:
         self.total_action_turns = 0
         self.kill_count = 0
         self.last_action_type = None
+        # K 模式借机攻击：本轮已使用的轮次号（每轮限 1 次，v2.0 §1.3）
+        self._aoo_used_round = 0
         self.acted_this_round = False
+        # 通用追加回合通道（round_manager R3 消费；天赋经 BaseTalent.grant_extra_turn 置位）
+        # 默认 0 时通道惰性、不产生任何行为，保持 v1 字节不变
+        self.pending_extra_turns: int = 0
 
         # 军事基地
         self.has_military_pass = False
@@ -228,7 +274,46 @@ class Player:
         if self._duet_d6_bonus:
             bonus += 1
             self._duet_d6_bonus = False
+        # hp20 重伤状态：先攻惩罚（经 get_initiative_bonus 同时覆盖 K 模式）
+        from engine import experiments as _exp
+        if _exp.is_enabled("hp20"):
+            from combat.numeric_v2 import is_severely_injured
+            from engine.balance import get as _bget
+            if is_severely_injured(self):
+                bonus += _bget("hp20", "severe_injury_initiative_penalty", default=-2)
+            # 抗性降级的先攻惩罚（自消耗 flag，M2 临时映射，M3 改命中）
+            degrade = getattr(self, '_resist_degrade_penalty', 0)
+            if degrade:
+                self._resist_degrade_penalty = 0
+                bonus += degrade
         return bonus
+
+    def grant_visibility_item(self, item_name):
+        """M3 属性分轨：隐身/探测道具按 balance visibility 表写入属性集。
+
+        仅 m3_accuracy 开关下生效（v1 的 is_invisible/has_detection 布尔
+        机制由调用方照旧维护，两套并行互不干扰）。
+        """
+        from engine import experiments as _exp
+        if not _exp.is_enabled("m3_accuracy"):
+            return
+        from engine.balance import get as _bget
+        stealth_map = _bget("visibility", "stealth_items", default={}) or {}
+        detect_map = _bget("visibility", "detection_items", default={}) or {}
+        if item_name in stealth_map:
+            self.stealth_attrs.add(stealth_map[item_name])
+        if item_name in detect_map:
+            self.detection_attrs.add(detect_map[item_name])
+
+    def get_initiative_bonus(self):
+        """先攻修正（K 常量行动制，experiment: k_initiative）。
+
+        = D4 加成 + D6 加成之和：天赋的 on_d4_bonus/on_d6_bonus 钩子语义不变，
+        统一折算为先攻修正（v2.0 §1.4）。K 模式下 no_action_streak 恒为 0
+        （未行动保底已退役），故 get_d4_bonus 的 streak 分支不会掺入。
+        注意：两个方法内的自消耗 flag（duet/curtain 等）每轮只应读取一次。
+        """
+        return self.get_d4_bonus() + self.get_d6_bonus()
 
     def has_weapon(self, weapon_name):
         return any(getattr(w, 'name', None) == weapon_name for w in self.weapons)

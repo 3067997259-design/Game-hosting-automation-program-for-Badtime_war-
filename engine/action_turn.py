@@ -7,6 +7,7 @@ from cli import display
 from cli.parser import parse, resolve_player_target
 from cli.validator import validate
 from engine.prompt_manager import prompt_manager
+from engine.m9.text import m9_text, m9_text_list
 from engine.action_enumerator import build_action_options
 from engine.ish_bosheth import ACCAREZZEVOLE, INDIFFERENZA, STRAPPANDO
 from engine.debug_config import debug_ai_basic
@@ -71,17 +72,40 @@ class ActionTurnManager:
     #  主入口
     # ================================================================
     def execute_action_turn(self, player):
+        # M9：G2 影身代理标准槽（受限菜单 + 消散）
+        if getattr(player, "_m9_shadow_actor", False):
+            display.show_action_turn_header(player.name)
+            action_type = self._phase_t1_shadow(player)
+            return action_type
         # Chorus 单位：跳过 T0/T2，直接选行动
         is_chorus = getattr(player, 'is_chorus', False)
         if is_chorus:
             display.show_action_turn_header(player.name)
             action_type = self._phase_t1_chorus(player)
             return action_type
-        display.show_action_turn_header(player.name)
+        # M9 人类玩家：紧凑回合视图由 _phase_t1 渲染（含横幅），
+        # 避免旧式 ─── 标题 + 重复状态刷屏。
+        m9_human = False
+        try:
+            from engine.m9.gate import m9_enabled as _m9_on
+            from controllers.human import HumanController
+            m9_human = (_m9_on(self.state)
+                        and isinstance(player.controller, HumanController))
+        except Exception:
+            m9_human = False
+        if not m9_human:
+            display.show_action_turn_header(player.name)
         # 未起床：先起床（T0 物料阶段/天赋选项在起床后才运行）
         if not player.is_awake:
             result_msg = wake_up.execute(player, self.state)
             display.show_result(result_msg)
+            # M9：起床后同槽受限追演（wake_followup：move/interact/find/lock/结束）
+            if hasattr(self.state, "m9_system"):
+                talent = getattr(player, "talent", None)
+                if talent and hasattr(talent, "m9_wake_followup"):
+                    follow = talent.m9_wake_followup(player, self)
+                    if follow is not None:
+                        return follow
             return "wake"
         skip = self._phase_t0(player)
         if skip:
@@ -92,6 +116,21 @@ class ActionTurnManager:
         self._phase_t2(player, action_type)
         return action_type
 
+    def _dusk_extend_control(self, player):
+        """M5 黄昏：行动剥夺类控制 +1 轮（v2.0 §3）。每次控制只延长一次
+        （_control_extended flag 防止无限延长）。返回 True = 本回合保持控制。"""
+        from engine import experiments
+        if not experiments.is_enabled("m5_clock"):
+            return False
+        if getattr(player, '_control_extended', False):
+            return False
+        from engine import world_clock
+        extra = world_clock.active_value(self.state, "stun_extra_rounds", default=0)
+        if extra and extra > 0:
+            player._control_extended = True
+            return True
+        return False
+
     # ================================================================
     #  T0：眩晕苏醒 → 天赋被动T0 → 震荡 → 石化 → 天赋T0选项
     # ================================================================
@@ -99,10 +138,21 @@ class ActionTurnManager:
 
         # ---- 眩晕苏醒 ----
         if player.is_stunned and not self.state.markers.has(player.player_id, "SHOCKED"):
+            if self._dusk_extend_control(player):
+                # M5 黄昏：眩晕 +1 轮（每次只延长一次）
+                display.show_info(f"🌆 黄昏延长了 {player.name} 的眩晕，再持续一轮。")
+                return "stun_extended"
             player.is_stunned = False
-            player.hp = min(1.0, player.max_hp)
-            self.state.markers.on_stun_recover(player.player_id)
-            display.show_info(f"{player.name} 从眩晕中苏醒！HP恢复至 {player.hp}")
+            player._control_extended = False
+            from engine import experiments as _exp
+            if _exp.is_enabled("hp20"):
+                # hp20：苏醒不回血（v2.0 §2.5——v1 僵局的心脏，废除 hp 刷新）
+                self.state.markers.on_stun_recover(player.player_id)
+                display.show_info(f"{player.name} 从眩晕中苏醒。（HP {player.hp}/{player.max_hp}）")
+            else:
+                player.hp = min(1.0, player.max_hp)
+                self.state.markers.on_stun_recover(player.player_id)
+                display.show_info(f"{player.name} 从眩晕中苏醒！HP恢复至 {player.hp}")
 
         # ---- 天赋被动T0（如萤火0.5血自愈） ----
         if (player.talent and hasattr(player.talent, 'on_turn_start')
@@ -121,14 +171,27 @@ class ActionTurnManager:
                 player.is_stunned = False
                 player.is_shocked = False
                 self.state.markers.on_shock_recover(player.player_id)
+                player._control_extended = False
                 display.show_info(f"🌀 {player.name} 在结界内免疫震荡，自动解除！")
+            elif self._dusk_extend_control(player):
+                # M5 黄昏：眩晕来源效果 +1 轮（每次控制只延长一次）
+                display.show_info(f"🌆 黄昏延长了 {player.name} 的震荡，再持续一轮。")
+                return "shock_recover"
             else:
                 display.show_info(f"{player.name} 处于震荡状态，本回合用于苏醒。")
                 player.is_stunned = False
                 player.is_shocked = False
+                player._control_extended = False
                 self.state.markers.on_shock_recover(player.player_id)
                 display.show_result(f"⚡ {player.name} 从震荡中苏醒！")
                 return "shock_recover"
+
+        # ---- M9 石化处理（统一生命周期：forfeit / 同槽至多两次挣脱）----
+        if hasattr(self.state, "m9_petrify") \
+                and self.state.m9_petrify.is_petrified(player.player_id):
+            from engine.m9.gate import m9_enabled
+            if m9_enabled(self.state):
+                return self._phase_t0_m9_petrified(player)
 
         # ---- 石化处理 ----
         if self.state.markers.has(player.player_id, "PETRIFIED"):
@@ -151,7 +214,13 @@ class ActionTurnManager:
                 if choice.startswith("解除"):
                     self.state.markers.on_petrify_recover(player.player_id)
                     player.is_petrified = False
-                    remaining = 0.5
+                    from engine import experiments as _exp
+                    if _exp.is_enabled("hp20"):
+                        from engine.balance import get as _bget
+                        petrify_dmg = _bget("hp20", "petrify_release_damage", default=2)
+                    else:
+                        petrify_dmg = 0.5
+                    remaining = petrify_dmg
                     # 让天赋的临时HP（光环、炽愿等）先吸收
                     if (player.talent
                             and not getattr(player, '_mythland_talent_suppressed', False)):
@@ -159,19 +228,20 @@ class ActionTurnManager:
                             remaining, is_embrace=False)
                     if remaining > 0:
                         player.hp = round(max(0, player.hp - remaining), 2)
-                    absorbed = round(0.5 - remaining, 2)
-                    actual = round(0.5 - absorbed, 2)
+                    absorbed = round(petrify_dmg - remaining, 2)
+                    actual = round(petrify_dmg - absorbed, 2)
                     if absorbed > 0:
                         display.show_info(f"🗿→✨ {player.name} 解除石化！受{actual}伤害（临时HP吸收{absorbed}） → HP: {player.hp}")
                     else:
-                        display.show_info(f"🗿→✨ {player.name} 解除石化！受0.5伤害 → HP: {player.hp}")
+                        display.show_info(f"🗿→✨ {player.name} 解除石化！受{petrify_dmg}伤害 → HP: {player.hp}")
                     # 死亡判定
                     if player.hp <= 0:
                         self.state.markers.on_player_death(player.player_id)
                         display.show_death(player.name, "石化解除伤害")
                         return "petrify_death"
-                    # 眩晕判定
-                    if player.hp <= 0.5 and not player.is_stunned:
+                    # 眩晕判定（hp20：眩晕不再由 HP 触发）
+                    if (not _exp.is_enabled("hp20")
+                            and player.hp <= 0.5 and not player.is_stunned):
                         player.is_stunned = True
                         self.state.markers.add(player.player_id, "STUNNED")
                         display.show_info(f"💫 {player.name} 进入眩晕！")
@@ -354,30 +424,135 @@ class ActionTurnManager:
 
             # ══ BUG FIX：把 choice 判断移入 t0_option 非 None 的分支内 ══
             if t0_option:
-                display.show_info(
-                    f"🌟 天赋可用：【{t0_option['name']}】{t0_option['description']}")
+                try:
+                    from engine.m9.gate import m9_enabled as _m9_t0
+                    from controllers.human import HumanController
+                    m9_t0_human = (_m9_t0(self.state)
+                                   and isinstance(player.controller, HumanController))
+                except Exception:
+                    m9_t0_human = False
+                if m9_t0_human:
+                    try:
+                        from cli.m9_ui import show_talent_available
+                        show_talent_available(t0_option)
+                    except Exception:
+                        display.show_info(
+                            f"🌟 天赋可用：【{t0_option['name']}】"
+                            f"{t0_option['description']}")
+                else:
+                    display.show_info(
+                        f"🌟 天赋可用：【{t0_option['name']}】"
+                        f"{t0_option['description']}")
 
                 # ══ CONTROLLER 改动：天赋T0是否发动走 controller ══
+                if m9_t0_human:
+                    t0_prompt = m9_text("action_turn.t0.prompt")
+                    t0_options = m9_text_list("action_turn.t0.options")
+                else:
+                    t0_prompt = "是否在本回合开始时发动天赋？"
+                    t0_options = ["发动天赋", "不发动，正常行动"]
                 choice = player.controller.choose(
-                    "是否在本回合开始时发动天赋？",
-                    ["发动天赋", "不发动，正常行动"],
+                    t0_prompt,
+                    t0_options,
                     context={
                         "phase": "T0",
                         "situation": "talent_t0",
                         "talent_name": t0_option["name"],
                         "talent_desc": t0_option["description"],
+                        # M9 策略必须按稳定动作类型分派；显示名/描述只用于 UI。
+                        "m9_kind": t0_option.get("m9_kind", ""),
+                        # 首次 T0 早于 BasicAI.generate_command，controller 此时可能
+                        # 尚未绑定 _player/_game_state；显式传入，避免策略层静默回退。
+                        "player": player,
+                        "game_state": self.state,
                     }
                 )
                 # ══ CONTROLLER 改动结束 ══
 
                 if choice == "发动天赋":
-                    msg, consumes_turn = player.talent.execute_t0(player)
-                    display.show_result(msg)
-                    if consumes_turn:
-                        return "talent_t0"
+                    while True:
+                        msg, consumes_turn = player.talent.execute_t0(player)
+                        display.show_result(msg)
+                        if consumes_turn:
+                            return "talent_t0"
+                        # 失败（❌）且控制器是人类：允许重试/跳过，避免
+                        # “选错一个演出方式后 T0 永远不能再选”的体验。
+                        from controllers.human import HumanController
+                        if (not isinstance(msg, str) or not msg.startswith("❌")
+                                or not isinstance(player.controller, HumanController)):
+                            break
+                        if m9_t0_human:
+                            retry_prompt = m9_text("action_turn.t0.retry_prompt")
+                            retry_options = m9_text_list("action_turn.t0.retry_options")
+                        else:
+                            retry_prompt = "天赋发动未成功，如何处理？"
+                            retry_options = ["重新发动天赋", "跳过天赋，正常行动"]
+                        retry = player.controller.choose(
+                            retry_prompt,
+                            retry_options,
+                            context={"phase": "T0", "situation": "talent_t0_retry"})
+                        if "跳过" in retry:
+                            break
             # ══ BUG FIX 结束：如果 t0_option 为 None，直接跳过，不会访问未定义的 choice ══
 
         return None
+
+    def _phase_t0_m9_petrified(self, player):
+        """M9 石化 T0（v0.3 §1.2）：forfeit 或同槽至多两次挣脱（各 1 SP、50%）。
+
+        返回 None = 挣脱成功，本槽继续正常行动；否则返回收尾标记
+        `petrify_hold`（槽以 petrified_hold 结算，forfeit 不获得 SP）。
+        """
+        from engine.m9.petrify import break_success_probability
+        registry = self.state.m9_petrify
+        m9 = getattr(self.state, "m9_system", None)
+        round_num = getattr(self.state, "current_round", 1)
+        petrify_options = m9_text_list("action_turn.petrified.options")
+        display.show_info(
+            m9_text("action_turn.petrified.status", name=player.name))
+        try:
+            choice = player.controller.choose(
+                m9_text("action_turn.petrified.choose_prompt"),
+                petrify_options,
+                context={"phase": "T0", "situation": "petrified"})
+        except Exception:
+            choice = petrify_options[0] if petrify_options else ""
+        if "保持石化" in choice:
+            display.show_info(
+                m9_text("action_turn.petrified.hold_message", name=player.name))
+            return "petrify_hold"
+        # 挣脱子循环：同轮至多两次
+        attempts = 0
+        while attempts < 2 and registry.break_attempts_left(
+                round_num, player.player_id) > 0:
+            if m9 is None or not m9.spend_sp(player.player_id, 1):
+                break
+            attempts += 1
+            display.show_info(
+                m9_text("action_turn.petrified.attempt_message",
+                        name=player.name, attempt=attempts,
+                        pct=f"{int(break_success_probability() * 100)}"))
+            if registry.attempt_break(self.state, player, round_num):
+                display.show_result(
+                    m9_text("action_turn.petrified.break_success",
+                            name=player.name))
+                return None
+            display.show_info(
+                m9_text("action_turn.petrified.break_failure", attempt=attempts))
+            if attempts >= 2 or registry.break_attempts_left(
+                    round_num, player.player_id) <= 0:
+                break
+            retry_options = m9_text_list("action_turn.petrified.retry_options")
+            try:
+                again = player.controller.choose(
+                    m9_text("action_turn.petrified.retry_prompt"), retry_options)
+            except Exception:
+                again = retry_options[1] if len(retry_options) > 1 else ""
+            if "继续" not in again:
+                break
+        display.show_info(
+            m9_text("action_turn.petrified.exhausted_message", name=player.name))
+        return "petrify_hold"
 
     # ================================================================
     #  辅助：可用行动类型列表
@@ -506,7 +681,20 @@ class ActionTurnManager:
                 {"usage": "special <操作名>", "description": "特殊操作"}
             )
 
+        # M9 天赋根行动限制（例如 G1 战甲形态禁止 find/interact）。
+        talent = getattr(player, "talent", None)
+        blocked_getter = getattr(talent, "m9_blocked_action_types", None)
+        if callable(blocked_getter):
+            blocked = set(blocked_getter())
+            names = [name for name in names if name not in blocked]
+            descs = [desc for desc in descs
+                     if desc["usage"].split()[0] not in blocked]
+
         if self.state.police_engine:
+            # M9-rfc 使用 m9_police 与 special 警察线，不再展示 legacy 警察指令。
+            from engine.m9.gate import m9_enabled as _m9_on
+            if _m9_on(self.state):
+                return names, descs
             # report 仅在警察局 或 朝阳好市民举报热线 时可用（README §10.2）
             is_good_citizen = (player.talent
                                and getattr(player.talent, 'name', '') == '朝阳好市民')
@@ -562,9 +750,6 @@ class ActionTurnManager:
         action_names = result[0]
         action_display = result[1]
 
-        # 展示（Human 看屏幕；AI 忽略）
-        display.show_available_actions(action_display)
-
         max_retries = 10
         attempts = 0
 
@@ -582,6 +767,11 @@ class ActionTurnManager:
                 is_blinded = False
         observable = (FilteredGameState(self.state, player.player_id)
                       if is_blinded else self.state)
+        # M3 行动隐匿：未致盲时叠加可见性代理（致盲快照优先，语义更强）
+        from engine import experiments as _vis_exp
+        if not is_blinded and _vis_exp.is_enabled("m3_accuracy"):
+            from engine.visibility_proxy import VisibilityProxy
+            observable = VisibilityProxy(self.state, player.player_id)
 
         # 为 bot_bridge 分层枚举预计算参数化选项
         import logging as _enum_log
@@ -594,6 +784,22 @@ class ActionTurnManager:
             )
             action_options = {}
 
+        # 展示（M9 人类：紧凑分组菜单 + 回合横幅；AI/旧 profile 保持原样）
+        menu = None
+        try:
+            from engine.m9.gate import m9_enabled as _m9_on
+            from controllers.human import HumanController
+            if _m9_on(self.state) and isinstance(player.controller, HumanController):
+                from cli.m9_ui import show_turn_view
+                menu = show_turn_view(
+                    player, self.state, action_names,
+                    action_display, action_options)
+        except Exception:
+            menu = None
+        if menu is None and not isinstance(
+                getattr(player, "controller", None), HumanController):
+            display.show_available_actions(action_display)
+
         while attempts < max_retries:
             attempts += 1
 
@@ -602,6 +808,7 @@ class ActionTurnManager:
                     "round": self.state.current_round,
                     "attempt": attempts,
                     "action_options": action_options,
+                    "menu": menu,
                     **_build_ish_bosheth_context(self.state, player),
                 }
             raw = player.controller.get_command(
@@ -615,7 +822,7 @@ class ActionTurnManager:
             # ---- 查看类指令（不消耗行动） ----
             raw_lower = raw.strip().lower()
             if raw_lower == "help":
-                display.show_help()
+                display.show_help(self.state)
                 continue
             if raw_lower == "status":
                 display.show_player_status(player, observable)
@@ -814,6 +1021,11 @@ class ActionTurnManager:
         is_blinded = getattr(player, '_hoshino_blinded', False)
         observable = (FilteredGameState(self.state, player.player_id)
                       if is_blinded else self.state)
+        # M3 行动隐匿：未致盲时叠加可见性代理（致盲快照优先，语义更强）
+        from engine import experiments as _vis_exp2
+        if not is_blinded and _vis_exp2.is_enabled("m3_accuracy"):
+            from engine.visibility_proxy import VisibilityProxy
+            observable = VisibilityProxy(self.state, player.player_id)
 
         # 为 bot_bridge 分层枚举预计算参数化选项
         try:
@@ -850,7 +1062,7 @@ class ActionTurnManager:
             raw_lower = raw.strip().lower()
             if raw_lower in ("help", "status", "allstatus", "police"):
                 if raw_lower == "help":
-                    display.show_help()
+                    display.show_help(self.state)
                 elif raw_lower == "status":
                     display.show_player_status(player, observable)
                 elif raw_lower == "allstatus":
@@ -1575,6 +1787,16 @@ class ActionTurnManager:
     def _execute_action(self, parsed, player):
         action = parsed["action"]
 
+        # M9-rfc 不运行 legacy 警察线指令（菜单也不再展示）；
+        # 警察线统一走 special：热线举报 / 竞选队长 / 指挥X移动|攻击。
+        if action in ("report", "assemble", "track_guide", "recruit",
+                      "election", "designate", "split", "study",
+                      "police_command"):
+            from engine.m9.gate import m9_enabled
+            if m9_enabled(self.state):
+                return (m9_text("action_turn.police_legacy_rejected"),
+                        action, False, False)
+
         if action == "wake":
             msg = wake_up.execute(player, self.state)
             return msg, "wake", True                          # CHANGED: 永远成功
@@ -1630,6 +1852,25 @@ class ActionTurnManager:
                         self.state, player.player_id, killer_id=None)
                 return msg, "move", True
             msg = move.execute(player, dest, self.state)
+            # M9：被摧毁地点不可进入（繁育超新星，合同 G1 §5.4）
+            destroyed = getattr(self.state, "m9_destroyed_locations", None)
+            if destroyed and dest in destroyed:
+                player.location = getattr(player, "location", "home")
+                msg = m9_text("action_turn.move.destroyed_location", dest=dest)
+            # M9：终曲区域概率移动偏转（根 move 离开歌者位置时重定向回歌者位置）
+            if hasattr(self.state, "m9_system"):
+                from engine.m9.talents.g2 import terminal_move_redirect
+                redirect = terminal_move_redirect(self.state, player, dest)
+                if redirect is not None:
+                    dest = redirect
+                    player.location = dest
+                    msg = m9_text("action_turn.move.terminal_redirect",
+                                  name=player.name, dest=dest)
+            # M9：繁育超新星（每轮第一次合法 move 根行动触发，合同 G1 §5.3）
+            if hasattr(self.state, "m9_system"):
+                talent = getattr(player, "talent", None)
+                if talent and hasattr(talent, "m9_on_root_move"):
+                    talent.m9_on_root_move(player)
             # 到达舞台座位 → auto-find 该座位的所有人
             ish2 = self.state.ish_bosheth
             if (ish2 and ish2.phase in ("active", "duet")
@@ -1664,7 +1905,16 @@ class ActionTurnManager:
         elif action == "interact":
             item = parsed["item"]
             msg = interact.execute(player, item, self.state)
-            return msg, "interact", not msg.startswith("❌")  # CHANGED
+            ok = not msg.startswith("❌")
+            # M5 限量营业：成功取用后标记本轮该地点该条目已用
+            from engine import experiments as _m5exp
+            if ok and _m5exp.is_enabled("m5_clock"):
+                from engine import world_clock
+                if world_clock.active_value(self.state, "rationing", default=False):
+                    if not hasattr(self.state, "_rationing_used"):
+                        self.state._rationing_used = set()
+                    self.state._rationing_used.add((player.location, item))
+            return msg, "interact", ok  # CHANGED
 
         elif action == "lock":
             target_id = resolve_player_target(parsed["target"], self.state)
@@ -1679,6 +1929,40 @@ class ActionTurnManager:
                 return "❌ 找不到目标玩家", "find", False
             msg = find_target.execute(player, target_id, self.state)
             return msg, "find", not msg.startswith("❌")      # CHANGED
+
+        elif action == "shoot":
+            # M4 弓：射箭（validator 已校验，目标必然可解析）
+            target_id = resolve_player_target(parsed["target"], self.state)
+            if not target_id:
+                return "❌ 找不到目标玩家", "shoot", False
+            target = self.state.get_player(target_id)
+            from actions import shoot as shoot_action
+            msg, result = shoot_action.execute(player, target, self.state)
+            if result.get("killed") and not result.get("death_finalized"):
+                player.kill_count += 1
+                self.state.markers.on_player_death(target_id)
+                if self.state.police_engine:
+                    self.state.police_engine.on_player_death(target_id)
+                display.show_death(target.name, f"被 {player.name} 射杀")
+                # M6 喝彩机检（含最后一箭击杀：射后 arrows 余量）
+                from engine import applause as _applause
+                _applause.check_kill_applause(
+                    self.state, player, target,
+                    weapon_arrows_left=getattr(player, "arrows", None))
+                from engine.round_manager import RoundManager
+                RoundManager.notify_all_talents_of_death(
+                    self.state, target_id, killer_id=player.player_id)
+            return msg, "shoot", True
+
+        elif action == "hook":
+            from actions import hook as hook_action
+            msg, ok = hook_action.execute(player, parsed, self.state)
+            return msg, "hook", ok
+
+        elif action == "applause_spend":
+            from actions import applause_spend
+            msg, consumes = applause_spend.execute(player, parsed.get("use"), self.state)
+            return msg, "applause_spend" if consumes else "status", consumes
 
         elif action == "attack":
             # Terror 攻击：走特殊逻辑
@@ -1722,6 +2006,20 @@ class ActionTurnManager:
                 consumes = not (isinstance(msg, str) and msg.startswith("❌"))
                 return msg, "special", consumes, consumes
             op = parsed["operation"]
+            if not op:
+                # M9 人类：裸输入 special 时浏览当前可用特殊操作。
+                try:
+                    from engine.m9.gate import m9_enabled
+                    from controllers.human import HumanController
+                    if (m9_enabled(self.state)
+                            and isinstance(player.controller, HumanController)):
+                        from cli.m9_ui import choose_special
+                        op = choose_special(player, self.state) or ""
+                        if not op or op == "取消":
+                            return (m9_text("action_turn.special_browse.not_selected"),
+                                    "special", False, False)
+                except Exception:
+                    pass
             msg, consumes = special_op.execute(player, op, self.state)
             is_ok = not msg.startswith("❌")
             return msg, "special", is_ok, consumes
@@ -1854,10 +2152,135 @@ class ActionTurnManager:
         if card_name != "改签票":
             ish.deck.discard_pile.append(card_name)
 
+    def _phase_t1_shadow(self, shadow):
+        """M9 G2 影身标准槽：move/interact/find/lock/attack/forfeit/消散影身。
+
+        影身使用真实物品与自身装备；不用玩家天赋/即演/公演；槽位收尾由
+        round_manager m9 分支统一处理（resolution_kind=action_performed）。
+        AI 决策主体 = _G2Adapter 影身策略（攻击→买刀→锁定→搜索）；引擎
+        菜单仅作合法目录与人工回退。此前 c_policy 把光身当影身传参，
+        影身整局 forfeit（G2 校正 7.2 垫底主因，诊断 tools/diag_g2_starfall.py）。
+        """
+        from engine.m9.talents.g2 import is_shadow_id
+        ctrl = getattr(shadow, "controller", None)
+        menu = ["move", "interact", "find", "lock", "attack", "forfeit",
+                m9_text("action_turn.shadow.option_dissipate")]
+        # 审计修复：终曲歌者无标准槽——转换前已发行的 grant 直接收尾，
+        # 不再让歌者借旧 grant 行动（RFC §7.2 契约）。
+        if getattr(shadow, "is_terminal_singer", False):
+            return "forfeit"
+        choice = None
+        override = None
+        try:
+            from controllers.ai.m9_adapters import resolve_talent_hook
+            hook = resolve_talent_hook(ctrl, shadow)
+            if hook is not None and hasattr(hook, "should_override_candidates"):
+                cands = hook.should_override_candidates(
+                    shadow, self.state,
+                    ["move", "interact", "find", "lock", "attack", "forfeit"])
+                if cands:
+                    for cand in cands:
+                        if cand in menu:
+                            choice = cand
+                            break
+                        if cand.startswith(("move ", "interact ", "attack ",
+                                            "lock ", "find ")):
+                            override = cand
+                            break
+        except Exception:
+            pass
+        if override is not None:
+            return self._execute_shadow_override(shadow, override)
+        if choice is None:
+            # 审计修复：把决策上下文绑到影身本身，避免 c_policy 拿
+            # controller._player（上一个 actor）替影身做选择。
+            try:
+                ctrl._player = shadow
+                ctrl._game_state = self.state
+            except Exception:
+                pass
+            try:
+                choice = ctrl.choose(
+                    m9_text("action_turn.shadow.choose_prompt",
+                            name=shadow.name),
+                    menu)
+            except Exception:
+                choice = "forfeit"
+        if choice == "消散影身":
+            owner_talent = None
+            owner = self.state.get_player(shadow.owner_pid)
+            if owner is not None:
+                owner_talent = owner.talent
+            if owner_talent is not None and hasattr(
+                    owner_talent, "dissipate"):
+                owner_talent.dissipate(shadow, reason="dissolve")
+            return "forfeit"
+        if choice not in menu:
+            choice = "forfeit"
+        from engine.m9.executor import execute_category
+        if choice in ("move", "interact", "find", "lock", "attack"):
+            msg, ok = execute_category(shadow, self.state, choice)
+            return choice if ok else "forfeit"
+        return "forfeit"
+
+    def _execute_shadow_override(self, shadow, command):
+        """执行 _G2Adapter 返回的完整命令（影身策略接线翻译层）。
+
+        _G2Adapter._shadow_override 产出的命令形态：`attack 名字 武器` /
+        `move 地点` / `interact 物品` / `lock 名字` / `find 名字`。
+        返回本槽 action_type；失败回退 forfeit。
+        """
+        actors = list(self.state.iter_actors()) if hasattr(
+            self.state, "iter_actors") else []
+        kind, _, rest = command.partition(" ")
+        try:
+            if kind == "move":
+                from actions import move as _move
+                _move.execute(shadow, rest, self.state)
+                return "move"
+            if kind == "interact":
+                from actions import interact as _interact
+                _interact.execute(shadow, rest, self.state)
+                return "interact"
+            if kind == "attack":
+                parts = rest.rsplit(maxsplit=1)
+                if len(parts) != 2:
+                    return "forfeit"
+                target_name, weapon = parts
+                target = next(
+                    (a.player_id for a in actors
+                     if getattr(a, "name", "") == target_name), None)
+                if target is None:
+                    return "forfeit"
+                from actions import attack as _attack
+                _attack.execute(shadow, target, weapon, self.state)
+                return "attack"
+            if kind in ("lock", "find"):
+                target = next(
+                    (a.player_id for a in actors
+                     if getattr(a, "name", "") == rest), None)
+                if target is None:
+                    return "forfeit"
+                if kind == "lock":
+                    from actions import lock_target as _lock
+                    _lock.execute(shadow, target, self.state)
+                    return "lock"
+                from actions import find_target as _find
+                _find.execute(shadow, target, self.state)
+                return "find"
+        except Exception:
+            return "forfeit"
+        return "forfeit"
+
     def _execute_attack(self, parsed, player, override_killer=None):
         """override_killer: 插入式笑话中传入 G6 玩家，
         使击杀归属、死亡显示、天赋通知都用 G6 的身份。"""
         killer = override_killer or player
+        # M9：非射击攻击重置 G7 连续射击计数（合同 §2.4b：仅非射击攻击/换形态重置）
+        if hasattr(self.state, "m9_system"):
+            talent = getattr(player, "talent", None)
+            if talent and hasattr(talent, "m9_reset_shoot_streak"):
+                talent.m9_reset_shoot_streak()
         target_id = resolve_player_target(parsed["target"], self.state)
         weapon_name = parsed["weapon"]
         layer_str = parsed.get("layer")
@@ -1921,7 +2344,8 @@ class ActionTurnManager:
                 msg += f"\n   ⚠️ {player.name} 因面对面近战暂时暴露！"
 
             target = self.state.get_player(target_id)
-            if result.get("killed") and target:
+            if (result.get("killed") and target
+                    and not result.get("death_finalized")):
                 # G2 发动者真正死亡 → 舞台崩塌
                 if (self.state.ish_bosheth
                         and self.state.ish_bosheth.phase in ("active", "duet")
@@ -1932,6 +2356,9 @@ class ActionTurnManager:
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target_id)
                 display.show_death(target.name, f"被 {killer.name} 的 {weapon_name} 击杀")
+                # M6 喝彩机检（首杀/重伤反杀/终焉击杀）
+                from engine import applause as _applause
+                _applause.check_kill_applause(self.state, killer, target)
                 # 通知所有天赋（星野色彩计数等）
                 from engine.round_manager import RoundManager
                 RoundManager.notify_all_talents_of_death(
@@ -1974,7 +2401,8 @@ class ActionTurnManager:
         shock_targets = []
         if "shock_2_targets" in weapon.special_tags and results:
             alive_hit = [r for r in results
-                         if r["target"].is_alive() and r["result"]["success"]]
+                         if r["target"].is_alive() and r["result"]["success"]
+                         and not r["result"].get("grazed_by_evasion", False)]  # 擦伤不触发附带效果
             if alive_hit:
                 names = [r["target"].name for r in alive_hit]
                 lines.append(f"   可选震荡目标（最多2个）：{', '.join(names)}")
@@ -2006,12 +2434,25 @@ class ActionTurnManager:
                 elif t.talent and hasattr(t.talent, 'is_immune_to_debuff') and t.talent.is_immune_to_debuff("shock"):
                     lines.append(f"      ☯️ {t.name} 的「元亨利贞」免疫了震荡！")
                 else:
-                    t.is_shocked = True
-                    t.is_stunned = True
-                    self.state.markers.on_shock(t.player_id)
-                    lines.append(f"      ⚡ {t.name} 进入震荡状态！")
+                    from engine import experiments as _exp
+                    if _exp.is_enabled("hp20"):
+                        # hp20：震荡走抗性两层制（v2.0 §2.5.1）
+                        from utils.status_resistance import apply_control
+                        ctrl = apply_control(t, "shock", self.state)
+                        if ctrl["applied"]:
+                            t.is_shocked = True
+                            t.is_stunned = True
+                            self.state.markers.on_shock(t.player_id)
+                            lines.append(f"      ⚡ {t.name} 进入震荡状态！")
+                        else:
+                            lines.append(f"      🛡️ {ctrl['message']}")
+                    else:
+                        t.is_shocked = True
+                        t.is_stunned = True
+                        self.state.markers.on_shock(t.player_id)
+                        lines.append(f"      ⚡ {t.name} 进入震荡状态！")
 
-            if res.get("killed"):
+            if res.get("killed") and not res.get("death_finalized"):
                 killer.kill_count += 1
                 self.state.markers.on_player_death(t.player_id)
                 if self.state.police_engine:

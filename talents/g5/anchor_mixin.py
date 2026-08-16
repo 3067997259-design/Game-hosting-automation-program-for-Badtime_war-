@@ -535,6 +535,10 @@ class AnchorMixin:
             ).format(length=len(self.anchor_path))
         )
 
+        # m7 开拓·防御公式数据源：路径属性命中数 n_X（来自评估器）
+        self.anchor_attr_counts = dict(getattr(result, "attr_counts", {}) or {})
+        self.anchor_key_items = []   # floor 路径无有限 key 物品；模板 phase-2 声明
+
         self.anchor_caster_backup = self._create_player_backup(player)
 
         self.anchor_target_snapshot = {
@@ -641,9 +645,15 @@ class AnchorMixin:
     # ================================================================
 
     def _anchor_start_combat(self, player, target):
+        from talents.talent_balance import m7_enabled
         self._consume_use()
         self.anchor_active = True
-        self.anchor_rounds_left = 5
+        # 监控轮 = K（m7 单值，= 可行上限）；v1 仍硬编码 5
+        if m7_enabled():
+            from engine.balance import get as bget
+            self.anchor_rounds_left = int(bget("anchor", "window", default=8))
+        else:
+            self.anchor_rounds_left = 5
         self.anchor_destructive_count = 0
 
         # RL 事件日志
@@ -656,8 +666,14 @@ class AnchorMixin:
 
         display.show_info(self._format_anchor_start_msg(player, target))
 
-        # V1.92: 锚定确认时即应用「一页永恒的善见天」D4加成
-        self._apply_anchor_d4_bonus()
+        from talents.talent_balance import m7_enabled
+        if m7_enabled():
+            # 善见天 v3：监控期目标对 G5 的闪避/隐身失效（accuracy.py 读此关系）
+            if target is not None:
+                target._anchored_by = self.player_id
+        else:
+            # V1.92: 锚定确认时即应用「一页永恒的善见天」D4加成（D4 在 v1 仍存活）
+            self._apply_anchor_d4_bonus()
 
     def _format_anchor_start_msg(self, player, target):
         lines = [
@@ -684,8 +700,8 @@ class AnchorMixin:
             ).format(revealed_step=self.anchor_revealed_step),
             prompt_manager.get_prompt(
                 "talent", "g5ripple.monitoring_period",
-                default="  ⏳ 监控期：5轮"
-            ),
+                default="  ⏳ 监控期：{rounds}轮"
+            ).format(rounds=self.anchor_rounds_left),
             prompt_manager.get_prompt(
                 "talent", "g5ripple.state_backed_up_player",
                 default="  📸 {player_name} 状态已备份"
@@ -782,6 +798,19 @@ class AnchorMixin:
     # ================================================================
 
     def _ask_dm_destructive_action(self, target):
+        # m7：开拓自动计算（int 增量，可 >1），全 AI / 人类局都用确定性公式
+        from talents.talent_balance import m7_enabled
+        if m7_enabled():
+            me = self._get_caster()
+            inc = self._compute_pioneer_increment(target, me) if me else 0
+            if inc > 0:
+                self.anchor_destructive_count += inc
+                display.show_info(prompt_manager.get_prompt(
+                    "talent", "g5ripple.pioneer_incremented",
+                    default="  🧭 开拓 +{inc}！当前：{current}/{variance}"
+                ).format(inc=inc, current=self.anchor_destructive_count,
+                         variance=self.anchor_variance))
+            return
         display.show_info(
             prompt_manager.get_prompt(
                 "talent", "g5ripple.destructive_action_question",
@@ -837,7 +866,86 @@ class AnchorMixin:
             )
 
     # ════════════════════════════════════════════════════════════════
-    #  ★ 修复后的自动判定逻辑 ★
+    #  ★ m7 开拓（替代"破坏性行动"）：返回本轮开拓增量 int ★
+    # ════════════════════════════════════════════════════════════════
+
+    _PIONEER_ATTRS = ("普通", "魔法", "科技")
+
+    def _defense_by_attr(self, target):
+        """目标对每攻击属性的总防御（轮初/轮末快照对比用）。信源统一调 numeric_v2。"""
+        from combat.numeric_v2 import compute_defense
+        return {X: compute_defense(target, X)[0] for X in self._PIONEER_ATTRS}
+
+    def _held_item_names(self, player):
+        """玩家当前持有的所有物名（武器/物品/护甲/背包），用于有限物品开拓对比。"""
+        names = set()
+        for attr in ("weapons", "items", "inventory"):
+            for o in getattr(player, attr, None) or []:
+                n = getattr(o, "name", None)
+                if n:
+                    names.add(n)
+        names |= set(self._get_armor_summary(player))
+        return names
+
+    def _item_exhausted(self, item_name):
+        """该物品是否已被全场拿绝（地图无、全在他人手）。框架：扫存活玩家持有，==0 即绝。"""
+        for pid in self.state.player_order:
+            p = self.state.get_player(pid)
+            if p and p.is_alive() and item_name in self._held_item_names(p):
+                return False
+        return True
+
+    def _compute_pioneer_increment(self, target, me):
+        """本轮开拓增量（int，可 >1）= 防御 Σ_X contrib + 移动 + 致残发动者 + 治疗 + 有限物品。
+
+        防御开拓：对每属性 X，若目标本轮提高 X 防御或获得 X 隐身 → +n_X（封顶 n_X+1）。
+        """
+        inc = 0
+        counts = getattr(self, "anchor_attr_counts", {}) or {}
+        start_def = getattr(self, "_target_round_start_defense", None) or {}
+        start_stealth = getattr(self, "_target_round_start_stealth", None) or set()
+        cur_def = self._defense_by_attr(target)
+        cur_stealth = set(getattr(target, "stealth_attrs", None) or set())
+        for X in self._PIONEER_ATTRS:
+            n_x = counts.get(X, 0)
+            if n_x <= 0:
+                continue
+            raised_def = cur_def.get(X, 0) > start_def.get(X, 0)
+            raised_eva = (X in cur_stealth) and (X not in start_stealth)
+            if raised_def or raised_eva:
+                inc += min(n_x, n_x + 1)   # = n_x（窗口内提过即记满；封顶 n_x+1）
+
+        # 移动脱离（脱离 G5 可达；移到 G5 当前地点不算）
+        sl = self._target_round_start_location
+        if sl is not None and target.location != sl and target.location != me.location:
+            inc += 1
+
+        # 致残发动者（本轮新陷入眩晕/震荡/石化，记 1 次）
+        newly_disabled = (
+            (not self._caster_round_start_stunned and me.is_stunned)
+            or (not self._caster_round_start_shocked and getattr(me, "is_shocked", False))
+            or (not self._caster_round_start_petrified and getattr(me, "is_petrified", False)))
+        if newly_disabled:
+            inc += 1
+
+        # 治疗回血（抗命）
+        sh = getattr(self, "_target_round_start_hp", None)
+        if sh is not None and target.hp > sh:
+            inc += 1
+
+        # 有限物品开拓（框架，floor 路径 key_items 空 → 休眠）
+        start_items = getattr(self, "_target_round_start_items", None) or set()
+        cur_items = self._held_item_names(target)
+        for item in getattr(self, "anchor_key_items", []) or []:
+            if item in cur_items and item not in start_items:
+                inc += 1
+                if self._item_exhausted(item):
+                    inc += 1   # 拿绝额外 +1
+
+        return inc
+
+    # ════════════════════════════════════════════════════════════════
+    #  ★ 修复后的自动判定逻辑（v1）★
     # ════════════════════════════════════════════════════════════════
 
     def _auto_judge_destructive(self, target):
@@ -915,12 +1023,26 @@ class AnchorMixin:
             if target:
                 self._target_round_start_location = target.location
                 self._target_round_start_armor = self._get_armor_summary(target)
+                # m7 开拓：每属性总防御 / 隐身集 / HP / 持有物名（轮末对比）
+                self._target_round_start_defense = self._defense_by_attr(target)
+                self._target_round_start_stealth = set(
+                    getattr(target, "stealth_attrs", None) or set())
+                self._target_round_start_hp = target.hp
+                self._target_round_start_items = self._held_item_names(target)
             else:
                 self._target_round_start_location = None
                 self._target_round_start_armor = None
+                self._target_round_start_defense = None
+                self._target_round_start_stealth = None
+                self._target_round_start_hp = None
+                self._target_round_start_items = None
         else:
             self._target_round_start_location = None
             self._target_round_start_armor = None
+            self._target_round_start_defense = None
+            self._target_round_start_stealth = None
+            self._target_round_start_hp = None
+            self._target_round_start_items = None
 
         # 保存发动者轮初状态
         me = self._get_caster()
@@ -1023,6 +1145,7 @@ class AnchorMixin:
             self.state.log_event("ripple_anchor_success",
                                  player=self.player_id,
                                  target=self.anchor_target_id)
+            self._record_anchor_success(me)
             display.show_info(
                 f"\n{'='*60}"
                 f"\n" + prompt_manager.get_prompt(
@@ -1120,6 +1243,7 @@ class AnchorMixin:
             self.state.log_event("ripple_anchor_success",
                                  player=self.player_id,
                                  target=self.anchor_target_id)
+            self._record_anchor_success(me)
             display.show_info(
                 f"\n" + prompt_manager.get_prompt(
                     "talent", "g5ripple.combat_anchor_success",
@@ -1212,6 +1336,7 @@ class AnchorMixin:
             target = self.state.get_player(self.anchor_target_id)
             if target and target.is_alive():
                 target.hp = 0
+                target._anchor_killed = True  # M6：被锚定击杀者不能成星（§5）
                 self.state.markers.on_player_death(target.player_id)
                 if self.state.police_engine:
                     self.state.police_engine.on_player_death(target.player_id)
@@ -1385,7 +1510,22 @@ class AnchorMixin:
     #  锚定清理（V1.92: 增加轮初快照字段清理）
     # ================================================================
 
+    def _record_anchor_success(self, me):
+        """累计成功锚定数；满 2 次 → 完结条「两次成功锚定」+剧情分（§4.3）。
+
+        successful_anchors 是整局累计（不被 _anchor_cleanup 清），finale.mark 已去重/m6 门控。
+        """
+        self.successful_anchors = getattr(self, "successful_anchors", 0) + 1
+        if self.successful_anchors == 2 and me is not None:
+            from engine.finale_conditions import mark
+            mark(me, "g5_double_anchor", self.state)
+
     def _anchor_cleanup(self):
+        # 善见天 v3：解除被锚定目标的"被注视"关系
+        if self.anchor_target_id:
+            tgt = self.state.get_player(self.anchor_target_id)
+            if tgt is not None and getattr(tgt, "_anchored_by", None) == self.player_id:
+                tgt._anchored_by = None
         self.anchor_active = False
         self.anchor_type = None
         self.anchor_target_id = None
@@ -1405,6 +1545,13 @@ class AnchorMixin:
         self._caster_round_start_stunned = False
         self._caster_round_start_shocked = False
         self._caster_round_start_petrified = False
+        # m7 开拓状态清理
+        self.anchor_attr_counts = {}
+        self.anchor_key_items = []
+        self._target_round_start_defense = None
+        self._target_round_start_stealth = None
+        self._target_round_start_hp = None
+        self._target_round_start_items = None
 
     # ================================================================
     #  锚定期间：发动者死亡检查

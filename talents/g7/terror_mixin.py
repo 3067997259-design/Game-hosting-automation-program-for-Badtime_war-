@@ -99,29 +99,34 @@ class TerrorMixin:
         self.tactical_items.clear()
         self.medicines.clear()
 
-        # 失去铁之荷鲁斯 → 每点护甲值折算1额外生命值
+        from talents.talent_balance import talent_num
+        # 失去铁之荷鲁斯 → v1 每点护甲值折算 1；m7 按耐久/4 折算（§7.4）
         original_horus_hp = self.iron_horus_hp
-        horus_extra = self.iron_horus_hp * 1
+        horus_divisor = talent_num("g7", "terror_horus_divisor", v1=1)
+        horus_extra = self.iron_horus_hp / horus_divisor
         self.iron_horus_hp = 0
 
-        # 失去所有光环 → 每层折算1额外生命值
-        halo_extra = sum(1.0 for h in self.halos if h['active'])
+        # 失去所有光环 → v1 每层 1；m7 每层 3（§7.4）
+        halo_per_layer = talent_num("g7", "terror_halo_per_layer", v1=1.0)
+        halo_extra = sum(halo_per_layer for h in self.halos if h['active'])
         for h in self.halos:
             h['active'] = False
             h['recovering'] = False
             h['cooldown_remaining'] = 0
+            h['value'] = 0.0
 
-        # 失去所有护甲 → 每层1额外生命值
+        # 失去所有护甲 → v1 每件 1；m7 每件 3（§7.4）
+        armor_per_piece = talent_num("g7", "terror_armor_per_piece", v1=1.0)
         armor_extra = 0.0
         all_armor = list(player.armor.get_all_active())
         for armor in all_armor:
             if not armor.is_broken:
-                armor_extra += 1.0
+                armor_extra += armor_per_piece
             player.armor.remove_piece(armor)
 
         raw_total = horus_extra + halo_extra + armor_extra
-        # 保底4额外生命值
-        TERROR_HP_FLOOR = 4
+        # 保底额外生命值：v1=4，m7=12（§7.4）
+        TERROR_HP_FLOOR = talent_num("g7", "terror_hp_floor", v1=4)
         self.terror_extra_hp = max(raw_total, TERROR_HP_FLOOR)
         hp_calc = prompt_manager.get_prompt("talent", "g7hoshino.terror_hp_calc",
                                          original_horus_hp=original_horus_hp,
@@ -150,6 +155,10 @@ class TerrorMixin:
             """
             from combat.damage_resolver import resolve_terror_damage
             from cli import display
+            from talents.talent_balance import talent_num
+
+            # 主炮：v1 造 1 真伤；m7 造 4 真伤全图（§7.4）
+            attack_damage = talent_num("g7", "terror_attack_damage", v1=1.0)
 
             header = prompt_manager.get_prompt("talent", "g7hoshino.terror_attack_header")
             lines = [header]
@@ -159,7 +168,7 @@ class TerrorMixin:
                 if not t or not t.is_alive() or t.player_id == player.player_id:
                     continue
 
-                r = resolve_terror_damage(player, t, self.state, raw_damage=1.0)
+                r = resolve_terror_damage(player, t, self.state, raw_damage=attack_damage)
 
                 # 收集结算详情
                 for detail in r.get("details", []):
@@ -175,8 +184,15 @@ class TerrorMixin:
                     RoundManager.notify_all_talents_of_death(
                         self.state, t.player_id, killer_id=player.player_id)
 
-            # 伤害结算后扣除额外HP（不同归于尽）
-            # ★ 若本轮击杀全场最后一批敌人 → 免扣HP，直接判胜
+            # 伤害结算后扣除额外HP
+            # M9 机制刀（用户批准）：Terror「全歼即胜免扣 HP」改为普通胜利——
+            # 主炮永远按 attack_cost 烧额外生命；全歼判定由全局胜负流程承接。
+            # v2exp 保留旧语义（profile 隔离）。
+            try:
+                from engine.m9.gate import m9_enabled
+                m9_active = m9_enabled(self.state)
+            except Exception:
+                m9_active = False
             all_others_dead = True
             for pid in self.state.player_order:
                 if pid == player.player_id:
@@ -186,8 +202,10 @@ class TerrorMixin:
                     all_others_dead = False
                     break
 
-            if not all_others_dead:
-                self.terror_extra_hp = round(max(0, self.terror_extra_hp - 1), 2)
+            if not all_others_dead or m9_active:
+                # 主炮耗额外 HP：v1=1，m7=6（§7.4）
+                attack_cost = talent_num("g7", "terror_attack_cost", v1=1)
+                self.terror_extra_hp = round(max(0, self.terror_extra_hp - attack_cost), 2)
                 extra_hp_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_extra_hp_status",
                                                      terror_extra_hp=self.terror_extra_hp)
                 lines.append(extra_hp_msg)
@@ -206,10 +224,12 @@ class TerrorMixin:
         返回消息字符串。
         """
         from actions import move
+        from talents.talent_balance import talent_num
         msg = move.execute(player, destination, self.state)
 
-        # 行动完成后扣除
-        self.terror_extra_hp = round(max(0, self.terror_extra_hp - 0.5), 2)
+        # 行动完成后扣除：v1=0.5，m7=2（§7.4）
+        move_cost = talent_num("g7", "terror_move_cost", v1=0.5)
+        self.terror_extra_hp = round(max(0, self.terror_extra_hp - move_cost), 2)
         extra_hp_msg = prompt_manager.get_prompt("talent", "g7hoshino.terror_extra_hp_status",
                                           terror_extra_hp=self.terror_extra_hp)
         msg += f"\n{extra_hp_msg}"

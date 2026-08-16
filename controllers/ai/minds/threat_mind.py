@@ -52,6 +52,8 @@ class ThreatMind(BaseMind):
         llm_aggression_mod: float = 0.0,
         polices_cache: Optional[Dict[str, Any]] = None,
         ctx=None,
+        snapshot: Optional[Any] = None,
+        assessment: Optional[Any] = None,
     ) -> MindAssessment:
         """分析威胁态势。
 
@@ -93,16 +95,23 @@ class ThreatMind(BaseMind):
             if pid == player.player_id:
                 continue
             target = state.get_player(pid)
-            if not target or not target.is_alive():
+            brief = snapshot.opponent_briefs.get(pid) \
+                if snapshot is not None else None
+            alive = brief.alive if brief is not None \
+                else bool(target is not None and target.is_alive())
+            if not alive:
                 if target and target.name in threat_scores:
                     del threat_scores[target.name]
                 continue
             alive_names.add(target.name)
 
-            power = self._query.estimate_power(target)
+            power = self._query.estimate_power(target, state)
 
             # ★ 队长威胁度：纳入指挥的警察单位力量
-            if getattr(target, 'is_captain', False):
+            # 快照优先（brief.is_captain 与 target 投影等价；缺失回退旧读法）
+            is_captain = brief.is_captain if brief is not None \
+                else bool(getattr(target, 'is_captain', False))
+            if is_captain:
                 police_data = getattr(state, 'police', None)
                 if police_data:
                     units = getattr(police_data, 'units', [])
@@ -205,6 +214,9 @@ class ThreatMind(BaseMind):
         # ── 最强武器伤害 ──
         best_dmg = self._query.best_weapon_damage(player)
 
+        # ── 快照化派生输出：威胁分/地点威胁写入 AssessmentLayer ──
+        self._snapshot_derived(player, snapshot, assessment, threat_scores)
+
         return MindAssessment(
             mind_name="threat",
             urgency=10 if virus_emergency or danger else (8 if terror_info else 0),
@@ -226,6 +238,30 @@ class ThreatMind(BaseMind):
                 "best_weapon_damage": best_dmg,
             },
         )
+
+    # ── 快照化派生输出（2026-08-12）──
+    def _snapshot_derived(self, player, snapshot, assessment, threat_scores):
+        """用 ProjectedSnapshot 计算派生字段写入 AssessmentLayer。
+
+        新增字段不改变现有决策（行为不变），为后续阶段提供快照化输入：
+        - location_threat：每地点威胁 = 该地点对手威胁分之和；
+        - 回写 threat_scores 到派生层。
+        """
+        if snapshot is None or assessment is None:
+            return
+        my_loc = snapshot.location
+        loc_threat: Dict[str, float] = {}
+        for loc, units in snapshot.location_occupancy.items():
+            total = 0.0
+            for u in units:
+                if u.kind != "player" or u.uid == snapshot.actor_id:
+                    continue
+                total += threat_scores.get(u.name, 0.0)
+            if total > 0:
+                loc_threat[loc] = total
+        assessment.location_threat = loc_threat
+        assessment.threat_scores = dict(threat_scores)
+        assessment.in_combat = bool(my_loc and loc_threat.get(my_loc, 0) > 0)
 
     def _build_summary(self, virus, danger, terror, supernova, savior) -> str:
         parts = []
@@ -307,6 +343,26 @@ class ThreatMind(BaseMind):
                 return True
         if Q.is_anchored(player, state):
             return True
+        talent = getattr(player, "talent", None)
+        form = getattr(talent, "form", None)
+        if form is not None:
+            # M9 不再设置旧 debuff_started；按四形态和 HP20 血线判断。
+            # 旧逻辑 outer>0 直接安全，会让 HP=3 的卸甲火萤继续攻击/打工。
+            max_hp = float(getattr(player, "max_hp", 20) or 20)
+            if float(getattr(player, "hp", 0)) <= max(4.0, max_hp * 0.25):
+                return True
+            outer = Q.count_outer_armor(player)
+            locked = Q.count_locked_by(player, state)
+            if locked >= 1 and (form == "armorless" or outer <= 1):
+                return True
+            markers = getattr(state, 'markers', None)
+            if markers:
+                engaged = markers.get_related(player.player_id, "ENGAGED_WITH")
+                for eid in engaged:
+                    enemy = state.get_player(eid)
+                    if enemy and enemy.is_alive() and Q.best_weapon_damage(enemy) >= 4:
+                        return True
+            return False
         if Q.firefly_debuff_active(player):
             return False
         outer = Q.count_outer_armor(player)

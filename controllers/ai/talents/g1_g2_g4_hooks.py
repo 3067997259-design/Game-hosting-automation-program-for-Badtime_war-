@@ -10,6 +10,7 @@ from controllers.ai.constants import debug_ai_basic
 from controllers.ai.evaluation import (
     get_divinity, has_firefly_talent, is_in_savior_state, get_effective_hp,
 )
+from engine.m9.text import m9_text
 
 
 class FireflyAIHook(BaseTalentAIHook):
@@ -87,7 +88,8 @@ class FireflyAIHook(BaseTalentAIHook):
 
         if "interact" in available:
             if GameQuery.is_at_home(player):
-                if vouchers < 1:
+                from engine import experiments
+                if vouchers < 1 and not experiments.is_enabled("m4_gear"):
                     commands.append("interact 凭证")
                 if not any(w.name == "小刀" for w in real_weapons):
                     commands.append("interact 小刀")
@@ -317,7 +319,8 @@ class HologramAIHook(BaseTalentAIHook):
 
         if "interact" in available:
             if GameQuery.is_at_home(player):
-                if vouchers < 1:
+                from engine import experiments
+                if vouchers < 1 and not experiments.is_enabled("m4_gear"):
                     commands.append("interact 凭证")
                 if outer < 1:
                     commands.append("interact 盾牌")
@@ -813,7 +816,7 @@ class SaviorAIHook(BaseTalentAIHook):
         """救世主状态：优先攻击"""
         if not is_in_savior_state(player) or get_effective_hp(player) <= 0.5:
             return None
-        debug_ai_basic(player.name, "救世主状态激活，优先攻击")
+        debug_ai_basic(player.name, m9_text("ai.hooks.g1_g2_g4.debug_savior_active"))
         last_attacker = self._ctrl._get_last_attacker(player, state)
         if last_attacker:
             attack_cmds = self._ctrl._cmd_attack(player, state, available, last_attacker)

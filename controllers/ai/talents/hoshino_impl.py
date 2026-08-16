@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import List, Optional, Any
 from controllers.ai.constants import PROTECTED_ITEMS, debug_ai_basic
 from utils.attribute import COUNTER_ATTRIBUTE_NAME
+from engine.experiments import is_enabled as _is_exp_enabled
 
 
 class HoshinoImpl:
@@ -97,6 +98,32 @@ class HoshinoImpl:
             if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
                 return a.name
         return None
+
+    def _hoshino_reload_batch(self, player) -> int:
+        """单件消耗品装填发数（profile 感知）：M9=2 发，v2exp=4 发。"""
+        talent = getattr(player, 'talent', None)
+        state = getattr(talent, 'state', None) if talent is not None else None
+        try:
+            from engine.m9.gate import m9_enabled
+            return 2 if m9_enabled(state) else 4
+        except Exception:
+            return 4
+
+    def _hoshino_ammo_budget_for_macro(self, player) -> int:
+        """本宏可射击发数：已有弹药，或空匣时装填一件消耗品的发数。
+
+        宏层保证弹药：射击填充不得超过该预算，杜绝空弹射击白扣 Cost。
+        """
+        talent = getattr(player, 'talent', None)
+        if not talent:
+            return 0
+        ammo_count = len(getattr(talent, 'ammo', []))
+        if ammo_count > 0:
+            return ammo_count
+        if not self._hoshino_find_consumable_for_reload(player):
+            return 0
+        max_ammo = int(getattr(talent, 'max_ammo', 4))
+        return min(self._hoshino_reload_batch(player), max_ammo)
 
     def _hoshino_captain_has_police_protection(self, state) -> bool:
         """队长所在地点是否有 active 状态的警察单位"""
@@ -449,19 +476,21 @@ class HoshinoImpl:
         return self._hoshino_has_missing_halo(player)
 
     def _hoshino_has_enough_ammo_for_burst(self, player) -> bool:
-        """检查是否有足够弹药/消耗品支撑一轮爆发（至少能打2发）"""
+        """检查是否有足够弹药/消耗品支撑一轮爆发（至少能打 2 发）。
+
+        M9 一件消耗品只装填 2 发（v2exp 仍 4 发）；旧公式按 4 发估算，
+        会把不够支撑爆发的情况误判为充足。
+        """
         talent = getattr(player, 'talent', None)
         if not talent:
             return False
         ammo_count = len(getattr(talent, 'ammo', []))
-        # 已有子弹 >= 4 → 足够
-        if ammo_count >= 4:
+        if ammo_count >= 2:
             return True
         # 荷鲁斯受损时保留修复材料，不算作可消耗品
         iron_horus_hp = getattr(talent, 'iron_horus_hp', 0)
         iron_horus_max = getattr(talent, 'iron_horus_max_hp', 2)
         repair_names = {"盾牌", "AT力场"} if iron_horus_hp < iron_horus_max else set()
-        # 已有子弹 + 可装填的消耗品数量 >= 4
         consumable_count = 0
         for w in getattr(player, 'weapons', []):
             if w and w.name not in ("拳击", "荷鲁斯之眼"):
@@ -470,12 +499,10 @@ class HoshinoImpl:
             item_name = getattr(item, 'name', None)
             if item and item_name not in PROTECTED_ITEMS and item_name not in repair_names:
                 consumable_count += 1
-        # 检查护甲（盾牌/AT力场等）—— 受损时跳过修复材料
         for a in getattr(getattr(player, 'armor', None), 'get_all_active', lambda: [])():
             if a and a.name not in ("拳击", "荷鲁斯之眼") and a.name not in repair_names:
                 consumable_count += 1
-        # 每个消耗品装填4发
-        return ammo_count + consumable_count * 4 >= 4
+        return ammo_count + consumable_count * self._hoshino_reload_batch(player) >= 2
 
     def _hoshino_can_effectively_shoot(self, player, target) -> bool:
         """检查当前弹药属性是否能有效打击目标护甲"""
@@ -484,6 +511,28 @@ class HoshinoImpl:
             return False
         ammo = getattr(talent, 'ammo', [])
         ammo_attrs = set(b.get("attribute", "普通") for b in ammo)
+
+        if _is_exp_enabled("m8_ai"):
+            # D1：单发裸伤 = 3 弹丸 × talent_num(g7.eye_pellet_damage)，净伤>0 即有效
+            from talents.talent_balance import talent_num
+            pellet = float(talent_num("g7", "eye_pellet_damage", v1=0.5))
+            raw = max(1, int(round(pellet * 3)))
+            from combat import numeric_v2
+            from models.equipment import ArmorLayer
+            armor_obj = getattr(target, 'armor', None)
+            outer_armors = []
+            if armor_obj and hasattr(armor_obj, 'get_all_active'):
+                outer_armors = [a for a in armor_obj.get_all_active()
+                                if not a.is_broken
+                                and getattr(a, 'layer', None) == ArmorLayer.OUTER]
+            if not outer_armors:
+                return True  # 无外层护甲，任何子弹都有效
+            for b in ammo:
+                b_attr = b.get("attribute", "普通")
+                defense, _ = numeric_v2.compute_defense(target, b_attr)
+                if numeric_v2.compute_damage(raw, defense) > 0:
+                    return True
+            return False
 
         # 检查目标外层护甲属性
         armor_obj = getattr(target, 'armor', None)
@@ -763,6 +812,30 @@ class HoshinoImpl:
     #  战术宏模板生成
     # ════════════════════════════════════════════════════════
 
+    def _hoshino_build_throw_only_macro(self, player, state, target) -> Optional[List[str]]:
+        """无弹药/荷鲁斯破损时的最小投掷宏（2026-09 R7 机制压顶）：
+
+        公演补给发放的战术道具此前在“无弹药→维护路径”下完全闲置；
+        现在只要战术已解锁且手里有可投掷道具，就生成纯投掷宏。
+        """
+        talent = getattr(player, 'talent', None)
+        if talent is None or not getattr(talent, 'tactical_unlocked', False):
+            return None
+        item = self._hoshino_pick_throw_item(player, target)
+        if not item:
+            return None
+        loc = self._ctrl._get_location_str(target)
+        if not loc:
+            return None
+        queue = []
+        # 架盾投掷只对正面单位生效；目标异地点时先取消架盾再投。
+        if getattr(talent, 'shield_mode', None) == "架盾" \
+                and self._ctrl._get_location_str(player) != loc:
+            queue.append("取消")
+        queue.append(f"投掷 {item} {loc}")
+        queue.append("terminal")
+        return queue
+
     def _hoshino_build_macro(self, player, state, target) -> List[str]:
         """
         根据当前状态生成战术指令宏队列。
@@ -773,12 +846,14 @@ class HoshinoImpl:
         talent = getattr(player, 'talent', None)
         if not talent:
             return ["terminal"]
-        # 安全网：无弹药且无消耗品时不应进入宏（正常情况下 controller.py 已拦截）
+        # 安全网：无弹药且无消耗品时不应进入射击宏——但战术道具仍可投掷
         if not talent.ammo and not self._hoshino_find_consumable_for_reload(player):
-            return ["terminal"]
-        # 铁之荷鲁斯破损时不应进入宏
+            return self._hoshino_build_throw_only_macro(player, state, target) \
+                or ["terminal"]
+        # 铁之荷鲁斯破损时不应进入射击宏——但战术道具仍可投掷
         if talent.iron_horus_hp <= 0:
-            return ["terminal"]
+            return self._hoshino_build_throw_only_macro(player, state, target) \
+                or ["terminal"]
 
         queue = []
         cost = talent.cost
@@ -808,8 +883,10 @@ class HoshinoImpl:
         # ===== 预投掷：冲刺前先投掷到目标位置（禁用警察保护等）=====
         throw_item = self._hoshino_pick_throw_item(player, target)
         pre_throw = False
-        if throw_item and not same_loc and can_afford("投掷"):
-            # 不同地点：先投掷到目标位置，再冲刺过去
+        if throw_item and not same_loc and can_afford("投掷") \
+                and shield_mode != "架盾":
+            # 不同地点：先投掷到目标位置，再冲刺过去。
+            # 架盾时投掷只对正面单位生效，异地点必空投 → 跳过预投掷。
             queue.append(f"投掷 {throw_item} {target_loc}")
             used_cost += COST["投掷"]
             pre_throw = True
@@ -938,11 +1015,13 @@ class HoshinoImpl:
             # ===== 智能排弹（有弹药时仅在首发无效时排弹） =====
             queue.append("排弹")  # cost 0，每宏限1次
 
-        # ===== 阶段2：射击填充 =====
+        # ===== 阶段2：射击填充（严格以弹药预算为上限，不空弹白扣 Cost）=====
+        ammo_budget = self._hoshino_ammo_budget_for_macro(player)
         remaining_cost = cost - used_cost
-        while remaining_cost >= COST["射击"]:
+        while remaining_cost >= COST["射击"] and ammo_budget > 0:
             queue.append(f"射击 {target.name}")
             remaining_cost -= COST["射击"]
+            ammo_budget -= 1
 
         queue.append("terminal")
         return queue
@@ -1065,9 +1144,11 @@ class HoshinoImpl:
                     queue.append("排弹")  # 装填后弹药顺序未知，总是排弹
 
             remaining_cost = cost - used_cost
-            while remaining_cost >= COST["射击"]:
+            ammo_budget = self._hoshino_ammo_budget_for_macro(player)
+            while remaining_cost >= COST["射击"] and ammo_budget > 0:
                 queue.append(f"射击 {captain.name}")
                 remaining_cost -= COST["射击"]
+                ammo_budget -= 1
 
         # 注意：不在此处设置 _hoshino_anti_captain_approached 标记。
         # 由 controller.py 在宏队列赋值后、确认不会被 _generate_candidates 覆盖时设置。
@@ -1132,11 +1213,13 @@ class HoshinoImpl:
                     queue.append("terminal")
                     return queue
 
-            # 填充射击
+            # 填充射击（严格以弹药预算为上限）
             remaining_cost = cost - used_cost
-            while remaining_cost >= COST["射击"]:
+            ammo_budget = self._hoshino_ammo_budget_for_macro(player)
+            while remaining_cost >= COST["射击"] and ammo_budget > 0:
                 queue.append(f"射击 {captain.name}")
                 remaining_cost -= COST["射击"]
+                ammo_budget -= 1
 
         queue.append("terminal")
         return queue
@@ -1189,11 +1272,13 @@ class HoshinoImpl:
             if optimal_order != current_order and len(optimal_order) > 0:
                 queue.append("排弹")
 
-        # 连射到 cost 耗尽
+        # 连射到 cost 耗尽（弹药预算封顶，杜绝空弹白扣 Cost）
         remaining_cost = cost - used_cost
-        while remaining_cost >= COST["射击"]:
+        ammo_budget = self._hoshino_ammo_budget_for_macro(player)
+        while remaining_cost >= COST["射击"] and ammo_budget > 0:
             queue.append(f"射击 {target.name}")
             remaining_cost -= COST["射击"]
+            ammo_budget -= 1
 
         queue.append("terminal")
         return queue

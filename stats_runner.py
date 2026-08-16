@@ -22,11 +22,14 @@ try:
     from engine.game_setup import (
         TALENT_TABLE, AI_TALENT_PREFERENCE, AI_PERSONALITIES,
         AI_NAME_POOL, TALENT_DECAY_FACTOR, _ai_pick_talent,
-        AI_DISABLED_TALENTS,
+        AI_DISABLED_TALENTS, assign_talent_entry, find_talent_entry,
+        talent_table_for_current_profile,
     )
     from models.player import Player
     from controllers.ai_basic import BasicAIController
+    from controllers.bots import BOT_REGISTRY
     from cli import display as _display_module
+    from engine import experiments
     from engine.prompt_manager import prompt_manager
 
     # RL 模型支持（可选）
@@ -43,6 +46,7 @@ finally:
 # ── Display silencing (copied from rl/env.py) ──
 _DISPLAY_FUNCS = [
     "show_banner", "show_round_header", "show_phase", "show_d4_results",
+    "show_initiative_results",
     "show_action_turn_header", "show_player_status", "show_available_actions",
     "show_result", "show_error", "show_info", "show_victory", "show_death",
     "show_police_status", "show_virus_status", "show_police_enforcement",
@@ -120,9 +124,32 @@ def _restore_prompt_manager():
 # ── Talent number lookup ──
 TALENT_NAME_TO_NUM: dict[str, int] = {}
 TALENT_NUM_TO_NAME: dict[int, str] = {}
-for _num, _name, _cls, _desc in TALENT_TABLE:
-    TALENT_NAME_TO_NUM[_name] = _num
-    TALENT_NUM_TO_NAME[_num] = _name
+
+
+def _refresh_talent_lookup(game_state=None) -> None:
+    """按当前 profile 刷新展示名映射（M9 的 G0 复用 legacy 编号 5）。"""
+    TALENT_NAME_TO_NUM.clear()
+    TALENT_NUM_TO_NAME.clear()
+    for number, name, _, _ in talent_table_for_current_profile(game_state):
+        TALENT_NAME_TO_NUM[name] = number
+        TALENT_NUM_TO_NAME[number] = name
+
+
+def _talent_num_for_player(player: Player) -> int:
+    """优先按稳定槽位取编号，避免 M9 显示名与 legacy 表不一致。"""
+    slot_id = str(getattr(player, "talent_slot_id", "") or "")
+    if slot_id:
+        try:
+            from engine.m9.talent_registry import registration_for_slot
+            registration = registration_for_slot(slot_id)
+        except (ImportError, AttributeError, ValueError):
+            registration = None
+        if registration is not None and registration.legacy_number is not None:
+            return int(registration.legacy_number)
+    return TALENT_NAME_TO_NUM.get(player.talent_name or "", 0)
+
+
+_refresh_talent_lookup()
 
 
 # ── Statistics dataclasses ──
@@ -151,9 +178,26 @@ COL_PERS = 14      # 人格列宽
 
 
 def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = "random",
-                    diag_mode: bool = False) -> dict[str, Any]:
-    """Run a single game (all-AI, or with one RL seat) and return results."""
+                    diag_mode: bool = False, collect_digest: bool = False,
+                    lineup: Optional[list[str]] = None,
+                    no_talents: bool = False,
+                    force_talent: Optional[str] = None) -> dict[str, Any]:
+    """Run a single game (all-AI, or with one RL seat) and return results.
+
+    collect_digest: True 时结果附带 event_digest（golden 回放用，常规批跑不开省内存）。
+    lineup: 每个席位的控制器名列表（长度 = AI 席位数）。名字命中 BOT_REGISTRY
+            则创建风洞 bot（不选天赋），否则视为 BasicAI 人格名。None = 随机人格。
+    no_talents: True 时全员不分配天赋——M2~M6 风洞主通道（天赋量纲 M7 才迁移，
+                带天赋的 hp20 局数据无效）。
+    """
     game_state = GameState()
+    talent_table = talent_table_for_current_profile(game_state)
+    forced_entry = (
+        find_talent_entry(force_talent, talent_table, game_state=game_state)
+        if force_talent else None
+    )
+    if force_talent and forced_entry is None:
+        raise ValueError(f"未知天赋：{force_talent!r}")
 
     available_names = list(AI_NAME_POOL)
     random.shuffle(available_names)
@@ -173,15 +217,23 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
     else:
         start_idx = 0
 
+    bot_pids: set[str] = set()
     ai_count = num_players - (1 if rl_controller else 0)
     for i in range(ai_count):
         ai_name = available_names[i] if i < len(available_names) else f"AI_{i+1}"
-        personality = random.choice(AI_PERSONALITIES)
         pid = f"p{i + 1 + start_idx}"
-        controller = BasicAIController(
-            personality=personality,
-            diag_enabled=diag_mode,
-        )
+        slot = lineup[i] if lineup and i < len(lineup) else None
+        if slot in BOT_REGISTRY:
+            controller = BOT_REGISTRY[slot]()
+            personality = controller.personality  # = bot 名，复用统计分桶
+            ai_name = f"{slot}_{pid}"
+            bot_pids.add(pid)
+        else:
+            personality = slot if slot else random.choice(AI_PERSONALITIES)
+            controller = BasicAIController(
+                personality=personality,
+                diag_enabled=diag_mode,
+            )
         player = Player(pid, ai_name, controller=controller)
         game_state.add_player(player)
         ai_players_info.append((pid, ai_name, personality))
@@ -190,19 +242,25 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
 
     ai_personality_map = {info[0]: info[2] for info in ai_players_info}
     taken: set[int] = set()
+    force_assigned = False
+    # 强制天赋席位从“AI 创建顺序”独立抽取，不再固定给打乱后的
+    # 第一行动位。否则强制天赋风洞会混入行动顺位偏置。
+    force_eligible_pids = [
+        pid for pid, _, _ in ai_players_info if pid not in bot_pids]
+    forced_talent_pid = (
+        random.choice(force_eligible_pids)
+        if forced_entry is not None and force_eligible_pids else None)
 
     # RL random 模式：先选，确保均匀分布
     if rl_pid is not None and rl_talent_mode == "random":
         rl_player = game_state.get_player(rl_pid)
-        available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
-                     if n not in AI_DISABLED_TALENTS]
+        available = [(n, name, cls, desc) for n, name, cls, desc in talent_table
+                     if n not in AI_DISABLED_TALENTS
+                     and (forced_entry is None or n != forced_entry[0])]
         if available and rl_player is not None:
             chosen = random.choice(available)
             n, name, cls, desc = chosen
-            talent_inst = cls(rl_pid, game_state)
-            rl_player.talent = talent_inst
-            rl_player.talent_name = name
-            talent_inst.on_register()
+            assign_talent_entry(game_state, rl_player, chosen)
             taken.add(n)
         if rl_controller is not None and rl_player is not None:
             rl_controller.set_player_ref(rl_player, game_state)
@@ -224,7 +282,7 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
                 pass
             elif rl_talent_mode == "model":
                 # 模型自选：通过 controller.choose() 走模型推理
-                available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+                available = [(n, name, cls, desc) for n, name, cls, desc in talent_table
                              if n not in taken and n not in AI_DISABLED_TALENTS]
                 if available:
                     option_names = [name for n, name, cls, desc in available]
@@ -239,34 +297,49 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
                     if chosen_name != "不选择天赋":
                         for n, name, cls, desc in available:
                             if name == chosen_name:
-                                talent_inst = cls(pid, game_state)
-                                player.talent = talent_inst
-                                player.talent_name = name
-                                talent_inst.on_register()
+                                assign_talent_entry(
+                                    game_state, player, (n, name, cls, desc))
                                 taken.add(n)
                                 break
             else:
                 # 指定天赋编号
-                try:
-                    talent_num = int(rl_talent_mode)
-                except ValueError:
-                    talent_num = -1
-                for n, name, cls, desc in TALENT_TABLE:
-                    if n == talent_num and n not in taken:
-                        talent_inst = cls(pid, game_state)
-                        player.talent = talent_inst
-                        player.talent_name = name
-                        talent_inst.on_register()
-                        taken.add(n)
-                        break
+                entry = find_talent_entry(
+                    rl_talent_mode, talent_table, game_state=game_state,
+                )
+                if entry is None:
+                    raise ValueError(f"未知天赋：{rl_talent_mode!r}")
+                n, _, _, _ = entry
+                if n in taken:
+                    raise ValueError(
+                        f"RL 天赋 {rl_talent_mode!r} 已被其他席位占用"
+                    )
+                assign_talent_entry(game_state, player, entry)
+                taken.add(n)
             # 设置 player_ref（天赋分配后，确保后续 choose/get_command 能用）
             if rl_controller is not None:
                 rl_controller.set_player_ref(player, game_state)
             continue
 
+        # 风洞 bot 不选天赋（测机制不测天赋）；--no-talents 全员跳过
+        if pid in bot_pids or no_talents:
+            continue
+
+        # --force-talent：注册表预检通过后保证出现在一个 AI 席位。
+        if (forced_entry is not None and not force_assigned
+                and pid == forced_talent_pid):
+            n, _, _, _ = forced_entry
+            if n not in taken:
+                assign_talent_entry(game_state, player, forced_entry)
+                taken.add(n)
+                force_assigned = True
+            if force_assigned and player.talent is not None:
+                continue
+
         # AI 玩家天赋分配（原有逻辑）
-        available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
-                     if n not in taken and n not in AI_DISABLED_TALENTS]
+        available = [(n, name, cls, desc) for n, name, cls, desc in talent_table
+                     if n not in taken and n not in AI_DISABLED_TALENTS
+                     and not (forced_entry is not None and not force_assigned
+                              and n == forced_entry[0])]
         if not available:
             continue
         personality = ai_personality_map.get(pid, "balanced")
@@ -274,11 +347,14 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         if not chosen:
             continue
         n, name, cls = chosen  # type: ignore[misc]
-        talent_inst = cls(pid, game_state)
-        player.talent = talent_inst
-        player.talent_name = name
-        talent_inst.on_register()
+        entry = next(item for item in available if item[0] == n)
+        assign_talent_entry(game_state, player, entry)
         taken.add(n)
+
+    if forced_entry is not None and not force_assigned:
+        raise ValueError(
+            f"强制天赋 {force_talent!r} 未能分配：席位不足或槽位已被占用"
+        )
 
     game_state.max_rounds = GameState.compute_default_max_rounds(num_players)
 
@@ -294,8 +370,11 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         import traceback
         crash_traceback = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
 
+    # M6 双轨：winner_pid = 终分第一（m6 下）/ 存活者（非 m6）；
+    # survival_winner = 存活轨（老平局语义，draw_reason 用它分类）
     winner_pid = game_state.winner or "nobody"
-    is_draw = winner_pid == "nobody"
+    survival_winner = getattr(game_state, "survival_winner", winner_pid) or "nobody"
+    is_draw = survival_winner == "nobody"  # 平局/僵局按存活轨判定
 
     # ── 区分平局原因 ──
     draw_reason = ""
@@ -303,6 +382,7 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         is_draw = True
         draw_reason = "crash"
         winner_pid = "nobody"
+        survival_winner = "nobody"
     elif is_draw:
         # 检查是否达到最大轮数
         if (game_state.max_rounds is not None
@@ -316,15 +396,50 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
             draw_reason = "other"
     results: dict[str, Any] = {
         "winner_pid": winner_pid,
+        "survival_winner": survival_winner,
+        "final_scores": dict(getattr(game_state, "final_scores", {})),
         "rounds": game_state.current_round,
         "draw": is_draw,
         "draw_reason": draw_reason,
         "crashed": crashed,
         "crash_traceback": crash_traceback,
         "talent_nums_picked": list(taken),  # 本局选了哪些天赋
+        "forced_talent_pid": forced_talent_pid,
         "max_rounds": game_state.max_rounds,
         "players": [],
     }
+
+    if collect_digest:
+        from engine.replay_digest import digest_event_log
+        results["event_digest"] = digest_event_log(game_state.event_log)
+
+    # 战斗轮占比分子：发生过攻击事件的轮次数（v0.2 §9 看板指标）
+    results["combat_rounds"] = len({
+        e.get("round") for e in game_state.event_log if e.get("type") == "attack"
+    })
+    # M3 擦伤率分子/分母（attack 事件中被闪避擦伤的占比，v0.2 §9）
+    attack_events = [e for e in game_state.event_log
+                     if e.get("type") in ("attack", "opportunity_attack")]
+    results["total_attacks"] = len(attack_events)
+    results["grazed_attacks"] = sum(
+        1 for e in attack_events
+        if isinstance(e.get("result"), dict)
+        and e["result"].get("grazed_by_evasion"))
+    # 轻量胜负关联诊断：不复制完整 event_log，只保存全局及各玩家事件类型计数。
+    # 这足以回答“G0/G6/G7 到底发动了什么、是否转化为击杀”，同时避免日志爆量。
+    from collections import Counter as _EventCounter
+    results["event_counts"] = dict(_EventCounter(
+        str(event.get("type", "")) for event in game_state.event_log
+        if event.get("type")))
+    player_event_counts = {}
+    for pid in game_state.player_order:
+        counts = _EventCounter()
+        for event in game_state.event_log:
+            actor_id = event.get("player") or event.get("attacker")
+            if actor_id == pid and event.get("type"):
+                counts[str(event["type"])] += 1
+        player_event_counts[pid] = dict(counts)
+    results["player_event_counts"] = player_event_counts
 
     # 诊断数据收集
     diag_data = {}
@@ -367,24 +482,101 @@ def run_single_game(num_players: int, rl_controller=None, rl_talent_mode: str = 
         player = game_state.get_player(pid)
         if player is None:
             continue
-        talent_num = TALENT_NAME_TO_NUM.get(player.talent_name or "", 0)
+        talent_num = _talent_num_for_player(player)
         personality = pid_to_personality.get(pid, "unknown")
         talent_usage = _extract_talent_usage(player)
 
         results["players"].append({
             "pid": pid,
+            "action_order": game_state.player_order.index(pid),
             "name": player.name,
             "personality": "RL" if pid == rl_pid else personality,
             "talent_num": talent_num,
             "talent_name": player.talent_name or "无",
-            "is_winner": pid == winner_pid,
+            "is_winner": pid == winner_pid,           # 终分轨（m6 下=终分第一）
+            "is_survival_winner": pid == survival_winner,  # 存活轨（老指标）
             "is_rl": pid == rl_pid,
             "alive": player.is_alive(),
             "kill_count": player.kill_count,
+            "final_score": results["final_scores"].get(pid),
             "talent_usage": talent_usage,
+            "decision_stats": _extract_decision_stats(player),
+            "sp_end": (game_state.m9_system.get_sp(pid)
+                       if getattr(game_state, "m9_system", None) else None),
+            "arc_count": (game_state.m9_scoring.arc_count(pid)
+                          if getattr(game_state, "m9_scoring", None) else None),
+            "arc_chapters": (len(game_state.m9_arc.chapters_of(pid))
+                             if getattr(game_state, "m9_arc", None) else None),
         })
 
     return results
+
+
+def _extract_decision_stats(player: Player) -> dict[str, int]:
+    """M9 过程指标（BasicAI 决策计数器：T0/公演/挣脱/破界）。"""
+    ctrl = getattr(player, "controller", None)
+    stats = getattr(ctrl, "_decision_stats", None)
+    return dict(stats) if stats else {}
+
+
+_METRIC_KEYS = ("t0_activated", "public_registered",
+                "breakout_attempts", "barrier_break_offered")
+
+
+def _summarize_process_metrics(
+        samples: list[tuple[dict[str, int], int]]) -> dict[str, float]:
+    """纯函数聚合：每局均值 + 每轮速率（可单测）。"""
+    n = len(samples)
+    if n == 0:
+        return {}
+    total_rounds = float(sum(r for _, r in samples))
+    sums = {k: 0 for k in _METRIC_KEYS}
+    for stats, _ in samples:
+        for k in _METRIC_KEYS:
+            sums[k] += stats.get(k, 0)
+    out = {f"{k}_per_game": sums[k] / n for k in _METRIC_KEYS}
+    if total_rounds > 0:
+        for k in _METRIC_KEYS:
+            out[f"{k}_per_round"] = sums[k] / total_rounds
+    return out
+
+
+def print_process_metrics(
+        process_stats: dict[int, list[tuple[dict[str, int], int]]],
+        sp_end_samples: dict[int, list[Optional[int]]],
+        num_to_name: dict[int, str],
+        arc_samples: Optional[dict[int, list[Optional[float]]]] = None,
+        arc_chapter_samples: Optional[dict[int, list[Optional[int]]]] = None,
+        arc_cap: Optional[int] = None) -> None:
+    """打印 M9 过程指标（每槽：T0/公演/破界/挣脱/SP/剧情分）。"""
+    arc_samples = arc_samples or {}
+    arc_chapter_samples = arc_chapter_samples or {}
+    print(f"\n  ── M9 过程指标（每槽每局均值，风洞解释变量）──")
+    print(f"  {'槽位':16s} {'局数':>5s} {'T0激活':>7s} {'公演报名':>7s} "
+          f"{'破界候选':>7s} {'挣脱尝试':>7s} {'SP终值':>7s} "
+          f"{'场均arc':>7s} {'场均章':>7s} {'满章率':>7s}")
+    for talent_num in sorted(process_stats):
+        samples = process_stats[talent_num]
+        summ = _summarize_process_metrics(samples)
+        sps = [s for s in sp_end_samples.get(talent_num, []) if s is not None]
+        sp_avg = sum(sps) / len(sps) if sps else float("nan")
+        arcs = [s for s in arc_samples.get(talent_num, []) if s is not None]
+        arc_avg = sum(arcs) / len(arcs) if arcs else float("nan")
+        chapters = [s for s in arc_chapter_samples.get(talent_num, [])
+                    if s is not None]
+        chap_avg = sum(chapters) / len(chapters) if chapters else float("nan")
+        full_rate = 0.0
+        if chapters and arc_cap:
+            full_rate = 100.0 * sum(
+                1 for c in chapters if c >= arc_cap) / len(chapters)
+        name = num_to_name.get(talent_num, f"#{talent_num}")
+        print(f"  {name:16s} {len(samples):>5d} "
+              f"{summ.get('t0_activated_per_game', 0):>7.2f} "
+              f"{summ.get('public_registered_per_game', 0):>7.2f} "
+              f"{summ.get('barrier_break_offered_per_game', 0):>7.2f} "
+              f"{summ.get('breakout_attempts_per_game', 0):>7.2f} "
+              f"{sp_avg:>7.2f} {arc_avg:>7.2f} {chap_avg:>7.2f} "
+              f"{full_rate:>7.1f}")
 
 
 def _extract_talent_usage(player: Player) -> dict[str, Any]:
@@ -473,8 +665,44 @@ def _fmt_count_pct(count: int, total: int) -> str:
 # ── Main batch runner ──
 
 def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mode: str = "random",
-              diag_mode: bool = False, diag_output: str = "logs/diag_report.json") -> None:
-    """Run multiple games and collect statistics."""
+              diag_mode: bool = False, diag_output: str = "logs/diag_report.json",
+              seed: Optional[int] = None,
+              golden_record: Optional[str] = None,
+              golden_check: Optional[str] = None,
+              lineup: Optional[list[str]] = None,
+              no_talents: bool = False,
+              force_talent: Optional[str] = None) -> None:
+    """Run multiple games and collect statistics.
+
+    seed: 基准随机种子。提供时第 i 局（0-based）使用 random.seed(seed + i)，
+          串行单线程下保证逐局可复现（golden 回放的前提）。None = 不固定。
+    golden_record: 把每局事件摘要写入该路径（JSON-lines，一局一行）。需要 seed。
+    golden_check: 读取该路径的 golden 存档，逐局比对，第一处分歧打印并以
+                  非零码退出。需要 seed（应与录制时相同，逐局 seed 会校验）。
+    """
+    import json as _json
+    from engine.replay_digest import digest_game, diff_games
+
+    _refresh_talent_lookup()
+
+    golden_mode = bool(golden_record or golden_check)
+    if golden_mode and seed is None:
+        raise ValueError("golden record/check 需要 --seed（无种子的摘要不可复现，没有意义）")
+    if force_talent:
+        entry = find_talent_entry(
+            force_talent, talent_table_for_current_profile())
+        if entry is None:
+            raise ValueError(f"未知天赋：{force_talent!r}")
+
+    golden_expected: list[dict[str, Any]] = []
+    if golden_check:
+        with open(golden_check, "r", encoding="utf-8") as f:
+            golden_expected = [_json.loads(line) for line in f if line.strip()]
+        if len(golden_expected) != num_games:
+            print(f"  ⚠️ golden 存档共 {len(golden_expected)} 局，"
+                  f"本次 --games {num_games}，按较小值比对")
+    golden_recorded: list[dict[str, Any]] = []
+    golden_failures: list[tuple[int, list[str]]] = []
 
     talent_stats: dict[int, TalentStats] = defaultdict(TalentStats)
     personality_stats: dict[str, PersonalityStats] = defaultdict(PersonalityStats)
@@ -485,10 +713,22 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
     rl_talent_picks: dict[int, int] = defaultdict(int)
     rl_talent_wins: dict[int, int] = defaultdict(int)
     rl_talent_usage: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    # M9 过程指标（每槽）：[(decision_stats, rounds)] + sp_end/arc 样本
+    process_stats: dict[int, list[tuple[dict[str, int], int]]] = defaultdict(list)
+    sp_end_samples: dict[int, list[Optional[int]]] = defaultdict(list)
+    arc_samples: dict[int, list[Optional[float]]] = defaultdict(list)
+    arc_chapter_samples: dict[int, list[Optional[int]]] = defaultdict(list)
 
     total_rounds = 0
+    total_combat_rounds = 0
+    total_attacks = 0
+    total_grazed = 0
     total_draws = 0
     errors = 0
+    # M6 双轨：终分胜 vs 存活胜（per-personality）
+    score_wins: dict[str, int] = defaultdict(int)
+    survival_wins: dict[str, int] = defaultdict(int)
+    dualtrack_games = 0
 
     # 崩溃详情收集
     crash_log: list[dict[str, Any]] = []
@@ -521,14 +761,33 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
             rate = (game_idx + 1) / elapsed if elapsed > 0 else 0
             print(f"\r  进度: {game_idx + 1}/{num_games} ({rate:.1f} 局/秒)", end="", flush=True)
 
+        if seed is not None:
+            random.seed(seed + game_idx)
+
         try:
             result = run_single_game(num_players, rl_controller, rl_talent_mode,
-                                     diag_mode=diag_mode)
+                                     diag_mode=diag_mode, collect_digest=golden_mode,
+                                     lineup=lineup, no_talents=no_talents,
+                                     force_talent=force_talent)
         except Exception:
             errors += 1
             continue
 
+        result["seed"] = (seed + game_idx) if seed is not None else None
+
+        if golden_mode:
+            record = digest_game(result, result.pop("event_digest", []))
+            if golden_record:
+                golden_recorded.append(record)
+            if golden_check and game_idx < len(golden_expected):
+                problems = diff_games(golden_expected[game_idx], record)
+                if problems:
+                    golden_failures.append((game_idx, problems))
+
         total_rounds += result["rounds"]
+        total_combat_rounds += result.get("combat_rounds", 0)
+        total_attacks += result.get("total_attacks", 0)
+        total_grazed += result.get("grazed_attacks", 0)
         if result["draw"]:
             total_draws += 1
             reason = result.get("draw_reason", "")
@@ -544,6 +803,15 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
         # 诊断数据收集
         if diag_report is not None:
             diag_report.add_game(game_idx, result)
+
+        # M6 双轨：终分胜 vs 存活胜（per-personality，仅 m6 局有 final_scores）
+        if result.get("final_scores"):
+            dualtrack_games += 1
+            for p in result["players"]:
+                if p["is_winner"]:
+                    score_wins[p["personality"]] += 1
+                if p.get("is_survival_winner"):
+                    survival_wins[p["personality"]] += 1
 
         for p in result["players"]:
             if p.get("is_rl"):
@@ -572,6 +840,14 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
 
             ts.usage_samples.append(p["talent_usage"])
 
+            # M9 过程指标聚合
+            if talent_num > 0:
+                process_stats[talent_num].append(
+                    (p.get("decision_stats", {}), result["rounds"]))
+                sp_end_samples[talent_num].append(p.get("sp_end"))
+                arc_samples[talent_num].append(p.get("arc_count"))
+                arc_chapter_samples[talent_num].append(p.get("arc_chapters"))
+
     _restore_prompt_manager()
     _restore_display()
 
@@ -583,9 +859,32 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
                   talent_stats, personality_stats,
                   draw_reasons=draw_reasons, draw_labels=DRAW_LABELS,
                   crash_log=crash_log,
+                  total_combat_rounds=total_combat_rounds,
+                  total_attacks=total_attacks, total_grazed=total_grazed,
                   rl_games=rl_games, rl_wins=rl_wins,
                   rl_talent_picks=rl_talent_picks, rl_talent_wins=rl_talent_wins,
                   rl_talent_usage=rl_talent_usage)
+
+    # M9 过程指标（风洞解释变量：T0/公演/破界/挣脱/SP/剧情分）
+    if process_stats:
+        arc_cap = None
+        from engine.balance import get as _bget
+        arc_cap = int(_bget("m9_system", "scoring_m9", "arc_cap", default=3))
+        print_process_metrics(process_stats, sp_end_samples, TALENT_NUM_TO_NAME,
+                              arc_samples=arc_samples,
+                              arc_chapter_samples=arc_chapter_samples,
+                              arc_cap=arc_cap)
+
+    # M6 双轨指标：终分胜率 vs 存活率（仅 m6 局）
+    if dualtrack_games > 0:
+        print(f"\n  ── M6 评价体系双轨（{dualtrack_games} 局有终分）──")
+        print(f"  {'人格':12s} {'终分胜率':>14s} {'存活率':>14s}")
+        allp = sorted(set(score_wins) | set(survival_wins))
+        for pers in allp:
+            sw = score_wins.get(pers, 0)
+            vw = survival_wins.get(pers, 0)
+            print(f"  {pers:12s} {sw:>14d} {vw:>14d}")
+        print("  （终分胜 = 终分第一；存活胜 = 活到最后。两者背离即评价体系转向生效）")
 
     # 诊断报告输出
     if diag_report is not None:
@@ -593,6 +892,29 @@ def run_batch(num_players: int, num_games: int, rl_controller=None, rl_talent_mo
         diag_report.print_fallback_summary()
         diag_report.print_draw_analysis()
         diag_report.save_raw(diag_output)
+
+    # ── golden 回放收尾 ──
+    if golden_record:
+        out_dir = os.path.dirname(golden_record)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        with open(golden_record, "w", encoding="utf-8", newline="\n") as f:
+            for record in golden_recorded:
+                f.write(_json.dumps(record, ensure_ascii=False,
+                                    sort_keys=True) + "\n")
+        print(f"\n  📼 golden 存档已写入: {golden_record}（{len(golden_recorded)} 局）")
+
+    if golden_check:
+        checked = min(num_games, len(golden_expected))
+        if golden_failures:
+            print(f"\n  ❌ golden 校验失败: {len(golden_failures)}/{checked} 局有分歧")
+            first_idx, first_problems = golden_failures[0]
+            print(f"  首处分歧 @ 第 {first_idx + 1} 局:")
+            for line in first_problems:
+                print(f"    {line}")
+            sys.exit(2)
+        else:
+            print(f"\n  ✅ golden 校验通过: {checked} 局全等")
 
 
 def print_results(
@@ -612,6 +934,9 @@ def print_results(
     rl_talent_picks: Optional[dict[int, int]] = None,
     rl_talent_wins: Optional[dict[int, int]] = None,
     rl_talent_usage: Optional[dict[int, list[dict[str, Any]]]] = None,
+    total_combat_rounds: int = 0,
+    total_attacks: int = 0,
+    total_grazed: int = 0,
 ) -> None:
     """Print all result tables with CJK-aware alignment."""
 
@@ -620,6 +945,11 @@ def print_results(
     print(f"  自动胜率统计结果")
     print(f"  {num_players}人局 × {num_games}局")
     print(f"  平均轮次: {total_rounds / max(completed, 1):.1f}")
+    print(f"  战斗轮占比: {total_combat_rounds / max(total_rounds, 1) * 100:.1f}%"
+          f"（{total_combat_rounds}/{total_rounds} 轮发生过攻击）")
+    if total_grazed > 0:
+        print(f"  擦伤率: {total_grazed / max(total_attacks, 1) * 100:.1f}%"
+              f"（{total_grazed}/{total_attacks} 次攻击被闪避擦伤）")
     print(f"  平局率: {total_draws}/{num_games} ({total_draws / max(num_games, 1) * 100:.1f}%)")
     if errors > 0:
         print(f"  错误/崩溃: {errors}")
@@ -951,7 +1281,49 @@ def main():
                         help="启用诊断模式：收集 forfeit/fallback/draw 的结构化数据")
     parser.add_argument("--diag-output", type=str, default="logs/diag_report.json",
                         help="诊断原始数据保存路径")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="基准随机种子：第 i 局使用 seed+i，固定后逐局可复现")
+    parser.add_argument("--experiment", action="append", default=[],
+                        help="启用实验开关（可多次使用），如 --experiment k_initiative")
+    parser.add_argument("--profile", type=str, default="",
+                        help="启用实验档案（legacy/m1/m2/m3/m4/m5/m6/v2exp/m9-rfc）")
+    parser.add_argument("--golden-record", type=str, default=None,
+                        help="录制 golden 存档到该路径（JSON-lines），需要 --seed")
+    parser.add_argument("--golden-check", type=str, default=None,
+                        help="与 golden 存档逐局比对，分歧则非零退出，需要 --seed")
+    parser.add_argument("--lineup", type=str, default=None,
+                        help="逗号分隔的席位配置（bot 名或人格名），数量须等于 AI 席位数。"
+                             "如 --players 2 --lineup turtle,rush")
+    parser.add_argument("--no-talents", action="store_true",
+                        help="全员不分配天赋（M2~M6 风洞主通道：天赋量纲 M7 才迁移）")
+    parser.add_argument("--force-talent", type=str, default=None,
+                        help="保证指定天赋（名称，如「大叔我啊，剪短发了」）出现在一个 AI 席位，"
+                             "用于 M7 第二阶段逐天赋风洞")
     args = parser.parse_args()
+
+    if (args.golden_record or args.golden_check) and args.seed is None:
+        print("错误：--golden-record / --golden-check 需要 --seed")
+        sys.exit(1)
+
+    lineup: Optional[list] = None
+    if args.lineup:
+        lineup = [s.strip() for s in args.lineup.split(",") if s.strip()]
+        ai_seats = args.players - (1 if args.model else 0)
+        if len(lineup) != ai_seats:
+            print(f"错误：--lineup 共 {len(lineup)} 个席位，但 AI 席位数为 {ai_seats}")
+            sys.exit(1)
+        unknown = [s for s in lineup
+                   if s not in BOT_REGISTRY and s not in AI_PERSONALITIES]
+        if unknown:
+            print(f"错误：未知席位名 {unknown}；可用 bot: {sorted(BOT_REGISTRY)}，"
+                  f"可用人格: {AI_PERSONALITIES}")
+            sys.exit(1)
+        print(f"  🤖 席位配置: {', '.join(lineup)}")
+
+    if args.profile:
+        experiments.set_profile(args.profile)
+    for exp_name in args.experiment:
+        experiments.enable(exp_name)
 
     if not 2 <= args.players <= 6:
         print("玩家人数必须在 2-6 之间")
@@ -959,6 +1331,13 @@ def main():
 
     print(f"  起闯战争 自动胜率统计")
     print(f"  {args.players}人局 × {args.games}局")
+    if experiments.active():
+        print(f"  ⚗️ 实验开关: {', '.join(experiments.active())}")
+    if args.seed is not None:
+        print(f"  随机种子: {args.seed}（第 i 局 = seed+i）")
+        if os.environ.get("PYTHONHASHSEED", "random") in ("", "random"):
+            print("  ⚠️  PYTHONHASHSEED 未固定——set 迭代序可能随进程变化，"
+                  "跨进程复现/golden 回放请先设置 PYTHONHASHSEED=0")
 
     rl_controller = None
     if args.model:
@@ -970,8 +1349,13 @@ def main():
         print(f"  RL 天赋模式: {args.rl_talent}")
     print()
 
+    if args.no_talents:
+        print("  🚫 天赋系统：本批次全员禁用（--no-talents）")
+
     run_batch(args.players, args.games, rl_controller=rl_controller, rl_talent_mode=args.rl_talent,
-              diag_mode=args.diag, diag_output=args.diag_output)
+              diag_mode=args.diag, diag_output=args.diag_output, seed=args.seed,
+              golden_record=args.golden_record, golden_check=args.golden_check,
+              lineup=lineup, no_talents=args.no_talents, force_talent=args.force_talent)
 
 
 if __name__ == "__main__":

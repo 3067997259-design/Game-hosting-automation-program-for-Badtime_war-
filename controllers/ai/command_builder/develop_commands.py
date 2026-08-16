@@ -6,7 +6,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from controllers.ai.constants import (
-    NEED_PROVIDERS, PERSONALITY_NEEDS,
+    NEED_PROVIDERS, PERSONALITY_NEEDS, need_providers_for,
+    ai_wallet, m4_item_price,
     debug_ai_development_plan,
 )
 
@@ -146,7 +147,9 @@ class DevelopCommandBuilder:
         loc = Q.get_location_str(player)
         outer = Q.count_outer_armor(player)
         inner = Q.count_inner_armor(player)
-        vouchers = getattr(player, 'vouchers', 0)
+        wallet = ai_wallet(player)
+        from engine import experiments
+        m4 = experiments.is_enabled("m4_gear")
 
         if "interact" in available:
             if loc == "home" or Q.is_at_home(player):
@@ -157,9 +160,11 @@ class DevelopCommandBuilder:
                         and getattr(state, 'virus', None)
                         and getattr(state.virus, 'is_active', False)):
                     commands.insert(0, "interact 防毒面具")
-                if vouchers >= 1 and outer < 2 and not Q.has_armor_by_name(player, "陶瓷护甲"):
+                armor_price = m4_item_price("商店", "陶瓷护甲") if m4 else 1
+                if wallet >= armor_price and outer < 2 \
+                        and not Q.has_armor_by_name(player, "陶瓷护甲"):
                     commands.append("interact 陶瓷护甲")
-                if vouchers < 1:
+                elif wallet < armor_price:
                     commands.append("interact 打工")
             elif loc == "魔法所":
                 learned = Q.get_learned_spells(player)
@@ -169,13 +174,21 @@ class DevelopCommandBuilder:
                 if (not Q.has_virus_immunity(player)
                         and getattr(state, 'virus', None)
                         and getattr(state.virus, 'is_active', False)):
-                    if vouchers >= 1:
+                    mask_price = m4_item_price("医院", "防毒面具") if m4 else 1
+                    if wallet >= mask_price:
                         commands.insert(0, "interact 防毒面具")
                     else:
                         commands.insert(0, "interact 打工")
                 if inner == 0:
-                    commands.append("interact 晶化皮肤手术")
-                if vouchers < 1:
+                    if not m4:
+                        commands.append("interact 晶化皮肤手术")
+                    else:
+                        surgery = m4_item_price("医院", "晶化皮肤手术")
+                        if wallet >= surgery:
+                            commands.append("interact 晶化皮肤手术")
+                        else:
+                            commands.append("interact 打工")
+                elif not m4 and wallet < 1:
                     commands.append("interact 打工")
             elif loc == "军事基地":
                 has_pass = getattr(player, 'has_military_pass', False)
@@ -200,14 +213,19 @@ class DevelopCommandBuilder:
         Q = self._query
         commands: List[str] = []
         loc = Q.get_location_str(player)
-        vouchers = getattr(player, 'vouchers', 0)
+        wallet = ai_wallet(player)
         virus = getattr(state, 'virus', None)
         virus_active = getattr(virus, 'is_active', False) if virus else False
-        if loc == "商店" and "interact" in available and (vouchers >= 1 or virus_active):
+        from engine import experiments
+        m4 = experiments.is_enabled("m4_gear")
+        mask_price = m4_item_price(loc, "防毒面具") if m4 else 1
+        if loc == "商店" and "interact" in available \
+                and (wallet >= mask_price or virus_active):
             commands.append("interact 防毒面具")
-        elif loc == "医院" and "interact" in available and vouchers >= 1:
+        elif loc == "医院" and "interact" in available and wallet >= mask_price:
             commands.append("interact 防毒面具")
-        elif loc in ("商店", "医院") and "interact" in available and vouchers < 1:
+        elif loc in ("商店", "医院") and "interact" in available \
+                and wallet < mask_price:
             commands.append("interact 打工")
         elif loc == "魔法所" and "interact" in available:
             learned = Q.get_learned_spells(player)
@@ -230,13 +248,16 @@ class DevelopCommandBuilder:
     def pick_virus_cure_location(self, player: Any, state: Any) -> str:
         """选择获取病毒免疫的最佳地点（人最少 + 能获取）。"""
         Q = self._query
-        vouchers = getattr(player, 'vouchers', 0)
+        wallet = ai_wallet(player)
         virus = getattr(state, 'virus', None)
         virus_active = getattr(virus, 'is_active', False) if virus else False
+        from engine import experiments
+        mask_price = (m4_item_price("商店", "防毒面具")
+                      if experiments.is_enabled("m4_gear") else 1)
         candidates = []
-        if virus_active or vouchers >= 1:
+        if virus_active or wallet >= mask_price:
             candidates.append("商店")
-        if vouchers >= 1:
+        if wallet >= mask_price:
             candidates.append("医院")
         candidates.append("魔法所")
         candidates.sort(key=lambda dest: Q.count_enemies_at(dest, player, state))
@@ -299,7 +320,7 @@ class DevelopCommandBuilder:
         loc = Q.get_location_str(player)
         useful_locs = set()
         for need_key, _ in unmet_needs:
-            for ploc, item_name, _ in NEED_PROVIDERS.get(need_key, []):
+            for ploc, item_name, _ in need_providers_for(need_key):
                 if not self._already_has_item(player, item_name):
                     useful_locs.add(ploc)
         useful_locs.discard(loc)
@@ -331,15 +352,12 @@ class DevelopCommandBuilder:
     def _build_sharpen_command(player: Any, available: List[str]) -> List[str]:
         if "special" not in available:
             return []
+        from models.equipment import has_unsharpened_knife
         has_stone = any(
             getattr(item, 'name', '') == "磨刀石"
             for item in getattr(player, 'items', [])
         )
-        has_unsharpened = any(
-            weapon.name == "小刀" and getattr(weapon, 'base_damage', 0) < 2
-            for weapon in getattr(player, 'weapons', []) if weapon
-        )
-        return ["special 磨刀"] if has_stone and has_unsharpened else []
+        return ["special 磨刀"] if has_stone and has_unsharpened_knife(player) else []
 
     def _get_unmet_needs(self, player, state, personality, ctx=None, strategy=None) -> list:
         """返回当前未满足的需求列表。"""
@@ -352,12 +370,12 @@ class DevelopCommandBuilder:
         has_weapon = len(weapons) > 0
         outer = Q.count_outer_armor(player)
         inner = Q.count_inner_armor(player)
-        vouchers = getattr(player, 'vouchers', 0)
+        wallet = ai_wallet(player)
         has_detection = getattr(player, 'has_detection', False)
         has_stealth = Q.has_stealth(player)
         unmet = []
         for need in needs_order:
-            if need == "voucher" and vouchers < 1:
+            if need == "voucher" and wallet < 1:
                 unmet.append(("voucher", 3))
             elif need == "weapon" and not has_weapon:
                 unmet.append(("weapon", 5))
@@ -408,7 +426,7 @@ class DevelopCommandBuilder:
         if item_name == "通行证":
             return getattr(player, 'has_military_pass', False)
         if item_name == "凭证":
-            return getattr(player, 'vouchers', 0) >= 1
+            return ai_wallet(player) >= 1
         if item_name == "打工":
-            return getattr(player, 'vouchers', 0) >= 1
+            return ai_wallet(player) >= 1
         return False

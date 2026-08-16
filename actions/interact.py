@@ -9,6 +9,9 @@ import locations.police_station as police_loc
 
 
 def get_location_module(location_id):
+    # 死者/撤退者（往世层、G5 因果闭合）location 为 None：无地点模块
+    if not location_id:
+        return None
     if location_id.startswith("home_"):
         return home_loc
     mapping = {
@@ -26,6 +29,24 @@ def get_menu_for_location(player, game_state):
     if loc_module is None:
         return {}
     return loc_module.get_menu()
+
+
+def get_available_items(player, game_state):
+    """返回当前位置通过 ``can_interact`` 预检的项目名。"""
+    loc_module = get_location_module(getattr(player, "location", ""))
+    if loc_module is None:
+        return []
+    available = []
+    for item_name in loc_module.get_menu():
+        if item_name.startswith("_"):
+            continue
+        try:
+            can, _ = loc_module.can_interact(player, item_name, game_state)
+        except TypeError:
+            can, _ = loc_module.can_interact(player, item_name)
+        if can:
+            available.append(item_name)
+    return available
 
 
 def execute(player, item_name, game_state):

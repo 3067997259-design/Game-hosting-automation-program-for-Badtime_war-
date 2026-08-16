@@ -71,9 +71,9 @@ TALENT_TABLE = [
     (3, "天星", Star,
      "主动1次：同地点全体1伤害(无视克制)+石化"),
     (4, "六爻", Hexagram,
-     "每4轮充能(上限2)：猜拳，6种效果"),
+     "主动：猜拳，6种效果（M9：SP 演出，无充能）"),
     (5, "combo", Combo,
-     "常驻被动：连续行动3轮→下轮必定行动+1HP+1ATK"),
+     "常驻被动：连续行动3轮→下轮必定行动+1HP+1ATK（M9：已退役，槽位由 G0 取代）"),
     (6, "朝阳好市民", GoodCitizen,
      "常驻：远程举报+扩展犯罪名单+竞选-1回合"),
     (7, "死者苏生", Resurrection,
@@ -93,6 +93,99 @@ TALENT_TABLE = [
     (14, "神代天赋-大叔我啊，剪短发了", Hoshino,
      "光环+装备融合+战术指令宏+色彩反转→Terror")
 ]
+
+def m9_talent_description(number: int) -> str:
+    """M9-rfc 选天赋界面描述（data/prompts.json 的 m9.game_setup 唯一信源）。"""
+    from engine.m9.text import m9_text
+    return m9_text(f"game_setup.talent_desc_{number}")
+
+
+def talent_table_for_current_profile(
+    game_state=None,
+) -> list[tuple[int, str, type, str]]:
+    """返回当前 profile 唯一合法的可选天赋表。"""
+    from engine.m9.gate import m9_enabled
+    if not m9_enabled(game_state):
+        return list(TALENT_TABLE)
+    from engine.m9.talent_registry import filter_selectable_entries
+    table = filter_selectable_entries(TALENT_TABLE)
+    return [
+        (number, name, cls, m9_talent_description(number))
+        for number, name, cls, desc in table
+    ]
+
+
+def find_talent_entry(
+    query: str | int,
+    entries: list[tuple[int, str, type, str]] | None = None,
+    *,
+    game_state=None,
+) -> tuple[int, str, type, str] | None:
+    """按编号、槽位或唯一名称解析当前 profile 的天赋条目。
+
+    M9 已登记但不可用的槽位会抛出明确异常；未知查询返回 ``None``。
+    """
+    from engine.m9.gate import m9_enabled
+    table = entries if entries is not None else talent_table_for_current_profile(
+        game_state)
+    raw = str(query).strip()
+    if not raw:
+        return None
+    if m9_enabled(game_state):
+        from engine.m9.talent_registry import (
+            require_selectable,
+            resolve_registration,
+        )
+        registration = resolve_registration(raw)
+        if registration is None:
+            return None
+        require_selectable(registration)
+        return next(
+            (entry for entry in table
+             if entry[0] == registration.legacy_number),
+            None,
+        )
+
+    normalized = raw.casefold()
+    exact: list[tuple[int, str, type, str]] = []
+    partial: list[tuple[int, str, type, str]] = []
+    for entry in table:
+        number, name, cls, _ = entry
+        slot = f"T{number}" if number <= 7 else f"G{number - 7}"
+        aliases = (str(number), slot, name, getattr(cls, "name", ""))
+        folded = tuple(str(alias).casefold() for alias in aliases if alias)
+        if normalized in folded:
+            exact.append(entry)
+        elif any(normalized in alias for alias in folded):
+            partial.append(entry)
+    matches = exact or partial
+    if len(matches) > 1:
+        slots = ", ".join(str(entry[0]) for entry in matches)
+        raise ValueError(f"天赋查询 {query!r} 不唯一，匹配编号：{slots}")
+    return matches[0] if matches else None
+
+
+def assign_talent_entry(game_state, player, entry, *, show_lore: bool = False):
+    """从注册条目实例化、绑定并执行一次 on_register。"""
+    from engine.m9.gate import instantiate_talent, m9_enabled
+    number, name, cls, _ = entry
+    talent = instantiate_talent(game_state, cls, player.player_id)
+    if m9_enabled(game_state):
+        from engine.m9.talent_registry import registration_for_legacy_class
+        registration = registration_for_legacy_class(cls)
+        if registration is None:
+            raise RuntimeError(f"M9 天赋类 {cls!r} 未登记")
+        slot_id = registration.slot_id
+    else:
+        slot_id = f"T{number}" if number <= 7 else f"G{number - 7}"
+    talent.slot_id = slot_id
+    player.talent_slot_id = slot_id
+    player.talent = talent
+    player.talent_name = name
+    talent.on_register()
+    if show_lore:
+        talent.show_activation(player_name=player.name, show_lore=True)
+    return talent
 
 AI_DISABLED_TALENTS: set = _resolve_disabled_talents(
     _GAME_CONFIG.get("ai_disabled_talents", []), TALENT_TABLE
@@ -125,7 +218,7 @@ AI_NAME_POOL = [
 TALENT_DECAY_FACTOR = 0.75
 
 
-def setup_game():
+def setup_game(debug_level=None):
     # ════════════════════════════════════════════════════════
     #  初始化提示管理系统
     # ════════════════════════════════════════════════════════
@@ -137,30 +230,33 @@ def setup_game():
 
     game_state = GameState()
     # ════════════════════════════════════════════════════════
-    #  调试模式选择
+    #  调试模式选择（CLI 显式传入 --debug-level 时不再重复询问）
     # ════════════════════════════════════════════════════════
 
-    print("\n  ─── 调试模式 ───")
-    print("    0. 正常模式（无调试输出）")
-    print("    1. 基本调试（AI关键决策）")
-    print("    2. 详细调试（AI详细过程）")
-    print("    3. 完整调试（所有调试信息）")
+    if debug_level is None:
+        print("\n  ─── 调试模式 ───")
+        print("    0. 正常模式（无调试输出）")
+        print("    1. 基本调试（AI关键决策）")
+        print("    2. 详细调试（AI详细过程）")
+        print("    3. 完整调试（所有调试信息）")
 
-    while True:
-        debug_raw = input("  请选择调试模式（0/1/2/3，默认0）：").strip()
-        if debug_raw in ("", "0"):
-            debug_level = 0
-            break
-        elif debug_raw == "1":
-            debug_level = 1
-            break
-        elif debug_raw == "2":
-            debug_level = 2
-            break
-        elif debug_raw == "3":
-            debug_level = 3
-            break
-        print("  请输入 0~3。")
+        while True:
+            debug_raw = input("  请选择调试模式（0/1/2/3，默认0）：").strip()
+            if debug_raw in ("", "0"):
+                debug_level = 0
+                break
+            elif debug_raw == "1":
+                debug_level = 1
+                break
+            elif debug_raw == "2":
+                debug_level = 2
+                break
+            elif debug_raw == "3":
+                debug_level = 3
+                break
+            print("  请输入 0~3。")
+    else:
+        debug_level = max(0, min(3, int(debug_level or 0)))
 
     if debug_level > 0:
         enable_debug(debug_level)
@@ -504,9 +600,10 @@ def _talent_selection(game_state, ai_players_info=None):
     ai_pids = {info[0] for info in ai_players_info}
     # AI pid → personality
     ai_personality_map = {info[0]: info[2] for info in ai_players_info}
+    talent_table = talent_table_for_current_profile(game_state)
 
     print(f"\n  可选天赋（每个天赋仅能被1人选取）：")
-    for num, name, cls, desc in TALENT_TABLE:
+    for num, name, cls, desc in talent_table:
         print(f"    {num}. 【{name}】{desc}")
     print(f"    0. 不选天赋")
 
@@ -515,7 +612,7 @@ def _talent_selection(game_state, ai_players_info=None):
     for pid in game_state.player_order:
         player = game_state.get_player(pid)
 
-        available = [(n, name, cls, desc) for n, name, cls, desc in TALENT_TABLE
+        available = [(n, name, cls, desc) for n, name, cls, desc in talent_table
                      if n not in taken]
 
         if not available:
@@ -536,12 +633,8 @@ def _talent_selection(game_state, ai_players_info=None):
                 print(f"  {player.name}（AI）无可用天赋。")
                 continue
             n, name, cls = chosen
-            talent_inst = cls(pid, game_state)
-            player.talent = talent_inst
-            player.talent_name = name
-            talent_inst.on_register()
-            # 显示天赋激活效果
-            talent_inst.show_activation(player_name=player.name, show_lore=True)
+            entry = next(item for item in available if item[0] == n)
+            assign_talent_entry(game_state, player, entry, show_lore=True)
             taken.add(n)
             print(f"  🤖 {player.name}（AI·{personality}）自动选择天赋【{name}】")
             continue
@@ -577,22 +670,27 @@ def _talent_selection(game_state, ai_players_info=None):
                 continue
 
             matched = None
-            for n, name, cls, desc in TALENT_TABLE:
+            for n, name, cls, desc in talent_table:
                 if n == choice_num:
                     matched = (n, name, cls)
                     break
 
             if not matched:
+                from engine.m9.gate import m9_enabled
+                if m9_enabled(game_state):
+                    from engine.m9.talent_registry import (
+                        registration_for_legacy_number,
+                    )
+                    registration = registration_for_legacy_number(choice_num)
+                    if registration is not None:
+                        print(f"  {registration.unavailable_message()}")
+                        continue
                 print("  无效编号。")
                 continue
 
             n, name, cls = matched
-            talent_inst = cls(pid, game_state)
-            player.talent = talent_inst
-            player.talent_name = name
-            talent_inst.on_register()
-            # 显示天赋激活效果
-            talent_inst.show_activation(player_name=player.name, show_lore=True)
+            entry = next(item for item in available if item[0] == n)
+            assign_talent_entry(game_state, player, entry, show_lore=True)
             taken.add(n)
             print(f"  ✓ {player.name} 获得天赋【{name}】！")
             break

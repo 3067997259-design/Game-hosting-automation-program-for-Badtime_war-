@@ -25,6 +25,24 @@ if TYPE_CHECKING:
     from engine.game_state import GameState
     from models.player import Player
 
+def _g2_m7() -> bool:
+    """G2 天赋 hp20 量纲换算开关（experiment: m7_talents，v2.0 §11.4）。"""
+    from engine import experiments
+    return experiments.is_enabled("m7_talents")
+
+
+def _g2_num(*keys, v1):
+    """读 G2 的 hp20 量纲数值（m7 下读 balance.talents.g2，否则 v1）。"""
+    if not _g2_m7():
+        return v1
+    node = bget("talents", "g2", default={}) or {}
+    for k in keys:
+        if not isinstance(node, dict) or k not in node:
+            return v1
+        node = node[k]
+    return node
+
+
 # ── 声部常量（复用旧情绪常量名）───────────────────────────────────
 ACCAREZZEVOLE = "accarezzevole"   # 入戏者
 INDIFFERENZA  = "indifferenza"    # 抽离者
@@ -328,7 +346,8 @@ class IshBosheth:
     # ================================================================
     def _duet_on_r4(self, game_state: GameState):
         """duet 模式 R4：当轮热力→Regard 折算 + 检查谢幕条件。"""
-        CONVERSION = 0.5
+        # hp20 §11.4：伤害量纲 ×5 后热力随之膨胀，转化率 0.5→0.1 防 Regard 通胀
+        CONVERSION = _g2_num("duet_heat_conversion", v1=0.5)
         # 当轮热力增量 = 当前累计 - 上轮累计（避免全赛程累积导致 Regard 快速饱和）
         round_heat = {
             v: self.duet_heat[v] - self._duet_prev_heat.get(v, 0)
@@ -481,8 +500,10 @@ class IshBosheth:
             lines.append(f"  {c.name} 最终声部 → {VOICE_LABELS.get(c.emotion, '?')}。")
 
         # 11. 创建物料牌系统
+        # rng 必须从全局 random 流派生：默认的 random.Random() 用 OS 熵自播，
+        # 会让物料牌序游离在种子体系外，破坏同种子复现（M0 确定性要求）
         from engine.material_deck import MaterialDeck
-        self.deck = MaterialDeck()
+        self.deck = MaterialDeck(rng=random.Random(random.getrandbits(64)))
         real_participants = [game_state.get_player(pid) for pid in self.participants
                             if game_state.get_player(pid) and game_state.get_player(pid).is_alive()]
         self.deck.opening_deal(real_participants, self.chorus_list, self.seat_assignments)
@@ -981,11 +1002,12 @@ class IshBosheth:
                 if c.is_alive() and c.emotion == voice:
                     members.append(c)
 
+            button_amt = _g2_num("duet_button_amount", v1=0.5)
             if rank_idx == 0:
                 for m in members:
                     m._duet_d4_bonus = True
                     m._duet_d6_bonus = True
-                    m._duet_damage_bonus = getattr(m, '_duet_damage_bonus', 0) + 0.5 * multiplier
+                    m._duet_damage_bonus = getattr(m, '_duet_damage_bonus', 0) + button_amt * multiplier
                 display.show_info(
                     prompt_manager.get_prompt("duet", "curtain.reward_1st",
                         default="🥇 第1声部({voice}): D4/D6+1，下次伤害+0.5").format(voice=voice))
@@ -993,7 +1015,7 @@ class IshBosheth:
                 for m in members:
                     m._duet_d4_bonus = True
                     m._duet_d6_bonus = True
-                    m.temp_hp_g2 += 0.5 * multiplier
+                    m.temp_hp_g2 += button_amt * multiplier
                 display.show_info(
                     prompt_manager.get_prompt("duet", "curtain.reward_2nd",
                         default="🥈 第2声部({voice}): D4/D6+1，tempHP+0.5").format(voice=voice))
@@ -1076,6 +1098,12 @@ class IshBosheth:
             breaker = game_state.get_player(breaker_id)
             if breaker:
                 breaker._g2_curtain_d4_bonus = True
+
+        # §4.3 完结条：完整谢幕成功（独唱 END_CURTAIN / 双人 END_DUET）→ G2 剧情分 +15
+        # finale_conditions.mark 内部 m6_scoring 门控 + 每局判重；失败结局（破幕/静默/空场）不给分
+        if reason in (END_CURTAIN, END_DUET) and g2p:
+            from engine import finale_conditions
+            finale_conditions.mark(g2p, "g2_curtain", game_state)
 
         # 空场 / 谢幕 / 完整演出 G2 隐身
         if reason in (END_EMPTY, END_CURTAIN, END_SILENT, END_IND_WIN, END_DUET) and g2p and g2p.is_alive():
@@ -1402,7 +1430,7 @@ class IshBosheth:
                        base_dmg_seq: list = None):
         """旋律 v0.7：G2 选 1-2 座位 → 最多 4 目标 → 安定値修正伤害/治疗。"""
         if base_dmg_seq is None:
-            base_dmg_seq = [1.0, 1.0, 0.5, 0.5]
+            base_dmg_seq = list(_g2_num("melody_seq_1", v1=[1.0, 1.0, 0.5, 0.5]))
 
         occupied = self._get_occupied_seats(game_state)
         if not occupied:
@@ -1579,6 +1607,26 @@ def get_total_defense_hp(unit) -> float:
     return hp
 
 
+def get_armor_rating(unit) -> float:
+    """装甲度（hp20 §11.4）= Σ(主防+副防) + 总耐久/divisor。
+    语义：旋律打的是甲，不是命——安定値输入从总防御HP 改为纯护甲指标。
+    含玩家永久身体防御（inner_defense，如晶化皮肤）。"""
+    rating = 0.0
+    total_dur = 0.0
+    armor = getattr(unit, 'armor', None)
+    if armor and hasattr(armor, 'get_all_active'):
+        for p in armor.get_all_active():
+            dmap = getattr(p, 'defense_map', None) or {}
+            rating += sum(dmap.values())
+            total_dur += getattr(p, 'durability', 0)
+    inner = getattr(unit, 'inner_defense', None) or {}
+    if isinstance(inner, dict):
+        rating += sum(inner.values())
+    divisor = _g2_num("armor_rating_durability_divisor", v1=6.0) or 6.0
+    rating += total_dur / divisor
+    return rating
+
+
 def _build_melody_preview(game_state, ish, occupied: dict, seat_names: list,
                           base_dmg_seq: list, cumulative_delta: float) -> dict:
     """为每个座位生成旋律伤害预览。返回 {seat_name: preview_string}。"""
@@ -1617,11 +1665,18 @@ def _calc_stability(unit, cumulative_delta: float, decay_factor: float = 1.0,
     - _stability_force_decay: 反光板(强制decay=1.0)
     - _stability_defense_offset: 耳返(total_defense偏移)
     - ish._pivot_override: Riposato(5.0) / Dolente(2.0)"""
-    base = max(-0.5, min(1.5, cumulative_delta / 6.0 - 0.5))
-    pivot = ish._pivot_override if (ish and ish._pivot_override is not None) else 3.5
+    base_divisor = _g2_num("stability_base_divisor", v1=6.0) or 6.0
+    base = max(-0.5, min(1.5, cumulative_delta / base_divisor - 0.5))
+    # hp20 §11.4：安定値输入改为装甲度，pivot 重锚到 6（旋律打甲不打命）
+    default_pivot = _g2_num("stability_pivot", v1=3.5)
+    pivot = ish._pivot_override if (ish and ish._pivot_override is not None) else default_pivot
     offset = getattr(unit, '_stability_defense_offset', 0.0)
-    total_def = get_total_defense_hp(unit) + offset
-    armor_mod = (total_def - pivot) * 0.4
+    if _g2_m7():
+        total_def = get_armor_rating(unit) + offset
+    else:
+        total_def = get_total_defense_hp(unit) + offset
+    coeff = _g2_num("stability_armor_coeff", v1=0.4)
+    armor_mod = (total_def - pivot) * coeff
     stability = (base + armor_mod)
     mult = getattr(unit, '_stability_armor_mult', 1.0)
     stability *= mult
@@ -1638,7 +1693,8 @@ def _calc_melody_damage(base_dmg: float, stability: float,
     raw = round(base_dmg * (1.0 + stability), 2)
     if raw <= 0:
         return max(raw, unit_current_hp - unit_max_hp)
-    return max(0.5, raw)
+    floor = _g2_num("melody_damage_floor", v1=0.5)
+    return max(floor, raw)
 
 
 # ══════════════════════════════════════════════════════════════════

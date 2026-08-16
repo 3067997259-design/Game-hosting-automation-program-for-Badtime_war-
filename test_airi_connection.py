@@ -18,7 +18,7 @@ import sys
 import uuid
 
 
-async def test(url: str, auth_token: str):
+async def run_connection_test(url: str, auth_token: str):
     try:
         import websockets
     except ImportError:
@@ -176,7 +176,7 @@ def main():
         except Exception as e:
             print(f"  [警告] 读取 config/airi_config.json 失败: {e}")
 
-    asyncio.run(test(args.url, token))
+    asyncio.run(run_connection_test(args.url, token))
 
 
 if __name__ == "__main__":

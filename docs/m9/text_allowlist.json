@@ -1,0 +1,1627 @@
+[
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  124,
+        "text":  "拳击"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  126,
+        "text":  "商店"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  128,
+        "text":  "小刀"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  133,
+        "text":  "move 商店"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  134,
+        "text":  "move 商店"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  251,
+        "text":  "医院"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  254,
+        "text":  "interact 治疗"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  255,
+        "text":  "interact 打工"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  259,
+        "text":  "move 医院"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  260,
+        "text":  "move 医院"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  436,
+        "text":  "interact 盾牌"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  443,
+        "text":  "special 卸甲免费find"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  697,
+        "text":  "special 热线举报"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  706,
+        "text":  "special 竞选队长"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  727,
+        "text":  "攻击"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  727,
+        "text":  "special 指挥"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  729,
+        "text":  "警察局"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  731,
+        "text":  "special 指挥"
+    },
+    {
+        "file":  "controllers/ai/m9_adapters.py",
+        "line":  731,
+        "text":  "移动"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  66,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  66,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  134,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  134,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  247,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  409,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  420,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  472,
+        "text":  "阴阳"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  472,
+        "text":  "群星"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  472,
+        "text":  "游侠"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  472,
+        "text":  "永恒"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  472,
+        "text":  "明天"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  472,
+        "text":  "追光"
+    },
+    {
+        "file":  "engine/m9/aids.py",
+        "line":  472,
+        "text":  "飞萤"
+    },
+    {
+        "file":  "engine/m9/arc.py",
+        "line":  62,
+        "text":  "布"
+    },
+    {
+        "file":  "engine/m9/arc.py",
+        "line":  62,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/combat.py",
+        "line":  131,
+        "text":  "掩体"
+    },
+    {
+        "file":  "engine/m9/combat.py",
+        "line":  371,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/combat.py",
+        "line":  430,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/combat.py",
+        "line":  434,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/combat.py",
+        "line":  437,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/combat.py",
+        "line":  705,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/combat.py",
+        "line":  785,
+        "text":  "警察掩体"
+    },
+    {
+        "file":  "engine/m9/combat.py",
+        "line":  796,
+        "text":  "援助掩体"
+    },
+    {
+        "file":  "engine/m9/g3_chain.py",
+        "line":  59,
+        "text":  "螺旋剑（伪）"
+    },
+    {
+        "file":  "engine/m9/g3_chain.py",
+        "line":  77,
+        "text":  "螺旋剑（伪）"
+    },
+    {
+        "file":  "engine/m9/gate.py",
+        "line":  63,
+        "text":  "警察局"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  35,
+        "text":  "高斯步枪"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  35,
+        "text":  "警棍"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  35,
+        "text":  "魔法弹幕"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  37,
+        "text":  "魔法护盾"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  37,
+        "text":  "AT力场"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  37,
+        "text":  "陶瓷护甲"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  37,
+        "text":  "盾牌"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  64,
+        "text":  "警棍"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  385,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  418,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  460,
+        "text":  "伤害警察"
+    },
+    {
+        "file":  "engine/m9/police.py",
+        "line":  794,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/resolution.py",
+        "line":  25,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  91,
+        "text":  "一刀缭断"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  96,
+        "text":  "剪刀手一突"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  101,
+        "text":  "天星"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  106,
+        "text":  "六爻"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  117,
+        "text":  "朝阳好市民"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  122,
+        "text":  "死者苏生"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  127,
+        "text":  "砂狼白子*Terror"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  130,
+        "text":  "砂狼白子"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  130,
+        "text":  "白子Terror"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  130,
+        "text":  "白子*Terror"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  133,
+        "text":  "神代天赋-火萤IV型-完全燃烧"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  137,
+        "text":  "火萤IV型-完全燃烧"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  140,
+        "text":  "神代天赋-请一直注视着我"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  144,
+        "text":  "请一直注视着我"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  144,
+        "text":  "请一直，注视着我"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  147,
+        "text":  "神代天赋-神话之外"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  150,
+        "text":  "神话之外"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  153,
+        "text":  "神代天赋-愿负世，照拂黎明"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  157,
+        "text":  "愿负世，照拂黎明"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  160,
+        "text":  "神代天赋-往世的涟漪"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  163,
+        "text":  "往世的涟漪"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  166,
+        "text":  "神代天赋-要有笑声！"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  169,
+        "text":  "要有笑声！"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  172,
+        "text":  "神代天赋-大叔我啊，剪短发了"
+    },
+    {
+        "file":  "engine/m9/talent_registry.py",
+        "line":  175,
+        "text":  "大叔我啊，剪短发了"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  39,
+        "text":  "飞萤"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  39,
+        "text":  "追光"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  39,
+        "text":  "明天"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  39,
+        "text":  "永恒"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  39,
+        "text":  "游侠"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  39,
+        "text":  "群星"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  39,
+        "text":  "阴阳"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  43,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  43,
+        "text":  "魔法"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  43,
+        "text":  "科技"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  106,
+        "text":  "砂狼白子*Terror"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  162,
+        "text":  "弓"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  322,
+        "text":  "支援"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  322,
+        "text":  "遗物"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  350,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  394,
+        "text":  "诗篇"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  632,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  664,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  773,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  807,
+        "text":  "科技"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  815,
+        "text":  "科技"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  823,
+        "text":  "科技"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  1018,
+        "text":  "弓"
+    },
+    {
+        "file":  "engine/m9/talents/g0.py",
+        "line":  1018,
+        "text":  "拳击"
+    },
+    {
+        "file":  "engine/m9/talents/g1.py",
+        "line":  33,
+        "text":  "火萤IV型-完全燃烧"
+    },
+    {
+        "file":  "engine/m9/talents/g1.py",
+        "line":  145,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g1.py",
+        "line":  161,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g1.py",
+        "line":  286,
+        "text":  "完全燃烧"
+    },
+    {
+        "file":  "engine/m9/talents/g1.py",
+        "line":  594,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/g1.py",
+        "line":  615,
+        "text":  "警察局"
+    },
+    {
+        "file":  "engine/m9/talents/g2.py",
+        "line":  141,
+        "text":  "神代天赋-请一直注视着我"
+    },
+    {
+        "file":  "engine/m9/talents/g2.py",
+        "line":  228,
+        "text":  "即演"
+    },
+    {
+        "file":  "engine/m9/talents/g2.py",
+        "line":  268,
+        "text":  "拳击"
+    },
+    {
+        "file":  "engine/m9/talents/g2.py",
+        "line":  286,
+        "text":  "拳击"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  45,
+        "text":  "魔法弹幕"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  45,
+        "text":  "远程魔法弹幕"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  45,
+        "text":  "警棍"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  45,
+        "text":  "拳击"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  45,
+        "text":  "小刀"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  46,
+        "text":  "高斯步枪"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  46,
+        "text":  "弓"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  46,
+        "text":  "电磁步枪"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  46,
+        "text":  "地震"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  46,
+        "text":  "地动山摇"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  51,
+        "text":  "弹道校正"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  52,
+        "text":  "拦截"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  53,
+        "text":  "崩坏准备"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  57,
+        "text":  "军事基地"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  57,
+        "text":  "住宅区"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  57,
+        "text":  "医院"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  57,
+        "text":  "公园"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  57,
+        "text":  "商店"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  116,
+        "text":  "神话之外"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  241,
+        "text":  "投影魔术"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  243,
+        "text":  "展开固有结界"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  260,
+        "text":  "螺旋剑连发"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  262,
+        "text":  "兵装攻击"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  264,
+        "text":  "剑阵"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  266,
+        "text":  "投影创建"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  268,
+        "text":  "幻想崩坏"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  270,
+        "text":  "破界"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  291,
+        "text":  "复制武器:"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  306,
+        "text":  "灌注"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  310,
+        "text":  "双刀"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  315,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  317,
+        "text":  "双刀·守势"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  320,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  321,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  328,
+        "text":  "复制武器:"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  329,
+        "text":  "复制武器"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  437,
+        "text":  "螺旋剑（伪）"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  439,
+        "text":  "双刀·攻势"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  441,
+        "text":  "双刀·守势"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  443,
+        "text":  "七重圆环"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  445,
+        "text":  "复制武器"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  462,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  480,
+        "text":  "双刀·攻势"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  495,
+        "text":  "双刀"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  496,
+        "text":  "双刀"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  497,
+        "text":  "双刀·守势"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  510,
+        "text":  "七重圆环"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  531,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  539,
+        "text":  "复制武器:"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  542,
+        "text":  "复制武器:"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  558,
+        "text":  "弓"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  679,
+        "text":  "防壁（七重圆环）"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  682,
+        "text":  "剑阵"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  732,
+        "text":  "螺旋剑（伪）"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  753,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  769,
+        "text":  "继续连发"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  781,
+        "text":  "是"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  783,
+        "text":  "螺旋剑（伪）"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  796,
+        "text":  "螺旋剑（伪）"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  819,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  843,
+        "text":  "剑阵"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  853,
+        "text":  "七重圆环"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  855,
+        "text":  "双刀·守势"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  888,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  1103,
+        "text":  "拳击"
+    },
+    {
+        "file":  "engine/m9/talents/g3.py",
+        "line":  1215,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/g4.py",
+        "line":  87,
+        "text":  "愿负世，照拂黎明"
+    },
+    {
+        "file":  "engine/m9/talents/g4.py",
+        "line":  478,
+        "text":  "公演"
+    },
+    {
+        "file":  "engine/m9/talents/g4.py",
+        "line":  537,
+        "text":  "拒战"
+    },
+    {
+        "file":  "engine/m9/talents/g4.py",
+        "line":  538,
+        "text":  "攻击"
+    },
+    {
+        "file":  "engine/m9/talents/g4.py",
+        "line":  572,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/g4.py",
+        "line":  593,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/g4.py",
+        "line":  606,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/g5.py",
+        "line":  197,
+        "text":  "神代天赋-往世的涟漪"
+    },
+    {
+        "file":  "engine/m9/talents/g5.py",
+        "line":  659,
+        "text":  "微澜"
+    },
+    {
+        "file":  "engine/m9/talents/g5.py",
+        "line":  661,
+        "text":  "献诗"
+    },
+    {
+        "file":  "engine/m9/talents/g5.py",
+        "line":  668,
+        "text":  "警察局"
+    },
+    {
+        "file":  "engine/m9/talents/g5.py",
+        "line":  668,
+        "text":  "魔法所"
+    },
+    {
+        "file":  "engine/m9/talents/g5.py",
+        "line":  668,
+        "text":  "公园"
+    },
+    {
+        "file":  "engine/m9/talents/g5.py",
+        "line":  668,
+        "text":  "医院"
+    },
+    {
+        "file":  "engine/m9/talents/g5.py",
+        "line":  668,
+        "text":  "军事基地"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  230,
+        "text":  "要有笑声！"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  342,
+        "text":  "即演"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  361,
+        "text":  "借用核心"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  362,
+        "text":  "召唤援助"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  567,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  572,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  574,
+        "text":  "石头"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  587,
+        "text":  "石头"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  587,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  588,
+        "text":  "布"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  590,
+        "text":  "石头"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  590,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  592,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/talents/g6.py",
+        "line":  592,
+        "text":  "布"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  28,
+        "text":  "大叔我啊，剪短发了"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  44,
+        "text":  "水着-shielder"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  46,
+        "text":  "盾牌"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  49,
+        "text":  "临战-Archer"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  51,
+        "text":  "临战-shielder"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  71,
+        "text":  "结束"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  72,
+        "text":  "结束"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  117,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  216,
+        "text":  "即演"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  234,
+        "text":  "战术道具"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  243,
+        "text":  "战术道具"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  244,
+        "text":  "药物"
+    },
+    {
+        "file":  "engine/m9/talents/g7.py",
+        "line":  255,
+        "text":  "药物"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  24,
+        "text":  "律法"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  24,
+        "text":  "阴阳"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  24,
+        "text":  "群星"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  24,
+        "text":  "游侠"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  24,
+        "text":  "地火"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  25,
+        "text":  "飞萤"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  25,
+        "text":  "欢愉"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  25,
+        "text":  "永恒"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  25,
+        "text":  "爱与记忆"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  26,
+        "text":  "负世"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  26,
+        "text":  "明天"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  26,
+        "text":  "追光"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  26,
+        "text":  "守夜人"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  26,
+        "text":  "彼岸"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  31,
+        "text":  "阴阳"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  31,
+        "text":  "群星"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  31,
+        "text":  "游侠"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  32,
+        "text":  "飞萤"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  32,
+        "text":  "永恒"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  33,
+        "text":  "明天"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  33,
+        "text":  "追光"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  39,
+        "text":  "天星"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  39,
+        "text":  "六爻"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  39,
+        "text":  "一刀缭断"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  39,
+        "text":  "剪刀手一突"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  40,
+        "text":  "死者苏生"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  40,
+        "text":  "朝阳好市民"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  41,
+        "text":  "神代天赋-火萤IV型-完全燃烧"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  41,
+        "text":  "火萤IV型-完全燃烧"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  42,
+        "text":  "神代天赋-请一直注视着我"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  42,
+        "text":  "请一直注视着我"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  43,
+        "text":  "神代天赋-神话之外"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  43,
+        "text":  "神话之外"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  44,
+        "text":  "神代天赋-愿负世，照拂黎明"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  44,
+        "text":  "愿负世，照拂黎明"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  45,
+        "text":  "神代天赋-往世的涟漪"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  45,
+        "text":  "往世的涟漪"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  46,
+        "text":  "神代天赋-要有笑声！"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  46,
+        "text":  "要有笑声！"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  47,
+        "text":  "神代天赋-大叔我啊，剪短发了"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  47,
+        "text":  "大叔我啊，剪短发了"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  89,
+        "text":  "爱与记忆"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  247,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  247,
+        "text":  "魔法"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  247,
+        "text":  "科技"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  247,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/poems.py",
+        "line":  255,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/t1.py",
+        "line":  30,
+        "text":  "一刀缭断"
+    },
+    {
+        "file":  "engine/m9/talents/t1.py",
+        "line":  174,
+        "text":  "公演"
+    },
+    {
+        "file":  "engine/m9/talents/t2.py",
+        "line":  35,
+        "text":  "剪刀手一突"
+    },
+    {
+        "file":  "engine/m9/talents/t2.py",
+        "line":  70,
+        "text":  "伤害玩家"
+    },
+    {
+        "file":  "engine/m9/talents/t2.py",
+        "line":  125,
+        "text":  "铁之荷鲁斯"
+    },
+    {
+        "file":  "engine/m9/talents/t2.py",
+        "line":  431,
+        "text":  "公演"
+    },
+    {
+        "file":  "engine/m9/talents/t3.py",
+        "line":  116,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/t3.py",
+        "line":  177,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/t3.py",
+        "line":  189,
+        "text":  "天星"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  45,
+        "text":  "潜龙勿用"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  46,
+        "text":  "飞龙在天"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  47,
+        "text":  "元亨利贞"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  48,
+        "text":  "亢龙有悔"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  49,
+        "text":  "群龙无首"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  60,
+        "text":  "六爻"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  128,
+        "text":  "公演"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  188,
+        "text":  "指定卦象"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  265,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  361,
+        "text":  "拳击"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  426,
+        "text":  "架盾"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  463,
+        "text":  "普通"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  463,
+        "text":  "__无视__"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  463,
+        "text":  "无视属性克制"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  482,
+        "text":  "石头"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  482,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  483,
+        "text":  "布"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  485,
+        "text":  "石头"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  485,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  487,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  487,
+        "text":  "布"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  498,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  503,
+        "text":  "剪刀"
+    },
+    {
+        "file":  "engine/m9/talents/t4.py",
+        "line":  505,
+        "text":  "石头"
+    },
+    {
+        "file":  "engine/m9/talents/t6.py",
+        "line":  38,
+        "text":  "朝阳好市民"
+    },
+    {
+        "file":  "engine/m9/talents/t6.py",
+        "line":  203,
+        "text":  "即演"
+    },
+    {
+        "file":  "engine/m9/talents/t6.py",
+        "line":  212,
+        "text":  "公演"
+    },
+    {
+        "file":  "engine/m9/talents/t6.py",
+        "line":  248,
+        "text":  "武器"
+    },
+    {
+        "file":  "engine/m9/talents/t6.py",
+        "line":  252,
+        "text":  "护甲"
+    },
+    {
+        "file":  "engine/m9/talents/t6.py",
+        "line":  257,
+        "text":  "武器"
+    },
+    {
+        "file":  "engine/m9/talents/t6.py",
+        "line":  284,
+        "text":  "武器"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  38,
+        "text":  "死者苏生"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  106,
+        "text":  "公演"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  108,
+        "text":  "公演"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  112,
+        "text":  "即演"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  238,
+        "text":  "魔法弹幕"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  238,
+        "text":  "高斯步枪"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  238,
+        "text":  "小刀"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  238,
+        "text":  "警棍"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  239,
+        "text":  "魔法护盾"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  239,
+        "text":  "AT力场"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  239,
+        "text":  "盾牌"
+    },
+    {
+        "file":  "engine/m9/talents/t7.py",
+        "line":  239,
+        "text":  "陶瓷护甲"
+    }
+]

@@ -7,7 +7,7 @@ Ripple —— 神代天赋5「往世的涟漪」主类
 V1.92+ 改动：
   - 追忆积攒速度：未行动 +0.5，行动了 +1（原 +2/+1）
   - 无次数上限，首次发动需24层消耗12，之后12层消耗12
-  - 爱与记忆之诗消耗递增：min(24, 12+3×已用次数)
+  - 爱与记忆之诗消耗递增：min(24, 12+4×已用次数)
   - 同一首诗可重复使用
 """
 
@@ -73,6 +73,11 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         self.anchor_target_snapshot = None
         self.anchor_revealed_step = None
         self.was_paused_by_barrier = False
+        # m7 开拓：路径属性命中数（防御公式 n_X）+ 路径声明的有限 key 物品（floor 空）
+        self.anchor_attr_counts: dict = {}
+        self.anchor_key_items: list = []
+        # 完结条：整局累计成功锚定数（满 2 → g5_double_anchor）
+        self.successful_anchors: int = 0
 
         # === V1.92: 轮初快照（由 AnchorMixin._auto_judge_destructive 使用）===
         self._target_round_start_location: object | None = None
@@ -80,6 +85,11 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         self._caster_round_start_stunned: bool = False
         self._caster_round_start_shocked: bool = False
         self._caster_round_start_petrified: bool = False
+        # m7 开拓判定轮初快照：目标每属性总防御 / 隐身集 / HP / 持有物名
+        self._target_round_start_defense: dict | None = None
+        self._target_round_start_stealth: set | None = None
+        self._target_round_start_hp: float | None = None
+        self._target_round_start_items: set | None = None
 
         # === V1.92: 锚定D4加成（来自「一页永恒的善见天」）===
         # 成功锚定后，双方在后续5个判定轮次中D4点数+2（不超过4）
@@ -189,6 +199,18 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         """获取发动者 Player 对象"""
         return self.state.get_player(self.player_id)
 
+    def _count_applause_at_location(self, round_num):
+        """统计指定轮次、与 G5 同地点发生的喝彩级事件数（追忆新水源，§7.5 pt3）。
+
+        读 applause 侧表 `_round_applause`（不在 golden 摘要里，故不污染 m6 基线）。
+        """
+        me = self._get_caster()
+        if not me:
+            return 0
+        my_loc = getattr(me, "location", None)
+        rec = getattr(self.state, "_round_applause", None) or []
+        return sum(1 for (r, loc) in rec if r == round_num and loc == my_loc)
+
     # ================================================================
     #  追忆积累（R0）
     # ================================================================
@@ -202,18 +224,25 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
         if round_num <= 1:
             return
 
-        # V1.93: 追忆积攒速度基于场上当前存活人数
-        current_alive = sum(
-            1 for pid in self.state.player_order
-            if self.state.get_player(pid) and self.state.get_player(pid).is_alive()
-        )
-        if current_alive > 3:
-            gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 1.0
+        from talents.talent_balance import m7_enabled, talent_num
+        if m7_enabled():
+            # §7.5 pt3 新水源：每轮基础 + 所在地点上一轮每发生一次喝彩级事件额外
+            gain = talent_num("g5", "reminiscence_per_round", v1=1)
+            gain += (self._count_applause_at_location(round_num - 1)
+                     * talent_num("g5", "reminiscence_applause_bonus", v1=1))
         else:
-            # 设计说明：≤3 人局当前两侧均为 0.5（看似冗余的三元），
-            # **故意保留**结构以便将来对"未行动"和"行动了"独立调参，
-            # 不要简化为 `gain = 0.5`。
-            gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 0.5
+            # V1.93: 追忆积攒速度基于场上当前存活人数
+            current_alive = sum(
+                1 for pid in self.state.player_order
+                if self.state.get_player(pid) and self.state.get_player(pid).is_alive()
+            )
+            if current_alive > 3:
+                gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 1.0
+            else:
+                # 设计说明：≤3 人局当前两侧均为 0.5（看似冗余的三元），
+                # **故意保留**结构以便将来对"未行动"和"行动了"独立调参，
+                # 不要简化为 `gain = 0.5`。
+                gain = 0.5 if (not self.acted_last_round or self.only_extra_turn) else 0.5
 
         old = self.reminiscence
         self.reminiscence = min(self.max_reminiscence, self.reminiscence + gain)
@@ -371,7 +400,13 @@ class Ripple(AnchorMixin, PoemMixin, BaseTalent):
     # ================================================================
 
     def on_d4_bonus(self, player):
-        """锚定成功后，双方在后续5个判定轮次中D4点数+2（不超过4）"""
+        """锚定成功后，双方在后续5个判定轮次中D4点数+2（不超过4）。
+
+        m7：D4 退役，善见天由 v3（监控期闪避失效，accuracy.py）取代 → 此处恒 0。
+        """
+        from talents.talent_balance import m7_enabled
+        if m7_enabled():
+            return 0
         if self._anchor_d4_bonus_rounds <= 0:
             return 0
         # 检查是否是发动者或被锚定者

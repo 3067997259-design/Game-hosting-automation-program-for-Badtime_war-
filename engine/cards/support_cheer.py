@@ -1,7 +1,7 @@
 """应援连呼 ×1 — Acc限定"""
 import random
 from engine.cards.base import BaseCard
-from engine.ish_bosheth import ACCAREZZEVOLE, STRAPPANDO
+from engine.ish_bosheth import ACCAREZZEVOLE, STRAPPANDO, _g2_num
 from cli import display
 
 class SupportCheer(BaseCard):
@@ -21,7 +21,7 @@ class SupportCheer(BaseCard):
             chosen = player.controller.choose("应援连呼：选择 Acc 目标", [t.name for t in all_acc],
                 context={"phase":"T0","situation":"g2_card_support_cheer"})
             target = next((t for t in all_acc if t.name == chosen), all_acc[0])
-            target.temp_hp_g2 = getattr(target, 'temp_hp_g2', 0) + 0.5
+            target.temp_hp_g2 = getattr(target, 'temp_hp_g2', 0) + _g2_num("card_support_cheer_temp_hp", v1=0.5)
             if getattr(target, 'is_chorus', False):
                 str_targets = [c for c in ish.chorus_list if c.is_alive() and c.emotion == STRAPPANDO]
                 for p2_id in ish.participants:

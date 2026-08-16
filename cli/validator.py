@@ -2,7 +2,7 @@
 合法性校验器（Phase 3 完整版 - ver1.9适配）
 """
 
-from actions.move import get_all_valid_locations
+from actions.move import get_all_valid_locations, has_active_supernova
 from actions.interact import get_location_module
 from actions.special_op import get_available_specials
 from cli.parser import resolve_player_target
@@ -138,6 +138,21 @@ def validate(parsed, player, game_state):
     if crime_block:
         return False, crime_block
 
+    # M9：legacy 警察引擎指令与喝彩消耗在 m9-rfc 下退役（commands.md 附录已
+    # 标注"设计已取代、实现未拆除"）。M9 警务走 m9_police 状态机，入口为
+    # `special 热线举报<目标>` / `special 竞选队长` / `special 指挥<警员>移动`；
+    # 喝彩被 B4 v0.4 的 PP 取代。这里在入口统一拒绝，避免退役语义泄漏进 m9-rfc。
+    _M9_RETIRED_ACTIONS = frozenset({
+        "wake_police", "report", "assemble", "track_guide", "recruit",
+        "election", "designate", "study", "police_command", "applause_spend",
+    })
+    if action in _M9_RETIRED_ACTIONS:
+        from engine import experiments
+        if experiments.is_enabled("m9_rfc"):
+            hint = ("警务请用 `special 热线举报<玩家名>` / `special 竞选队长` / "
+                    "`special 指挥<警员id>移动`；喝彩已被 PP 取代")
+            return False, f"❌ 该指令在 M9 规则下已退役（{hint}）"
+
     if action == "wake":
         return validate_wake(player)
     elif action == "wake_police":
@@ -152,6 +167,12 @@ def validate(parsed, player, game_state):
         return validate_find(player, parsed.get("target"), game_state)
     elif action == "attack":
         return validate_attack(player, parsed, game_state)
+    elif action == "applause_spend":
+        return validate_applause_spend(player, parsed.get("use"), game_state)
+    elif action == "shoot":
+        return validate_shoot(player, parsed.get("target"), game_state)
+    elif action == "hook":
+        return validate_hook(player, parsed, game_state)
     elif action == "special":
         return validate_special(player, parsed.get("operation"), game_state)
     elif action == "report":
@@ -176,6 +197,106 @@ def validate(parsed, player, game_state):
         return True, ""
     else:
         return False, f"未知的行动类型：{action}"
+
+
+# ============================================
+#  M4 校验：射箭 / 钩索（experiment: m4_gear）
+# ============================================
+
+def validate_applause_spend(player, use, game_state):
+    from engine import experiments
+    if not experiments.is_enabled("m6_scoring"):
+        return False, "未知的行动类型：applause_spend"
+    if not player.is_awake:
+        return False, "你还没起床！"
+    from actions.applause_spend import cost_of
+    cost = cost_of(use)
+    if cost <= 0:
+        return False, f"未知喝彩用途「{use}」"
+    if getattr(player, "applause", 0) < cost:
+        return False, f"喝彩点不足（需 {cost}，有 {player.applause}）"
+    return True, ""
+
+
+def validate_shoot(player, target_str, game_state):
+    from engine.economy import m4_enabled
+    if not m4_enabled():
+        return False, "未知的行动类型：shoot"
+    if not player.is_awake:
+        return False, "你还没起床！"
+    ok, reason = _check_not_disabled(player, game_state)
+    if not ok:
+        return False, reason
+    if not player.has_weapon("弓"):
+        return False, "你没有弓"
+    from engine.bow_modules import compute_shot
+    if not compute_shot(player)["infinite"] and getattr(player, 'arrows', 0) < 1:
+        return False, "箭袋空了（商店可补给，find 可拾取落箭）"
+    if not target_str:
+        return False, "请指定射击目标。"
+    target_id = resolve_player_target(target_str, game_state)
+    if not target_id:
+        return False, f"找不到玩家「{target_str}」"
+    actor_getter = getattr(game_state, "get_actor", game_state.get_player)
+    target = actor_getter(target_id)
+    if not target or not target.is_alive():
+        return False, f"{target_str} 已死亡"
+    if target_id == player.player_id:
+        return False, "不能射自己"
+    if not getattr(target, 'is_awake', False) or target.location is None:
+        return False, f"{target.name} 不在地图上"
+    if _check_love_wish_block(player.player_id, target_id, game_state):
+        return False, f"💝「爱愿」生效中：你无法攻击 {target.name}"
+    from engine.visibility import can_see
+    if not can_see(player, target, game_state):
+        return False, f"{target.name} 对你不可见"
+    return True, ""
+
+
+def validate_hook(player, parsed, game_state):
+    from engine.economy import m4_enabled
+    if not m4_enabled():
+        return False, "未知的行动类型：hook"
+    if not player.is_awake:
+        return False, "你还没起床！"
+    ok, reason = _check_not_disabled(player, game_state)
+    if not ok:
+        return False, reason
+    if not any(getattr(i, 'name', '') == "钩索" for i in getattr(player, 'items', [])):
+        return False, "你没有钩索"
+    from engine.balance import get as _bget
+    cooldown = _bget("hook", "cooldown_rounds", default=2)
+    ready_round = getattr(player, '_last_hook_round', -99) + cooldown
+    if game_state.current_round < ready_round:
+        return False, f"钩索冷却中（第 {ready_round} 轮就绪）"
+    if parsed.get("mode") == "self":
+        dest = parsed.get("destination")
+        from actions.move import get_all_valid_locations
+        if dest not in get_all_valid_locations(game_state):
+            return False, f"无效目的地「{dest}」"
+        if dest == player.location:
+            return False, "你已经在这里了"
+        return True, ""
+    target_str = parsed.get("target")
+    target_id = resolve_player_target(target_str, game_state)
+    if not target_id:
+        return False, f"找不到玩家「{target_str}」"
+    actor_getter = getattr(game_state, "get_actor", game_state.get_player)
+    target = actor_getter(target_id)
+    if not target or not target.is_alive():
+        return False, f"{target_str} 已死亡"
+    if target_id == player.player_id:
+        return False, "拉自己请用 hook self <地点>"
+    if not getattr(target, 'is_awake', False) or target.location is None:
+        return False, f"{target.name} 不在地图上"
+    if target.location == player.location:
+        return False, f"{target.name} 已经和你同地点"
+    if _check_love_wish_block(player.player_id, target_id, game_state):
+        return False, f"💝「爱愿」生效中：你无法攻击 {target.name}"
+    from engine.visibility import can_see
+    if not can_see(player, target, game_state):
+        return False, f"{target.name} 对你不可见"
+    return True, ""
 
 
 # ============================================
@@ -235,7 +356,7 @@ def validate_move(player, destination, game_state):
         return False, f"「{destination}」不是有效地点。可用：{', '.join(valid)}"
     # 超新星过载：允许选择当前地点作为目的地
     if destination == player.location:
-        if player.talent and hasattr(player.talent, 'has_supernova') and player.talent.has_supernova:
+        if has_active_supernova(player):
             return True, ""
         # 半进入状态：允许 move 同地点（突破守点）
         if (getattr(player, '_shield_half_entered', False)
@@ -254,6 +375,10 @@ def validate_interact(player, item_name, game_state):
         return False, "你还没起床！"
     if item_name is None:
         return False, "请指定交互项目。"
+    blocked_getter = getattr(getattr(player, "talent", None),
+                             "m9_blocked_action_types", None)
+    if callable(blocked_getter) and "interact" in blocked_getter():
+        return False, "当前天赋形态禁止 interact。"
     # 半进入状态：禁用 interact
     if getattr(player, '_shield_half_entered', False):
         return False, "🛡️ 你还没完全进入此地点，无法交互。再次 move 到此地点可完全进入。"
@@ -274,6 +399,14 @@ def validate_interact(player, item_name, game_state):
     can, reason = loc_module.can_interact(player, item_name, game_state)
     if not can:
         return False, reason
+    # M5 白昼限量营业：每地点每条目每轮 1 次（先攻争夺，先到先得）
+    from engine import experiments
+    if experiments.is_enabled("m5_clock"):
+        from engine import world_clock
+        if world_clock.active_value(game_state, "rationing", default=False):
+            key = (player.location, item_name)
+            if key in getattr(game_state, "_rationing_used", set()):
+                return False, f"「{item_name}」本轮已被取用（限量营业，下轮再来）"
     return True, ""
 
 def validate_lock(player, target_str, game_state):
@@ -294,6 +427,11 @@ def validate_lock(player, target_str, game_state):
         return False, f"{target.name} 不在地图上"
     if target_id == player.player_id:
         return False, "不能锁定自己"
+    from engine.m9.gate import m9_enabled
+    if m9_enabled(game_state):
+        from engine.m9.talents.g3 import lock_crosses_active_barrier
+        if lock_crosses_active_barrier(game_state, player, target):
+            return False, "无限剑制内部只能锁定同在结界内部的单位"
     # 锁定是远程攻击前置，必须持有远程武器
     from models.equipment import WeaponRange
     has_ranged = any(
@@ -315,14 +453,12 @@ def validate_lock(player, target_str, game_state):
         if game_state.markers.has(target_id, "INVISIBLE"):
             game_state.markers.remove(target_id, "INVISIBLE")
 
-    visible = game_state.markers.is_visible_to(
-        target_id, player.player_id, player.has_detection)
-    if not visible:
+    from engine.visibility import can_see, mark_detected_if_seen
+    if not can_see(player, target, game_state):
         return False, f"{target.name} 对你不可见"
 
-    # 探测能力发现隐身目标：添加 DETECTED_BY 关系
-    if player.has_detection and game_state.markers.has(target_id, "INVISIBLE"):
-        game_state.markers.on_player_detected(player.player_id, target_id)
+    # 看穿隐身目标：添加 DETECTED_BY 关系（之后恒可见）
+    mark_detected_if_seen(player, target, game_state)
 
     already = game_state.markers.has_relation(
         target_id, "LOCKED_BY", player.player_id)
@@ -341,13 +477,18 @@ def validate_find(player, target_str, game_state):
         return False, "你还没起床！"
     if target_str is None:
         return False, "请指定目标。"
+    blocked_getter = getattr(getattr(player, "talent", None),
+                             "m9_blocked_action_types", None)
+    if callable(blocked_getter) and "find" in blocked_getter():
+        return False, "当前天赋形态禁止 find。"
     ok, reason = _check_not_disabled(player, game_state)
     if not ok:
         return False, reason
     target_id = resolve_player_target(target_str, game_state)
     if not target_id:
         return False, f"找不到玩家「{target_str}」"
-    target = game_state.get_player(target_id)
+    actor_getter = getattr(game_state, "get_actor", game_state.get_player)
+    target = actor_getter(target_id)
     if not target or not target.is_alive():
         return False, f"{target_str} 已死亡"
     if target_id == player.player_id:
@@ -367,14 +508,12 @@ def validate_find(player, target_str, game_state):
         if game_state.markers.has(target_id, "INVISIBLE"):
             game_state.markers.remove(target_id, "INVISIBLE")
 
-    visible = game_state.markers.is_visible_to(
-        target_id, player.player_id, player.has_detection)
-    if not visible:
+    from engine.visibility import can_see, mark_detected_if_seen
+    if not can_see(player, target, game_state):
         return False, f"{target.name} 对你不可见"
 
-    # 探测能力发现隐身目标：添加 DETECTED_BY 关系
-    if player.has_detection and game_state.markers.has(target_id, "INVISIBLE"):
-        game_state.markers.on_player_detected(player.player_id, target_id)
+    # 看穿隐身目标：添加 DETECTED_BY 关系（之后恒可见）
+    mark_detected_if_seen(player, target, game_state)
 
     already = game_state.markers.has_relation(
         player.player_id, "ENGAGED_WITH", target_id)
@@ -387,6 +526,33 @@ def validate_find(player, target_str, game_state):
         return False, hologram_block
 
     return True, ""
+
+def _resolve_attack_weapon(player, weapon_spec, layer_str=None, attr_str=None):
+    """按持有武器名对 attack 的武器段做最长匹配。
+
+    parser 已把目标名之后的全部 token 拼进 weapon_spec（武器名可含空格，
+    如 G0 的 BLACK FANG 465）。这里先按最长持有武器名精确/前缀匹配，
+    剩余 token 依次回填 layer/attr，保持旧的 attack target weapon layer attr
+    四参语义不变。
+    """
+    names = sorted(
+        {w.name for w in getattr(player, "weapons", []) if w is not None},
+        key=len, reverse=True)
+    weapon_spec = (weapon_spec or "").strip()
+    if not weapon_spec:
+        return None, layer_str, attr_str
+    for name in names:
+        if weapon_spec == name:
+            return player.get_weapon(name), layer_str, attr_str
+        if weapon_spec.startswith(name + " "):
+            suffix = weapon_spec[len(name) + 1:].split()
+            if layer_str is None and suffix:
+                layer_str = suffix[0]
+            if attr_str is None and len(suffix) >= 2:
+                attr_str = suffix[1]
+            return player.get_weapon(name), layer_str, attr_str
+    return None, layer_str, attr_str
+
 
 def validate_attack(player, parsed, game_state):
     if not player.is_awake:
@@ -410,6 +576,16 @@ def validate_attack(player, parsed, game_state):
             available = ", ".join(w.name for w in player.weapons)
             return False, f"你有多把武器，请指定使用哪一把：{available}"
 
+    weapon, layer_str, attr_str = _resolve_attack_weapon(
+        player, weapon_name, parsed.get("layer"), parsed.get("attr"))
+    if weapon is None:
+        available = ", ".join(w.name for w in player.weapons)
+        return False, f"你没有武器「{weapon_name}」。你持有：{available}"
+    weapon_name = weapon.name
+    parsed["weapon"] = weapon_name
+    parsed["layer"] = layer_str
+    parsed["attr"] = attr_str
+
     # 检查是否为警察目标
     if target_str.lower().startswith("police"):
         # 警察目标特殊验证
@@ -429,7 +605,8 @@ def validate_attack(player, parsed, game_state):
     target_id = resolve_player_target(target_str, game_state)
     if not target_id:
         return False, f"找不到玩家「{target_str}」"
-    target = game_state.get_player(target_id)
+    actor_getter = getattr(game_state, "get_actor", game_state.get_player)
+    target = actor_getter(target_id)
     if not target or not target.is_alive():
         return False, f"{target_str} 已死亡"
     if target_id == player.player_id:
@@ -695,6 +872,9 @@ def validate_police_command(player, parsed, game_state):
 def _validate_melee(player, target, target_id, game_state):
     if target.location != player.location:
         return False, f"近战需要同地点（{target.name}在{target.location}）"
+    if (getattr(target, "_m9_police_actor", False)
+            or getattr(target, "_m9_drone_actor", False)):
+        return True, ""
     engaged = game_state.markers.has_relation(
         player.player_id, "ENGAGED_WITH", target_id)
     if not engaged:
@@ -707,6 +887,10 @@ def _validate_ranged(player, target, target_id, weapon, game_state):
             return False, "导弹发射必须在军事基地"
         if not game_state.markers.has(player.player_id, "MISSILE_CTRL"):
             return False, "你没有导弹控制权"
+    if ((getattr(target, "_m9_police_actor", False)
+            or getattr(target, "_m9_drone_actor", False))
+            and target.location == player.location):
+        return True, ""
     locked = game_state.markers.has_relation(
         target_id, "LOCKED_BY", player.player_id)
     if not locked:
@@ -718,8 +902,12 @@ def _validate_ranged(player, target, target_id, weapon, game_state):
     return True, ""
 
 def _validate_area(player, target, game_state):
-    others = [p for p in game_state.players_at_location(player.location)
-              if p.player_id != player.player_id and p.is_alive()]
+    actors = (game_state.iter_targetable_actors()
+              if hasattr(game_state, "iter_targetable_actors")
+              else game_state.players_at_location(player.location))
+    others = [p for p in actors
+              if p.player_id != player.player_id and p.is_alive()
+              and p.location == player.location]
     if not others:
         return False, "同地点没有其他目标"
     return True, ""

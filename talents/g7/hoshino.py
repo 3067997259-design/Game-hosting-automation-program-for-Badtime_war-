@@ -21,11 +21,24 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
         super().__init__(player_id, game_state)
         # 形态
         self.form = None  # "水着-shielder" / "临战-Archer" / "临战-shielder"
-        # Cost 体力条
-        self.cost = 5
-        self.max_cost = 5
-        # 光环（3层）
-        self.halos = [{"active": False, "cooldown_remaining": 0, "recovering": False} for _ in range(3)]
+        # Cost 体力条与初始光环层数：M9 读 m9_talents_extended.g7（风洞调参入口），
+        # legacy/v2exp 保持硬编码 5 / 3。
+        from engine import experiments
+        _m9 = experiments.is_enabled("m9_rfc")
+        _max_cost = 5
+        _halo_layers = 3
+        if _m9:
+            from engine.balance import get as _bget
+            _max_cost = int(_bget(
+                "m9_talents_extended", "g7", "cost_base_cap", default=5))
+            _halo_layers = int(_bget(
+                "m9_talents_extended", "g7", "halo_initial_layers", default=3))
+        self.cost = _max_cost
+        self.max_cost = _max_cost
+        # 光环（默认 3 层；M9 可调）
+        self.halos = [{"active": False, "cooldown_remaining": 0,
+                       "recovering": False, "value": 0.0}
+                      for _ in range(_halo_layers)]
         # 融合装备
         self.iron_horus = None       # 铁之荷鲁斯 ArmorPiece 引用
         self.eye_of_horus = None     # 荷鲁斯之眼 特殊武器引用
@@ -179,9 +192,7 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
                 self.cost = self.max_cost + 5  # cost 额外 +5（本回合为10）
                 # 光环全恢复
                 for h in self.halos:
-                    h['active'] = True
-                    h['recovering'] = False
-                    h['cooldown_remaining'] = 0
+                    self._halo_activate(h)
                 display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.adrenaline_effect",
                     default="💉 肾上腺素生效！Cost={cost}，光环全恢复！").format(cost=self.cost))
                 # 肾上腺素覆盖失却之痛
@@ -276,13 +287,13 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
 
     def receive_damage_to_temp_hp(self, damage, is_embrace=False):
         remaining = damage
-        # 相拥伤害：跳过 terror_extra_hp 和 permanent_extra_hp，但保留光环吸收
+        # 相拥伤害：跳过 terror_extra_hp 和 permanent_extra_hp
+        # §11.4：m7 下 embrace 无视光环吸收（直达 HP）；v1 仍消耗光环
         if is_embrace:
-            while remaining > 0 and any(h['active'] for h in self.halos):
-                absorb = min(remaining, 0.5)
-                remaining -= absorb
-                self._halo_consume_one()
-            return remaining
+            from talents.talent_balance import m7_enabled
+            if m7_enabled():
+                return remaining
+            return self._halo_drain(remaining)
         # 正常模式：先用 Terror 额外HP
         if self.is_terror:
             absorbed = min(remaining, self.terror_extra_hp)
@@ -296,13 +307,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             remaining -= absorbed
             if remaining <= 0:
                 return 0
-        # 光环额外HP
-        while remaining > 0 and any(h['active'] for h in self.halos):
-            # 每层光环吸收0.5
-            absorb = min(remaining, 0.5)
-            remaining -= absorb
-            self._halo_consume_one()
-        return remaining
+        # 光环额外HP（m7 护体池 / v1 每层 0.5）
+        return self._halo_drain(remaining)
 
     def on_death_check(self, player, damage_source):
         """战斗续行免死 / Terror无条件死亡
@@ -320,7 +326,8 @@ class Hoshino(HaloMixin, FusionMixin, TacticalMixin, FacingMixin, TerrorMixin, B
             self._combat_continuation_immunity = False
             display.show_info(prompt_manager.get_prompt("talent", "g7hoshino.combat_continuation_trigger",
                 default="✨ 「战斗续行」发动！星野免疫了这次死亡！"))
-            return {"prevent_death": True, "new_hp": 1.0}
+            from talents.talent_balance import talent_num
+            return {"prevent_death": True, "new_hp": talent_num("g7", "revive_hp", v1=1.0)}
         return None
 
     def on_d4_bonus(self, player):

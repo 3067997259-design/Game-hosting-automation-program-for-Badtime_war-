@@ -137,9 +137,35 @@ class DiagReport:
 
             game_entry: Dict[str, Any] = {
                 "game_idx": game_idx,
+                "seed": result.get("seed"),
                 "draw": is_draw,
                 "draw_reason": result.get("draw_reason", ""),
                 "rounds": result.get("rounds", 0),
+                "winner_pid": result.get("winner_pid", "nobody"),
+                "survival_winner": result.get(
+                    "survival_winner", "nobody"),
+                "final_scores": dict(result.get("final_scores", {})),
+                "talent_nums_picked": list(
+                    result.get("talent_nums_picked", [])),
+                "event_counts": dict(result.get("event_counts", {})),
+                # 每局只保留胜负归因所需的玩家终态，不复制 event_log。这样可把
+                # forfeit/candidate 的 game_idx 与天赋、人格、技能使用及终分关联起来，
+                # 又不会把诊断文件膨胀成完整对局日志。
+                "players": [
+                    {
+                        key: player.get(key)
+                        for key in (
+                            "pid", "personality", "talent_num", "talent_name",
+                            "is_winner", "is_survival_winner", "alive",
+                            "kill_count", "final_score", "talent_usage",
+                            "decision_stats", "sp_end",
+                        )
+                    }
+                    | {"event_counts": dict(
+                        result.get("player_event_counts", {}).get(
+                            player.get("pid"), {}))}
+                    for player in result.get("players", [])
+                ],
             }
 
             for pid, pdata in diag_data.items():
@@ -312,6 +338,7 @@ class DiagReport:
             os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
             data = {
                 "total_games": len(self._games),
+                "games": self._games,
                 "forfeit_events": self._forfeit_all,
                 "fallback_events": self._fallback_all,
                 "candidate_attempts": self._candidate_attempts_all,

@@ -207,6 +207,11 @@ def _get_findable_targets(player, game_state):
 
 def _get_attackable_info(player, game_state):
     parts = []
+    barrier_blocks = None
+    if getattr(game_state, "m9_enabled", False):
+        from engine.m9.talents.g3 import attack_crosses_active_barrier
+        barrier_blocks = lambda target: attack_crosses_active_barrier(
+            game_state, player, target)
     engaged = game_state.markers.get_related(player.player_id, "ENGAGED_WITH")
     melee_weapons = [w for w in player.weapons
                      if w.weapon_range == WeaponRange.MELEE
@@ -214,14 +219,16 @@ def _get_attackable_info(player, game_state):
     if engaged and melee_weapons:
         for eid in engaged:
             ep = game_state.get_player(eid)
-            if ep and ep.is_alive() and ep.location == player.location:
+            if (ep and ep.is_alive() and ep.location == player.location
+                    and not (barrier_blocks and barrier_blocks(ep))):
                 parts.append(f"近战->{ep.name}")
     ranged_weapons = [w for w in player.weapons
                       if w.weapon_range == WeaponRange.RANGED
                       and not getattr(w, '_hexagram_disabled', False)]
     if ranged_weapons:
         for p in game_state.alive_players():
-            if p.player_id == player.player_id:
+            if p.player_id == player.player_id \
+                    or (barrier_blocks and barrier_blocks(p)):
                 continue
             locked = game_state.markers.has_relation(
                 p.player_id, "LOCKED_BY", player.player_id)
@@ -239,6 +246,18 @@ def _get_attackable_info(player, game_state):
                   if p.player_id != player.player_id]
         if others:
             parts.append(f"范围->同地点所有人")
+    if getattr(game_state, "m9_enabled", False) and hasattr(
+            game_state, "iter_targetable_actors"):
+        npcs = [
+            actor for actor in game_state.iter_targetable_actors()
+            if (getattr(actor, "_m9_police_actor", False)
+                or getattr(actor, "_m9_drone_actor", False))
+            and actor.is_alive()
+            and actor.location == player.location
+            and not (barrier_blocks and barrier_blocks(actor))
+        ]
+        if npcs and (melee_weapons or ranged_weapons or area_weapons):
+            parts.append("NPC->" + ",".join(actor.name for actor in npcs))
     return " | ".join(parts)
 
 

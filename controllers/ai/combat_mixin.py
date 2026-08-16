@@ -22,6 +22,7 @@ from controllers.ai.constants import (
     debug_ai_basic, debug_ai_attack_generation,
 )
 from models.equipment import make_weapon
+from engine.experiments import is_enabled as _is_exp_enabled
 
 if TYPE_CHECKING:
     from controllers.ai.controller import BasicAIController
@@ -295,7 +296,6 @@ class CombatMixin(_Base):
                                 aoe_w = next((w for w in getattr(player, 'weapons', [])
                                             if w and w.name == aoe_name), None)
                                 if not aoe_w:
-                                    from models.equipment import make_weapon
                                     aoe_w = make_weapon(aoe_name)
                                 if not aoe_w:
                                     continue
@@ -759,7 +759,12 @@ class CombatMixin(_Base):
             target_outer_attrs = self._get_inner_armor_attr(target)
         def weapon_score(w):
             s = 0
-            dmg = self._get_weapon_damage(w)
+            if _is_exp_enabled("m8_ai"):
+                # D1：净伤为基（属性差异已折进防御表），克制不再二元
+                from controllers.ai.game_query import GameQuery
+                dmg = GameQuery.net_damage(player, w, target)
+            else:
+                dmg = self._get_weapon_damage(w)
             # 救世主状态：近战武器加上临时攻击力加成
             if self._is_in_savior_state(player):
                 talent = getattr(player, 'talent', None)
@@ -787,7 +792,7 @@ class CombatMixin(_Base):
                 s -= 500  # 未蓄力的武器无法用于攻击，统一大幅扣分
                 # 蓄力决策在 controller 层面的全息影像逻辑中处理
             w_attr = self._get_weapon_attr(w)
-            if target_outer_attrs and w_attr in EFFECTIVE_AGAINST:
+            if not _is_exp_enabled("m8_ai") and target_outer_attrs and w_attr in EFFECTIVE_AGAINST:
                 effective_set = EFFECTIVE_AGAINST[w_attr]
                 has_effective = False
                 for armor_attr in target_outer_attrs:

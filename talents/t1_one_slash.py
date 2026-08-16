@@ -98,15 +98,21 @@ class OneSlash(BaseTalent):
         self.show_activation(player.name)
 
         from combat.damage_resolver import resolve_damage
+        from talents.talent_balance import m7_enabled, talent_num
+        # M7 hp20：下次近战裸伤 ×2 且目标防御减半（§7.6，乘法主动技豁免）
+        _mult = talent_num("t1", "melee_multiplier", v1=2.0)
+        _pierce = 0.5 if (m7_enabled() and talent_num("t1", "target_defense_halved",
+                                                       v1=False)) else 1.0
         result = resolve_damage(
             attacker=player,
             target=target,
             weapon=weapon,
             game_state=self.state,
-            damage_multiplier=2.0,
+            damage_multiplier=_mult,
             ignore_counter=True,
             ignore_last_inner_absorb=True,
             is_talent_attack=True,
+            armor_pierce_factor=_pierce,
         )
 
         # ── RL 事件日志 ──

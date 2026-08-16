@@ -1,0 +1,124 @@
+# 项目概述
+
+这是一个基于 Python 的回合制战斗游戏项目（Badtime War），集成了传统 AI 和强化学习（RL）系统。
+项目采用模块化架构，使用 Mixin 设计模式组织复杂功能。
+
+## 核心架构理解
+
+最重要的内容：所有设计和机制理解必须基于README中的描述！不能经由名称自行猜测！任何的效果实现必须与README相符！
+如果有不确定的内容，可以不改，直接问用户！用户会给出简单明确、作为最终参考的回答。
+
+### 1. 项目结构
+
+- `models/` - 核心数据模型（Player, Grid, Position, TalentSlot）
+- `talents/` - 技能系统，分为 T 系（原初，效果较为简单）和 G 系（神代，效果极为复杂），目前各自有7个，可能会小新增
+- `controllers/` - 控制器系统（Human, AI, RL），AI 使用多个 Mixin 组合
+- `engine/` - 游戏引擎（game_setup, game_engine, action_turn, police_system）
+- `actions/` - 行为系统（MoveAction, UseTalentAction）
+- `combat/` - 战斗系统（damage_resolver）
+- `rl/` - 强化学习模块（env, train, obs_builder, action_space, reward）
+- `config/` - 配置文件（game_config.json）
+- `data/` - 数据文件（prompts.json）
+
+### 2. 关键设计模式
+
+- **Mixin 模式**：广泛应用于 AI 控制器和高级技能
+  - AIController 组合了 7 个 Mixin（Combat, Choose, Develop, Evaluation, Helpers, Police, Hoshino）
+  - G7 级技能如 Hoshino 组合了 Halo, Terror, Tactical 等 Mixin
+- **策略模式**：不同类型的 Controller（Human, AI, RL）
+- **工厂模式**：TalentPool 管理技能创建
+- **观察者模式**：RL 环境遵循 OpenAI Gym 接口
+
+### 3. 技术栈
+
+- **语言**：Python 3
+- **核心库**：
+  - gym - 强化学习环境接口
+  - numpy - 数值计算
+  - 可能使用的 RL 库
+- **无前端**：纯后端/命令行项目
+
+## 编码规范与约束
+
+### 1. 架构规范
+
+- **理解先行**：修改代码前必须使用 `search_files` 或 `read_file` 了解依赖关系
+- **保持模式一致**：
+  - 新增技能必须继承 `BaseTalent`，实现 `can_use()` 和 `use()` 方法
+  - 复杂技能优先使用 Mixin 组合，不要写超长单文件
+  - AI 功能扩展应添加新 Mixin 到 `controllers/ai/`，而非修改主控制器
+- **类型提示**：所有函数必须包含完整的类型注解（使用 `typing` 模块）
+- **文档字符串**：每个类和公共方法都需要清晰的中文文档字符串
+
+### 2. Python 最佳实践
+
+- 遵循 PEP 8 规范（4 空格缩进，最大行宽 100）
+- 使用 `TYPE_CHECKING` 避免循环导入
+- 优先使用组合而非继承（除了 Mixin 场景）
+- 避免可变默认参数
+
+### 3. 技能系统规范
+
+- 技能命名：`{category}{tier}_{name}` (如 `t1_one_slash`, `g7_hoshino`)
+- 技能分类：
+  - T 系：原初，效果相对简单
+  - G 系：神代，有复杂背景故事和更复杂的机制
+    非常复杂的想法实现建议使用 Mixin 拆分逻辑
+
+### 4. 强化学习相关
+
+- 修改奖励函数需同步更新 `rl/reward.py`
+- 修改动作空间需同步更新 `rl/action_space.py` 和 `rl/obs_builder.py`
+- 环境必须保持 OpenAI Gym 接口兼容
+- 新增特征需在 `rl/feature_extractor.py` 中实现
+
+### 5. 配置管理
+
+- 游戏常量统一在 `config/game_config.json` 管理
+- 避免硬编码
+- 修改配置后需确保向后兼容
+
+## 工作流约束（极其重要）
+
+### 1. 小步快跑原则
+
+- 单次修改不超过 **5 个文件**
+- 优先实现核心功能，后续迭代优化
+- 每次修改后建议运行测试验证
+
+### 2. 保持现状原则
+
+- 不要随意删除或修改无关文件
+- 不要重写正常工作的代码"优化"它
+- 保留所有注释和文档字符串
+- 优先采用现有的方法，避免自创太多功能相同的方法
+- 不要改变现有的 Mixin 组合顺序（会影响 MRO）
+
+### 3. 调试与错误处理
+
+- 遇到运行错误先用 `execute_command` 查看完整堆栈
+- 分析错误后再修复，不要盲目试错
+- 添加新功能时考虑边界情况（如空列表、None 值）
+- 使用 `debug_mode` 参数辅助调试
+
+### 4. 依赖管理
+
+- 新增第三方库前先检查是否已在项目中
+- 优先使用 Python 标准库
+- 如需新库，先询问并说明理由
+
+## 特殊注意事项
+
+### 1. Mixin 使用注意
+
+- Mixin 类不应该有 `__init__` 方法（除非显式调用 `super().__init__()`）
+- 注意 MRO（方法解析顺序），组合 Mixin 时顺序很重要
+- Mixin 应该聚焦单一职责，避免相互依赖
+
+### 2. 中文支持
+
+- 所有用户可见的文本使用中文
+- 代码内部标识符使用英文
+- 文档字符串使用中文
+- JSON 配置文件可使用中文键值
+- 将文案设计留给用户，设计过程中对于需要文案的地方避免硬编码，都走 prompt.json。并将具体要填充的文案留给用户

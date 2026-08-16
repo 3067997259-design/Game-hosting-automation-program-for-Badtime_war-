@@ -264,11 +264,13 @@ class RippleAIHook(BaseTalentAIHook):
                 return item
 
         non_cancel = [o for o in options if o != "取消"]
-        return non_cancel[0] if non_cancel else options[0]
+        return non_cancel[0] if non_cancel else (options[0] if options else None)
 
-    def _ripple_decide_destiny_target(self, player, state, options, threat_scores, context) -> str:
+    def _ripple_decide_destiny_target(self, player, state, options, threat_scores, context) -> Optional[str]:
         if not state or not player:
-            return max(options, key=lambda name: threat_scores.get(name, 0), default=options[0])
+            if not options:
+                return None
+            return max(options, key=lambda name: threat_scores.get(name, 0))
 
         hint = getattr(self, '_ripple_destiny_target_hint', None)
         if hint:
@@ -293,7 +295,11 @@ class RippleAIHook(BaseTalentAIHook):
                 best_score = eff
                 best_target = name
 
-        return best_target or max(options, key=lambda name: threat_scores.get(name, 0), default=options[0])
+        if best_target:
+            return best_target
+        if not options:
+            return None
+        return max(options, key=lambda name: threat_scores.get(name, 0))
 
     def _ripple_needs_equipment(self, player) -> bool:
         weapons = getattr(player, 'weapons', [])

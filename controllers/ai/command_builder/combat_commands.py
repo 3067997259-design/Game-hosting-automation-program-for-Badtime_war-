@@ -10,6 +10,7 @@ from controllers.ai.constants import (
     debug_ai_basic, debug_ai_attack_generation,
 )
 from models.equipment import make_weapon
+from engine.experiments import is_enabled as _is_exp_enabled
 
 if TYPE_CHECKING:
     from controllers.ai.game_query import GameQuery
@@ -431,7 +432,11 @@ class CombatCommandBuilder:
 
         def weapon_score(w):
             s = 0
-            dmg = Q.get_weapon_damage(w)
+            if _is_exp_enabled("m8_ai"):
+                # D1：净伤为基（属性差异已折进防御表），克制不再二元
+                dmg = Q.net_damage(player, w, target)
+            else:
+                dmg = Q.get_weapon_damage(w)
             if Q.is_in_savior_state(player):
                 talent = getattr(player, 'talent', None)
                 if Q.get_weapon_range(w) == "melee":
@@ -455,7 +460,7 @@ class CombatCommandBuilder:
                     and not getattr(w, 'is_charged', False)):
                 s -= 500
             w_attr = Q.get_weapon_attr(w)
-            if target_outer_attrs and w_attr in EFFECTIVE_AGAINST:
+            if not _is_exp_enabled("m8_ai") and target_outer_attrs and w_attr in EFFECTIVE_AGAINST:
                 effective_set = EFFECTIVE_AGAINST[w_attr]
                 has_effective = False
                 for armor_attr in target_outer_attrs:

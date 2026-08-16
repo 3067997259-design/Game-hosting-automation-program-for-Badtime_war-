@@ -389,15 +389,6 @@ class BCCollectorController(BasicAIController):
 #  数据收集主流程
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _find_talent_entry(talent_table, talent_num: int):
-    """从 TALENT_TABLE 中找到指定编号的天赋条目。"""
-    for entry in talent_table:
-        n, name, cls, desc = entry[0], entry[1], entry[2], entry[3]
-        if n == talent_num:
-            return entry
-    return None
-
-
 def run_collection(num_games: int, num_players: int, output_dir: str,
                    talent_num: Optional[int] = None) -> None:
     """运行多局全 AI 对局，收集 BC 数据。
@@ -409,7 +400,9 @@ def run_collection(num_games: int, num_players: int, output_dir: str,
     from engine.round_manager import RoundManager
     from models.player import Player
     from engine.game_setup import (
-        TALENT_TABLE, AI_PERSONALITIES, _ai_pick_talent, AI_NAME_POOL,
+        AI_PERSONALITIES, _ai_pick_talent, AI_NAME_POOL,
+        assign_talent_entry, find_talent_entry,
+        talent_table_for_current_profile,
     )
     from stats_runner import _silence_prompt_manager, _restore_prompt_manager
     from rl.env import _silence_display, _restore_display
@@ -420,15 +413,18 @@ def run_collection(num_games: int, num_players: int, output_dir: str,
     # 单天赋模式：预先查找指定天赋
     fixed_entry = None
     if talent_num is not None:
-        fixed_entry = _find_talent_entry(TALENT_TABLE, talent_num)
+        fixed_entry = find_talent_entry(
+            talent_num, talent_table_for_current_profile(),
+        )
         if fixed_entry is None:
-            raise RuntimeError(f"未在 TALENT_TABLE 中找到编号 {talent_num} 的天赋")
+            raise RuntimeError(f"当前 profile 未找到编号 {talent_num} 的天赋")
 
     _silence_display()
     _silence_prompt_manager()
     try:
         for game_idx in range(num_games):
             state = GameState()
+            talent_table = talent_table_for_current_profile(state)
             names = list(AI_NAME_POOL)
             random.shuffle(names)
 
@@ -438,7 +434,7 @@ def run_collection(num_games: int, num_players: int, output_dir: str,
             else:
                 available_talents = [
                     (n, name, cls, desc)
-                    for n, name, cls, desc in TALENT_TABLE
+                    for n, name, cls, desc in talent_table
                 ]
                 chosen = random.choice(available_talents)
                 target_num, target_name, target_cls, _ = chosen
@@ -472,15 +468,12 @@ def run_collection(num_games: int, num_players: int, output_dir: str,
                 if p is None:
                     continue
                 if pid == bc_pid:
-                    talent_inst = target_cls(pid, state)
-                    p.talent = talent_inst
-                    p.talent_name = target_name
-                    talent_inst.on_register()
+                    assign_talent_entry(state, p, fixed_entry or chosen)
                     taken.add(target_num)
                 else:
                     available = [
                         (n, name, cls, desc)
-                        for n, name, cls, desc in TALENT_TABLE
+                        for n, name, cls, desc in talent_table
                         if n not in taken and n != target_num
                     ]
                     if not available:
@@ -492,10 +485,8 @@ def run_collection(num_games: int, num_players: int, output_dir: str,
                     if chosen_ai is None:
                         continue
                     n, name, cls = chosen_ai  # type: ignore[misc]
-                    talent_inst = cls(pid, state)
-                    p.talent = talent_inst
-                    p.talent_name = name
-                    talent_inst.on_register()
+                    entry = next(item for item in available if item[0] == n)
+                    assign_talent_entry(state, p, entry)
                     taken.add(n)
 
             state.max_rounds = GameState.compute_default_max_rounds(num_players)

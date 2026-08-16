@@ -1,4 +1,8 @@
 {
     "ai_disabled_talents": [],
-    "_comment": "填入天赋编号(1-12)或天赋名来禁止AI选用。例: [10, 12] 或 [\"神话之外\", \"往世的涟漪\"]"
+    "profile": "legacy",
+    "_comment": "填入天赋编号(1-12)或天赋名来禁止AI选用。例: [10, 12] 或 [\"神话之外\", \"往世的涟漪\"]",
+    "experiments": {
+        "_comment": "V2.0 EXP 实验开关。实验名: true/false。CLI --experiment NAME 可临时启用。"
+    }
 }
