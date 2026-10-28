@@ -136,6 +136,18 @@ def build_action_options(
         if opts:
             options["attack"] = opts
 
+    # ── shoot（M4 弓：唯一常规跨地点攻击动词；M9 起进入可用名单）────
+    if "shoot" in name_set:
+        opts = _enumerate_shoot(
+            player,
+            [opp for opp in opponents
+             if not (getattr(opp, "_m9_drone_actor", False)
+                     or getattr(opp, "_m9_police_actor", False))],
+            game_state,
+        )
+        if opts:
+            options["shoot"] = opts
+
     # ── special ───────────────────────────────────────────────────
     if "special" in name_set:
         opts = _enumerate_special(player, game_state)
@@ -460,6 +472,31 @@ def _enumerate_attack(
                 if same_loc:
                     result.append(f"attack {opp.name} {wname}")
 
+    return result
+
+
+def _enumerate_shoot(
+    player: Player,
+    opponents: List[Player],
+    game_state: GameState,
+) -> List[str]:
+    """枚举可射击目标（弓，跨地点合法）。
+
+    合法性以 cli.validator.validate_shoot 为单一信源（有弓/箭数或无限模块/
+    目标存活在图可见/爱愿封锁等），避免枚举器与校验器出现第二套口径。
+
+    前置闸只判"有没有弓"这一个与目标无关的必要条件：绝大多数玩家不持弓，
+    没必要为它们对每个对手各跑一遍 validate_shoot（含 can_see/可见性代理）。
+    口径不重复——弓在手之后的一切判断仍全部交给 validate_shoot。
+    """
+    from cli.validator import validate_shoot
+    if not player.has_weapon("弓"):
+        return []
+    result: List[str] = []
+    for opp in opponents:
+        ok, _reason = validate_shoot(player, opp.name, game_state)
+        if ok:
+            result.append(f"shoot {opp.name}")
     return result
 
 

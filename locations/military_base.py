@@ -108,7 +108,20 @@ def can_interact(player, item_name, game_state=None):
             return False, "你已经有高斯步枪了"
 
     if item_name == "雷达":
-        if getattr(player, 'has_detection', False):
+        # M9 的三类探测可以并存；只阻止重复取得科技探测。旧 profile
+        # 继续使用历史布尔门禁，避免改变 legacy/v2exp 行为。
+        if _m9_active(game_state):
+            detection_attrs = {
+                getattr(attr, "value", attr)
+                for attr in getattr(player, "detection_attrs", set())
+            }
+            has_radar = "科技" in detection_attrs or any(
+                getattr(item, "name", "") == "雷达"
+                for item in getattr(player, "items", [])
+            )
+            if has_radar:
+                return False, "你已经有科技属性探测能力了"
+        elif getattr(player, 'has_detection', False):
             return False, "你已经有探测能力了"
 
     if item_name == "隐形涂层":

@@ -94,19 +94,49 @@ TALENT_TABLE = [
      "光环+装备融合+战术指令宏+色彩反转→Terror")
 ]
 
+# ── legacy 层禁用天赋 ────────────────────────────────────────────────────────
+# G2「请一直注视着我」(ish-bosheth) 是 V2-EXP 早期未按 profile 隔离的机制：
+# 它共用 legacy 天赋表、且天赋本体能在 legacy 局中自行激活舞台（m7 只控制
+# hp20 量纲，不 gate 舞台创建）；其 BasicAI 策略从未被完整验证。因此 legacy
+# 层 roster 排除 9 号（v2exp 作为其原生归处保留，M9 走独立注册表不受影响）。
+LEGACY_DISABLED_TALENT_NUMBERS: frozenset[int] = frozenset({9})
+
 def m9_talent_description(number: int) -> str:
     """M9-rfc 选天赋界面描述（data/prompts.json 的 m9.game_setup 唯一信源）。"""
     from engine.m9.text import m9_text
     return m9_text(f"game_setup.talent_desc_{number}")
 
 
+def _profile_of(game_state=None) -> str:
+    """当前生效 profile：game_state 构造时冻结的 profile 优先，否则读全局（默认 legacy）。"""
+    if game_state is not None:
+        profile = getattr(game_state, "profile", None)
+        if profile:
+            return str(profile)
+    try:
+        from engine.experiments import current_profile as _current_profile
+        return str(_current_profile())
+    except Exception:
+        return "legacy"
+
+
 def talent_table_for_current_profile(
     game_state=None,
 ) -> list[tuple[int, str, type, str]]:
-    """返回当前 profile 唯一合法的可选天赋表。"""
+    """返回当前 profile 唯一合法的可选天赋表。
+
+    legacy 层按 LEGACY_DISABLED_TALENT_NUMBERS 排除未被隔离的 V2-EXP 天赋
+    （G2 ish-bosheth）；v2exp / m9 保留各自全部条目。
+    """
     from engine.m9.gate import m9_enabled
     if not m9_enabled(game_state):
-        return list(TALENT_TABLE)
+        table = list(TALENT_TABLE)
+        if _profile_of(game_state) == "legacy":
+            table = [
+                entry for entry in table
+                if entry[0] not in LEGACY_DISABLED_TALENT_NUMBERS
+            ]
+        return table
     from engine.m9.talent_registry import filter_selectable_entries
     table = filter_selectable_entries(TALENT_TABLE)
     return [

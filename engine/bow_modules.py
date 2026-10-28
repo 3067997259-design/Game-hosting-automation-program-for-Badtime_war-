@@ -160,9 +160,6 @@ def compute_shot(player: Any) -> Dict[str, Any]:
             continue  # 无限恒基础箭：不吃其他加成（独占双槽本就排他）
         if "damage_bonus" in spec:
             damage += spec["damage_bonus_x2"] if n >= 2 else spec["damage_bonus"]
-        if "attribute" in spec:
-            attr = {"魔法": Attribute.MAGIC, "科技": Attribute.TECH}.get(
-                spec["attribute"], Attribute.ORDINARY)
         if "armor_pierce" in spec:
             # 穿甲：防御按系数计（单 0.5 / 双 0.25），喂 resolve_damage 的 pierce_factor
             pierce_factor = spec["armor_pierce_x2"] if n >= 2 else spec["armor_pierce"]
@@ -175,6 +172,14 @@ def compute_shot(player: Any) -> Dict[str, Any]:
             if n >= 2:
                 knockback_pen = spec.get("knockback_x2_initiative", -2)
 
+    # V2.0-exp 遗留的混装空白在 M9 明确：穿甲箭头决定直接命中的科技
+    # 属性，火矢仍正常附加灼烧。优先级只由模块种类决定、与安装顺序及
+    # PYTHONHASHSEED 无关；否则同一个可观察模块集合会产生随机规则语义。
+    if counts.get("穿甲", 0):
+        attr = Attribute.TECH
+    elif counts.get("火矢", 0):
+        attr = Attribute.MAGIC
+
     weapon = Weapon("弓", attr, damage, WeaponRange.RANGED,
                     special_tags=["bow", "no_lock_required"])
     weapon._bow_hit_bonus = hit_bonus  # accuracy 消费（魔导制导）
@@ -185,12 +190,18 @@ def compute_shot(player: Any) -> Dict[str, Any]:
     }
 
 
-def apply_burn(target: Any, stacks: int) -> str:
+def apply_burn(target: Any, stacks: int, source_id: str | None = None) -> str:
     """施加灼烧（通用层，上限 balance burn.max_stacks）。"""
     cap = bget("burn", "max_stacks", default=3)
     before = getattr(target, "burn_stacks", 0)
-    target.burn_stacks = min(cap, before + stacks)
-    return f"🔥 {target.name} 灼烧 +{target.burn_stacks - before}（{target.burn_stacks}/{cap} 层）"
+    after = min(cap, before + stacks)
+    sources = list(getattr(target, "burn_source_ids", []) or [])[:before]
+    if len(sources) < before:
+        sources.extend([None] * (before - len(sources)))
+    sources.extend([source_id] * (after - before))
+    target.burn_stacks = after
+    target.burn_source_ids = sources[:after]
+    return f"🔥 {target.name} 灼烧 +{after - before}（{after}/{cap} 层）"
 
 
 def apply_knockback(target: Any, attacker: Any, game_state: Any,

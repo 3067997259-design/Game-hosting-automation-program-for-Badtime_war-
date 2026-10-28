@@ -79,15 +79,25 @@ def test_unmigrated_or_retired_slots_are_rejected_explicitly(
         )
 
 
-@pytest.mark.parametrize("profile", ("legacy", "v2exp"))
-def test_old_profiles_keep_all_legacy_entries(profile: str) -> None:
+@pytest.mark.parametrize("profile,expected_len", (("v2exp", 14), ("legacy", 13)))
+def test_old_profiles_talent_roster(profile: str, expected_len: int) -> None:
+    """v2exp 保留全部 14 项；legacy 依用户裁决禁用未隔离的 G2（9 号 ish-bosheth）。
+
+    直接 instantiate Hologram 类仍可用（类级不 gate），但 legacy roster 不含它，
+    分配/选秀链路不可能给出 9 号。
+    """
     state = _state(profile)
     table = talent_table_for_current_profile(state)
     player = Player("p1", "P1", controller=ForfeitController())
     state.add_player(player)
 
-    assert table == TALENT_TABLE
-    assert len(table) == 14
+    assert len(table) == expected_len
+    if profile == "legacy":
+        table_nums = {number for number, *_ in table}
+        removed = {number for number, *_ in TALENT_TABLE} - table_nums
+        assert removed == {9}  # 仅 G2 被禁用，其余 13 项原样
+    else:
+        assert table == TALENT_TABLE
     assert type(instantiate_talent(state, Hologram, "p1")) is Hologram
     assert not hasattr(state, "m9_system")
 
@@ -128,7 +138,7 @@ def test_state_freezes_legacy_profile_when_global_profile_changes() -> None:
 
     assert state.profile == "legacy"
     assert type(talent) is Hologram
-    assert len(talent_table_for_current_profile(state)) == 14
+    assert len(talent_table_for_current_profile(state)) == 13  # legacy 禁用 G2 后为 13
     assert not hasattr(state, "m9_system")
 
 

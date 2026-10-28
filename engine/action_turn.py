@@ -674,6 +674,19 @@ class ActionTurnManager:
                 descs.append(
                     {"usage": "lock <玩家名>", "description": "锁定目标（远程前置）"}
                 )
+            # M9：弓的专属跨地点动词 shoot。validator 一直支持，但可用名单
+            # 从不追加它 → RL 掩码永远关闭（bot/人类直发命令不受影响）。
+            # 仅 m9 档启用，避免改变 legacy/v2exp 的 BasicAI 候选目录行为。
+            from engine.m9.gate import m9_enabled as _m9_shoot_gate
+            if _m9_shoot_gate(self.state) and player.has_weapon("弓"):
+                from engine.bow_modules import compute_shot
+                if (compute_shot(player)["infinite"]
+                        or getattr(player, 'arrows', 0) >= 1):
+                    names.append("shoot")
+                    descs.append({
+                        "usage": "shoot <玩家名>",
+                        "description": "射箭（跨地点；未锁定有命中惩罚）",
+                    })
 
         if player.weapons or player.items:
             names.append("special")

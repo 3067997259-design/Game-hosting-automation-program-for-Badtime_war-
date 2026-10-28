@@ -125,7 +125,21 @@ def can_interact(player, item_name, game_state=None):
             return False, "你已经有隐身衣了"
 
     if item_name == "热成像仪":
-        if getattr(player, 'has_detection', False):
+        # M9 的三类探测是互补机制：已有魔法/科技探测不能阻止继续购买
+        # 普通探测。旧 profile 保留原先“任意探测即禁止重复购买”的行为。
+        from engine.m9.gate import m9_enabled
+        if m9_enabled(game_state):
+            detection_attrs = {
+                getattr(attr, "value", attr)
+                for attr in getattr(player, "detection_attrs", set())
+            }
+            has_thermal = "普通" in detection_attrs or any(
+                getattr(item, "name", "") == "热成像仪"
+                for item in getattr(player, "items", [])
+            )
+            if has_thermal:
+                return False, "你已经有普通属性探测能力了"
+        elif getattr(player, 'has_detection', False):
             return False, "你已经有探测能力了"
 
     # 病毒期间免费（跳过凭证/付费检查，但重复物品检查已在上方完成）

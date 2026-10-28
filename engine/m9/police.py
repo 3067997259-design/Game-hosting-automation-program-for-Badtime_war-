@@ -116,6 +116,9 @@ class PoliceStation:
         self._cover: Dict[str, int] = {}          # unit_id → 掩体耐久
         self._cover_source: Dict[str, str] = {}   # 被保护 actor → 来源警察
         self._suspension_owner: Optional[str] = None
+        # 正式对局默认开启 R4 自动执法。RL 警察专项的“指挥靶场”会显式关闭，
+        # 以免环境替队长攻击、把终局奖励错误归因给无操作策略。
+        self.automatic_enforcement_enabled = True
 
     # ── 固定编制 ──
     def fixed_roster_size(self) -> int:
@@ -329,7 +332,8 @@ class PoliceStation:
     # ── R4 执法 ──
     def r4_enforcement(self, game_state: Any, round_num: int) -> List[str]:
         """R4 自动执法：lead 与目标同地点时攻击一次（每单位每轮至多一次）。"""
-        if (self.is_disabled() or self.suspended
+        if (not self.automatic_enforcement_enabled
+                or self.is_disabled() or self.suspended
                 or self._clock_police_halted(game_state)):
             return []
         wanted = self.open_wanted()
@@ -544,15 +548,32 @@ class PoliceStation:
         return self.absorb_cover(player_id, amount)
 
     # ── 队长（候选/指挥/威信）──
-    def apply_captain(self, player_id: str) -> bool:
-        """注册队长候选（占用标准根行动；先到先得，可随时退出）。"""
+    def can_apply_captain(
+        self, player_id: str, game_state: Any = None,
+    ) -> bool:
+        """候选报名资格前检；与 R2 任命资格保持一致。
+
+        R2 仍会重检，因为玩家可能在报名后、任命前犯罪；但一个已经犯罪或
+        已被通缉的玩家不应每轮重新获得报名动作，否则会形成
+        ``报名 → R2 淘汰 → 再报名`` 的合法动作死循环。
+        """
         if (self.is_disabled() or self.captain_id is not None
-                or self._clock_police_halted()):
+                or self._clock_police_halted(game_state)
+                or player_id in self._candidates):
             return False
-        player = self._state_get_player(player_id)
-        if getattr(getattr(player, "talent", None), "is_terror", False):
+        state = game_state if game_state is not None else getattr(
+            self, "_state", None,
+        )
+        player = state.get_player(player_id) if state is not None else None
+        if player is None or not player.is_alive():
             return False
-        if player_id in self._candidates:
+        if self._is_wanted_target(player_id) or self._has_crime(state, player_id):
+            return False
+        return not getattr(getattr(player, "talent", None), "is_terror", False)
+
+    def apply_captain(self, player_id: str, game_state: Any = None) -> bool:
+        """注册队长候选（占用标准根行动；先到先得，可随时退出）。"""
+        if not self.can_apply_captain(player_id, game_state):
             return False
         self._candidates.append(player_id)
         return True
@@ -607,8 +628,18 @@ class PoliceStation:
             if attack_crosses_active_barrier(self._state, unit, target):
                 return m9_text("police.barrier_blocks_attack")
             unit.acted_this_round = True
-            self._attack_player(self._state, unit, target,
-                                self._enforcement_damage(unit))
+            result = self._attack_player(
+                self._state, unit, target, self._enforcement_damage(unit),
+            )
+            dealt = int(result.get("hp_damage", 0))
+            self._state.log_event(
+                "m9_police_command_attack",
+                captain=captain_id,
+                unit=unit.unit_id,
+                target=target_pid,
+                damage=dealt,
+                weapon=unit.weapon_name,
+            )
             return m9_text("police.unit_attack_immediate", unit_id=unit_id,
                            target_pid=target_pid)
         if command == "redesignate":

@@ -153,6 +153,18 @@ class ModuleTest(unittest.TestCase):
         ok, _ = can_install(self.p, "力量", self.state)
         self.assertFalse(ok)  # 无限独占双槽
 
+    def test_fire_pierce_mix_is_tech_with_burn_regardless_of_install_order(self):
+        from engine.bow_modules import compute_shot
+        from utils.attribute import Attribute
+
+        for modules in (["火矢", "穿甲"], ["穿甲", "火矢"]):
+            with self.subTest(modules=modules):
+                self.p.bow_modules = list(modules)
+                shot = compute_shot(self.p)
+                self.assertEqual(shot["weapon"].attribute, Attribute.TECH)
+                self.assertEqual(shot["burn_stacks"], 1)
+                self.assertEqual(shot["armor_pierce_factor"], 0.5)
+
     def test_death_recycle(self):
         from engine.bow_modules import release_on_death, supply_left
         from locations import shop
@@ -190,6 +202,27 @@ class BurnTest(unittest.TestCase):
         self.p._armor_gained_this_round = True
         RoundManager(self.state)._process_burn_stacks_m4()
         self.assertEqual(self.p.burn_stacks, 1)  # 扑灭 1 层
+
+    def test_m9_fire_burn_kill_is_credited_to_the_shooter(self):
+        from engine.bow_modules import apply_burn
+        from engine.round_manager import RoundManager
+
+        experiments.set_profile("m9-rfc")
+        state = GameState()
+        shooter = _player("shooter", state)
+        target = _player("target", state)
+        target.hp = 1
+        apply_burn(target, 1, source_id=shooter.player_id)
+
+        RoundManager(state)._process_burn_stacks_m4()
+
+        self.assertFalse(target.is_alive())
+        self.assertEqual(shooter.kill_count, 1)
+        death = next(
+            event for event in state.event_log
+            if event.get("type") == "death" and event.get("player") == "target"
+        )
+        self.assertEqual(death.get("killer"), "shooter")
 
 
 class HookTest(unittest.TestCase):

@@ -142,7 +142,7 @@ def _append_m9_specials(player, game_state, specials):
             })
     # 队长候选/指挥
     if station.captain_id is None and not getattr(talent, "is_terror", False):
-        if player.player_id not in station.candidates():
+        if station.can_apply_captain(player.player_id, game_state):
             specials.append({"name": "竞选队长",
                              "description": m9_text("special_op.desc_captain_candidate")})
     elif station.captain_id == player.player_id:
@@ -154,6 +154,7 @@ def _append_m9_specials(player, game_state, specials):
             # 指挥强化（裁决）：通缉目标与警员同地点时开放立即攻击——
             # 警察线的真输出入口（此前引擎支持 attack 命令但无 special 暴露）
             if (suspect is not None and suspect.is_alive()
+                    and not getattr(u, "acted_this_round", False)
                     and getattr(u, "location", None)
                     == getattr(suspect, "location", None)):
                 specials.append({
@@ -309,7 +310,7 @@ def execute(player, op_name, game_state):
         station = getattr(game_state, "m9_police", None)
         if station is None or station.captain_id is not None:
             return m9_text("special_op.err_captain_seat_occupied"), True
-        if station.apply_captain(player.player_id):
+        if station.apply_captain(player.player_id, game_state):
             return m9_text("special_op.msg_captain_registered"), True
         return m9_text("special_op.err_already_candidate"), True
     elif op_name.startswith("指挥") and op_name.endswith("移动"):

@@ -48,7 +48,9 @@ def execute(player: Any, target: Any, game_state: Any) -> Tuple[str, Dict]:
                      and not result.get("killed", False))
     if effective_hit and shot["burn_stacks"] > 0 and target.is_alive():
         from engine.bow_modules import apply_burn
-        msg = apply_burn(target, shot["burn_stacks"])
+        msg = apply_burn(
+            target, shot["burn_stacks"], source_id=player.player_id,
+        )
         lines.append(f"   {msg}")
     if (effective_hit and shot["knockback"] and target.is_alive()
             and getattr(target, "location", None) == player.location):

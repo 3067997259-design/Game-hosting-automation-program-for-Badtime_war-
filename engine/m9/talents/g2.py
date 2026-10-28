@@ -48,6 +48,7 @@ class ShadowActor:
         self.player_id = self.actor_id
         self.name = m9_text("talents.g2.shadow_actor_name", owner=owner_pid)
         self.owner_pid = owner_pid
+        self._owner = None          # 本体 Player 引用（_create_shadow 时挂上）
         self.location = location
         self.hp = hp
         self.max_hp = hp
@@ -87,11 +88,35 @@ class ShadowActor:
     def is_alive(self) -> bool:
         return self.hp > 0
 
+    def __getattr__(self, name: str):  # noqa: ANN204
+        """读不到的属性→回落本体 Player（影身是"完整单位"的代理；随机天赋会触发
+        各种依赖 Player 字段的引擎路径，逐一补字段是打地鼠，统一回落本体最稳）。
+        仅在本体存在且非内部名时生效；方法同样透传。"""
+        owner = self.__dict__.get("_owner")
+        if owner is not None and not name.startswith("__"):
+            try:
+                return getattr(owner, name)
+            except AttributeError:
+                pass
+        raise AttributeError(name)
+
     def is_on_map(self) -> bool:
         return self.is_awake and self.location is not None
 
     def can_be_targeted(self) -> bool:
         return self.is_alive() and self.is_on_map()
+
+    # 影身是"完整单位"（可持装备），镜像 Player 的装备方法——引擎内 find/商店/
+    # 军事基地/魔法学院/因果回溯等路径会对行动者调用这些（随机天赋下 RL 触发 G2
+    # 影身即走到此处，缺方法会崩：`ShadowActor has no attribute 'add_weapon'`）。
+    def add_weapon(self, weapon) -> None:
+        self.weapons.append(weapon)
+
+    def add_item(self, item) -> None:
+        self.held_items.append(item)
+
+    def add_armor(self, piece):
+        return self.armor.equip(piece)
 
     def get_initiative_bonus(self) -> int:
         return 0
@@ -262,6 +287,7 @@ class Hologram9(M9TalentStub):
             getattr(player, "controller", None),
         )
         actor.created_round = getattr(self.state, "current_round", 0)
+        actor._owner = player  # 本体引用：缺失属性回落 Player（见 __getattr__）
         # 拳击保底（裁决 A+ 补全）：影身与所有玩家一样至少持有拳击——
         # 此前 weapons=[] 使攻击目录恒为空，影身整局无法输出（诊断证据）。
         from models.equipment import make_weapon

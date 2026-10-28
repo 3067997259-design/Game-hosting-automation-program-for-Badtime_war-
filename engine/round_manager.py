@@ -59,6 +59,9 @@ class RoundManager:
                     winners = [pid for pid, r in results.items()
                                if r.is_winner]
                     self.state.game_winner_snapshot = frozenset(winners)
+                    self.state.base_final_scores = {
+                        pid: r.base_final_score
+                        for pid, r in results.items()}
                     self.state.final_scores = {
                         pid: r.display_final_score
                         for pid, r in results.items()}
@@ -879,11 +882,18 @@ class RoundManager:
                 continue
             stacks = getattr(p, 'burn_stacks', 0)
             if stacks <= 0:
+                p.burn_source_ids = []
                 continue
+            sources = list(getattr(p, 'burn_source_ids', []) or [])[:stacks]
+            if len(sources) < stacks:
+                sources.extend([None] * (stacks - len(sources)))
             # 本轮获甲扑灭 1 层
             if getattr(p, '_armor_gained_this_round', False) and stacks > 0:
                 stacks -= 1
                 p.burn_stacks = stacks
+                if sources:
+                    sources.pop()
+                p.burn_source_ids = sources
                 display.show_info(f"🛡️🔥 {p.name} 获甲扑灭 1 层灼烧（剩 {stacks} 层）")
                 if stacks <= 0:
                     continue
@@ -893,8 +903,13 @@ class RoundManager:
             if p.hp <= 0:
                 if getattr(self.state, "m9_system", None) is not None:
                     from engine.m9.combat import adjudicate_and_finalize_death
+                    source_id = sources[-1] if sources else None
+                    attacker = (
+                        self.state.get_player(source_id) if source_id else None
+                    )
                     adjudicate_and_finalize_death(
-                        self.state, p, source_kind="burn", cause="burn")
+                        self.state, p, attacker=attacker,
+                        source_kind="burn", cause="burn")
                     continue
                 prevented = False
                 if p.talent:
@@ -974,14 +989,26 @@ class RoundManager:
             try:
                 action = ctrl.choose(
                     m9_text("round_manager.betting_window_prompt", name=p.name),
-                    m9_text_list("round_manager.betting_window_options"))
+                    m9_text_list("round_manager.betting_window_options"),
+                    context={
+                        "phase": "M9_BETTING",
+                        "situation": "m9_betting_action",
+                        "player": p,
+                        "game_state": self.state,
+                    })
             except Exception:
                 continue
             if action in ("押注", "追加"):
                 try:
                     target = ctrl.choose(
                         m9_text("round_manager.betting_target_prompt"),
-                        [self.state.get_player(t).name for t in alive])
+                        [self.state.get_player(t).name for t in alive],
+                        context={
+                            "phase": "M9_BETTING",
+                            "situation": "m9_betting_target",
+                            "player": p,
+                            "game_state": self.state,
+                        })
                 except Exception:
                     continue
                 tpid = next((t for t in alive
@@ -994,7 +1021,13 @@ class RoundManager:
                 try:
                     amt = int(ctrl.choose(
                         m9_text("round_manager.betting_amount_prompt"),
-                        [str(i) for i in range(1, min(6, budget) + 1)]))
+                        [str(i) for i in range(1, min(6, budget) + 1)],
+                        context={
+                            "phase": "M9_BETTING",
+                            "situation": "m9_betting_amount",
+                            "player": p,
+                            "game_state": self.state,
+                        }))
                 except Exception:
                     amt = 1
                 amt = max(1, min(int(amt), budget))
@@ -1008,7 +1041,13 @@ class RoundManager:
                 try:
                     old = ctrl.choose(
                         m9_text("round_manager.transfer_out_prompt"),
-                        list(current))
+                        list(current),
+                        context={
+                            "phase": "M9_BETTING",
+                            "situation": "m9_betting_transfer_out",
+                            "player": p,
+                            "game_state": self.state,
+                        })
                 except Exception:
                     continue
                 if old not in current:
@@ -1016,7 +1055,13 @@ class RoundManager:
                 try:
                     new = ctrl.choose(
                         m9_text("round_manager.transfer_in_prompt"),
-                        [self.state.get_player(t).name for t in alive])
+                        [self.state.get_player(t).name for t in alive],
+                        context={
+                            "phase": "M9_BETTING",
+                            "situation": "m9_betting_transfer_in",
+                            "player": p,
+                            "game_state": self.state,
+                        })
                 except Exception:
                     continue
                 npid = next((t for t in alive
