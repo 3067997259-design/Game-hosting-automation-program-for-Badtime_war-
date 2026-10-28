@@ -4,6 +4,7 @@
 - 启动时加载一次（惰性），后续调用 get() 返回缓存值。
 - 所有新代码的游戏数值必须经此读取，禁止在业务代码中硬编码。
 - 缺键返回 default 值并发出 warning（不崩溃），方便渐进迁移。
+- GA 使用 get_required() 严格读取；文件错误、坏结构和缺键均抛出可定位异常。
 """
 from __future__ import annotations
 import json
@@ -16,23 +17,62 @@ _BALANCE_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "balance.j
 _balance: Optional[Dict[str, Any]] = None
 
 
-def _load() -> Dict[str, Any]:
+class BalanceConfigError(ValueError):
+    """配置加载或校验失败，携带完整参数路径。"""
+
+    def __init__(self, path: str, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"{path}: {reason}")
+
+
+def _load(*, strict: bool = False) -> Dict[str, Any]:
     """惰性加载 balance.json（首次调用时载入）。"""
     global _balance
     if _balance is not None:
+        if strict and not isinstance(_balance, dict):
+            raise BalanceConfigError("balance", "expected a JSON object")
         return _balance
     try:
         with open(_BALANCE_PATH, "r", encoding="utf-8") as f:
-            _balance = json.load(f)
+            loaded = json.load(f)
+        if strict and not isinstance(loaded, dict):
+            raise BalanceConfigError("balance", "expected a JSON object")
+        _balance = loaded
         return _balance
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
+        if strict:
+            raise BalanceConfigError("balance", f"file not found: {_BALANCE_PATH}") from exc
         warnings.warn(f"balance.json not found at {_BALANCE_PATH}, using empty fallback")
         _balance = {}
         return _balance
     except json.JSONDecodeError as e:
+        if strict:
+            raise BalanceConfigError(
+                "balance", f"invalid JSON at line {e.lineno}, column {e.colno}"
+            ) from e
         warnings.warn(f"balance.json parse error: {e}, using empty fallback")
         _balance = {}
         return _balance
+    except (OSError, UnicodeDecodeError) as exc:
+        if strict:
+            raise BalanceConfigError("balance", f"cannot read {_BALANCE_PATH}") from exc
+        raise
+
+
+def get_required(*keys: str) -> Any:
+    """严格读取必填参数；没有默认值或旧版回退，异常包含完整键路径。"""
+    if not keys or any(not isinstance(key, str) or not key for key in keys):
+        raise ValueError("get_required expects one or more non-empty string keys")
+    data = _load(strict=True)
+    path = ".".join(keys)
+    for key in keys:
+        if not isinstance(data, dict):
+            raise BalanceConfigError(path, f"cannot descend into non-object before {key}")
+        if key not in data:
+            raise BalanceConfigError(path, f"missing required key {key}")
+        data = data[key]
+    return data
 
 
 def get(*keys: str, default: Any = None) -> Any:
@@ -57,8 +97,8 @@ def get(*keys: str, default: Any = None) -> Any:
     return data
 
 
-def reload() -> Dict[str, Any]:
+def reload(*, strict: bool = False) -> Dict[str, Any]:
     """强制重新加载（调试用）。"""
     global _balance
     _balance = None
-    return _load()
+    return _load(strict=strict)

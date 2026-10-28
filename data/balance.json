@@ -726,6 +726,297 @@
         }
     },
 
+    "ga": {
+        "_meta": {
+            "ruleset": "v2.0-ga",
+            "schema_version": 1,
+            "revision": "N0",
+            "source": "docs/v2.0-ga/manual_draft_v0.1.md#17",
+            "source_sha256": "a49e463d4cb8f8b2c4851973bd3434b987efdc002428e347c2430a3b2e2725bc"
+        },
+        "start": {
+            "max_hp": 20, "hp": 20, "credits": 4, "sp": 1, "pp": 0,
+            "bows": 1, "arrows": 5, "arrow_cap": 10, "initiative_sides": 6,
+            "min_players": 2, "max_players": 6
+        },
+        "action": {
+            "t0_per_turn": 1, "t1_per_turn": 1, "sp_cap": 2,
+            "instant_sp_cost": 1, "public_sp_cost": 2,
+            "attention_per_round": 1, "public_per_round": 1,
+            "extra_turns_per_round": 1, "step_followups_per_round": 1
+        },
+        "accuracy": {
+            "base": 1.0, "move_evasion": 0.15, "stealth_evasion": 0.25,
+            "unlocked_cross_location_penalty": 0.15, "lock_bonus": 0.15,
+            "minimum": 0.4, "maximum": 1.0, "lock_defense_coefficient": 0.75
+        },
+        "combat": {
+            "min_damage_ratio": 0.25, "normal_wear_price": 1,
+            "counter_wear_price": 2, "mysterious_wear_price": 2,
+            "minimum_paid_hp_cost": 1, "paid_hp_survival_floor": 1
+        },
+        "weapons": {
+            "fist": {"damage": 2},
+            "knife": {"damage": 4, "price": 1, "sharpen_bonus": 1, "sharpen_uses": 1},
+            "bow": {"damage": 4, "ammo_per_attack": 1, "refill_price": 1, "refill_amount": 5},
+            "magic_barrage": {"damage": 4, "learn_turns": 1, "price": 0},
+            "earthquake": {"damage": 2, "learn_turns": 1, "price": 0},
+            "electromagnetic_rifle": {"damage": 4, "price": 3, "initial_ammo": 3, "ammo_cap": 8, "ammo_per_attack": 1},
+            "gauss_rifle": {"damage": 6, "charged_damage": 8, "charge_turns": 1, "price": 4, "initial_ammo": 2, "ammo_cap": 8, "ammo_per_attack": 1},
+            "gun_ammo": {"refill_price": 1, "refill_amount": 3},
+            "hook": {"damage": 2, "price": 2, "cooldown_standard_slots": 2}
+        },
+        "modules": {
+            "slots": 2, "ordinary_stock_min": 2, "ordinary_stock_player_divisor": 2,
+            "infinite_stock_min": 1, "infinite_stock_player_divisor": 3,
+            "power": {"price": 2, "single_bonus": 1, "double_bonus": 2},
+            "fire": {"price": 2, "single_burn": 1, "double_burn": 2},
+            "magic": {"price": 2, "single_hit_bonus": 0.15, "double_hit_bonus": 0.3},
+            "pierce": {"price": 2, "single_coefficient": 0.5, "double_coefficient": 0.25},
+            "impact": {"price": 2, "knockbacks": 1, "double_initiative_penalty": -1},
+            "infinite": {"price": 4, "occupied_slots": 2, "damage": 4, "ammo_per_attack": 0}
+        },
+        "armor": {
+            "shield": {"normal": 2, "tech": 0, "magic": 0, "durability": 6, "price": 2},
+            "ceramic": {"normal": 3, "tech": 1, "magic": 0, "durability": 10, "price": 3},
+            "magic_shield": {"normal": 1, "tech": 0, "magic": 3, "durability": 8, "price": 3},
+            "at_field": {"normal": 0, "tech": 3, "magic": 1, "durability": 10, "price": 3}
+        },
+        "economy": {
+            "work_income": 2, "resale_price": 0, "repair_price": 2, "repair_amount": 4,
+            "whetstone_price": 1, "visibility_item_price": 2,
+            "visibility_spell_price": 0, "visibility_learn_turns": 1,
+            "black_market_pass_price": 1, "pass_uses": 1
+        },
+        "hospital": {
+            "heal_price": 2, "heal_amount": 4, "heal_uses_per_game": 3,
+            "syringe_price": 2, "syringe_heal": 4, "syringe_hold_cap": 1,
+            "syringe_purchase_cap": 2, "surgery_uses": 1, "surgery_min_price": 4,
+            "life_max_hp_bonus": 8, "life_current_hp_bonus": 8, "life_idle_heal": 2,
+            "overclock_initiative_bonus": 1, "furnace_g0_hp_discount": 1,
+            "furnace_g1_entropy_discount": 1, "furnace_g3_magic_bonus": 1,
+            "furnace_hp_cost": 3, "furnace_sp_gain": 1, "furnace_uses": 2
+        },
+        "status": {
+            "burn_damage_per_stack": 1, "burn_cap": 3, "burn_ticks": 2,
+            "severe_hp_threshold": 5, "severe_initiative_penalty": -2,
+            "petrify_ticks": 1, "petrify_release_hits": 2, "petrify_escape_sp_cost": 1,
+            "petrify_escape_probability": 0.5, "petrify_escape_attempts": 2,
+            "control_slots": 1, "unconsumed_control_expiry_ticks": 2,
+            "vulnerability": 1, "weakness": -1, "modifier_ticks": 1,
+            "temporary_barrier_ticks": 1
+        },
+        "scoring": {
+            "kill_weight": 6, "damage_divisor": 4, "armor_break_weight": 1,
+            "chapter_weight": 4, "pp_weight": 1, "crown": 6,
+            "crown_min_kills": 1, "crown_min_chapters": 2
+        },
+        "pp": {
+            "kill_gain": 2, "chapter_gain": 1, "armor_break_gain": 1,
+            "armor_break_rewards_per_round": 1, "natural_gain": 0, "decay": 0,
+            "initiative_reroll_cost": 1, "initiative_rerolls_per_round": 1
+        },
+        "afterlife": {
+            "bet_kill_pool": 2, "bet_break_pool": 1, "bet_crown_pool": 2,
+            "bet_break_pools_per_actor_round": 1, "microglow_cost": 2,
+            "microglows_per_dead_round": 1, "buffs_per_live_round": 1,
+            "blessing_barrier": 3, "blessing_heal": 2, "revelation_initiative": 2,
+            "revelation_sp": 1, "gaze_next_hit_bonus": 2, "encore_uses": 1
+        },
+        "police": {
+            "roster_cap": 3, "officer_hp": 6, "volley_base": 2,
+            "gauss_volley_base": 3, "volley_per_officer": 1, "attacks_per_round": 1,
+            "wall_per_officer": 4, "wall_upgrade_per_officer": 2,
+            "attack_upgrade_cap": 1, "wall_upgrade_cap": 1, "reinforce_count": 1,
+            "wall_repair_price": 2, "wall_repair_amount": 4,
+            "thrust_base": 2, "thrust_per_officer": 1, "innocent_command_roster_loss": 1
+        },
+        "clock": {
+            "initial_tick": 1, "normal_step": 1, "reactor_step": 2,
+            "day_start": 5, "dusk_start": 11, "apocalypse_start": 16,
+            "apocalypse_damage_per_tick": 1, "reactor_damage_multiplier": 2,
+            "target_rounds": 20, "max_rounds": 40
+        },
+        "talents": {
+            "T1": {"core_multiplier": 2, "wear_price": 2},
+            "T2": {"performance_bonus": 1, "armor_hits_per_repair": 2, "repair_amount": 1, "shadow_step_sp_cost": 1, "shadow_step_uses": 2},
+            "T3": {"barrier": 3, "barrier_ticks": 2, "shockwave_wear": 1, "starfall_damage": 4, "defense_coefficient": 0},
+            "T4": {"pierce_damage": 6, "defense_coefficient": 0, "weapon_disable_ticks": 1, "stealth_ticks": 2, "public_target_cap": 2},
+            "T6": {"hotline_price": 0},
+            "T7": {"revive_hp_ratio": 0.5, "revive_sp": 0, "prayer_heal": 3, "insurance_uses": 1, "poem_insurance_uses": 2},
+            "G0": {
+                "initial_ammo": 15, "ammo_cap": 30, "arrow_conversion": 3,
+                "point_damage": 4, "point_ammo": 1, "auto_damage": 6, "auto_ammo": 3,
+                "auto_attached_wear": 2, "relic_slots": 2, "initial_relics": 4,
+                "shield_barrier": 2, "synergy_barrier": 3, "splash_damage": 1,
+                "glasses_heal": 1, "glasses_heals_per_round": 1,
+                "drone_hp": 4, "drone_ticks": 3, "drone_sp_cost": 1,
+                "drone_hp_ratio": 0.2, "drone_attack_bonus": 1,
+                "crossfire_damage": 6, "crossfire_sp_cost": 2, "crossfire_hp_ratio": 0.3,
+                "overload_barrier": 6, "overload_damage_multiplier": 2,
+                "overload_hp_floor": 8, "breath_uses": 1, "breath_ticks": 2,
+                "breath_lifesteal_ratio": 0.5, "breath_success_hp": 6
+            },
+            "G1": {
+                "unarmored_attack": -1, "unarmored_incoming": 1, "unarmored_hit_penalty": 0.15,
+                "interact_discount": 1, "minimum_interact_price": 1,
+                "sam_attack": 2, "full_attack": 3, "propagation_attack": 4, "armored_reduction": 1,
+                "full_ticks": 3, "full_heal": 1, "followups_per_round": 1,
+                "entropy_initial": 0, "entropy_cap": 12, "entropy_unarmored_gain": 1,
+                "entropy_sam_gain": 2, "entropy_full_gain": 3, "entropy_rest_reduction": 1,
+                "entropy_threshold": 6, "entropy_reset_amount": 4,
+                "entropy_settlements_per_tick": 1, "entropy_ardent_cost": 1,
+                "entropy_armor_cost": 1, "entropy_hp_loss": 4,
+                "supernova_sam_damage": 4, "supernova_full_damage": 5,
+                "supernova_propagation_damage": 6, "supernova_defense_coefficient": 0.5,
+                "supernova_sam_burn": 1, "supernova_full_burn": 2, "supernova_propagation_burn": 2,
+                "overload_cap": 1, "overload_gain": 1, "break_bonus": 1,
+                "ardent_initial": 0, "ardent_cap": 3, "ardent_hit_gain": 1,
+                "ardent_kill_gain": 1, "ardent_absorption": 2,
+                "propagation_hp": 8, "propagation_initiative": 3,
+                "propagation_ticks": 3, "propagation_uses": 1,
+                "unarmored_apocalypse_ratio": 0.5, "armored_apocalypse_ratio": 0
+            },
+            "G2": {
+                "light_work_bonus": 1, "shadow_attack_bonus": 2,
+                "loneliness_initial": 2, "loneliness_min": 0, "loneliness_cap": 4,
+                "white_key_max_loneliness": 2, "a_heal": 2, "a_enhanced_heal": 4,
+                "a_barrier": 2, "a_enhanced_barrier": 4, "a_barrier_ticks": 1,
+                "a_loneliness_reduction": 1, "a_enhanced_loneliness_reduction": 2,
+                "b_vulnerability": 1, "b_enhanced_vulnerability": 2,
+                "b_loneliness_gain": 1, "b_enhanced_loneliness_gain": 2,
+                "performance_keys": 1, "enhanced_performance_keys": 2,
+                "lethal_fusion_hp": 8, "fusion_uses": 1, "rain_attack_bonus": 2,
+                "rain_damage": 3, "reactor_halving_ratio": 0.5, "reactor_hp_loss": 2
+            },
+            "G3": {
+                "magic_initial": 6, "magic_cap": 8, "magic_recover_r0": 1,
+                "public_temp_magic": 4, "poem_temp_magic_cap": 4, "temp_magic_cap": 8,
+                "spiral_cost": 2, "spiral_damage": 4, "spiral_hit_bonus": 0.15,
+                "enhanced_spiral_cost": 3, "enhanced_spiral_damage": 6,
+                "enhanced_spiral_defense_coefficient": 0.5,
+                "dual_attack_cost": 1, "dual_guard_cost": 1, "dual_attack_bonus": 1,
+                "dual_guard_reduction": 2, "instant_dual_bonus": 1, "instant_dual_wear": 2,
+                "rho_cost": 3, "rho_durability": 5, "rho_ticks": 2,
+                "copy_cost": 1, "outside_copy_ratio": 0.75, "inside_copy_ratio": 1.0,
+                "array_hit_bonus": 0.15, "array_blocks_per_round": 1,
+                "anchor_durability": 10, "break_action_power": 4,
+                "upkeep_cost": 1, "max_barrier_ticks": 3,
+                "chain_costs": [2, 3, 4], "poem_chain_costs": [0, 3, 4, 5],
+                "gale_threshold": 5, "gale_sp_loss": 1, "gale_per_target_barrier": 1,
+                "collapse_base_damage": 4, "collapse_per_style": 1,
+                "collapse_style_cap": 4, "collapse_min_magic": 2,
+                "collapse_defense_coefficient": 0.5, "collapse_wear_price": 2
+            },
+            "G4": {
+                "ember_initial": 0, "ember_cap": 12, "hostile_gain": 1,
+                "hostile_gain_cap_per_round": 2, "slash_ember_gain": 2, "exit_ember_gain": 2,
+                "slash_bonus": 2, "savior_attack_bonus": 2, "attack_ruin_gain": 2,
+                "splash_wear": 1, "active_threshold": 12, "lethal_threshold": 6,
+                "ember_hp_multiplier": 2, "full_initial_ruin": 3,
+                "partial_ruin_floor": 1, "partial_ruin_divisor": 4, "ruin_cap": 9,
+                "lethal_body_hp": 1, "exit_body_hp": 1,
+                "counter_pool_per_ruin": 2, "judgment_pool_per_segment": 2,
+                "challenge_segment_reduction": 1, "savior_ticks": 3
+            },
+            "G5": {
+                "memory_initial": 0, "memory_cap": 12, "highlight_gain_per_root": 1,
+                "write_gain": 1, "stage2_memory": 6, "stage2_sp_cost": 1,
+                "ascension_memory": 12, "ascension_sp_cost": 2,
+                "stat_memory_divisor": 6, "stat_bonus_cap": 2,
+                "story_sp_cost": 2, "story_memory_gain": 2, "story_target_sp": 0,
+                "story_heal": 1, "arrow_base_segments": 1, "arrow_player_divisor": 2,
+                "arrow_growth": 1, "arrow_segment_cap": 6, "arrow_damage": 2,
+                "arrows_per_target": 2, "unattributed_arrow_start": 4,
+                "reversal_first_barrier_breaks": 1, "reversal_first_wear": 4,
+                "reversal_first_hp_loss": 2, "reversal_second_damage": 4,
+                "reversal_later_base_damage": 6, "reversal_later_step": 2,
+                "reversal_later_start": 3, "poetry_chapter_rounds": 3
+            },
+            "G6": {
+                "laugh_initial": 1, "laugh_cap": 3, "laugh_per_root": 1,
+                "laugh_per_round": 3, "self_forfeit_laugh": 0,
+                "controlled_skip_laugh": 0, "credit_per_laugh": 1,
+                "counter_laugh_cost": 1, "counter_damage": 3,
+                "poem_counter_damage": 6, "card_theft_cap": 2,
+                "gift_faces": 6, "gift_face_probability": 0.16666666666666666,
+                "gift_credits": 4, "gift_heal": 2, "gift_equipment_count": 1,
+                "gift_damage": 4, "gift_theft_cap": 2, "gift_broken_items": 1,
+                "gift_artifact_disable_ticks": 2, "gift_fallback_ticks": 2,
+                "gifts_per_recipient": 1
+            },
+            "G7": {
+                "horus_durability": 12, "horus_normal": 2, "horus_tech": 2, "horus_magic": 2,
+                "hold_defense_bonus": 1, "component_repair": 4, "repair_components": 1,
+                "automatic_repair": 0, "halo_layers": 3, "halo_per_layer": 2,
+                "halo_initial_layers": 1, "halo_idle_recovery": 1, "halo_combat_recovery": 0,
+                "revive_hp": 6, "revive_uses": 1, "cost_initial": 6, "cost_cap": 6,
+                "macro_fatigue": 1, "epo_cost_bonus": 1,
+                "macro_costs": {"deploy_shield": 2, "shoot": 2, "hold_shield": 1, "throw": 1, "dash": 1, "search": 1, "lock": 1, "reload": 0, "medicine": 0, "cancel": 0, "turn": 0, "eject": 0},
+                "shield_upkeep": 1, "swimsuit_upkeep": 0,
+                "magazine_cap": 8, "initial_loaded_ammo": 4, "ammo_per_shot": 1,
+                "pellets": 3, "shot_pool": 4, "shot_distribution": [2, 1, 1],
+                "free_shot_every": 2, "free_shot_pool": 3, "free_shot_distribution": [1, 1, 1],
+                "free_shot_wear": 1, "free_shot_cost": 0, "free_shot_ammo": 0,
+                "reserve_ammo_cap": 8, "ammo_refill_price": 1, "ammo_refill_amount": 3,
+                "medicine_hold_cap": 2, "free_supply_uses": 2, "free_supply_ammo": 2,
+                "nap_sp_cost": 1, "nap_heal": 2, "nap_low_hp_heal": 3,
+                "nap_low_hp_ratio": 0.5, "nap_repair": 2, "nap_halo_layers": 1,
+                "nap_loaded_ammo": 2, "epo_price": 2, "chocolate_price": 2,
+                "adrenaline_price": 4, "epo_per_macro": 1, "chocolate_layers": 1,
+                "adrenaline_uses": 1, "adrenaline_cost_cap": 8,
+                "adrenaline_initiative": 3, "adrenaline_rounds": 1,
+                "dash_damage": 2, "change_form_uses": 2,
+                "swimsuit_ex_base": 3, "swimsuit_ex_ammo_divisor": 2,
+                "swimsuit_ex_suppress_ammo": 4, "archer_ex_pellets": 4,
+                "archer_ex_pool": 4, "archer_ex_distribution": [1, 1, 1, 1],
+                "archer_ex_vulnerability": 1, "archer_ex_ticks": 1,
+                "archer_ex_wear_price": 2, "archer_ex_point_base": 3,
+                "archer_ex_point_divisor": 2, "archer_ex_defense_coefficient": 0.5,
+                "archer_ex_splash_divisor": 4, "shielder_ex_repair_base": 2,
+                "shielder_ex_repair_divisor": 4, "shielder_ex_barrier_divisor": 2,
+                "shielder_ex_damage_base": 2, "shielder_ex_damage_divisor": 2,
+                "color_initial": 0, "color_exit_gain": 2, "color_kill_gain": 2,
+                "color_voluntary_threshold": 6, "color_forced_threshold": 10,
+                "terror_hp_floor": 12, "terror_hp_cap": 20,
+                "terror_hp_per_armor": 2, "terror_horus_divisor": 3,
+                "terror_halo_multiplier": 1, "terror_damage": 4,
+                "terror_attack_hp_cost": 6, "terror_move_hp_cost": 2
+            }
+        },
+        "consumables": {
+            "price": 2, "hold_cap": 2, "per_throw": 1,
+            "fragment_damage": 4, "shock_damage": 0, "flash_damage": 0,
+            "flash_hit_penalty": 0.15, "flash_ticks": 1,
+            "smoke_hit_penalty": 0.15, "smoke_ticks": 1,
+            "molotov_damage": 1, "molotov_burn": 1
+        },
+        "poems": {
+            "sp_cost": 2, "memory_per_missing_sp": 2, "love_ticks": 4,
+            "tomorrow_work_bonus": 1, "tomorrow_discount": 1, "tomorrow_min_price": 1,
+            "tomorrow_overloads": 2, "tomorrow_breath_heal": 6,
+            "firefly_ticks": 2, "firefly_rescue_hp": 12,
+            "spotlight_white_keys": 2, "spotlight_reduction": 2, "spotlight_attack_bonus": 2,
+            "eternity_magic": 4, "eternity_chain_extra": 1, "eternity_first_cost": 0,
+            "burden_resource_gain": 4, "burden_fire_damage": 1,
+            "burden_self_burn_gain": 1, "burden_burn_cap": 3, "burden_burn_ticks": 2,
+            "joy_laugh_set": 3, "joy_ticks": 4, "joy_missed_counter_damage": 3,
+            "watchman_hp_repair_cost_cap": 2, "watchman_repaired_durability": 2,
+            "ranger_sp_refund": 1, "ranger_refunds_per_mark": 1,
+            "wildfire_extra_turns": 1, "wildfire_shadow_step_reset": 2,
+            "wildfire_free_steps": 1, "stars_meteors": 2, "stars_damage": 2,
+            "yin_yang_uses": 2, "law_roster": 3, "law_officer_hp": 6,
+            "shore_revive_sp": 2, "shore_shield_durability": 6, "shore_knife_damage": 4,
+            "shore_rearm_uses": 1
+        },
+        "encore": {
+            "ranger_chases": 1, "stars_damage": 2, "yin_yang_rerolls": 1,
+            "eternity_discount": 2, "firefly_reduction": 2,
+            "spotlight_attack_bonus": 1, "spotlight_proxy_heal": 1,
+            "tomorrow_waivers": 1
+        }
+    },
+
     "stage": {
         "encore_reward_menu": {
             "_comment": "duet 安可奖励菜单。注意与 AI 层 LOCATION_ITEMS（交互物品表）目的不同。",

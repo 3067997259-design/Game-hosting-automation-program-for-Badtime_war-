@@ -4,6 +4,7 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from engine.game_logger import GameLogger
+    from engine.ga.config import GaConfig
 
 from models.markers import MarkerManager
 from models.police import PoliceData
@@ -12,6 +13,20 @@ from engine.response_window import ResponseWindowManager
 from typing import Optional
 
 class GameState:
+    @classmethod
+    def new_ga(
+        cls, player_ids: list[str], *, seed: int = 0, config: "GaConfig | None" = None,
+        talents: "dict[str, str] | None" = None,
+    ) -> "GameState":
+        """建立GA正式状态，不初始化已退役的病毒、旧天赋或profile机制。"""
+        from engine.ga.state import initialize_state
+        from engine.ga.setup import install
+
+        state = cls.__new__(cls)
+        initialize_state(state, player_ids, seed=seed, config=config)
+        install(state, talents)
+        return state
+
     def __init__(self):
         from engine import experiments as _exp
         self.profile = _exp.current_profile()
