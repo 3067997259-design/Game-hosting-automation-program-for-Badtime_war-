@@ -32,7 +32,7 @@ jobs:
         run: python tools/m9_rfc_smoke.py
 
       # tools/m9_rfc_playtest.py 剧本 C/E/F/B.5 仍为已知脚本漂移失败
-      # （见 CLAUDE.md §10），修复前不作为 PR 门禁。
+      # （见 AGENTS.md §7「已知失败」），修复前不作为 PR 门禁。
       # - name: Run M9 scripted acceptance
       #   run: python tools/m9_rfc_playtest.py
 
