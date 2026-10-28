@@ -24,8 +24,9 @@
   **阶段与验收**：[实施合同](docs/v2.0-ga/implementation_contract_v0.1.md)；
   **数值**：`data/balance.json` 的 `ga` 块（N0 初值，对应[玩家手册](docs/v2.0-ga/manual_draft_v0.1.md) §17）；
   **运行事实**：`engine/ga/` 与 `tests/test_ga_*.py`。
-- GA 的代码、测试、文档和迁移/手册产物在 `feat/v2.0-exp` 分支上，2026-10-28 起进 git。
-  这台电脑存储紧张，每完成一批工作就提醒用户提交；手册审阅快照 `artifacts/ga-manual/snapshots/` 跟手册一起提交。
+- **分支**：GA 在 `feat/v2.0-ga` 上开发。它从 `feat/v2.0-exp` 分出，包含 M9 和 2026-08 RL 训练工作的全部提交；
+  `feat/v2.0-exp` 停在那批 RL 工作上。这台电脑存储紧张，每完成一批工作就提醒用户提交；
+  手册审阅快照 `artifacts/ga-manual/snapshots/` 跟手册一起提交。
 
 ---
 

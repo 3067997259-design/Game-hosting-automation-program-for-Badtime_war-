@@ -79,3 +79,7 @@ node_modules/
 .ocx/
 .fallow/
 .dsh-plugin-work/
+.mimosa/
+
+# ── 独立仓库（有自己的 .git 和远端，不并入本仓库）──────
+maskable-recurrent-ppo/
