@@ -8,9 +8,11 @@ from controllers.bots.turtle_bot import TurtleBotController
 from controllers.bots.rush_bot import RushBotController
 from controllers.bots.dodge_bot import DodgeBotController
 from controllers.bots.archer_bot import ArcherBotController
+from controllers.bots.dummy_bot import DummyBotController
 
-# stats_runner --lineup 名称注册表
+# stats_runner --lineup / RL 课程 opponent_bots 名称注册表
 BOT_REGISTRY = {
+    "dummy": DummyBotController,     # Rung 0：不作为的活靶子（RL 课程最低一级）
     "turtle": TurtleBotController,
     "rush": RushBotController,
     "dodge": DodgeBotController,
@@ -18,6 +20,7 @@ BOT_REGISTRY = {
 }
 
 __all__ = [
-    "ScriptBotController", "TurtleBotController", "RushBotController",
-    "DodgeBotController", "ArcherBotController", "BOT_REGISTRY",
+    "ScriptBotController", "DummyBotController", "TurtleBotController",
+    "RushBotController", "DodgeBotController", "ArcherBotController",
+    "BOT_REGISTRY",
 ]

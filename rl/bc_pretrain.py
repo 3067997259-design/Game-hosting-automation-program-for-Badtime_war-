@@ -47,15 +47,15 @@ class BCDataset(Dataset):
         actions = data["actions"]
         masks = data["masks"]
 
-        if obs.ndim != 2 or obs.shape[1] != OBS_DIM:
-            raise ValueError(
-                f"obs 形状不匹配：expected (N, {OBS_DIM}), got {obs.shape}"
-            )
-        if masks.shape != (obs.shape[0], ACTION_COUNT):
-            raise ValueError(
-                f"masks 形状不匹配：expected (N, {ACTION_COUNT}), "
-                f"got {masks.shape}"
-            )
+        # 维度按数据实际形状推定（兼容 legacy 与版本化 M9 schema，不写死常量）
+        if obs.ndim != 2:
+            raise ValueError(f"obs 应为 (N, D)，got {obs.shape}")
+        self.obs_dim = int(obs.shape[1])
+        if masks.ndim != 2 or masks.shape[0] != obs.shape[0]:
+            raise ValueError(f"masks 形状异常：{masks.shape}")
+        self.action_count = int(masks.shape[1])
+        if actions.shape[0] != obs.shape[0]:
+            raise ValueError("obs/actions 长度不一致")
 
         self.obs = torch.from_numpy(obs.astype(np.float32))
         self.actions = torch.from_numpy(actions.astype(np.int64))
@@ -142,7 +142,8 @@ def train_bc(data_path: str, output_path: str,
         num_workers=num_workers,
     )
 
-    model = BCPolicyNet().to(device)
+    model = BCPolicyNet(obs_dim=dataset.obs_dim,
+                        action_count=dataset.action_count).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
 

@@ -25,13 +25,51 @@ from rl.action_space import (
     idx_to_choose_option,
     idx_to_command,
 )
-from rl.obs_builder import OBS_DIM, build_obs
+from rl.obs_builder import OBS_DIM, build_obs  # noqa: F401  (legacy 常量/构建器仍被引用)
+from rl.obs_builder_m9 import (
+    build_obs_profile,
+    fill_choose_obs_m9,
+    obs_dim_for_profile,
+)
 from rl.rl_controller import RLController
+from rl.maskable_recurrent import MaskableRecurrentPPO
 
 if TYPE_CHECKING:
     from stable_baselines3.common.base_class import BaseAlgorithm
 
 logger = logging.getLogger(__name__)
+
+
+def _is_recurrent_zip(path: str) -> bool:
+    """判定 .zip checkpoint 是否为递归（LSTM）策略。
+
+    读保存的 policy_class 对象；递归策略的别名 MlpLstmPolicy 等类名不含
+    "Recurrent" 子串，故以 issubclass 判别为主、模块路径兜底。
+    """
+    from stable_baselines3.common.save_util import load_from_zip_file
+
+    try:
+        data, _, _ = load_from_zip_file(str(path))
+    except Exception:
+        return False
+    pc = data.get("policy_class")
+    if pc is None:
+        return False
+    try:
+        from rl.maskable_recurrent.policies import MaskableRecurrentActorCriticPolicy
+        if isinstance(pc, type) and issubclass(pc, MaskableRecurrentActorCriticPolicy):
+            return True
+    except Exception:
+        pass
+    full = f"{getattr(pc, '__module__', '')}.{getattr(pc, '__name__', '')}"
+    return "maskable_recurrent" in full or "Recurrent" in full
+
+
+def load_policy(path: str):
+    """按 .zip 内保存的策略类型加载（MaskablePPO 或 MaskableRecurrentPPO）。"""
+    if _is_recurrent_zip(path):
+        return MaskableRecurrentPPO.load(str(path))
+    return MaskablePPO.load(str(path))
 
 
 class _BaseOpponentRLController(RLController):
@@ -55,8 +93,13 @@ class _BaseOpponentRLController(RLController):
             torch.set_num_threads(1)
         super().__init__()
         self.n_stack = n_stack
-        self._obs_stack = np.zeros(OBS_DIM * n_stack, dtype=np.float32)
+        self._frame_dim = obs_dim_for_profile()   # profile 感知观测宽（legacy=539 / m9=570）
+        self._obs_stack = np.zeros(self._frame_dim * n_stack, dtype=np.float32)
         self._player_id: Optional[str] = None
+        # 递归（LSTM）策略的跨决策状态线：zip 路径由 OpponentRLController
+        # 自持 self._state；torchscript 路径由模块自持，仅需 reset 标志。
+        self._state: Any = None
+        self._reset_next: bool = True
 
     def _predict_action(self, obs: np.ndarray, mask: np.ndarray) -> int:
         """子类必须实现：从堆叠后的观测和合法动作 mask 产出动作索引。"""
@@ -65,13 +108,16 @@ class _BaseOpponentRLController(RLController):
     def _stack_obs(self, raw_obs: np.ndarray) -> np.ndarray:
         if self.n_stack <= 1:
             return raw_obs
-        self._obs_stack[:-OBS_DIM] = self._obs_stack[OBS_DIM:]
-        self._obs_stack[-OBS_DIM:] = raw_obs
+        dim = self._frame_dim
+        self._obs_stack[:-dim] = self._obs_stack[dim:]
+        self._obs_stack[-dim:] = raw_obs
         return self._obs_stack.copy()
 
     def reset_stack(self):
-        """每局开始时重置帧堆叠缓冲。"""
-        self._obs_stack = np.zeros(OBS_DIM * self.n_stack, dtype=np.float32)
+        """每局开始时重置帧堆叠缓冲 + 递归状态线。"""
+        self._obs_stack = np.zeros(self._frame_dim * self.n_stack, dtype=np.float32)
+        self._state = None
+        self._reset_next = True
 
     def reset_game_state(self):
         """重置所有跨局会泄漏的状态（用于 stats_runner 等复用 controller 实例的场景）。
@@ -114,8 +160,8 @@ class _BaseOpponentRLController(RLController):
         if attempt > 1:
             return "forfeit"
 
-        # 构建观测
-        raw_obs = build_obs(player, game_state, player.player_id)
+        # 构建观测（profile 感知：m9-rfc → M9 观测 570）
+        raw_obs = build_obs_profile(player, game_state, player.player_id)
         obs = self._stack_obs(raw_obs)
 
         # 构建 action mask
@@ -146,16 +192,19 @@ class _BaseOpponentRLController(RLController):
 
         situation = (context or {}).get("situation", "")
 
-        # 构建观测
-        raw_obs = build_obs(player, state, player.player_id)
+        # 构建观测（profile 感知）
+        raw_obs = build_obs_profile(player, state, player.player_id)
 
-        # 填充 choose 模式指示维（与训练 env._fill_choose_obs 保持一致）
-        # 尾部 3 维 [520-522]：[current_mode=1.0, situation_id/30, n_options/16]
-        from rl.obs_builder import _CHOOSE_SITUATION_MAP, _MAX_CHOOSE_SITUATIONS
-        base = OBS_DIM - 3  # 520
-        raw_obs[base] = 1.0
-        raw_obs[base + 1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / max(_MAX_CHOOSE_SITUATIONS, 1)
-        raw_obs[base + 2] = min(len(options), 16) / 16.0
+        # 填充 choose 模式指示维（与训练 env._fill_choose_obs 保持一致；位置 profile 感知）
+        if self._frame_dim != OBS_DIM:  # m9-rfc（570）→ 全局尾部
+            fill_choose_obs_m9(raw_obs, choose_mode=True,
+                               situation=situation, n_options=len(options))
+        else:  # legacy（539）→ 尾部 3 维
+            from rl.obs_builder import _CHOOSE_SITUATION_MAP, _MAX_CHOOSE_SITUATIONS
+            base = OBS_DIM - 3  # 520
+            raw_obs[base] = 1.0
+            raw_obs[base + 1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / max(_MAX_CHOOSE_SITUATIONS, 1)
+            raw_obs[base + 2] = min(len(options), 16) / 16.0
 
         obs = self._stack_obs(raw_obs)
 
@@ -210,13 +259,22 @@ class OpponentRLController(_BaseOpponentRLController):
         if _model is not None:
             self.model = _model
         elif model_path is not None:
-            self.model = MaskablePPO.load(model_path)
+            # 按 checkpoint 实际策略类型加载（MaskablePPO / MaskableRecurrentPPO）
+            self.model = load_policy(model_path)
         else:
             raise ValueError("Either model_path or _model must be provided")
 
     def _predict_action(self, obs: np.ndarray, mask: np.ndarray) -> int:
-        action, _ = self.model.predict(obs, action_masks=mask, deterministic=True)
-        return int(action)
+        # 有状态 predict：对 MaskableRecurrentPPO 返回并保存 (h,c)（self._state），
+        # 对 MaskablePPO 的 predict 额外参数会被忽略、state 恒为空——两路兼容。
+        action, self._state = self.model.predict(
+            obs[None],
+            state=self._state,
+            episode_start=np.array([False]),
+            action_masks=mask[None],
+            deterministic=True,
+        )
+        return int(action[0])
 
 
 class TorchScriptRLController(_BaseOpponentRLController):
@@ -226,8 +284,11 @@ class TorchScriptRLController(_BaseOpponentRLController):
     本控制器直接调用 ``torch.jit`` 模型的 ``forward()`` 获取 logits，跳过
     SB3 的 Python/numpy 包装层，推理速度实测提升 2–5 倍。
 
-    行为等价于 ``MaskablePPO.predict(..., action_masks=mask, deterministic=True)``：
+    行为等价于 ``predict(..., action_masks=mask, deterministic=True)``：
     先算 logits，再把 mask 为 ``False`` 的位置置为 ``-inf``，最后取 argmax。
+
+    recurrent=True 时对接有状态导出（forward(obs, reset) → logits，模块自持
+    LSTM 状态）；每局开始（reset_stack）置 _reset_next，首次决策传 reset=1.0。
     """
 
     def __init__(
@@ -236,8 +297,10 @@ class TorchScriptRLController(_BaseOpponentRLController):
         n_stack: int = 30,
         *,
         _jit_model: "torch.jit.ScriptModule | None" = None,
+        recurrent: bool = False,
     ):
         super().__init__(n_stack=n_stack)
+        self.recurrent = recurrent
         if _jit_model is not None:
             self.jit_model = _jit_model
         elif pts_path is not None:
@@ -250,7 +313,12 @@ class TorchScriptRLController(_BaseOpponentRLController):
     def _predict_action(self, obs: np.ndarray, mask: np.ndarray) -> int:
         with torch.no_grad():
             obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
-            logits = self.jit_model(obs_tensor)  # (1, ACTION_COUNT)
+            if self.recurrent:
+                reset = torch.tensor([1.0 if self._reset_next else 0.0], dtype=torch.float32)
+                self._reset_next = False
+                logits = self.jit_model(obs_tensor, reset)  # (1, ACTION_COUNT)
+            else:
+                logits = self.jit_model(obs_tensor)
             mask_tensor = torch.as_tensor(mask, dtype=torch.bool)
             logits[0, ~mask_tensor] = float("-inf")
             return int(logits.argmax(dim=1).item())
@@ -270,12 +338,14 @@ class OpponentPool:
         n_stack: int = 30,
         max_pool_size: int = 20,
         basic_ai_prob: float = 0.3,  # 30% 概率使用 BasicAI 而非历史模型
+        recurrent: bool = False,     # True: 池内模型为 MaskableRecurrentPPO（n_stack 应为 1）
     ):
         self.pool_dir = Path(pool_dir)
         self.pool_dir.mkdir(parents=True, exist_ok=True)
         self.n_stack = n_stack
         self.max_pool_size = max_pool_size
         self.basic_ai_prob = basic_ai_prob
+        self.recurrent = recurrent
         # 模型缓存：可能同时包含 MaskablePPO 实例（由 .zip 加载）和
         # torch.jit.ScriptModule 实例（由 .pts 加载），用不同的
         # cache_key（完整文件路径，含 .zip / .pts 后缀）区分。
@@ -314,9 +384,15 @@ class OpponentPool:
 
         # 同时导出 TorchScript 版本用于快速推理（导出失败时回退到完整模型）
         try:
-            from rl.export_torchscript import export_torchscript
+            from rl.export_torchscript import (
+                export_torchscript,
+                export_torchscript_recurrent,
+            )
             pts_path = self.pool_dir / f"opponent_step_{step}.pts"
-            export_torchscript(model, str(pts_path), n_stack=self.n_stack)
+            if self.recurrent:
+                export_torchscript_recurrent(model, str(pts_path))
+            else:
+                export_torchscript(model, str(pts_path), n_stack=self.n_stack)
         except Exception as e:
             logger.warning("TorchScript 导出失败，将回退到完整模型: %s", e)
 
@@ -429,12 +505,13 @@ class OpponentPool:
                     ctrl = TorchScriptRLController(
                         n_stack=self.n_stack,
                         _jit_model=self._model_cache[pts_key],
+                        recurrent=self.recurrent,
                     )
                     return ctrl, chosen.stem
 
-                # 回退：加载完整 MaskablePPO
+                # 回退：加载完整策略（按 zip 内类型自动识别）
                 if cache_key not in self._model_cache:
-                    self._model_cache[cache_key] = MaskablePPO.load(str(chosen))
+                    self._model_cache[cache_key] = load_policy(str(chosen))
                 ctrl = OpponentRLController(
                     n_stack=self.n_stack,
                     _model=self._model_cache[cache_key],

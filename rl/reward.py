@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 GAMMA = 0.99        # 势函数折扣因子
 ALPHA = 0.3         # 事件奖励权重
 BETA  = 0.5         # 行为惩罚权重
+ARMOR_DURABILITY_VALUE = 4.0  # 每点可用外甲耐久约等于 0.2 HP 的生存资产
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -62,6 +63,20 @@ def _count_inner_armor(player) -> int:
         from models.equipment import ArmorLayer
         return len(armor.get_active(ArmorLayer.INNER))
     return 0
+
+
+def _outer_armor_durability(player) -> float:
+    """返回可用外甲耐久；legacy 的零耐久护甲保持中性。"""
+    armor = getattr(player, "armor", None)
+    if not armor or not hasattr(armor, "get_active"):
+        return 0.0
+    from models.equipment import ArmorLayer
+    total = 0.0
+    for piece in armor.get_active(ArmorLayer.OUTER):
+        durability = max(0.0, float(getattr(piece, "durability", 0) or 0))
+        maximum = max(0.0, float(getattr(piece, "max_durability", 0) or 0))
+        total += min(durability, maximum) if maximum > 0 else 0.0
+    return total
 
 
 def _effective_weapons(player) -> list:
@@ -107,6 +122,10 @@ def potential(player, game_state) -> float:
     # === 生存维度 ===
     phi += player.hp * 20                                       # HP 价值
     phi += _count_outer_armor(player) * 15                      # 外层护甲
+    # HP20 外甲的“有/无”不足以表达维护价值：1/12 与 12/12 若同价，修甲
+    # 会在 PPO 中只表现为花一回合挨打。耐久是可消耗生存资产，放进势函数
+    # 后仍保持 potential-based shaping，不给某个交互动作固定刷分。
+    phi += _outer_armor_durability(player) * ARMOR_DURABILITY_VALUE
     phi += _count_inner_armor(player) * 12                      # 内层护甲
 
     # === 发育维度 ===
@@ -340,7 +359,7 @@ def event_reward(events: List[Dict[str, Any]], player_id: str,
 
         # ── 成功找到目标 ──
         if etype == "find" and event.get("player") == player_id:
-            r += 2.0
+            r += 6.0
 
         # ── 成功锁定目标 ──
         if etype == "lock" and event.get("player") == player_id:
@@ -490,10 +509,16 @@ def behavior_penalty(player, game_state, action_type, action_success, action_idx
         r -= 0.5 * player.no_action_streak
 
     if not action_success:
-        # 递增惩罚：连续失败越多越痛
-        fail_streak = getattr(player, '_rl_fail_streak', 0) + 1
-        player._rl_fail_streak = fail_streak
-        r -= 2.0 * fail_streak          # 第1次-2, 第2次-4, 第3次-6...
+        if action_type == "find":
+            # find 探索豁免：find 是近战链前置（ENGAGED_WITH），早期必然大量失败
+            #（目标刚走/不在同格）；递增惩罚 −2/−4/−6… 会把"试 find"摁死（实测
+            # RL 全程 0 次 find），封顶 −2 一次，不推进 fail_streak。
+            r -= 2.0
+        else:
+            # 递增惩罚：连续失败越多越痛
+            fail_streak = getattr(player, '_rl_fail_streak', 0) + 1
+            player._rl_fail_streak = fail_streak
+            r -= 2.0 * fail_streak          # 第1次-2, 第2次-4, 第3次-6...
     else:
         player._rl_fail_streak = 0       # 成功则重置
 
@@ -502,13 +527,31 @@ def behavior_penalty(player, game_state, action_type, action_success, action_idx
     if game_state.current_round > long_game_threshold:
         r -= 0.15 * (game_state.current_round - long_game_threshold)
 
-    # 纯连续移动惩罚
+    # 纯连续移动惩罚（追击豁免：落点=存活敌人所在格 的 move 不计连击——
+    # 菜单式地图下一格即达，追击本来就是连续 move，不该被"防转圈"条款误伤）
     move_streak = getattr(player, '_rl_move_streak', 0)
     if action_type == "move":
-        move_streak += 1
-        player._rl_move_streak = move_streak
-        if move_streak >= 3:
-            r -= 2.0 * (move_streak - 2)  # 第3次-2, 第4次-4, 第5次-6...
+        chasing = False
+        if action_idx is not None:
+            try:
+                from rl.action_space import IDX_MOVE_BASE, LOCATIONS, get_opponent_slots
+                off = action_idx - IDX_MOVE_BASE
+                if 0 <= off < len(LOCATIONS):
+                    dest = LOCATIONS[off]
+                    chasing = any(
+                        opp is not None and opp.is_alive()
+                        and getattr(opp, "location", None) == dest
+                        for opp in get_opponent_slots(player, game_state)
+                    )
+            except Exception:
+                chasing = False
+        if chasing:
+            player._rl_move_streak = 0   # 追击 move：清零连击计数（结束追击后杂步仍会累计）
+        else:
+            move_streak += 1
+            player._rl_move_streak = move_streak
+            if move_streak >= 3:
+                r -= 2.0 * (move_streak - 2)  # 第3次-2, 第4次-4, 第5次-6...
     else:
         player._rl_move_streak = 0
 
@@ -590,7 +633,8 @@ class RewardTracker:
         self._event_cursor = len(game_state.event_log)
 
     # ─────────────────────────────────────────────────────────────────────
-    def compute(self, player, game_state, action_type, action_success, action_idx=None) -> float:
+    def compute(self, player, game_state, action_type, action_success,
+                action_idx=None, *, forced_forfeit: bool = False) -> float:
         """计算四层奖励总和。"""
         total = 0.0
 

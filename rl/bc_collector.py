@@ -38,28 +38,16 @@ import numpy as np
 
 from controllers.ai_basic import BasicAIController
 from rl.action_space import (
-    ACTION_COUNT,
-    IDX_ATTACK_BASE,
     IDX_CHOOSE_BASE,
-    IDX_FIND_BASE,
-    IDX_FORFEIT,
-    IDX_INTERACT_BASE,
-    IDX_LOCK_BASE,
-    IDX_MOVE_BASE,
-    IDX_POLICE_BASE,
-    IDX_SPECIAL_BASE,
     IDX_TALENT_T0_SELF,
     IDX_TALENT_T0_TARGET_BASE,
-    IDX_WAKE,
-    INTERACT_ITEMS,
-    LOCATIONS,
-    POLICE_CMDS,
-    SPECIAL_OPS,
-    WEAPONS,
     build_action_mask,
+    command_to_action_idx,
     get_opponent_slots,
+    rl_action_count,
 )
-from rl.obs_builder import OBS_DIM, build_obs
+from rl.obs_builder import OBS_DIM, build_obs  # noqa: F401  (legacy 常量/构建器仍被引用)
+from rl.obs_builder_m9 import build_obs_profile
 from rl.rl_controller import RLController
 
 
@@ -193,7 +181,7 @@ class BCCollectorController(BasicAIController):
         is_tactical = (situation == "hoshino_tactical_input")
 
         if is_tactical:
-            obs = build_obs(
+            obs = build_obs_profile(
                 player, game_state, player.player_id,
                 choose_mode=True,
                 choose_situation=situation,
@@ -211,10 +199,10 @@ class BCCollectorController(BasicAIController):
             mask = mask.copy()
             mask[IDX_TALENT_T0_TARGET_BASE:IDX_CHOOSE_BASE + 16] = True
         else:
-            obs = build_obs(player, game_state, player.player_id)
+            obs = build_obs_profile(player, game_state, player.player_id)
             mask = build_action_mask(player, game_state, player.player_id)
 
-        if 0 <= action_idx < ACTION_COUNT and mask[action_idx]:
+        if 0 <= action_idx < rl_action_count(game_state) and mask[action_idx]:
             self._collector.add_sample(obs, action_idx, mask)
 
     # ════════════════════════════════════════════════════════
@@ -233,12 +221,13 @@ class BCCollectorController(BasicAIController):
                     if choice in options:
                         opt_idx = options.index(choice)
                         if 0 <= opt_idx < 16:
-                            obs = build_obs(
+                            obs = build_obs_profile(
                                 self._player_ref, self._state_ref,
                                 self._player_id,
                                 choose_mode=True,
                                 choose_situation=situation,
                                 choose_n_options=len(options),
+                                choose_options=list(options),
                             )
                             mask = build_action_mask(
                                 self._player_ref, self._state_ref,
@@ -270,62 +259,8 @@ class BCCollectorController(BasicAIController):
         if situation == "hoshino_tactical_input":
             return self._tactical_command_to_idx(cmd, player, game_state)
 
-        if cmd == "forfeit":
-            return IDX_FORFEIT
-        if cmd == "wake":
-            return IDX_WAKE
-
-        if cmd.startswith("move "):
-            loc = cmd[len("move "):].strip()
-            if loc in LOCATIONS:
-                return IDX_MOVE_BASE + LOCATIONS.index(loc)
-            return None
-
-        if cmd.startswith("interact "):
-            item = cmd[len("interact "):].strip()
-            if item in INTERACT_ITEMS:
-                return IDX_INTERACT_BASE + INTERACT_ITEMS.index(item)
-            return None
-
-        if cmd.startswith("lock "):
-            target_name = cmd[len("lock "):].strip()
-            slot = self._name_to_slot(target_name, player, game_state)
-            if slot is not None:
-                return IDX_LOCK_BASE + slot
-            return None
-
-        if cmd.startswith("find "):
-            target_name = cmd[len("find "):].strip()
-            slot = self._name_to_slot(target_name, player, game_state)
-            if slot is not None:
-                return IDX_FIND_BASE + slot
-            return None
-
-        if cmd.startswith("attack "):
-            parts = cmd.split()
-            if len(parts) >= 3:
-                target_name = parts[1]
-                weapon_name = parts[2]
-                slot = self._name_to_slot(target_name, player, game_state)
-                if weapon_name in WEAPONS and slot is not None:
-                    return IDX_ATTACK_BASE + slot * 10 + WEAPONS.index(weapon_name)
-            return None
-
-        if cmd.startswith("special "):
-            op = cmd[len("special "):].strip()
-            # special 可能带参数（e.g. "special 释放病毒"），取首关键字
-            op_key = op.split()[0] if op else ""
-            for i, sop in enumerate(SPECIAL_OPS):
-                if op_key == sop or op_key.startswith(sop):
-                    return IDX_SPECIAL_BASE + i
-            return None
-
-        # 警察命令（POLICE_CMDS 列表首词匹配）
-        first_word = cmd.split()[0]
-        if first_word in POLICE_CMDS:
-            return IDX_POLICE_BASE + POLICE_CMDS.index(first_word)
-
-        return None
+        idx = command_to_action_idx(cmd, player, game_state)
+        return idx if idx >= 0 else None
 
     def _tactical_command_to_idx(self, cmd: str, player,
                                  game_state) -> Optional[int]:
@@ -519,6 +454,9 @@ def run_collection(num_games: int, num_players: int, output_dir: str,
 
 def main():
     parser = argparse.ArgumentParser(description="BC 数据收集")
+    parser.add_argument("--profile", type=str, default="legacy",
+                        choices=["legacy", "v2exp", "m9-rfc"],
+                        help="收集所在 profile（m9-rfc 用 M9 572obs/154+n act/14天赋表）")
     parser.add_argument("--games", type=int, default=5000,
                         help="游戏局数（默认 5000）")
     parser.add_argument("--players", type=int, default=6,
@@ -538,6 +476,8 @@ def main():
     if output_dir == "bc_data/g7" and args.talent == "all":
         output_dir = "bc_data/all"
 
+    from engine.experiments import set_profile
+    set_profile(args.profile)
     run_collection(args.games, args.players, output_dir,
                    talent_num=talent_num)
 

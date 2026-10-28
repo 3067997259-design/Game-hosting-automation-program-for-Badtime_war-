@@ -1701,6 +1701,18 @@
       "authority_for": [],
       "generated_from": "docs/m9/manual/manifest.json",
       "notes": "M9 手册玩家渲染版（⟦bal:...⟧ 已从 data/balance.json 渲染，禁止手编）。"
+    },
+    {
+      "path": "docs/m9/rl/m9_rl_next_steps.md",
+      "type": "maintenance-plan",
+      "status": "candidate",
+      "profiles": [
+        "m9-rfc"
+      ],
+      "authority_for": [
+        "rl.m9.next-steps"
+      ],
+      "notes": "M9-RL 后续训练计划 P0–P6：专家栈落库与毕业基线、多人零样本、天赋观测通道、统一蒸馏学生、十四天赋课程与自博弈联赛；承接 m9_rl_roadmap.md 的 M9-A~F 之后阶段。"
     }
   ]
 }

@@ -22,11 +22,14 @@ RLController —— Gym 环境与游戏引擎的唯一接触点。
 """
 
 from __future__ import annotations
+import logging
 from typing import TYPE_CHECKING, List, Optional, Dict, Any
 import random
 
 from controllers.base import PlayerController
 from rl.action_space import idx_to_command
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from models.player import Player
@@ -162,6 +165,14 @@ class RLController(PlayerController):
         # ── 启发式路径 ──
         if situation in self._HEURISTIC_CHOOSE:
             return self._heuristic_choose(situation, prompt, options, context)
+
+        # ── 截断守卫：RL 掩码只给 16 个 choose 选项，超出的会静默丢失（choose 失明）──
+        if len(options) > 16:
+            logger.warning(
+                "[RL] choose situation=%r options=%d > 16，RL 仅能表达前 16 项（其余启发式兜底）。"
+                "若这是新机制，请先于 action_space 登记/分档。",
+                situation, len(options),
+            )
 
         # ── RL 路径（绝大多数 situation 走这里）──
         return self._rl_choose(prompt, options, context)

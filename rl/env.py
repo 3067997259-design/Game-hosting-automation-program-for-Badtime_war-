@@ -28,11 +28,18 @@ import torch
 from gymnasium import spaces
 
 from rl.action_space import (
-    ACTION_COUNT, IDX_FORFEIT, IDX_CHOOSE_BASE,
+    IDX_FORFEIT, IDX_CHOOSE_BASE,
     IDX_TALENT_T0_TARGET_BASE, IDX_TALENT_T0_SELF,
-    build_action_mask, idx_to_command, idx_to_choose_option,
+    action_spec_from_idx, apply_action_contract, build_action_mask,
+    idx_to_command, idx_to_choose_option,
+    rl_action_count,
 )
-from rl.obs_builder import OBS_DIM, build_obs
+from rl.obs_builder import OBS_DIM, build_obs  # noqa: F401  (legacy 常量/构建器仍被引用)
+from rl.obs_builder_m9 import (
+    build_obs_profile,
+    fill_choose_obs_m9,
+    obs_dim_for_profile,
+)
 from rl.reward import RewardTracker
 from rl.rl_controller import RLController
 from controllers.ai_basic import BasicAIController
@@ -124,6 +131,23 @@ class _GameAborted(Exception):
 #  同步版 RLController：在 get_command / choose / confirm 中阻塞等待 env
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _combat_core_default_choice(options) -> str:
+    """基础作战课对旁路 choose 回调取确定性中性选项。"""
+    choices = list(options or [])
+    if not choices:
+        return ""
+    for decline in ("不参与", "不押注", "保留", "跳过", "否", "放弃", "取消"):
+        if decline in choices:
+            return decline
+    for choice in choices:
+        normalized = str(choice).strip()
+        if normalized.startswith(("不", "拒绝")) or any(
+            token in normalized for token in ("不参与", "不押注", "跳过")
+        ):
+            return choice
+    return choices[0]
+
+
 class _SyncRLController(RLController):
     """
     扩展 RLController，在 get_command() 和战略 choose()/confirm() 中
@@ -187,15 +211,40 @@ class _SyncRLController(RLController):
         if self._env._game_over_flag:
             return options[0] if options else ""
 
+        # combat_core 只教移动/接敌/通用攻击。警察投票、PP 押注、
+        # 公演等全局 choose 回调由环境以中性默认值结算，不向 RL 额外
+        # 暴露决策步。否则虽然动作 mask 屏蔽了警察/special，LSTM 仍会
+        # 在基础课中被迫学习这些旁路菜单。
+        effective_contract = (
+            getattr(self._env, "action_contract", None)
+            or getattr(self._env, "_rl_base_action_contract", None)
+        )
+        if effective_contract in {
+            "combat_core", "economy_course", "economy_integration_course",
+            "combat_economy", "pp_course", "survival_course",
+        }:
+            return _combat_core_default_choice(options)
+
+        # RL 内部使用稳定的功能顺序，不改人类/BasicAI 看到的菜单。M9 报名窗口
+        # 的显示顺序是“保留/报名”，而 talent_t0 是“发动/不发动”；若照抄显示
+        # 序号，连续两个接受型决策会要求 LSTM 先选第 2 槽、再选第 1 槽，实测
+        # 学成“报名后先拒绝发动一轮”。这里规范为接受在前、拒绝在后。
+        rl_options = list(options)
+        if (
+            (context or {}).get("phase") == "M9_PUBLIC_REGISTRATION"
+            and set(rl_options) == {"保留", "报名公演"}
+        ):
+            rl_options = ["报名公演", "保留"]
+
         # 预游戏阶段（on_register 中的 choose 调用）：游戏线程未启动，
         # 事件同步不可用，直接返回随机选择
         if self._env._pre_game_phase:
-            idx = self._env.np_random.integers(len(options))
-            return options[idx]
+            idx = self._env.np_random.integers(len(rl_options))
+            return rl_options[idx]
 
         # 设置 choose 模式
         self._env._choose_mode = True
-        self._env._choose_options = list(options)
+        self._env._choose_options = rl_options
         self._env._choose_context = context or {}
         self._env._current_player = self._player_ref
         self._env._current_game_state = self._state_ref
@@ -213,6 +262,12 @@ class _SyncRLController(RLController):
         # 读取 RL 选择的索引（step() 已计算 action - IDX_CHOOSE_BASE）
         chosen_idx = self._env._pending_choose_idx
 
+        chosen = (
+            rl_options[chosen_idx]
+            if 0 <= chosen_idx < len(rl_options)
+            else rl_options[0]
+        )
+
         # 立即清除 choose 模式，避免其他线程看到过时状态。
         # 线程安全说明：此时 env 线程阻塞在 _obs_event.wait()，
         # action_masks() 只从 env 线程调用，因此不会并发访问。
@@ -220,9 +275,7 @@ class _SyncRLController(RLController):
         self._env._choose_options = []
         self._env._choose_context = {}
 
-        if 0 <= chosen_idx < len(options):
-            return options[chosen_idx]
-        return options[0]  # 安全回退
+        return chosen
 
     def _rl_confirm(self, prompt, context=None):
         """线程同步版 _rl_confirm：映射为 2 选项的 _rl_choose。"""
@@ -277,8 +330,9 @@ class BadtimeWarEnv(gym.Env):
     render_mode    : "human" 时保留游戏输出，否则静默
     n_stack        : 帧堆叠数量
     opponent_pool  : Self-play 对手池
-    enable_talents : 是否启用天赋系统
-    rl_talent      : RL 玩家的天赋编号（None=随机, 0=无天赋）
+    enable_talents          : 是否启用天赋系统
+    enable_opponent_talents : 是否给对手分配天赋（专项课可只保留 RL 天赋）
+    rl_talent               : RL 玩家的天赋编号（None=随机, 0=无天赋）
     """
 
     metadata = {"render_modes": ["human"]}
@@ -290,10 +344,19 @@ class BadtimeWarEnv(gym.Env):
         render_mode: Optional[str] = None,
         n_stack: int = 1,
         opponent_pool=None,
+        opponent_bots: Optional[list] = None,
+        opponent_personalities: Optional[list[str]] = None,
         enable_talents: bool = True,
+        enable_opponent_talents: bool = True,
         rl_talent: Optional[int] = None,
+        rl_talent_reserve: bool = False,
         force_random_talent: bool = False,
         max_per_model: int = 1,
+        trace_decisions: bool = False,
+        max_trace_entries: int = 2000,
+        action_contract: Optional[str] = None,
+        course_scenario: Optional[str] = None,
+        enable_bow_context: bool = False,
     ):
         super().__init__()
 
@@ -312,22 +375,52 @@ class BadtimeWarEnv(gym.Env):
         self.render_mode = render_mode
         self.n_stack = n_stack
         self.opponent_pool = opponent_pool
+        self.opponent_bots = opponent_bots  # 指定的简单 bot 名（BOT_REGISTRY），作弱对手课程梯级
+        self.opponent_personalities = tuple(opponent_personalities or ())
+        unknown_personalities = (
+            set(self.opponent_personalities) - set(AI_PERSONALITIES)
+        )
+        if unknown_personalities:
+            raise ValueError(
+                f"未知 BasicAI 人格: {sorted(unknown_personalities)}"
+            )
         self.enable_talents = enable_talents
+        self.enable_opponent_talents = enable_opponent_talents
         self.rl_talent = rl_talent  # None=随机, 0=无天赋, 1-14=指定天赋
+        # 预留池语义（P3 裁决 2026-08-22）：指定编号从 AI 对手可选池排除，
+        # RL 必然拿到该天赋；与 rl_talent∈{None,0} 组合无意义，直接拒绝。
+        self.rl_talent_reserve: bool = rl_talent_reserve
+        if self.rl_talent_reserve and not (
+            isinstance(rl_talent, int) and rl_talent > 0
+        ):
+            raise ValueError(
+                "rl_talent_reserve=True 需要 rl_talent 为正整数编号"
+                f"（当前 rl_talent={rl_talent!r}）"
+            )
         self.force_random_talent: bool = force_random_talent
         self.max_per_model = max_per_model
+        self.trace_decisions = bool(trace_decisions)
+        self.max_trace_entries = max(1, int(max_trace_entries))
+        self.action_contract = action_contract
+        self.course_scenario = course_scenario
+        self.enable_bow_context = bool(enable_bow_context)
 
         # ── Gym 空间 ──
+        # 观测维度 profile 感知：M9 含摘要块与逐选项 choose 语义，legacy → 539
+        self._obs_dim = obs_dim_for_profile()
         self.observation_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(OBS_DIM * n_stack,), dtype=np.float32
+            low=-1.0, high=1.0, shape=(self._obs_dim * n_stack,), dtype=np.float32
         )
-        self.action_space = spaces.Discrete(ACTION_COUNT)
+        # 动作规模 profile 感知：M9 为 2～6 人固定 schema（预留 6 个 home 槽），
+        # legacy/v2exp 仍为 137。固定维度保证课程切换和 checkpoint 可兼容。
+        self.action_space = spaces.Discrete(rl_action_count())
 
         # ── 帧堆叠缓冲 ──
-        self._obs_stack = np.zeros(OBS_DIM * n_stack, dtype=np.float32)
+        self._obs_stack = np.zeros(self._obs_dim * n_stack, dtype=np.float32)
 
         # ── 局结果记录（用于坍塌检测的 eval 胜率计算） ──
         self._episode_outcomes: list[str | None] = []
+        self._episode_summaries: list[dict[str, Any]] = []
 
         # ── 内部状态（reset 时初始化）──
         self._state: Optional[GameState] = None
@@ -343,6 +436,7 @@ class BadtimeWarEnv(gym.Env):
         self._game_thread: Optional[threading.Thread] = None
         self._thread_error: BaseException | None = None
         self._max_rounds_reached = False
+        self._termination_reason: str | None = None
 
         # ── 临时引用（由 _SyncRLController 写入）──
         self._current_player = None
@@ -356,6 +450,8 @@ class BadtimeWarEnv(gym.Env):
         self._choose_options: List[str] = []
         self._choose_context: Dict = {}
         self._pending_choose_idx: int = 0
+        self._decision_counter: int = 0
+        self._decision_trace: list[dict[str, Any]] = []
 
         self._taken_talents: set = set()
 
@@ -363,8 +459,9 @@ class BadtimeWarEnv(gym.Env):
         """将新观测推入帧堆叠缓冲，返回拼接后的完整观测。"""
         if self.n_stack <= 1:
             return raw_obs
-        self._obs_stack[:-OBS_DIM] = self._obs_stack[OBS_DIM:]
-        self._obs_stack[-OBS_DIM:] = raw_obs
+        dim = self._obs_dim
+        self._obs_stack[:-dim] = self._obs_stack[dim:]
+        self._obs_stack[-dim:] = raw_obs
         return self._obs_stack.copy()
 
     def set_num_opponents(self, n: int):
@@ -414,6 +511,10 @@ class BadtimeWarEnv(gym.Env):
         self._opponent_model_stems: Dict[str, str] = {}  # pid → model_stem（用于 ELO）
         model_usage_count: Dict[str, int] = {}
         for i in range(self.num_opponents):
+            fixed_personality = (
+                self.opponent_personalities[i]
+                if i < len(self.opponent_personalities) else None
+            )
             if self.opponent_pool is not None:
                 # 构建排除集合：已达到 max_per_model 上限的模型
                 over_limit_stems = {
@@ -427,8 +528,28 @@ class BadtimeWarEnv(gym.Env):
                 if hasattr(ctrl, 'reset_stack'):
                     ctrl.reset_stack()
                 personality = "balanced"  # self-play 对手无人格概念
+            elif self.opponent_bots and i < len(self.opponent_bots):
+                bot_name = self.opponent_bots[i]
+                if bot_name == "basic_ai":
+                    # 显式逐座位列表也允许完整 BasicAI；训练 CLI 的多人模式
+                    # 会原样传入该哨兵，不能落进简单 bot 注册表。
+                    personality = fixed_personality or random.choice(
+                        AI_PERSONALITIES
+                    )
+                    ctrl = create_ai_controller(
+                        personality=personality, player_name=f"AI_{i}",
+                    )
+                    model_stem = "basic_ai"
+                else:
+                    # 弱对手课程：用 BOT_REGISTRY 里的简单 bot。
+                    from controllers.bots import BOT_REGISTRY
+                    ctrl = BOT_REGISTRY[bot_name]()
+                    model_stem = bot_name
+                    personality = "balanced"  # 简单 bot 无人格
             else:
-                personality = random.choice(AI_PERSONALITIES)
+                personality = fixed_personality or random.choice(
+                    AI_PERSONALITIES
+                )
                 ctrl = create_ai_controller(personality=personality, player_name=f"AI_{i}")
                 model_stem = "basic_ai"
             p = Player(f"ai_{i}", f"AI_{i}", ctrl)
@@ -458,8 +579,13 @@ class BadtimeWarEnv(gym.Env):
         # 创建轮次管理器
         self._round_manager = RoundManager(self._state)
 
-        # 创建奖励追踪器
-        self._reward_tracker = RewardTracker("rl_0")
+        # 课程场景只改变显式训练 env；正式对局（None）完全不受影响。
+        self._apply_course_scenario()
+
+        # 创建奖励追踪器（profile 感知：m9-rfc → M9RewardTracker）
+        from rl.reward_m9 import make_reward_tracker
+        _rw_cls = make_reward_tracker(self._state)
+        self._reward_tracker = _rw_cls("rl_0")
 
         # ── 长线统计 ──
         self._lt_initial_hp = self._rl_player.hp
@@ -475,9 +601,12 @@ class BadtimeWarEnv(gym.Env):
         self._game_over_flag = False
         self._thread_error = None
         self._max_rounds_reached = False
+        self._termination_reason = None
         self._choose_mode = False
         self._choose_options = []
         self._choose_context = {}
+        self._decision_counter = 0
+        self._decision_trace = []
 
         # 后台线程启动游戏
         self._game_thread = threading.Thread(target=self._run_game, daemon=True)
@@ -498,14 +627,729 @@ class BadtimeWarEnv(gym.Env):
         assert self._reward_tracker is not None
         self._reward_tracker.reset(self._rl_player, self._state)
 
-        self._obs_stack = np.zeros(OBS_DIM * self.n_stack, dtype=np.float32)
-        raw_obs = build_obs(self._rl_player, self._state, "rl_0",
-                            long_term_stats=self._build_long_term_stats())
+        self._obs_stack = np.zeros(self._obs_dim * self.n_stack, dtype=np.float32)
+        raw_obs = build_obs_profile(self._rl_player, self._state, "rl_0",
+                                    long_term_stats=self._build_long_term_stats(),
+                                    **self._course_obs_kwargs())
         self._fill_choose_obs(raw_obs)
         obs = self._stack_obs(raw_obs)
         info = {"action_masks": self.action_masks()}
 
         return obs, info
+
+    def _apply_course_scenario(self) -> None:
+        """在游戏线程启动前布置可复现的专项教学局。"""
+        scenario = self.course_scenario
+        if scenario is None:
+            return
+        if scenario not in {
+            "combat_multi_quarter_hp", "combat_multi_half_hp",
+            "combat_multi_full_hp",
+            "combat_assassin_pressure",
+            "combat_retarget", "combat_retarget_static",
+            "economy_bow_supply", "economy_pursuit_supply",
+            "economy_armored_pursuit_supply",
+            "economy_armored_pursuit_supply_slot0",
+            "equipment_fire_antiarmor",
+            "equipment_bow_loadout",
+            "pp_damage_finish", "pp_damage_choice",
+            "survival_heal_counterattack",
+            "survival_armor_counterattack",
+            "survival_armor_repair",
+            "equipment_sharpen_chain",
+            "visibility_thermal_chain",
+            "visibility_magic_chain", "visibility_tech_chain",
+            "attribute_magic_armor_choice", "attribute_tech_armor_choice",
+            "police_command", "police_election",
+            "talent_t1_improvise", "talent_t3_public",
+            "talent_g1_burn", "talent_g6_borrow",
+            "talent_g7_suppress", "talent_t6_hotline",
+        }:
+            raise ValueError(f"未知 RL course_scenario={scenario!r}")
+        assert self._state is not None
+        assert self._rl_player is not None
+
+        target = self._state.get_player("ai_0")
+        if scenario == "combat_assassin_pressure":
+            if target is None:
+                raise RuntimeError("双刺客压力课需要至少 2 名 AI 对手")
+            opponents = [
+                self._state.get_player(f"ai_{idx}")
+                for idx in range(self.num_opponents)
+            ]
+            if len(opponents) < 2 or any(opp is None for opp in opponents):
+                raise RuntimeError("双刺客压力课需要至少 2 名 AI 对手")
+            from models.equipment import make_armor, make_weapon
+
+            # Match the real visibility-option handoff: the opening policy has
+            # spent its three arrows, bought a knife, and the detector expert
+            # has just moved to the magic facility and acquired detection.
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = "魔法所"
+            self._rl_player.credits = 0
+            self._rl_player.arrows = 0
+            if not self._rl_player.has_weapon("小刀"):
+                self._rl_player.weapons.append(make_weapon("小刀"))
+            self._rl_player.grant_visibility_item("探测魔法")
+            for idx, opponent in enumerate(opponents):
+                opponent.is_awake = True
+                self._state.markers.on_player_wake_up(opponent.player_id)
+                opponent.location = f"home_{opponent.player_id}"
+                opponent.hp = 17 if idx == 0 else 20
+                opponent.is_invisible = True
+                opponent.grant_visibility_item("隐身术")
+                self._state.markers.on_player_go_invisible(
+                    opponent.player_id, list(self._state.players.values()),
+                )
+                armor = make_armor("陶瓷护甲")
+                if armor is None:
+                    raise RuntimeError("双刺客压力课无法创建陶瓷护甲")
+                added, reason = opponent.add_armor(armor)
+                if not added:
+                    raise RuntimeError(
+                        f"双刺客压力课无法装备陶瓷护甲: {reason}"
+                    )
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario in {
+            "visibility_thermal_chain",
+            "visibility_magic_chain",
+            "visibility_tech_chain",
+        }:
+            remaining = self._state.get_player("ai_1")
+            if target is None or remaining is None:
+                raise RuntimeError("属性探测一对多课程需要至少 2 名 AI 对手")
+            from controllers.bots.dummy_bot import DummyBotController
+            from models.equipment import make_weapon
+
+            detector_specs = {
+                "visibility_thermal_chain": (
+                    "普通", "隐身衣", "商店", 3,
+                ),
+                "visibility_magic_chain": (
+                    "魔法", "隐身术", "魔法所", 0,
+                ),
+                "visibility_tech_chain": (
+                    "科技", "隐形涂层", "军事基地", 3,
+                ),
+            }
+            stealth_attr, stealth_item, facility, credits = detector_specs[scenario]
+            # 隐身目标与RL同处对应设施，但在没有同属性探测时连find都不合法；
+            # 取得探测后可按 find→attack→换位→find→attack 在时限内完成二杀。
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = facility
+            self._rl_player.credits = credits
+            if scenario == "visibility_tech_chain":
+                self._rl_player.has_military_pass = True
+            self._rl_player.weapons = [make_weapon("小刀")]
+            for idx, opponent in enumerate((target, remaining)):
+                opponent.is_awake = True
+                self._state.markers.on_player_wake_up(opponent.player_id)
+                opponent.hp = 4
+                opponent.controller = DummyBotController()
+                self._opponent_model_stems[opponent.player_id] = "dummy"
+                opponent.location = (
+                    facility if idx == 0 else f"home_{opponent.player_id}"
+                )
+            target.is_invisible = True
+            target.grant_visibility_item(stealth_item)
+            if stealth_attr not in target.stealth_attrs:
+                raise RuntimeError(f"课程无法建立{stealth_attr}隐身")
+            self._state.markers.on_player_go_invisible(
+                target.player_id, list(self._state.players.values()),
+            )
+            # 超时只杀可见目标时，让仍隐身的目标稳定赢得M9评分；二杀自然胜。
+            target.damage_dealt = 60
+            self._state.m9_scoring.add_arc(target.player_id, 1)
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario in {
+            "attribute_magic_armor_choice", "attribute_tech_armor_choice",
+        }:
+            if target is None:
+                raise RuntimeError("属性护甲辨别课需要至少 1 名 AI 对手")
+            from controllers.bots.rush_bot import RushBotController
+            from models.equipment import make_armor, make_weapon
+
+            # 两个状态只改变目标外甲。魔盾对魔法主防、科技零防；AT力场
+            # 对科技主防、魔法副防。RL 同时持两种武器且必定先手：选对属性
+            # 一击终结，选错则留下目标并被4伤小刀反杀。
+            armor_name, target_hp = {
+                "attribute_magic_armor_choice": ("魔法护盾", 6),
+                "attribute_tech_armor_choice": ("AT力场", 4),
+            }[scenario]
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = "home_rl_0"
+            self._rl_player.hp = 4
+            self._rl_player.weapons = [
+                make_weapon("魔法弹幕"), make_weapon("高斯步枪"),
+            ]
+            self._rl_player.get_initiative_bonus = lambda: 100
+
+            target.is_awake = True
+            self._state.markers.on_player_wake_up(target.player_id)
+            target.location = self._rl_player.location
+            target.hp = target_hp
+            target.weapons = [make_weapon("小刀")]
+            target.controller = RushBotController()
+            self._opponent_model_stems[target.player_id] = "rush"
+            armor = make_armor(armor_name)
+            if armor is None:
+                raise RuntimeError(f"属性护甲课程无法创建{armor_name}")
+            added, reason = target.add_armor(armor)
+            if not added:
+                raise RuntimeError(f"属性护甲课程无法装备{armor_name}: {reason}")
+            self._state.markers.add_relation(
+                "rl_0", "ENGAGED_WITH", target.player_id,
+            )
+            self._state.markers.add_relation(
+                target.player_id, "ENGAGED_WITH", "rl_0",
+            )
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario == "equipment_sharpen_chain":
+            remaining = self._state.get_player("ai_1")
+            if target is None or remaining is None:
+                raise RuntimeError("磨刀一对多课程需要至少 2 名 AI 对手")
+            from controllers.bots.dummy_bot import DummyBotController
+            from models.equipment import make_weapon
+
+            # 两个13HP目标：4伤小刀需要4+4刀；磨刀虽花2拍准备，但7伤
+            # 只需2+2刀。加入换位/find后，9轮时限内只有磨刀路线能二杀。
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = "商店"
+            self._rl_player.credits = 2
+            self._rl_player.weapons = [make_weapon("小刀")]
+            for idx, opponent in enumerate((target, remaining)):
+                opponent.is_awake = True
+                self._state.markers.on_player_wake_up(opponent.player_id)
+                opponent.hp = 13
+                opponent.controller = DummyBotController()
+                self._opponent_model_stems[opponent.player_id] = "dummy"
+                opponent.location = (
+                    "商店" if idx == 0 else f"home_{opponent.player_id}"
+                )
+            # 第二目标带封顶伤害分5+一章剧情分2，形成稳定排名门槛：只杀
+            # 第一个目标最高6.75分仍不足，完成两杀约12.3分才超过它。
+            remaining.damage_dealt = 60
+            self._state.m9_scoring.add_arc(remaining.player_id, 1)
+            self._state.markers.add_relation("rl_0", "ENGAGED_WITH", "ai_0")
+            self._state.markers.add_relation("ai_0", "ENGAGED_WITH", "rl_0")
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario in {
+            "survival_heal_counterattack", "survival_armor_counterattack",
+            "survival_armor_repair",
+        }:
+            remaining = self._state.get_player("ai_1")
+            if target is None or remaining is None:
+                raise RuntimeError("治疗反击课程需要至少 2 名 AI 对手")
+            from controllers.bots.dummy_bot import DummyBotController
+            from controllers.bots.rush_bot import RushBotController
+            from models.equipment import make_weapon
+
+            # 一对二生存闭环：RL 固定先手只消除骰运噪声。治疗/购甲课的
+            # 近敌为5HP；修甲课从1耐久陶瓷甲与9HP近敌开始，直接进攻时
+            # 护甲会在第一击后破碎，撑不到第三刀，先修理才有足够耐久。
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = (
+                "医院" if scenario == "survival_heal_counterattack" else "商店"
+            )
+            self._rl_player.hp = 4
+            self._rl_player.credits = {
+                "survival_heal_counterattack": 2,
+                "survival_armor_counterattack": 3,
+                "survival_armor_repair": 1,
+            }[scenario]
+            self._rl_player.weapons = [make_weapon("小刀")]
+            if scenario == "survival_armor_repair":
+                from models.equipment import make_armor
+                ceramic = make_armor("陶瓷护甲")
+                assert ceramic is not None
+                ceramic.durability = 1
+                added, reason = self._rl_player.add_armor(ceramic)
+                if not added:
+                    raise RuntimeError(f"修甲课程无法装备陶瓷护甲: {reason}")
+            self._rl_player.get_initiative_bonus = lambda: 100
+
+            target.is_awake = True
+            self._state.markers.on_player_wake_up(target.player_id)
+            target.location = self._rl_player.location
+            target.hp = 9 if scenario == "survival_armor_repair" else 5
+            target.weapons = [make_weapon("小刀")]
+            target.controller = RushBotController()
+            self._opponent_model_stems[target.player_id] = "rush"
+            self._state.markers.add_relation(
+                "rl_0", "ENGAGED_WITH", target.player_id,
+            )
+            self._state.markers.add_relation(
+                target.player_id, "ENGAGED_WITH", "rl_0",
+            )
+
+            remaining.is_awake = True
+            self._state.markers.on_player_wake_up(remaining.player_id)
+            remaining.location = f"home_{remaining.player_id}"
+            remaining.hp = 5
+            remaining.controller = DummyBotController()
+            self._opponent_model_stems[remaining.player_id] = "dummy"
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario in {"pp_damage_finish", "pp_damage_choice"}:
+            if target is None:
+                raise RuntimeError("PP 加伤课程需要至少 1 名 ai_0 对手")
+            from controllers.bots.dummy_bot import DummyBotController
+            from controllers.bots.rush_bot import RushBotController
+            from models.equipment import make_weapon
+
+            # 原子 PP 闭环：5 HP 靶正好比小刀基础 4 伤多 1；先花 1 PP
+            # 取得下一击 +1，随后一刀终结。专项 mask 在增伤尚未挂载时隐藏
+            # 普通攻击，防止课程被“两刀照样杀”绕过；真实局规则完全不变。
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = "home_rl_0"
+            self._rl_player.weapons = [make_weapon("小刀")]
+            self._state.m9_pp.earn("rl_0", 1)
+            target.is_awake = True
+            self._state.markers.on_player_wake_up(target.player_id)
+            target.location = self._rl_player.location
+            target.hp = 5
+            if scenario == "pp_damage_choice":
+                # 应用题：RL 必定先手且只有 4 HP；直接砍 4 伤会留下 1 HP，
+                # 随后被持刀 rush 反杀。PP加伤不耗标准行动，先加伤再砍则
+                # 在对手行动前以 5 伤终结。由真实战斗结果区分两条路线。
+                self._rl_player.hp = 4
+                self._rl_player.get_initiative_bonus = lambda: 100
+                target.weapons = [make_weapon("小刀")]
+                target.controller = RushBotController()
+                self._opponent_model_stems[target.player_id] = "rush"
+            else:
+                target.controller = DummyBotController()
+                self._opponent_model_stems[target.player_id] = "dummy"
+            self._state.markers.add_relation(
+                "rl_0", "ENGAGED_WITH", target.player_id,
+            )
+            self._state.markers.add_relation(
+                target.player_id, "ENGAGED_WITH", "rl_0",
+            )
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario in {
+            "economy_pursuit_supply", "economy_armored_pursuit_supply",
+            "economy_armored_pursuit_supply_slot0",
+        }:
+            other = self._state.get_player("ai_1")
+            if target is None or other is None:
+                raise RuntimeError("移动补给续战课程需要至少 2 名 AI 对手")
+            from controllers.bots.dummy_bot import DummyBotController
+            from engine.bow_modules import module_specs, price_of
+            from models.equipment import make_armor, make_bow, make_weapon
+
+            armored_bridge = scenario.startswith("economy_armored_pursuit_supply")
+            mirror_survivor = scenario.endswith("_slot0")
+            dead, remaining = ((other, target) if mirror_survivor
+                               else (target, other))
+
+            # 应用课从真实的后杀资源状态开始：第一席已死亡、RL 已有一杀，
+            # 另一席仍由完整 BasicAI 决策并可每轮移动。镜像课交换存活槽位，
+            # 防止策略把“追击 ai_1”记成答案。RL 没有近战绕行出口，
+            # 必须移动到商店，完成打工→补箭→锁定/追射，并在箭耗尽后再次补给。
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = f"home_{dead.player_id}"
+            self._rl_player.weapons = (
+                [make_weapon("小刀"), make_bow()]
+                if armored_bridge else [make_bow()]
+            )
+            self._rl_player.arrows = 3 if armored_bridge else 0
+            self._rl_player.credits = 0
+            self._rl_player.kill_count = 1
+            if armored_bridge:
+                self._rl_player.hp = 12
+            # 这节只考资源调度/追射；可见性和先手作为已掌握前置固定住，
+            # 防止完整 BasicAI 买到异属性隐身后把课程偷换成探测器课。
+            self._rl_player.has_detection = True
+            self._rl_player.detection_attrs = {"普通", "魔法", "科技"}
+            self._rl_player.get_initiative_bonus = lambda: 100
+
+            dead.hp = 0
+            dead.death_round = 1
+            dead.location = None
+            dead.controller = DummyBotController()
+            self._opponent_model_stems[dead.player_id] = "dummy"
+            self._state.markers.on_player_death(dead.player_id)
+            self._state.m9_pp.freeze(dead.player_id)
+
+            remaining.is_awake = True
+            self._state.markers.on_player_wake_up(remaining.player_id)
+            remaining.location = f"home_{remaining.player_id}"
+            # BasicAI 仍会完整移动、打工、购买、治疗与隐身；只清空初始杀伤，
+            # 并把治疗上限锁到 6，使补箭追射在 30 轮风洞里稳定可达。
+            remaining.hp = 20 if armored_bridge else 6
+            remaining.max_hp = remaining.hp
+            remaining.weapons = []
+            remaining.arrows = 0
+            remaining.credits = 0
+            if armored_bridge:
+                shield = make_armor("盾牌")
+                if shield is None:
+                    raise RuntimeError("装甲追击课程无法创建盾牌")
+                added, reason = remaining.add_armor(shield)
+                if not added:
+                    raise RuntimeError(f"装甲追击课程无法装备盾牌: {reason}")
+            # 只活到时限不能靠已有一杀拿到正式胜利；完成第二杀自然清场。
+            remaining.damage_dealt = 60
+            self._state.m9_scoring.add_arc(remaining.player_id, 1)
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario == "equipment_fire_antiarmor":
+            remaining = self._state.get_player("ai_1")
+            if target is None or remaining is None:
+                raise RuntimeError("火矢反装甲课程需要至少 2 名 AI 对手")
+            from controllers.bots.dummy_bot import DummyBotController
+            from models.equipment import make_armor, make_bow, make_weapon
+
+            # 真实首杀后负载：普通弓打陶瓷甲每箭只剩最低伤害；魔法所免费
+            # 火矢把同一把跨地点弓改成魔法属性，再接回补箭/追射循环。
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = "魔法所"
+            self._rl_player.weapons = [make_weapon("小刀"), make_bow()]
+            self._rl_player.arrows = 3
+            self._rl_player.credits = 0
+            self._rl_player.kill_count = 1
+            self._rl_player.hp = 16
+            self._rl_player.has_detection = True
+            self._rl_player.detection_attrs = {"普通", "魔法", "科技"}
+            self._rl_player.get_initiative_bonus = lambda: 100
+
+            target.hp = 0
+            target.death_round = 1
+            target.location = None
+            target.controller = DummyBotController()
+            self._opponent_model_stems[target.player_id] = "dummy"
+            self._state.markers.on_player_death(target.player_id)
+            self._state.m9_pp.freeze(target.player_id)
+
+            remaining.is_awake = True
+            self._state.markers.on_player_wake_up(remaining.player_id)
+            remaining.location = f"home_{remaining.player_id}"
+            remaining.hp = 20
+            remaining.max_hp = 20
+            remaining.weapons = [make_bow()]
+            remaining.arrows = 3
+            remaining.credits = 0
+            ceramic = make_armor("陶瓷护甲")
+            if ceramic is None:
+                raise RuntimeError("火矢反装甲课程无法创建陶瓷护甲")
+            added, reason = remaining.add_armor(ceramic)
+            if not added:
+                raise RuntimeError(f"火矢反装甲课程无法装备陶瓷护甲: {reason}")
+            remaining.damage_dealt = 60
+            self._state.m9_scoring.add_arc(remaining.player_id, 1)
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario == "equipment_bow_loadout":
+            remaining = self._state.get_player("ai_1")
+            if target is None or remaining is None:
+                raise RuntimeError("统一弓配置课程需要至少 2 名 AI 对手")
+            from controllers.bots.dummy_bot import DummyBotController
+            from engine.bow_modules import module_specs, price_of
+            from models.equipment import make_armor, make_bow, make_weapon
+
+            # 同一课程 ID 随机出六种可观察需求。教师标签只保存在 state 作
+            # 诊断/监督，不进入 observation；策略必须依据箭量、锁定、目标地点
+            # 与护甲三属性选择模块，并在移动一拍后用 LSTM 记住选择。
+            module_name = (
+                "力量", "火矢", "魔导", "穿甲", "冲击", "无限",
+            )[int(self.np_random.integers(6))]
+            module_cases = {
+                "力量": {"hp": 16, "arrows": 6, "armor": None,
+                       "locked": True, "target_location": "home_ai_1"},
+                "火矢": {"hp": 20, "arrows": 6, "armor": "陶瓷护甲",
+                       "locked": True, "target_location": "home_ai_1"},
+                "魔导": {"hp": 16, "arrows": 6, "armor": None,
+                       "locked": False, "target_location": "home_ai_1"},
+                "穿甲": {"hp": 20, "arrows": 6, "armor": "魔法护盾",
+                       "locked": True, "target_location": "home_ai_1"},
+                "冲击": {"hp": 20, "arrows": 6, "armor": None,
+                       "locked": True, "target_location": "军事基地"},
+                "无限": {"hp": 20, "arrows": 0, "armor": None,
+                       "locked": True, "target_location": "home_ai_1"},
+            }
+            case = module_cases[module_name]
+
+            # 同一课程内做自然首杀状态的 nuisance randomization；模块身份仍
+            # 只由需求特征决定。尤其火矢必须同时见过普通高防的盾牌与陶瓷甲，
+            # 否则策略会把装备名/固定 16HP/固定 home 起点当成课程标签。
+            module_location = str(module_specs()[module_name]["location"])
+            start_locations = [
+                "home_ai_0", "商店", "魔法所", "医院", "军事基地", "警察局",
+            ]
+            start_locations = [
+                location for location in start_locations
+                if location != module_location
+            ]
+            player_start = start_locations[
+                int(self.np_random.integers(len(start_locations)))
+            ]
+            player_hp = (11, 13, 16, 20)[int(self.np_random.integers(4))]
+            player_arrows = (
+                0 if module_name == "无限"
+                else int(self.np_random.integers(1, 7))
+            )
+            minimum_credits = int(price_of(module_name))
+            player_credits = max(
+                minimum_credits,
+                int(self.np_random.integers(0, 7)),
+            )
+            armor_name = case["armor"]
+            if module_name == "火矢" and bool(self.np_random.integers(2)):
+                armor_name = "盾牌"
+
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = player_start
+            self._rl_player.weapons = [make_weapon("小刀"), make_bow()]
+            self._rl_player.arrows = player_arrows
+            self._rl_player.credits = player_credits
+            self._rl_player.kill_count = 1
+            self._rl_player.hp = player_hp
+            self._rl_player.has_military_pass = True
+            self._rl_player.has_detection = True
+            self._rl_player.detection_attrs = {"普通", "魔法", "科技"}
+            self._rl_player.get_initiative_bonus = lambda: 100
+
+            target.hp = 0
+            target.death_round = 1
+            target.location = None
+            target.controller = DummyBotController()
+            self._opponent_model_stems[target.player_id] = "dummy"
+            self._state.markers.on_player_death(target.player_id)
+            self._state.m9_pp.freeze(target.player_id)
+
+            # ai_1 保留 reset 时创建的完整 BasicAIController：这不是静态靶，
+            # 安装后仍需接回真实的移动、发育、追击、补给和战斗闭环。
+            remaining.is_awake = True
+            self._state.markers.on_player_wake_up(remaining.player_id)
+            remaining.location = str(case["target_location"])
+            remaining.hp = int(case["hp"])
+            remaining.max_hp = remaining.hp
+            remaining.weapons = [make_weapon("小刀")]
+            remaining.arrows = 0
+            remaining.credits = 0
+            if armor_name:
+                armor = make_armor(str(armor_name))
+                if armor is None:
+                    raise RuntimeError(f"统一弓配置课程无法创建{armor_name}")
+                added, reason = remaining.add_armor(armor)
+                if not added:
+                    raise RuntimeError(
+                        f"统一弓配置课程无法装备{armor_name}: {reason}"
+                    )
+            if case["locked"]:
+                self._state.markers.add_relation(
+                    remaining.player_id, "LOCKED_BY", self._rl_player.player_id,
+                )
+            remaining.damage_dealt = 60
+            self._state.m9_scoring.add_arc(remaining.player_id, 1)
+            self._state.rl_bow_loadout_target_module = module_name
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario == "economy_bow_supply":
+            if target is None:
+                raise RuntimeError("弓补给课程需要至少 1 名 ai_0 对手")
+            from controllers.bots.dummy_bot import DummyBotController
+            from models.equipment import make_bow
+
+            # 原子经济闭环：0 信用点/0 箭起步，打工一次获得 2 点，
+            # 花 1 点补 2 支箭，恰好用两次 3 伤射击击杀 6 HP 远程靶。
+            # 不奖励“持有钱”本身，唯一成功出口仍是亲手战果。
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = "商店"
+            self._rl_player.weapons = [make_bow()]
+            self._rl_player.arrows = 0
+            self._rl_player.credits = 0
+            target.is_awake = True
+            self._state.markers.on_player_wake_up(target.player_id)
+            target.location = f"home_{target.player_id}"
+            target.hp = 6
+            target.controller = DummyBotController()
+            self._opponent_model_stems[target.player_id] = "dummy"
+            self._state.markers.add_relation(
+                target.player_id, "LOCKED_BY", self._rl_player.player_id,
+            )
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario in {
+            "combat_multi_quarter_hp", "combat_multi_half_hp",
+            "combat_multi_full_hp",
+        }:
+            opponents = [
+                self._state.get_player(f"ai_{idx}")
+                for idx in range(self.num_opponents)
+            ]
+            if len(opponents) < 2 or any(opp is None for opp in opponents):
+                raise RuntimeError("半血多人课程需要至少 2 名 AI 对手")
+            # 保留正常开局（起床、拿武器、移动、BasicAI 全量决策），
+            # 只缩短首杀/二杀的延迟，避免 40 HP 稀疏终局把多个技能捆在一起。
+            hp_cap = {
+                "combat_multi_quarter_hp": 5,
+                "combat_multi_half_hp": 10,
+                "combat_multi_full_hp": 20,
+            }[scenario]
+            for opponent in opponents:
+                opponent.hp = min(int(opponent.hp), hp_cap)
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario in {"combat_retarget", "combat_retarget_static"}:
+            remaining = self._state.get_player("ai_1")
+            if target is None or remaining is None:
+                raise RuntimeError("续战课程需要至少 2 名 AI 对手")
+            from models.equipment import make_weapon
+
+            # 真实首杀前一拍：RL 先在同一 episode 内击杀 1 HP 的 ai_0，
+            # 随后必须保留 LSTM 状态、重新选择仍由完整 BasicAI 控制的 ai_1。
+            # 这训练的是“首杀不是终局”，而不是 reset 后静态看见一个死者。
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = "home_ai_0"
+            self._rl_player.weapons = [make_weapon("小刀")]
+            target.is_awake = True
+            self._state.markers.on_player_wake_up(target.player_id)
+            target.location = self._rl_player.location
+            target.hp = 1
+            remaining.is_awake = True
+            self._state.markers.on_player_wake_up(remaining.player_id)
+            remaining.location = f"home_{remaining.player_id}"
+            if scenario == "combat_retarget_static":
+                # 先把 slot1 的追击/调查/攻击语义教稳；仍然保留
+                # “本 episode 首杀后切换目标”的 LSTM 链，只拿掉第二
+                # 对手的随机移动/发育。通过后再回 combat_retarget full BasicAI。
+                from controllers.bots.dummy_bot import DummyBotController
+                remaining.controller = DummyBotController()
+                self._opponent_model_stems[remaining.player_id] = "dummy"
+            self._state.markers.add_relation(
+                "rl_0", "ENGAGED_WITH", target.player_id,
+            )
+            self._state.markers.add_relation(
+                target.player_id, "ENGAGED_WITH", "rl_0",
+            )
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario in {
+            "talent_t1_improvise", "talent_t3_public",
+            "talent_g1_burn", "talent_g6_borrow", "talent_g7_suppress",
+        }:
+            if target is None:
+                raise RuntimeError("天赋课程需要至少 1 名 ai_0 对手")
+            from models.equipment import make_weapon
+
+            # 可归因靶场：T1 擦伤/T3 天星均至少造成 1 点，因此 1 HP 靶
+            # 必定终局；普通 attack 由 talent_drill 合同屏蔽。
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = "home_rl_0"
+            target.is_awake = True
+            self._state.markers.on_player_wake_up(target.player_id)
+            target.location = self._rl_player.location
+            target.hp = 1
+            # 只保留一把武器，避免发动 T1 后再出现“拳击/小刀”的次级 choose；
+            # 首课只训练一个清晰决策：发动或不发动。
+            self._rl_player.weapons = [make_weapon("小刀")]
+            self._state.markers.add_relation(
+                "rl_0", "ENGAGED_WITH", target.player_id,
+            )
+            self._state.markers.add_relation(
+                target.player_id, "ENGAGED_WITH", "rl_0",
+            )
+            # P5 首批（B 组零激活）：G1 换装/G6 即演/G7 即演均为 SP1 的
+            # T0 choose 通道（talent_drill 不裁剪 choose）；G1 初始即卸甲
+            # 形态，sp=1 时 get_t0_option 必出 g1_dress。G6 类别合法性依赖
+            # 模板池，靶场布局下至少一个类别可重演（探针实证）。
+            self._state.m9_system.set_sp("rl_0", 1)
+            if scenario == "talent_t3_public":
+                # T3 无即演入口；先让策略在 R0 学会选择“报名公演”，随后
+                # 才会在同轮 T0 获得天星发动选择。这是首个真正的两阶段天赋课。
+                self._state.m9_system.set_sp("rl_0", 2)
+            self._state.rl_course_scenario = scenario
+            return
+
+        if scenario == "talent_t6_hotline":
+            if target is None:
+                raise RuntimeError("T6 热线课程需要至少 1 名 ai_0 对手")
+            # 热线不读 SP、不走 T0：资格 = 受害者/目击者/特别线索。课程
+            # 直接登记一条特别线索（special_clues_for 只按 type+suspect 过滤
+            # event_log——天赋对象此时尚未分配，绕开 talent.record_special_clue）。
+            if not (
+                isinstance(self.rl_talent, int) and self.rl_talent == 6
+            ):
+                raise RuntimeError(
+                    "T6 热线课程需要 rl_talent=6（朝阳好市民）"
+                )
+            station = getattr(self._state, "m9_police", None)
+            if station is None:
+                raise RuntimeError("T6 热线课程需要 M9 警察机制")
+            station.set_state_ref(self._state)
+            station.automatic_enforcement_enabled = False
+            for unit in station.ensure_roster(initial_location="警察局"):
+                unit.location = "警察局"
+                unit.acted_this_round = False
+            target.is_awake = True
+            self._state.markers.on_player_wake_up(target.player_id)
+            target.location = f"home_{target.player_id}"
+            self._rl_player.is_awake = True
+            self._state.markers.on_player_wake_up("rl_0")
+            self._rl_player.location = "home_rl_0"
+            self._state.log_event(
+                "special_clue", player="rl_0",
+                suspect=target.player_id, clue="course_drill",
+                round=1,
+            )
+            self._state.rl_course_scenario = scenario
+            return
+
+        station = getattr(self._state, "m9_police", None)
+        if station is None or target is None:
+            raise RuntimeError("警察课程需要 M9 警察机制与至少 1 名 ai_0 对手")
+        station.set_state_ref(self._state)
+        station.automatic_enforcement_enabled = False
+        for unit in station.ensure_roster(initial_location="警察局"):
+            unit.location = "警察局"
+            unit.acted_this_round = False
+
+        case = station.file_case(
+            "rl_0", target.player_id, evidence=1,
+        )
+        if case is None or not station.verify_case(case.case_id):
+            raise RuntimeError("警察课程无法建立唯一已核验通缉")
+
+        # 第一课直接给权限，只学“有效指挥”；第二课保留空缺席位，要求策略
+        # 先竞选、跨过下一轮 R2 任命，再使用同一套指挥动作。
+        if scenario == "police_command":
+            if not station.apply_captain("rl_0"):
+                raise RuntimeError("警察课程无法登记 RL 队长候选")
+            station.r2_tick(self._state, 0)
+            if station.captain_id != "rl_0":
+                raise RuntimeError("警察课程无法预任命 RL 队长")
+        self._state.rl_course_scenario = scenario
 
     # ══════════════════════════════════════════════════════════════════════════
     #  天赋分配
@@ -561,10 +1405,15 @@ class BadtimeWarEnv(gym.Env):
                 continue
 
             # ── AI 对手 ──
-            # 排除 AI 禁用天赋
+            if not self.enable_opponent_talents:
+                continue
+            # 排除 AI 禁用天赋；预留池开启时排除 RL 指定编号（P3 裁决）
+            reserved_number = (
+                self.rl_talent if self.rl_talent_reserve else None
+            )
             ai_available = [
                 (n, name, cls, desc) for n, name, cls, desc in available
-                if n not in AI_DISABLED_TALENTS
+                if n not in AI_DISABLED_TALENTS and n != reserved_number
             ]
             if not ai_available:
                 continue
@@ -680,21 +1529,75 @@ class BadtimeWarEnv(gym.Env):
 
         # 游戏已在上一步结束（防御性检查）
         if self._game_over_flag or (self._state and self._state.game_over):
-            raw_obs = build_obs(self._rl_player, self._state, "rl_0",
-                                long_term_stats=self._build_long_term_stats())
+            raw_obs = build_obs_profile(self._rl_player, self._state, "rl_0",
+                                        long_term_stats=self._build_long_term_stats(),
+                                        **self._course_obs_kwargs())
             self._fill_choose_obs(raw_obs)
             obs = self._stack_obs(raw_obs)
             reward = self._reward_tracker.compute(
                 self._rl_player, self._state, "forfeit", False,
-                action_idx=IDX_FORFEIT
+                action_idx=IDX_FORFEIT, forced_forfeit=True,
             )
             info: dict[str, Any] = {"action_masks": self.action_masks()}
+            ledger = getattr(self._reward_tracker, "last_ledger", None)
+            if ledger is not None:
+                info["reward_ledger"] = ledger.to_dict()
             if self._state:
-                info["winner"] = getattr(self._state, "winner", None)
+                info.update(self._build_episode_summary())
             return obs, reward, True, False, info
 
+        # 在唤醒游戏线程前冻结决策语义；choose 返回后会立即清空 options/context，
+        # 下一决策点也可能切换模式。只有显式开启 trace 时才复制这些诊断数据。
+        trace_context: dict[str, Any] | None = None
+        decision_id = self._decision_counter
+        self._decision_counter += 1
+        decision_was_choose = bool(self._choose_mode)
+        legal_before = self.action_masks()
+        forced_forfeit = bool(
+            not decision_was_choose
+            and int(action) == IDX_FORFEIT
+            and np.count_nonzero(legal_before) == 1
+            and bool(legal_before[IDX_FORFEIT])
+        )
+        if self.trace_decisions:
+            mode_before = "choose" if decision_was_choose else "command"
+            if decision_was_choose:
+                selected_semantic = idx_to_choose_option(
+                    action,
+                    self._choose_options,
+                    self._choose_context.get("situation", ""),
+                    self._current_player,
+                    self._current_game_state,
+                )
+            else:
+                selected_semantic = idx_to_command(
+                    action, self._rl_player, self._state,
+                )
+            trace_context = {
+                "decision_id": decision_id,
+                "round_before": int(self._state.current_round),
+                "mode_before": mode_before,
+                "situation_before": self._choose_context.get("situation", ""),
+                "options_before": tuple(self._choose_options)
+                if decision_was_choose else (),
+                "legal_actions_before": tuple(
+                    int(i) for i in np.flatnonzero(self.action_masks())
+                ),
+                "action_idx": int(action),
+                "selected_semantic": selected_semantic,
+                "action_spec": action_spec_from_idx(
+                    action,
+                    self._current_player,
+                    self._current_game_state,
+                    choose_mode=decision_was_choose,
+                    choose_options=self._choose_options if decision_was_choose else None,
+                    choose_situation=self._choose_context.get("situation", ""),
+                ).to_dict(),
+                "event_cursor_before": len(self._state.event_log),
+            }
+
         # ── 根据当前模式处理动作 ──
-        if self._choose_mode:
+        if decision_was_choose:
             # choose 模式：将动作翻译为选项索引
             if IDX_CHOOSE_BASE <= action < IDX_CHOOSE_BASE + 16:
                 # 通用 choose 索引 (114-129) → 直接映射
@@ -732,24 +1635,15 @@ class BadtimeWarEnv(gym.Env):
         self._raise_thread_error()
 
         # 读取上一次动作结果（仅 get_command 模式有意义）
-        if not self._choose_mode:
+        if not decision_was_choose:
             action_type = getattr(self._rl_player, "last_action_type", None) or "forfeit"
             action_success = not (action != IDX_FORFEIT and action_type == "forfeit")
         else:
-            # choose 模式下，action_type 沿用上一次 get_command 的结果
-            action_type = getattr(self._rl_player, "last_action_type", None) or "choose"
+            action_type = "choose"
             action_success = True
 
         # ── 判定终止 / 截断 ──
         truncated = bool(self._max_rounds_reached)
-        if not truncated and not self._state.game_over:
-            if self._state.is_max_rounds_reached():
-                truncated = True
-                self._max_rounds_reached = True
-                self._state.game_over = True
-                self._state.winner = "nobody"
-                self._game_over_flag = True
-                self._action_event.set()
         terminated = bool(self._state.game_over) and not truncated
 
         # 截断时确保后台线程退出
@@ -758,7 +1652,7 @@ class BadtimeWarEnv(gym.Env):
             self._action_event.set()
 
         # ── 更新长线统计 ──
-        if not self._choose_mode:
+        if not decision_was_choose:
             self._lt_total_actions += 1
             if action_type == "attack":
                 self._lt_attack_actions += 1
@@ -770,18 +1664,48 @@ class BadtimeWarEnv(gym.Env):
         # 计算奖励
         reward = self._reward_tracker.compute(
             self._rl_player, self._state, action_type, action_success,
-            action_idx=action
+            action_idx=action, forced_forfeit=forced_forfeit,
         )
 
-        raw_obs = build_obs(self._rl_player, self._state, "rl_0",
-                            long_term_stats=self._build_long_term_stats())
+        raw_obs = build_obs_profile(self._rl_player, self._state, "rl_0",
+                                    long_term_stats=self._build_long_term_stats(),
+                                    **self._course_obs_kwargs())
         self._fill_choose_obs(raw_obs)
         obs = self._stack_obs(raw_obs)
         info = {"action_masks": self.action_masks()}
+        reward_ledger = getattr(self._reward_tracker, "last_ledger", None)
+        if reward_ledger is not None:
+            info["reward_ledger"] = reward_ledger.to_dict()
+
+        if trace_context is not None:
+            trace_entry = {
+                **trace_context,
+                "round_after": int(self._state.current_round),
+                "mode_after": "choose" if self._choose_mode else "command",
+                "situation_after": self._choose_context.get("situation", ""),
+                "action_type_attributed": action_type,
+                "action_success_attributed": bool(action_success),
+                "event_count": len(self._state.event_log)
+                - int(trace_context["event_cursor_before"]),
+                "reward": float(reward),
+                "reward_ledger": reward_ledger.to_dict()
+                if reward_ledger is not None else None,
+                "terminated": bool(terminated),
+                "truncated": bool(truncated),
+            }
+            self._decision_trace.append(trace_entry)
+            if len(self._decision_trace) > self.max_trace_entries:
+                self._decision_trace = self._decision_trace[-self.max_trace_entries:]
+            info["decision_trace_entry"] = dict(trace_entry)
 
         if terminated or truncated:
-            info["winner"] = self._state.winner
+            summary = self._build_episode_summary()
+            episode_ledger = getattr(self._reward_tracker, "episode_ledger", None)
+            if callable(episode_ledger):
+                summary["episode_reward_ledger"] = episode_ledger()
+            info.update(summary)
             self._episode_outcomes.append(self._state.winner)
+            self._episode_summaries.append(summary)
             # 将对手模型标识传入 info，由主进程的 SelfPlayCallback 更新 ELO
             if self.opponent_pool is not None:
                 opp_stems = [s for s in self._opponent_model_stems.values()
@@ -801,23 +1725,98 @@ class BadtimeWarEnv(gym.Env):
         self._episode_outcomes = []
         return outcomes
 
+    def get_episode_summaries(self) -> list[dict[str, Any]]:
+        """返回并清空结构化终局摘要，供评估和坍塌诊断统一读取。"""
+        summaries = self._episode_summaries
+        self._episode_summaries = []
+        return summaries
+
+    def get_decision_trace(self, *, clear: bool = False) -> list[dict[str, Any]]:
+        """返回当前局决策 trace；仅 ``trace_decisions=True`` 时有内容。"""
+        trace = [dict(entry) for entry in self._decision_trace]
+        if clear:
+            self._decision_trace = []
+        return trace
+
+    def _build_episode_summary(self) -> dict[str, Any]:
+        """构建不改变游戏状态的生存/正式结算双轨摘要。
+
+        ``winner`` 是环境当前实际使用的胜者；``official_winners`` 只读取正式
+        M9 settle 后冻结的快照。诊断层绝不主动调用 ``settle()``，否则阶段 1
+        会在测量时改变被测生命周期。
+        """
+        state = self._state
+        player = self._rl_player
+        if state is None:
+            return {
+                "winner": None,
+                "official_settled": False,
+                "official_winners": [],
+                "termination_reason": self._termination_reason or "unknown",
+            }
+
+        snapshot = getattr(state, "game_winner_snapshot", None)
+        official_settled = snapshot is not None
+        official_winners = sorted(str(pid) for pid in (snapshot or ()))
+        base_scores_raw = getattr(state, "base_final_scores", None)
+        display_scores_raw = getattr(state, "final_scores", None)
+        base_scores = (
+            {str(pid): float(score) for pid, score in base_scores_raw.items()}
+            if isinstance(base_scores_raw, dict) else {}
+        )
+        display_scores = (
+            {str(pid): float(score) for pid, score in display_scores_raw.items()}
+            if isinstance(display_scores_raw, dict) else {}
+        )
+
+        rl_rank = None
+        rl_score_margin = None
+        if "rl_0" in base_scores:
+            rl_score = base_scores["rl_0"]
+            rl_rank = 1 + sum(score > rl_score for score in base_scores.values())
+            opponent_scores = [
+                score for pid, score in base_scores.items() if pid != "rl_0"
+            ]
+            if opponent_scores:
+                rl_score_margin = rl_score - max(opponent_scores)
+
+        return {
+            "winner": getattr(state, "winner", None),
+            "survival_winner": getattr(state, "survival_winner", None),
+            "official_settled": official_settled,
+            "official_winners": official_winners,
+            "base_final_scores": base_scores,
+            "display_final_scores": display_scores,
+            "rl_rank": rl_rank,
+            "rl_score_margin": rl_score_margin,
+            "rounds": int(getattr(state, "current_round", 0) or 0),
+            "rl_alive": bool(player is not None and player.is_alive()),
+            "rl_kill_count": int(getattr(player, "kill_count", 0) or 0),
+            "decisions": int(self._decision_counter),
+            "termination_reason": self._termination_reason or "engine_game_over",
+        }
+
     # ══════════════════════════════════════════════════════════════════════════
     #  action_masks（MaskablePPO 接口）
     # ══════════════════════════════════════════════════════════════════════════
 
     def action_masks(self) -> np.ndarray:
-        """返回当前合法动作的 bool 掩码，shape=(ACTION_COUNT,)"""
+        """返回当前合法动作的 bool 掩码，shape=(action_space.n,)。
+
+        M9 使用固定 6 人 schema。死亡玩家在往世层仍可能收到 choose 决策，
+        因此只有“死亡且当前不是 choose”才回退为 forfeit。
+        """
         if (
             self._state is None
             or self._state.game_over
             or self._rl_player is None
-            or not self._rl_player.is_alive()
+            or (not self._rl_player.is_alive() and not self._choose_mode)
         ):
-            mask = np.zeros(ACTION_COUNT, dtype=bool)
+            mask = np.zeros(int(self.action_space.n), dtype=bool)
             mask[IDX_FORFEIT] = True
             return mask
 
-        return build_action_mask(
+        mask = build_action_mask(
             self._rl_player,
             self._state,
             "rl_0",
@@ -825,6 +1824,81 @@ class BadtimeWarEnv(gym.Env):
             choose_situation=self._choose_context.get("situation", ""),
             choose_options=self._choose_options if self._choose_mode else None,
         )
+        contract = getattr(self, "action_contract", None)
+        course_scenario = getattr(self, "course_scenario", None)
+        if contract == "police_course":
+            # 同一个并行课程批次里：专项场景只给指挥靶场，none worker 回放
+            # 原基础作战课。两边 action/obs schema 不变，只改变合法动作集合。
+            contract = "police_drill" if course_scenario else "combat_core"
+        elif contract == "economy_course":
+            contract = {
+                "economy_bow_supply": "economy_drill",
+                "economy_pursuit_supply": "economy_pursuit_drill",
+                "economy_armored_pursuit_supply": "economy_pursuit_drill",
+                "economy_armored_pursuit_supply_slot0": "economy_pursuit_drill",
+            }.get(course_scenario, "combat_core")
+        elif contract == "economy_integration_course":
+            contract = {
+                "economy_bow_supply": "economy_drill",
+                "economy_pursuit_supply": "economy_pursuit_drill",
+                "economy_armored_pursuit_supply": "economy_pursuit_drill",
+                "economy_armored_pursuit_supply_slot0": "economy_pursuit_drill",
+            }.get(course_scenario, "combat_economy")
+        elif contract == "pp_course":
+            contract = "pp_damage_drill" if course_scenario else "combat_core"
+        elif contract == "survival_course":
+            contract = {
+                "survival_heal_counterattack": "survival_heal_drill",
+                "survival_armor_counterattack": "survival_armor_drill",
+                "survival_armor_repair": "survival_repair_drill",
+            }.get(course_scenario, "combat_core")
+        elif contract == "equipment_course":
+            contract = {
+                "equipment_sharpen_chain": "sharpen_drill",
+                "equipment_fire_antiarmor": "antiarmor_fire_drill",
+                "equipment_bow_loadout": "bow_loadout_drill",
+                "visibility_thermal_chain": "visibility_drill",
+                "visibility_magic_chain": "visibility_drill",
+                "visibility_tech_chain": "visibility_drill",
+                "attribute_magic_armor_choice": "attribute_armor_drill",
+                "attribute_tech_armor_choice": "attribute_armor_drill",
+            }.get(course_scenario, "combat_core")
+        elif contract == "talent_course":
+            # 天赋专项 worker 只暴露 T0 choose；none worker 继续回放基础作战。
+            # T6 热线是根行动 special——走 hotline_drill 放行热线模板槽。
+            contract = (
+                "hotline_drill"
+                if course_scenario == "talent_t6_hotline"
+                else "talent_drill"
+                if course_scenario
+                else "combat_core"
+            )
+        mask = apply_action_contract(
+            mask, contract,
+            choose_mode=self._choose_mode,
+        )
+        if (
+            course_scenario == "pp_damage_finish"
+            and not self._choose_mode
+            and not getattr(self._rl_player, "_m9_pp_damage_bonus", 0)
+        ):
+            # 第一拍必须建立增伤承诺；PP加伤不消耗标准行动，下一决策点
+            # 立即恢复攻击槽。这只是教学 mask，不改变正式对局合法性。
+            from rl.action_space import IDX_ATTACK_BASE, IDX_SPECIAL_BASE
+            mask[IDX_ATTACK_BASE:IDX_SPECIAL_BASE] = False
+        return mask
+
+    def _course_obs_kwargs(self) -> dict[str, bool]:
+        """Opt in new course-only features without perturbing old checkpoints."""
+        if (
+            (
+                self.course_scenario == "equipment_bow_loadout"
+                or self.enable_bow_context
+            )
+            and bool(getattr(self._state, "m9_enabled", False))
+        ):
+            return {"bow_context": True}
+        return {}
 
     # ══════════════════════════════════════════════════════════════════════════
     #  长线统计
@@ -879,11 +1953,20 @@ class BadtimeWarEnv(gym.Env):
             1.0,
         )
 
-        avg_opp_vouchers = (
-            sum(p.vouchers for p in alive_opps) / n_alive
+        use_credits = bool(getattr(state, "m9_enabled", False))
+        resource_name = "credits" if use_credits else "vouchers"
+        resource_norm = 20.0 if use_credits else 3.0
+        avg_opp_resource = (
+            sum(float(getattr(p, resource_name, 0) or 0) for p in alive_opps)
+            / n_alive
         ) if n_alive > 0 else 0.0
         stats["economy_advantage"] = max(
-            min((player.vouchers - avg_opp_vouchers) / 3.0, 1.0), -1.0
+            min(
+                (float(getattr(player, resource_name, 0) or 0) - avg_opp_resource)
+                / resource_norm,
+                1.0,
+            ),
+            -1.0,
         )
 
         return stats
@@ -894,23 +1977,37 @@ class BadtimeWarEnv(gym.Env):
 
     def _fill_choose_obs(self, raw_obs: np.ndarray) -> None:
         """
-        将 choose 模式指示写入 raw_obs 的末尾 3 维。
-        在 build_obs() 返回后、_stack_obs() 之前调用。
-
-        维度布局（OBS_DIM 末尾 3 维 [520-522]）：
-          [520] current_mode     : 0.0 = get_command, 1.0 = choose
-          [521] situation_id     : 归一化的 situation 编号 (/max)
-          [522] n_options        : 归一化的选项数量 (/16)
+        将 choose 模式指示写入（profile 感知）：
+          legacy/v2exp → OBS 末尾 3 维 [536-538]（legacy 位置）；
+          m9-rfc       → 全局末尾 [569:OBS_DIM)（头 + 逐选项语义，见 obs_builder_m9）。
+        在 build_obs_profile() 返回后、_stack_obs() 之前调用。
         """
+        situation = self._choose_context.get("situation", "")
+        n_options = len(self._choose_options)
+        if self._obs_dim != OBS_DIM:  # m9-rfc（obs_dim_for_profile）
+            # 统一弓课程复用非 choose 的 option-tail 空间；真正进入 choose 时
+            # 仍由下方完整覆盖。普通决策不能再次清零刚注入的弓配置上下文。
+            if not self._choose_mode and self._course_obs_kwargs():
+                return
+            fill_choose_obs_m9(
+                raw_obs,
+                choose_mode=self._choose_mode,
+                situation=situation,
+                n_options=n_options,
+                options=self._choose_options,
+                player=self._current_player,
+                game_state=self._current_game_state,
+            )
+            return
+
         from rl.obs_builder import _CHOOSE_SITUATION_MAP, _MAX_CHOOSE_SITUATIONS
 
-        base = OBS_DIM - 3  # choose 观测的起始索引
+        base = OBS_DIM - 3  # choose 观测的起始索引（legacy）
 
         if self._choose_mode:
             raw_obs[base] = 1.0
-            situation = self._choose_context.get("situation", "")
             raw_obs[base + 1] = _CHOOSE_SITUATION_MAP.get(situation, 0) / max(_MAX_CHOOSE_SITUATIONS, 1)
-            raw_obs[base + 2] = min(len(self._choose_options), 16) / 16.0
+            raw_obs[base + 2] = min(n_options, 16) / 16.0
         else:
             raw_obs[base] = 0.0
             raw_obs[base + 1] = 0.0
@@ -939,38 +2036,37 @@ class BadtimeWarEnv(gym.Env):
             while not self._state.game_over and not self._game_over_flag:
                 self._round_manager.run_one_round()
 
-                # RL 死亡后立即终止：不需要模拟剩余 AI 对战
-                # RL 死后 get_command() 不再被调用，_obs_event 只有等整局
-                # 游戏结束才会 set，导致 env.step() 阻塞数秒甚至数十秒。
-                # 在 SubprocVecEnv 多进程模式下，一个子进程的阻塞会拖慢所有进程。
-                if self._rl_player and not self._rl_player.is_alive():
-                    self._state.game_over = True
-                    alive = [pid for pid in self._state.player_order
-                             if self._state.get_player(pid) and self._state.get_player(pid).is_alive()]
-                    if len(alive) == 1:
-                        self._state.winner = alive[0]
-                    else:
-                        self._state.winner = "nobody"
-                    break
-
-                # 检查胜利
+                # 与 RoundManager.run_game_loop 保持同一终局合同。RL 死亡不是终局：
+                # 游戏继续推进，死者仍可在 R0 投注窗口通过 choose() 参与往世层。
                 winner_id = self._state.check_victory()
                 if winner_id:
                     self._state.game_over = True
-                    self._state.winner = winner_id
+                    self._state.survival_winner = winner_id
+                    self._state.winner = self._round_manager._finalize_winner(
+                        winner_id
+                    )
+                    self._termination_reason = "official_survival_end"
                     break
 
-                # 安全网：超过最大轮数
+                # 最大轮数必须在完整轮结束后正式结算，不能由 env.step() 在轮中
+                # 抢先截断并写 nobody。
                 if self._state.is_max_rounds_reached():
                     self._max_rounds_reached = True
                     self._state.game_over = True
-                    self._state.winner = "nobody"
+                    self._state.survival_winner = "nobody"
+                    self._state.winner = self._round_manager._finalize_winner(
+                        "nobody"
+                    )
+                    self._termination_reason = "official_max_rounds"
                     break
         except _GameAborted:
+            if self._termination_reason is None:
+                self._termination_reason = "environment_abort"
             pass
         except Exception as e:
             import sys, traceback
             self._thread_error = e
+            self._termination_reason = "thread_error"
             sys.stderr.write(f"[ENV ERROR] _run_game crashed: {e}\n")
             traceback.print_exc(file=sys.stderr)
         finally:

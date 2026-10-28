@@ -36,7 +36,7 @@
 | `1` | 1 | `wake` | — |
 | `2–7` | 6 | `move <地点>` | `LOCATIONS = ["home","商店","魔法所","医院","军事基地","警察局"]`（`action_tables.py:18-20`） |
 | `8–34` | 27 | `interact <物品>` | `INTERACT_ITEMS` 27 项（`action_tables.py:26-40`，断言 `len==27`）：home 3（凭证/小刀/盾牌）、商店 6（打工/磨刀石/隐身衣/热成像仪/陶瓷护甲/防毒面具）、魔法所 8（魔法护盾/魔法弹幕/远程魔法弹幕/封闭/地震/地动山摇/隐身术/探测魔法）、医院 3（晶化皮肤手术/额外心脏手术/不老泉手术）、军事基地 7（办理通行证/AT力场/电磁步枪/导弹控制权/高斯步枪/雷达/隐形涂层） |
-| `35–39` | 5 | `lock <对手槽 0-4>` | 槽位按 `get_opponent_slots()`（`player_order` 顺序，排除自身，不足补 None，`action_space.py:181-195`） |
+| `35–39` | 5 | `lock <对手槽 0-4>` | 槽位按 `get_opponent_slots()`；`m9-rfc` 以稳定 `player_id` 排序并与随机行动顺序解耦，legacy/v2exp 保留 `player_order`，排除自身、不足补 None |
 | `40–44` | 5 | `find <对手槽 0-4>` | 同上 |
 | `45–94` | 50 | `attack <对手槽 0-4> <武器槽 0-9>` | 布局 `slot*10 + weapon`；`WEAPONS = ["拳击","小刀","警棍","魔法弹幕","远程魔法弹幕","地震","地动山摇","电磁步枪","高斯步枪","导弹"]`（`action_tables.py:80-92`，断言 `len==10`） |
 | `95–100` | 6 | `special` 基础操作 | `SPECIAL_OPS[0..5]`：磨刀/吟唱魔法护盾/展开AT力场/蓄力电磁步枪/蓄力高斯步枪/释放病毒（`action_space.py:80-86`） |
@@ -79,7 +79,7 @@
 - `choose_mode=True` → 只启用 choose 区间，委托 `_build_choose_mask`（465-467）。
 - 未醒 → 仅 `wake`（481-484）；`forfeit` 恒可用（487）。
 - 星野架盾/持盾二次过滤：`架盾` 禁 move+interact、`持盾` 禁 interact（489-497）。
-- move/interact/lock/find/attack 全部**委托 `engine/action_enumerator` 枚举函数**（单一信源，501-541）；对手名→槽位映射 `opponent_slot_by_name` 由 `get_opponent_slots`（**仅 `player_order` 玩家**）构建（513-520）。
+- move/interact/lock/find/attack 全部**委托 `engine/action_enumerator` 枚举函数**（单一信源，501-541）；对手名→槽位映射 `opponent_slot_by_name` 由 `get_opponent_slots`（仅玩家 actor；M9 按稳定 player_id 排序）构建。
 - special：按静态 `SPECIAL_OPS` + `SPECIAL_REQUIRES` 逐项判定（543-607），`Hoshino/取消盾牌/修复/肾上腺素/更衣*` 按星野 talent 状态判定（556-581），`释放病毒` 需在医院且病毒未激活（552-554）。
 - 警察行动：`police_available_map`（report=0 / assemble=1 / track_guide=2 / recruit=3 / election=4 / designate=5 / study=6）依据 `available_set` + 存活目标 + `_auto_report_target` 判定（609-632）。
 - `_build_choose_mask`（692-791）：`talent_t0` → 121 起二选一；目标选择 situation 集 `_TARGET_SITUATIONS`（723-736：oneslash/hexagram/resurrection/mythland/ripple_anchor_*/ripple_poem/cutaway_borrow/g2_sing_target/g2_melody_target/g2_melody_propagate）→ 对手命中槽 `115+slot`、含自己则 `120`、全部未命中回退 121 起；`savior_activate` → 121 起；其余通用 choose → 121 起。
@@ -369,7 +369,7 @@
        IDX_TALENT_T0_TARGET_BASE=115 (66), IDX_TALENT_T0_SELF=120 (67), IDX_CHOOSE_BASE=121 (68)
      - SPECIAL_OPS 13 项: action_space.py:79-96; POLICE_CMDS 7 项: 99-107
      - SPECIAL_REQUIRES: 111-127
-     - get_opponent_slots（player_order 排序,不足补 None）: 181-195
+     - get_opponent_slots（M9 稳定 player_id 排序；legacy/v2exp 保留 player_order；不足补 None）
      - _cmd_to_move_idx: 204-207; _cmd_to_interact_idx: 210-213; _cmd_to_lock_idx: 224-230;
        _cmd_to_find_idx: 233-239; _cmd_to_attack_idx（slot*10+weapon）: 242-251
      - _auto_target: 254-264; _auto_report_target: 267-290

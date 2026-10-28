@@ -45,7 +45,11 @@ from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 
 from rl.env import BadtimeWarEnv
+from rl.curriculum import evaluate_curriculum_gate
 from rl.feature_extractor import GRUFeatureExtractor
+from rl.maskable_recurrent import MaskableRecurrentPPO
+from rl.self_play import load_policy
+from rl.winrate_eval import evaluate_winrate
 from typing import TYPE_CHECKING
 from typing import Optional
 
@@ -121,9 +125,14 @@ class WinRateCallback(BaseCallback):
             ep_info = info.get("episode")
             if ep_info is not None:
                 self._episode_rewards.append(ep_info["r"])
-                # 从 info dict 读取实际胜者（env.step 写入）
-                winner = info.get("winner")
-                self._episode_wins.append(winner == "rl_0")
+                # M9 只认正式结算；legacy 无 official 字段时才回退 observed winner。
+                if "official_settled" in info:
+                    self._episode_wins.append(
+                        bool(info.get("official_settled"))
+                        and "rl_0" in info.get("official_winners", [])
+                    )
+                else:
+                    self._episode_wins.append(info.get("winner") == "rl_0")
 
         if self.n_calls % self.check_freq == 0 and self._episode_wins:
             recent_wins = self._episode_wins[-self.window:]
@@ -189,7 +198,7 @@ class CurriculumCallback(BaseCallback):
                 self.win_thresholds.append(random_baseline * 1.2)
         self.window = window
         self._current_stage = 0
-        self._episode_wins: list[bool] = []
+        self._episode_infos: list[dict] = []
 
     def _on_step(self) -> bool:
         # Entropy 回弹衰减
@@ -211,22 +220,26 @@ class CurriculumCallback(BaseCallback):
         for info in infos:
             ep_info = info.get("episode")
             if ep_info is not None:
-                winner = info.get("winner", None)
-                self._episode_wins.append(winner == "rl_0")
+                self._episode_infos.append(dict(info))
 
         # 检查是否升级
         if (
             self._current_stage < len(self.stages) - 1
-            and len(self._episode_wins) >= self.window
+            and len(self._episode_infos) >= self.window
         ):
-            recent = self._episode_wins[-self.window:]
-            win_rate = sum(recent) / len(recent)
+            recent = self._episode_infos[-self.window:]
             threshold = self.win_thresholds[self._current_stage] if self._current_stage < len(self.win_thresholds) else 0.55
-            if win_rate >= threshold:
+            gate = evaluate_curriculum_gate(recent, win_threshold=threshold)
+            win_rate = gate.metrics.win_rate
+            self.logger.record("curriculum/official_win_rate", win_rate)
+            self.logger.record("curriculum/settlement_rate", gate.metrics.settlement_rate)
+            self.logger.record("curriculum/contract_rate", gate.metrics.contract_rate)
+            self.logger.record("curriculum/mean_behavior_reward", gate.metrics.mean_behavior_reward)
+            if gate.promote:
                 self._current_stage += 1
                 new_opponents = self.stages[self._current_stage]
                 self._update_envs(new_opponents)
-                self._episode_wins.clear()  # 重置统计
+                self._episode_infos.clear()  # 重置统计
 
                 # Entropy 回弹：临时提高 ent_coef 鼓励重新探索
                 # 仅在首次回弹时记录原始值，避免快速连续升级时覆盖真实原值
@@ -238,6 +251,8 @@ class CurriculumCallback(BaseCallback):
                 if self.verbose >= 1:
                     print(f"  [Curriculum] 升级! 对手数: {new_opponents} (stage {self._current_stage}/{len(self.stages)-1}, win_rate={win_rate:.1%}, threshold={threshold:.1%})")
                     print(f"  [Curriculum] Entropy 回弹: ent_coef={self.ent_rebound_coef} (原值={self._original_ent_coef}, 衰减步数={self.ent_rebound_decay_steps})")
+            elif self.verbose >= 2:
+                print("  [Curriculum] 未晋级: " + "; ".join(gate.reasons))
 
         return True
 
@@ -563,6 +578,83 @@ class ForceRandomTalentCallback(BaseCallback):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  Recurrent 专用带状态线评估回调
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class RecurrentWinRateCallback(BaseCallback):
+    """maskable-recurrent 的评估回调（替换 MaskableEvalCallback）。
+
+    SB3 的 EvalCallback 对递归策略是"每步零状态"（predict 不带 (h,c)，跨决策
+    丢失记忆），会显著低估段内能力。本回调用独立裸 env + 每 episode 状态线
+    （rl/winrate_eval.evaluate_policy）做正式结算评估，并随课程对手数联动。
+
+    注：使用本回调后 eval_env 不再被步进；SelfPlayCallback 的 eval 胜率会因
+    outcomes 为空回退到训练胜率（可接受，见 SelfPlayCallback._compute_eval_win_rate）。
+    """
+
+    def __init__(
+        self,
+        eval_freq: int,
+        n_eval_episodes: int,
+        seed: int,
+        rl_talent: Optional[int],
+        max_rounds: Optional[int],
+        verbose: int = 0,
+    ):
+        super().__init__(verbose)
+        self.eval_freq = eval_freq
+        self.n_eval_episodes = n_eval_episodes
+        self.seed = seed
+        self.rl_talent = rl_talent
+        self.max_rounds = max_rounds
+        self.next_eval = eval_freq
+        self.curve: list[tuple[int, float]] = []
+
+    def _on_step(self) -> bool:
+        ts = self.num_timesteps
+        if ts >= self.next_eval:
+            self.next_eval += self.eval_freq
+            n_opp = int(self.training_env.get_attr("num_opponents")[0])
+
+            def _eval_env_factory():  # noqa: ANN202 —— 运行时闭包
+                return make_env(
+                    num_opponents=n_opp,
+                    max_rounds=self.max_rounds,
+                    seed=77777 + self.seed,
+                    rank=0,
+                    n_stack=1,
+                    opponent_pool=None,
+                    rl_talent=self.rl_talent,
+                    enable_talents=True,
+                    force_random_talent=False,
+                    max_per_model=1,
+                )()
+
+            from rl.winrate_eval import evaluate_policy
+            report = evaluate_policy(
+                self.model,
+                num_opponents=n_opp,
+                n_stack=1,
+                n_episodes=self.n_eval_episodes,
+                seed=9999 + self.seed,
+                recurrent=True,
+                env_factory=_eval_env_factory,
+            )
+            wr = report.official_win_rate
+            if wr is None:
+                wr = report.observed_win_rate
+            self.curve.append((ts, float(wr)))
+            self.logger.record("eval/win_rate", float(wr))
+            self.logger.record("eval/official_settlement_rate", report.official_settlement_rate)
+            self.logger.record("eval/mean_rank", report.mean_rank)
+            if self.verbose >= 1:
+                print(f"[Eval] step {ts}: win_rate={wr:.0%} "
+                      f"(stateful, {self.n_eval_episodes} 局, n_opp={n_opp})")
+        return True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  训练主函数
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -574,12 +666,20 @@ def train(args: argparse.Namespace):
     sys.stderr.write(f"[TRAIN] args: {args}\n")
     sys.stderr.flush()
 
+    # ── 算法分支：maskable-recurrent 强制单帧 obs（n_stack=1）──
+    is_recurrent = args.algo == "maskable-recurrent"
+    if is_recurrent:
+        args.n_stack = 1
+        sys.stderr.write("[TRAIN] algo=maskable-recurrent → n_stack 强制=1（单帧 obs 539）\n")
+        sys.stderr.flush()
+
     # ── 性能设置 ──────────────────────────────────────────────────
     torch.set_num_threads(min(8, os.cpu_count() or 1))
 
     # ── 路径设置 ──────────────────────────────────────────────────
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_name = f"maskable_ppo_{args.opponents}opp_{timestamp}"
+    algo_tag = "maskable_rppo" if is_recurrent else "maskable_ppo"
+    run_name = f"{algo_tag}_{args.opponents}opp_{timestamp}"
     log_dir = Path("logs") / run_name
     ckpt_dir = Path("checkpoints") / run_name
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -602,11 +702,11 @@ def train(args: argparse.Namespace):
             n_stack=args.n_stack,
             max_pool_size=args.pool_size,
             basic_ai_prob=args.initial_basic_ai_prob,
+            recurrent=is_recurrent,   # recurrent 池：导出有状态 .pts，采样按类型加载
         )
         # 如果提供了种子模型，先放入对手池
         if args.seed_model:
-            from sb3_contrib import MaskablePPO as _MaskablePPO
-            seed_m = _MaskablePPO.load(args.seed_model)
+            seed_m = load_policy(args.seed_model)
             opponent_pool.save_current_model(seed_m, step=0)
             del seed_m
             sys.stderr.write("[TRAIN] seed model saved to opponent pool\n")
@@ -669,13 +769,27 @@ def train(args: argparse.Namespace):
     sys.stderr.flush()
     if args.resume:
         print(f"从 {args.resume} 恢复训练")
-        model = MaskablePPO.load(
-            args.resume,
-            env=train_env,
-            tensorboard_log=str(log_dir),
-            learning_rate=args.lr,
-            device=args.device
+        from rl.schema import validate_checkpoint_against_env
+
+        validate_checkpoint_against_env(
+            args.resume, train_env, context="training resume",
         )
+        if is_recurrent:
+            model = MaskableRecurrentPPO.load(
+                args.resume,
+                env=train_env,
+                tensorboard_log=str(log_dir),
+                learning_rate=args.lr,
+                device=args.device,
+            )
+        else:
+            model = MaskablePPO.load(
+                args.resume,
+                env=train_env,
+                tensorboard_log=str(log_dir),
+                learning_rate=args.lr,
+                device=args.device
+            )
         # ── 覆盖超参数（.load() 会还原保存时的值，需要用命令行参数覆盖）──
         model.n_steps = args.n_steps
         model.batch_size = args.batch_size
@@ -688,6 +802,30 @@ def train(args: argparse.Namespace):
               f"n_epochs={args.n_epochs}, ent_coef={args.ent_coef}")
         sys.stderr.write("[TRAIN] model loaded and hyperparams overridden\n")
         sys.stderr.flush()
+    elif is_recurrent:
+        model = MaskableRecurrentPPO(
+            policy="MlpLstmPolicy",
+            env=train_env,
+            learning_rate=args.lr,
+            n_steps=args.n_steps,
+            batch_size=args.batch_size,
+            n_epochs=args.n_epochs,
+            gamma=args.gamma,
+            gae_lambda=args.gae_lambda,
+            clip_range=args.clip_range,
+            ent_coef=args.ent_coef,
+            vf_coef=0.5,
+            max_grad_norm=0.5,
+            device=args.device,
+            policy_kwargs=dict(
+                lstm_hidden_size=args.lstm_hidden,
+                enable_critic_lstm=True,
+                net_arch=dict(pi=[384, 256], vf=[384, 256]),
+            ),
+            tensorboard_log=str(log_dir),
+            verbose=0,
+            seed=args.seed,
+        )
     else:
         model = MaskablePPO(
             policy="MlpPolicy",
@@ -732,6 +870,26 @@ def train(args: argparse.Namespace):
             eval_env=eval_env,
         )
 
+    # 评估回调：recurrent 用带状态线 eval（消除零状态失真），否则用 MaskableEvalCallback
+    if is_recurrent:
+        eval_cb = RecurrentWinRateCallback(
+            eval_freq=max(args.eval_freq // args.n_envs, 1),
+            n_eval_episodes=args.eval_episodes,
+            seed=args.seed,
+            rl_talent=args.rl_talent,
+            max_rounds=args.max_rounds,
+            verbose=1,
+        )
+    else:
+        eval_cb = MaskableEvalCallback(
+            eval_env,
+            best_model_save_path=str(ckpt_dir / "best"),
+            log_path=str(log_dir / "eval"),
+            eval_freq=max(args.eval_freq // args.n_envs, 1),
+            n_eval_episodes=args.eval_episodes,
+            deterministic=True,
+        )
+
     callback_list = [
         CheckpointCallback(
             save_freq=max(args.ckpt_freq // args.n_envs, 1),
@@ -740,14 +898,7 @@ def train(args: argparse.Namespace):
             save_replay_buffer=False,
             save_vecnormalize=False,
         ),
-        MaskableEvalCallback(
-            eval_env,
-            best_model_save_path=str(ckpt_dir / "best"),
-            log_path=str(log_dir / "eval"),
-            eval_freq=max(args.eval_freq // args.n_envs, 1),
-            n_eval_episodes=args.eval_episodes,
-            deterministic=True,
-        ),
+        eval_cb,
         WinRateCallback(
             check_freq=args.n_steps,
             window=100,
@@ -838,8 +989,16 @@ def train(args: argparse.Namespace):
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Badtime War — MaskablePPO 训练脚本"
+        description="Badtime War — MaskablePPO 训练脚本（可选 maskable-recurrent）"
     )
+
+    # 算法选择
+    p.add_argument("--algo", type=str, default="maskable",
+                   choices=["maskable", "maskable-recurrent"],
+                   help="maskable=MaskablePPO+GRU(30帧堆叠，老路线)；"
+                        "maskable-recurrent=MaskableRecurrentPPO(LSTM单帧，n_stack 强制 1)")
+    p.add_argument("--lstm-hidden", type=int, default=192,
+                   help="maskable-recurrent 的 LSTM 隐藏维（默认 192）")
 
     # 环境参数
     p.add_argument("--opponents", type=int, default=3,

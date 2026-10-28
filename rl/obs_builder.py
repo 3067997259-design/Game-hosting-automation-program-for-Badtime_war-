@@ -70,7 +70,7 @@ rl/obs_builder.py
   [516] rounds_since_last_kill 距上次击杀轮次数/max_rounds
   [517] rl_attack_ratio        本局攻击次数/总行动次数
   [518] rl_damage_dealt        本局造成总伤害/(max_hp*n_opponents)
-  [519] economy_advantage      (RL vouchers-对手均值)/max_vouchers [-1,1]
+  [519] economy_advantage      M9=信用点差/20；旧profile=凭证差/3 [-1,1]
 
 choose 模式指示器：
   [520] is_choose_mode: 0=get_command, 1=choose
@@ -86,8 +86,8 @@ if TYPE_CHECKING:
     from models.player import Player
     from engine.game_state import GameState
 
-from rl.action_space import get_opponent_slots
-from engine.action_tables import LOCATIONS, WEAPONS
+from rl.action_space import RL_WEAPON_NAMES, get_opponent_slots
+from engine.action_tables import LOCATIONS
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  常量
@@ -129,8 +129,25 @@ TALENT_CLASS_TO_IDX: dict[str, int] = {
 
 _TALENT_CLASS_INDEX = TALENT_CLASS_TO_IDX  # alias for backward compat
 
-# 武器名称列表（与 action_space.WEAPONS 一致，共 10 种）
-WEAPON_NAMES = WEAPONS
+# M9 使用稳定 slot_id，不依赖实现类名（OneSlash9/Hoshino9 等类名可重构）。
+# T5 已由 G0 取代，因此不能复用 legacy TALENT_CLASS_TO_IDX 的编号语义。
+M9_TALENT_SLOT_TO_IDX: dict[str, int] = {
+    "T1": 0, "T2": 1, "T3": 2, "T4": 3, "T6": 4, "T7": 5,
+    "G0": 6, "G1": 7, "G2": 8, "G3": 9, "G4": 10, "G5": 11,
+    "G6": 12, "G7": 13,
+}
+
+_M9_SLOT_TO_STATE_CLASS: dict[str, str] = {
+    "T1": "OneSlash", "T2": "ScissorRush", "T3": "Star",
+    "T4": "Hexagram", "T6": "GoodCitizen", "T7": "Resurrection",
+    "G1": "G1MythFire", "G2": "Hologram", "G3": "Mythland",
+    "G4": "Savior", "G5": "Ripple", "G6": "CutawayJoke",
+    "G7": "Hoshino",
+}
+
+# 武器名称列表：RL 冻结的 10 件武器窗口（legacy 即完整集；v2exp 的『弓』
+# 不进入 RL 观测/动作，见 rl/action_space.RL_WEAPON_NAMES 注释）
+WEAPON_NAMES: tuple[str, ...] = RL_WEAPON_NAMES
 
 # 护甲名称列表（固定顺序，共 7 种）
 ARMOR_NAMES = [
@@ -156,6 +173,7 @@ ITEM_CATEGORIES: list[set[str]] = [
 # 归一化上界
 _MAX_HP        = 5.0
 _MAX_VOUCHERS  = 3.0
+_MAX_CREDITS   = 20.0
 _MAX_KILL      = 5.0
 _MAX_STREAK    = 6.0
 _MAX_ROUND     = 100.0
@@ -197,6 +215,22 @@ def _normalize_location(loc: str | None) -> str:
     return loc
 
 
+def _visibility_attribute_feature(active: bool, attributes) -> float:
+    """Pack public ordinary/magic/tech visibility attributes into one scalar.
+
+    The M9 checkpoint keeps its frozen input width.  Ordinary remains exactly
+    1.0 (compatible with the first thermal course); the other bit combinations
+    stay non-zero but distinct so a policy can choose the matching detector.
+    """
+    if not active:
+        return 0.0
+    bits = {"普通": 1, "魔法": 2, "科技": 4}
+    code = 0
+    for value in attributes or set():
+        code |= bits.get(getattr(value, "value", str(value)), 0)
+    return 1.0 if code <= 0 else 1.0 - (code - 1) / 8.0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  天赋观测辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
@@ -209,21 +243,29 @@ def _get_talent_class_name(player: "Player") -> str | None:
     return talent.__class__.__name__
 
 
+def _talent_index(player: "Player") -> int | None:
+    """返回 profile 稳定的天赋索引；M9 优先读取 ``talent_slot_id``。"""
+    slot_id = str(getattr(player, "talent_slot_id", "") or "").upper()
+    if slot_id in M9_TALENT_SLOT_TO_IDX:
+        return M9_TALENT_SLOT_TO_IDX[slot_id]
+    cls_name = _get_talent_class_name(player)
+    if cls_name is None:
+        return None
+    return TALENT_CLASS_TO_IDX.get(cls_name)
+
+
 def _encode_talent_id(player: "Player", buf: np.ndarray, offset: int) -> None:
     """将玩家天赋编码为 one-hot 写入 buf[offset : offset+14]"""
-    cls_name = _get_talent_class_name(player)
-    if cls_name is not None and cls_name in TALENT_CLASS_TO_IDX:
-        buf[offset + TALENT_CLASS_TO_IDX[cls_name]] = 1.0
+    idx = _talent_index(player)
+    if idx is not None:
+        buf[offset + idx] = 1.0
 
 def _build_talent_id(player) -> np.ndarray:
     """返回 14 维 one-hot 天赋 ID 向量。无天赋时全零。"""
     buf = np.zeros(_TALENT_ID_DIM, dtype=np.float32)
-    talent = getattr(player, 'talent', None)
-    if talent is not None:
-        cls_name = talent.__class__.__name__
-        idx = _TALENT_CLASS_INDEX.get(cls_name, -1)
-        if 0 <= idx < _TALENT_ID_DIM:
-            buf[idx] = 1.0
+    idx = _talent_index(player)
+    if idx is not None and 0 <= idx < _TALENT_ID_DIM:
+        buf[idx] = 1.0
     return buf
 
 
@@ -241,7 +283,8 @@ def _build_self_talent_state(player: "Player") -> np.ndarray:
     if talent is None:
         return buf
 
-    cls = talent.__class__.__name__
+    slot_id = str(getattr(player, "talent_slot_id", "") or "").upper()
+    cls = _M9_SLOT_TO_STATE_CLASS.get(slot_id, talent.__class__.__name__)
 
     # ──────────────────────────────────────────────────────────
     #  批次 2: 纯被动天赋（T5 Combo, T6 GoodCitizen）
@@ -334,18 +377,30 @@ def _build_self_talent_state(player: "Player") -> np.ndarray:
     #  批次 6: 神代主动（G2, G3, G5）
     # ──────────────────────────────────────────────────────────
     if cls == "Hologram":
-        # G2 Reset: ish-bosheth 相关
+        # G2 ish-bosheth（请一直注视着我）：注意 legacy 下该天赋也能激活舞台
+        # （m7 只影响 hp20 量纲，不 gate 舞台创建）。所有 ish 读取用 getattr
+        # 兜底，字段名以 engine/ish_bosheth.py 为准，避免字段改名再炸。
         gs = getattr(talent, 'state', None)
         ish = getattr(gs, 'ish_bosheth', None) if gs else None
-        buf[0] = float(ish is not None and ish.phase == "active")
-        buf[1] = (ish.regard / 9.0) if ish and ish.phase == "active" else 0.0
+        ish_active = bool(
+            ish is not None and getattr(ish, 'phase', '') in ("active", "duet")
+        )
+        buf[0] = float(ish_active)
+        buf[1] = (getattr(ish, 'regard', 0.0) / 9.0) if ish_active else 0.0
         buf[2] = float(getattr(talent, 'used', False))
-        # buf[3]: melody_2_available
-        buf[3] = float(ish.melody_2_unlocked and not ish.melody_2_used) if ish else 0.0
-        # buf[4]: melody_3_available
-        buf[4] = float(ish.melody_3_unlocked and not ish.melody_3_used) if ish else 0.0
-        # buf[5]: r4_count / 8
-        buf[5] = (ish.r4_count / 8.0) if ish else 0.0
+
+        def _melody_avail(mel_idx: str) -> float:
+            """melody_N 可用 = 累积 Regard 达阈值且未使用（引擎语义）。"""
+            if not ish:
+                return 0.0
+            used = bool(getattr(ish, f"melody_{mel_idx}_used", False))
+            threshold = float(getattr(ish, f"MELODY_{mel_idx}_THRESHOLD", 1e9))
+            regard = float(getattr(ish, "cumulative_delta_regard", 0.0))
+            return float(ish_active and regard >= threshold and not used)
+
+        buf[3] = _melody_avail("2")
+        buf[4] = _melody_avail("3")
+        buf[5] = (getattr(ish, 'r4_count', 0) / 8.0) if ish else 0.0
         return buf
 
     if cls == "Mythland":
@@ -438,7 +493,9 @@ def _build_self_talent_state(player: "Player") -> np.ndarray:
 
         return buf
 
-    # 未知天赋类型：保持全 -1
+    # G0 当前没有 legacy 状态布局；至少写入“槽存在”标记，避免与无天赋/未知类混同。
+    if slot_id in M9_TALENT_SLOT_TO_IDX:
+        buf[0] = 0.0
     return buf
 
 
@@ -494,7 +551,8 @@ def _build_opp_talent_state(opp: "Player") -> np.ndarray:
     if talent is None:
         return buf
 
-    cls = talent.__class__.__name__
+    slot_id = str(getattr(opp, "talent_slot_id", "") or "").upper()
+    cls = _M9_SLOT_TO_STATE_CLASS.get(slot_id, talent.__class__.__name__)
 
     # ── 通用：uses / charges / 关键计数 [0-4] ──
     if cls == "OneSlash":
@@ -595,7 +653,8 @@ def _build_opp_talent_state(opp: "Player") -> np.ndarray:
         # 战斗续行免死
         buf[14] = float(getattr(talent, '_combat_continuation_immunity', False))
 
-    # 未知天赋类型：保持全 -1
+    if slot_id in M9_TALENT_SLOT_TO_IDX and np.all(buf == -1.0):
+        buf[0] = 0.0
     return buf
 
 
@@ -616,7 +675,8 @@ def _fill_opp_talent_relational(
     if talent is None:
         return
 
-    cls = talent.__class__.__name__
+    slot_id = str(getattr(opp, "talent_slot_id", "") or "").upper()
+    cls = _M9_SLOT_TO_STATE_CLASS.get(slot_id, talent.__class__.__name__)
     rl_pid = rl_player.player_id
 
     if cls == "Hologram":
@@ -685,8 +745,35 @@ _CHOOSE_SITUATION_MAP: dict[str, int] = {
     "ripple_hexagram_free_choice": 29,
     # G7 战术宏（BC 收集/RL 微调时 get_command 也会走 choose obs 指示）
     "hoshino_tactical_input":     30,
+    # M9 补全：这些 situation 已由 RLController 接管，必须各有独立可观察 ID。
+    "g4_human_performance_mode": 36,
+    "g4_strike_pick_target":    37,
+    "g4_strike_pick_weapon":    38,
+    "hexagram_disarm_target":   39,
+    "hexagram_pick_opponent":   40,
+    "hexagram_steal_pick":      41,
+    "hexagram_steal_target":    42,
+    "hexagram_thunder_target":  43,
+    "m9_g3":                    44,
+    "oneslash_chase_target":    45,
+    "ripple_anchor_target":     46,
+    "shock_target_select":      47,
+    "t1_performance_mode":      48,
+    "t2_core_target":           49,
+    "t2_earthfire_hunt":        50,
+    "t2_performance_mode":      51,
+    "t2_pick_weapon":           52,
+    "t3_stars_bounce_target":   53,
+    "talent_t0_retry":          54,
+    # 投注 situation 在 s115-s136 之后补入。用负编号扩展，保持既有
+    # 1..54 situation 的归一化值完全不变，同时仍落在 Box[-1, 1] 内。
+    "m9_betting_action":        -1,
+    "m9_betting_target":        -2,
+    "m9_betting_amount":        -3,
+    "m9_betting_transfer_out":  -4,
+    "m9_betting_transfer_in":   -5,
 }
-_MAX_CHOOSE_SITUATIONS = 35
+_MAX_CHOOSE_SITUATIONS = 54
 
 
 def build_choose_obs(situation: str, n_options: int) -> np.ndarray:
@@ -755,11 +842,16 @@ def build_obs(player: "Player", game_state: "GameState",
     from utils.attribute import Attribute
 
     obs = np.zeros(OBS_DIM, dtype=np.float32)
+    from engine import experiments as _experiments
+    m9_profile = _experiments.is_enabled("m9_rfc")
     idx = 0
 
     obs[idx] = player.hp / _MAX_HP;                          idx += 1  # 0
     obs[idx] = player.max_hp / _MAX_HP;                      idx += 1  # 1
-    obs[idx] = player.vouchers / _MAX_VOUCHERS;              idx += 1  # 2
+    obs[idx] = (
+        min(float(getattr(player, "credits", 0) or 0), _MAX_CREDITS) / _MAX_CREDITS
+        if m9_profile else player.vouchers / _MAX_VOUCHERS
+    );                                                        idx += 1  # 2
 
     # location one-hot (6 维)
     loc_i = _LOC_INDEX.get(_normalize_location(player.location), -1) if player.location else -1
@@ -771,14 +863,23 @@ def build_obs(player: "Player", game_state: "GameState",
     obs[idx] = float(player.is_stunned);                     idx += 1  # 10
     obs[idx] = float(player.is_shocked);                     idx += 1  # 11
     obs[idx] = float(player.is_petrified);                   idx += 1  # 12
-    obs[idx] = float(player.is_invisible);                   idx += 1  # 13
+    obs[idx] = (
+        _visibility_attribute_feature(
+            bool(player.is_invisible), getattr(player, "stealth_attrs", set()),
+        ) if m9_profile else float(player.is_invisible)
+    );                                                        idx += 1  # 13
     obs[idx] = float(player.is_captain);                     idx += 1  # 14
     obs[idx] = float(player.is_criminal);                    idx += 1  # 15
     obs[idx] = player.kill_count / _MAX_KILL;                idx += 1  # 16
     obs[idx] = player.no_action_streak / _MAX_STREAK;        idx += 1  # 17
     obs[idx] = float(player.has_military_pass);              idx += 1  # 18
     # ── 新增 ──
-    obs[idx] = float(getattr(player, 'has_detection', False));       idx += 1  # 19
+    obs[idx] = (
+        _visibility_attribute_feature(
+            bool(getattr(player, "has_detection", False)),
+            getattr(player, "detection_attrs", set()),
+        ) if m9_profile else float(getattr(player, 'has_detection', False))
+    );                                                               idx += 1  # 19
     obs[idx] = float(getattr(player, 'has_police_protection', False)); idx += 1  # 20
     obs[idx] = float(getattr(player, 'is_police', False));           idx += 1  # 21
 
@@ -873,16 +974,29 @@ def build_obs(player: "Player", game_state: "GameState",
             obs[base + 30] = float(opp.is_petrified)
 
             # ── 新增：隐身 [offset 31] ──
-            obs[base + 31] = float(opp.is_invisible)
+            obs[base + 31] = (
+                _visibility_attribute_feature(
+                    bool(opp.is_invisible), getattr(opp, "stealth_attrs", set()),
+                ) if m9_profile else float(opp.is_invisible)
+            )
 
             # ── 新增：经济 [offset 32] ──
-            obs[base + 32] = opp.vouchers / _MAX_VOUCHERS
+            obs[base + 32] = (
+                min(float(getattr(opp, "credits", 0) or 0), _MAX_CREDITS)
+                / _MAX_CREDITS
+                if m9_profile else opp.vouchers / _MAX_VOUCHERS
+            )
 
             # ── 新增：通行证 [offset 33] ──
             obs[base + 33] = float(getattr(opp, 'has_military_pass', False))
 
             # ── 新增：探测能力 [offset 34] ──
-            obs[base + 34] = float(getattr(opp, 'has_detection', False))
+            obs[base + 34] = (
+                _visibility_attribute_feature(
+                    bool(getattr(opp, "has_detection", False)),
+                    getattr(opp, "detection_attrs", set()),
+                ) if m9_profile else float(getattr(opp, 'has_detection', False))
+            )
 
             # ── 新增：警察保护 [offset 35] ──
             obs[base + 35] = float(getattr(opp, 'has_police_protection', False))
