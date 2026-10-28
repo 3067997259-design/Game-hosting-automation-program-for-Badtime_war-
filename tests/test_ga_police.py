@@ -154,3 +154,27 @@ def test_military_pass_does_not_create_new_crime() -> None:
     execute(state, "buy_armor", kind="at_field")
     turn(state, "a", TurnStage.T0)
     assert not any(a.operation == "t6_hotline" for a in legal_actions(state))
+
+
+def test_repeat_offender_has_one_report_after_any_eligible_case() -> None:
+    """前案无举报资格不遮蔽后案；同一嫌疑人多案只产生一个真实举报按钮。"""
+    state = ready()
+    turn(state, "a")
+    execute(state, "move", location="hospital")
+    turn(state, "b")
+    execute(state, "attack", targets=("c",), weapon="knife")
+    turn(state, "a")
+    execute(state, "move", location="shop")
+    for _ in range(2):
+        turn(state, "b")
+        execute(state, "attack", targets=("a",), weapon="knife")
+    assert len(state.ga_crimes) == 3
+    turn(state, "a")
+    execute(state, "move", location="police")
+    turn(state, "a")
+    reports = [a for a in legal_actions(state) if a.operation == "police_report"]
+    assert len(reports) == 1 and reports[0].target_ids == ("b",)
+    execute(state, "police_report", targets=("b",))
+    assert state.ga_police.wanted == ["b"] and len(state.ga_crimes) == 3
+    turn(state, "a")
+    assert not any(a.operation == "police_report" for a in legal_actions(state))

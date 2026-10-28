@@ -234,14 +234,18 @@ class Police:
                 if grant.actor_id not in police.applicants:
                     result.append(ability(grant, stage, "police_apply", verb=ActionVerb.INTERACT,
                                           after=self.execute))
+            reported: set[str] = set()
             for case in state.ga_crimes:
                 offender = case["actor_id"]
-                if offender not in police.wanted and offender != grant.actor_id and (
+                if offender not in reported and offender not in police.wanted and (
+                    offender != grant.actor_id
+                ) and (
                     grant.actor_id == case.get("victim_id") or grant.actor_id in case.get(
                         "witness_ids", ())
                 ):
                     result.append(ability(grant, stage, "police_report", verb=ActionVerb.INTERACT,
                                           targets=(offender,), after=self.execute))
+                    reported.add(offender)
             cap = len(self.live(state)) * (state.ga_config.get("police", "wall_per_officer") +
                                           police.wall_upgrade * state.ga_config.get(
                                               "police", "wall_upgrade_per_officer"))
@@ -300,7 +304,9 @@ class Police:
                 continue
             effects = []
             for effect in option.effects:
-                if effect.scope in (TargetScope.LOCAL_AREA, TargetScope.GLOBAL_AREA):
+                if effect.kind in (EffectKind.DAMAGE, EffectKind.WEAR) and effect.scope in (
+                    TargetScope.LOCAL_AREA, TargetScope.GLOBAL_AREA
+                ):
                     location = state.players[grant.actor_id].location
                     extras = tuple(key for key in self.live(state) if
                                    key not in effect.target_ids and

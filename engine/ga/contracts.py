@@ -606,8 +606,13 @@ class ResolutionRecord:
         for key in ("remaining_damage", "computed_hp_loss", "hp_loss"):
             require_int(getattr(self, key), f"resolution.{key}")
         require_int(self.hp_before, "resolution.hp_before", 1)
-        if self.effect.kind not in (EffectKind.DAMAGE, EffectKind.WEAR):
-            raise ContractError("resolution.effect", "combat records require damage or wear")
+        if self.effect.kind not in (EffectKind.DAMAGE, EffectKind.WEAR, EffectKind.STATUS):
+            raise ContractError("resolution.effect", "records require damage, wear or status")
+        if self.effect.kind is EffectKind.STATUS and (
+            self.remaining_damage or self.computed_hp_loss or self.armor_changes or
+            self.barrier_changes
+        ):
+            raise ContractError("resolution.effect", "status cannot damage HP or armor")
         if self.remaining_damage > self.effect.amount:
             raise ContractError("resolution.remaining_damage", "cannot recreate intercepted damage")
         if self.hp_loss != min(self.hp_before, self.computed_hp_loss):

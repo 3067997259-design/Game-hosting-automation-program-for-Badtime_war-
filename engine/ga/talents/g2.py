@@ -138,7 +138,7 @@ class G2(Talent):
                 continue
             if self.forced_move == grant.grant_id and stage is TurnStage.T1 and (
                 option.request.verb is not ActionVerb.MOVE
-            ):
+            ) and not (grant.movement_blocked and option.request.operation == "forfeit"):
                 continue
             if self.form == "echo" or self.form == "dual" and self.control == "shadow":
                 if option.request.operation == "attack" or option.weapon_use:

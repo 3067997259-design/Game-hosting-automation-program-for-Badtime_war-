@@ -15,12 +15,12 @@
 |---|---|---|
 | I0–I1 | GA 参数装配、公共合同、无天赋完整对局 | 完成 |
 | I2–I3 | 警察、往世层、十四天赋、十四诗篇 | 完成（`tests/test_ga_*.py` 全过；固定矩阵 60/60） |
-| I4 | CLI / BasicAI / RL 的 GA 动作、观察、奖励与模型语义版本 | **下一步** |
+| I4 | CLI / BasicAI / RL 的 GA 动作、观察、奖励与模型语义版本 | I4.0 观察/诊断/回放完成；**下一步 I4.1 无天赋 BasicAI** |
 | I5 | 默认入口一次切到 GA，退役旧 profile 与旧分派 | 待做 |
 
 - **现在的正式入口仍跑旧规则**：`main.py`、`stats_runner.py`、联机、RL 默认 `legacy`，M9 需 `--profile m9-rfc`。
   GA 目前只能用 `tools/ga_play.py` 运行。
-- **玩法权威**：[GA 文档中心](docs/v2.0-ga/README.md) 的 DEC-001～050 与各 RFC；
+- **玩法权威**：[GA 文档中心](docs/v2.0-ga/README.md) 的 DEC-001～051 与各 RFC；
   **阶段与验收**：[实施合同](docs/v2.0-ga/implementation_contract_v0.1.md)；
   **数值**：`data/balance.json` 的 `ga` 块（N0 初值，对应[玩家手册](docs/v2.0-ga/manual_draft_v0.1.md) §17）；
   **运行事实**：`engine/ga/` 与 `tests/test_ga_*.py`。
@@ -34,11 +34,12 @@
 
 ```bash
 # GA（主线）
-python -B -m pytest -p no:cacheprovider tests/test_ga_*.py -q          # 约 20 秒
+python -B -m pytest -p no:cacheprovider tests/test_ga_*.py -q          # 约 30 秒
 python -B tools/ga_play.py --players 6 --seed 2 --talents G2,G3,G5,G6,G7,G1 --output <out.json>
 python -B tools/ga_play.py --players 2 --talents T4,T6 --human p0      # 人工调试台
 python -B tools/ga_play.py --players 6 --seed 0 --script <choices.json> # 按脚本重放
-python -B tools/ga_matrix.py                                            # 固定矩阵：2/4/6 人 × seed 0–19，约 35 秒，只打印汇总
+python -B tools/ga_play.py --replay <game.json> --inspect-decision p0:0 # 严格重放并查看决策
+python -B tools/ga_matrix.py                                            # 固定矩阵：2/4/6 人 × seed 0–19，约 45 秒，只打印汇总
 
 # 旧运行层（I5 前维护用）
 python main.py [--profile legacy|v2exp|m9-rfc]
@@ -54,7 +55,9 @@ python -B tools/manual_review.py diff <标签> --sections <章节>           # G
 ```
 
 Windows 下系统临时目录不可写时，pytest 加 `--basetemp <可写目录>`。
-`tools/ga_play.py` 的输出含 `replay_inputs`，可直接存成 `--script` 文件做最小复现。
+`tools/ga_play.py --replay <game.json>` 从完整输出恢复阵容/seed，并核对所有选择、终局与事件。
+输出的 `replay_inputs` 也可存成 `--script` 文件（须另给相同阵容/seed）；`--trace-decisions`
+保存完整观察及候选，默认只存紧凑选择与理由。旧选择器脚本只用于定向场景。
 
 ---
 
@@ -76,6 +79,8 @@ Windows 下系统临时目录不可写时，pytest 加 `--basetemp <可写目录
 | `talents/` | `base.py` 公共工具与 `Talent` 基类；T1–T4、T6、T7、G0–G7 各一个文件（T5 已退役） |
 | `setup.py` | 唯一装配入口：安装警察、往世层和所选天赋 |
 | `controllers.py` | 最小合法策略、人工台、脚本重放；不是 BasicAI |
+| `observation.py` / `scoring.py` | 公开决策事实、真实费用说明与同源计分分项；不预测动态净伤 |
+| `decisions.py` | 六类选择的记录/严格重放、候选估计与目标快照合同；不代替策略规划器 |
 
 ### 旧运行层（I5 退役前仍在默认入口上）
 

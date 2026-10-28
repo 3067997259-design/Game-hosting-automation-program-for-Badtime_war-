@@ -12,12 +12,14 @@ from engine.ga.config import GaConfig, load_ga_config
 from engine.ga.contracts import (
     ActionRequest, ContractError, DamageAttribute, DamageKind, DefenseKind, DefenseSpec,
     EventStamp, PlayerResult, RoundPhase, TargetScope, TerminalReason, TerminalSnapshot,
-    TimedEffect, TurnStage, checked_ids, freeze_json, require_int,
+    TimedEffect, TurnStage, checked_ids, require_int,
 )
 from engine.ga.events import BeneficiaryRole, DomainEvent, EventKind, EventLedger, RewardRule
+from engine.ga.scoring import crown_eligible, score_components
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
+    from engine.ga.gameplay import ActionOption
 
 
 LOCATIONS = ("shop", "magic", "hospital", "military", "police")
@@ -123,6 +125,7 @@ class ActionGrant:
     must_public: bool = False
     hook_on_cooldown: bool = False
     moved_this_slot: bool = False
+    movement_blocked: bool = False
 
 
 class RecordedRandom:
@@ -237,6 +240,7 @@ def initialize_state(
     state.ga_followup_used = set()
     state.ga_initiative = {}
     state.ga_round_order = ()
+    state.ga_order_round = 0
     state.ga_public_used = False
     state.ga_smoke = {}
     state.ga_impact_penalties = {}
@@ -461,15 +465,10 @@ def finish_if_needed(
     cfg = state.ga_config
     results = {}
     for actor, player in state.players.items():
-        crown = cfg.get("scoring", "crown") if survivors == (actor,) and (
-            player.kills >= cfg.get("scoring", "crown_min_kills") or
-            len(player.chapters) >= cfg.get("scoring", "crown_min_chapters")
+        crown = cfg.get("scoring", "crown") if survivors == (actor,) and crown_eligible(
+            player, cfg
         ) else 0
-        total = (player.kills * cfg.get("scoring", "kill_weight") +
-                 player.hp_damage // cfg.get("scoring", "damage_divisor") +
-                 player.armor_breaks * cfg.get("scoring", "armor_break_weight") +
-                 len(player.chapters) * cfg.get("scoring", "chapter_weight") +
-                 player.pp * cfg.get("scoring", "pp_weight") + crown)
+        total = score_components(player, cfg, crown=crown)["total"]
         results[actor] = PlayerResult(player.kills, player.hp_damage, player.armor_breaks,
                                       tuple(sorted(player.chapters)), player.pp, total)
     terminal = TerminalSnapshot(
@@ -489,24 +488,10 @@ def finish_if_needed(
     return True
 
 
-def observe(state: GameState, actor_id: str) -> Mapping[str, Any]:
-    """控制器只读投影；隐身不隐藏公开状态，候选负责可攻击资格。"""
-    return freeze_json({
-        "actor_id": actor_id, "round": state.current_round, "world_tick": state.world_tick,
-        "phase": state.current_phase.value, "public_used": state.ga_public_used,
-        "closure_display": state.ga_closure_display,
-        "players": {key: {
-            "hp": p.hp, "max_hp": p.max_hp, "credits": p.credits, "sp": p.sp, "pp": p.pp,
-            "location": p.location, "alive": p.alive, "awake": p.awake, "hidden": p.hidden,
-            "weapons": sorted(p.weapons), "ammo": p.ammo, "inventory": p.inventory,
-            "resources": p.resources, "isolation_id": p.isolation_id,
-            "targetable": p.targetable,
-            "defenses": {key: d.durability for key, d in p.defenses.items()},
-            "talent": state.ga_roles[key].talent_id if key in state.ga_roles else None,
-            "talent_state": state.ga_roles[key].public() if key in state.ga_roles else {},
-        } for key, p in state.players.items()},
-        "units": {key: {"hp": p.hp, "location": p.location, "kind": p.unit_kind,
-                         "submerged_sources": sorted(p.submerged_sources),
-                         "owner_id": p.owner_id, "alive": p.alive}
-                  for key, p in state.ga_units.items()},
-    })
+def observe(
+    state: GameState, actor_id: str, *, options: tuple[ActionOption, ...] = (),
+    grant: ActionGrant | None = None,
+) -> Mapping[str, Any]:
+    """控制器只读投影；显式公开事实与预检说明共用一个边界。"""
+    from engine.ga.observation import build_observation
+    return build_observation(state, actor_id, options=options, grant=grant)

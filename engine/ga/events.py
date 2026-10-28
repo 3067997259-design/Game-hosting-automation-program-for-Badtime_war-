@@ -266,6 +266,13 @@ class EventLedger:
         """已保存的终局快照，不从后续展示状态重算。"""
         return self._terminal
 
+    def awarded_in_round(self, rule_id: str, beneficiary_id: str, global_round: int) -> int:
+        """只读查询实际已领取量；查询本身不注册规则、不消耗额度。"""
+        require_id(rule_id, "allowance.rule_id")
+        require_id(beneficiary_id, "allowance.beneficiary_id")
+        require_int(global_round, "allowance.global_round")
+        return self._round_awards.get((rule_id, beneficiary_id, global_round), 0)
+
     def commit_batch(self, batch_id: str, events: Iterable[DomainEvent]) -> tuple[DomainEvent, ...]:
         """全部检查通过才发布；同批同内容重放返回空，不重复通知。"""
         values = tuple(events)

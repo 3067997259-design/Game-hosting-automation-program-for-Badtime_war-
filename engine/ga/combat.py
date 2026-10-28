@@ -7,7 +7,7 @@ from dataclasses import replace
 from typing import Any, TYPE_CHECKING
 
 from engine.ga.contracts import (
-    ArmorChange, BarrierChange, BarrierPolicy, ContractError, DamageAttribute, DamageKind,
+    ArmorChange, BarrierChange, ContractError, DamageKind,
     DeathOutcome, DeathPolicy, DefenseKind, EffectKind, EffectSpec, HitOutcome, HitPolicy,
     ResolutionRecord, TargetScope, checked_ids, require_bool, require_id, require_int,
 )
@@ -16,6 +16,7 @@ from engine.ga.state import (
 )
 from engine.ga.status import STATUS_NAMES, add_burns, effective_hit, put_status
 from engine.ga.extensions import Replacement, unit, units
+from engine.ga.damage_math import absorb_barriers, armor_hit, hit_probability
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -51,6 +52,11 @@ def _parameters(effect: EffectSpec) -> dict[str, Any]:
         names = checked_ids(params["statuses"], "effect.parameters.statuses")
         if set(names) - STATUS_NAMES:
             raise ContractError("effect.parameters.statuses", "unsupported status")
+    if effect.kind is EffectKind.STATUS and (
+        effect.amount or effect.hit_policy is not HitPolicy.CERTAIN or
+        not params.get("statuses") or params.keys() - {"statuses", "hostile"}
+    ):
+        raise ContractError("effect.status", "status-only effects require certain named statuses")
     return params
 
 
@@ -91,25 +97,19 @@ def _resolve_target(
         remaining = 0
     elif effect.damage_kind is DamageKind.EXECUTION:
         computed = hp_before
+    elif effect.kind is EffectKind.STATUS:
+        for name in params["statuses"]:
+            if put_status(player, cfg, state.current_round, name,
+                          source_id=effect.effect_id, actor_id=effect.actor_id,
+                          score_owner_id=effect.score_owner_id,
+                          crime_owner_id=effect.crime_owner_id):
+                statuses.append(name)
     elif amount:
-        pools = sorted((d for d in player.defenses.values() if d.durability and
-                        d.defense_id not in ignored and
-                        d.kind is not DefenseKind.ARMOR and
-                        effect.damage_kind in d.accepted_damage_kinds and
-                        effect.scope in d.accepted_scopes),
-                       key=lambda d: (d.kind is DefenseKind.HALO, d.defense_id))
-        if effect.barrier_policy is BarrierPolicy.RESPECT:
-            for defense in pools:
-                absorbed = remaining if defense.protects_breaking_hit else min(
-                    remaining, defense.durability
-                )
-                after = defense.durability - min(defense.durability, absorbed)
-                barriers.append(BarrierChange(defense.defense_id, defense.kind,
-                                              defense.durability, after, absorbed))
-                player.defenses[defense.defense_id] = replace(defense, durability=after)
-                remaining -= absorbed
-                if effect.damage_kind is DamageKind.PURE_WEAR or not remaining:
-                    break
+        remaining, pool_changes = absorb_barriers(effect, player.defenses, ignored=ignored)
+        barriers.extend(pool_changes)
+        for change in pool_changes:
+            defense = player.defenses[change.defense_id]
+            player.defenses[change.defense_id] = replace(defense, durability=change.after)
         if effect.damage_kind is DamageKind.PURE_WEAR:
             if not barriers:
                 candidates = [d for d in player.defenses.values() if d.durability and
@@ -135,23 +135,12 @@ def _resolve_target(
             if effect.hit_policy is HitPolicy.ROLL:
                 actor = units(state).get(effect.actor_id)
                 cross = bool(actor and actor.location != player.location)
-                ignore_move = params.get("ignore_move_evasion", False)
-                chance = cfg.get("accuracy", "base") + params.get("hit_bonus", 0)
-                chance -= cfg.get("accuracy", "move_evasion") if player.moved and (
-                    not ignore_move
-                ) else 0
-                chance -= cfg.get("accuracy", "stealth_evasion") if player.hidden else 0
-                chance -= cfg.get("accuracy", "unlocked_cross_location_penalty") if (
-                    cross and not ignore_move and not params.get("ignore_range_penalty", False)
-                ) else 0
-                chance -= cfg.get("consumables", "smoke_hit_penalty") if cross and (
-                    player.location in state.ga_smoke or actor.location in state.ga_smoke
-                ) else 0
-                chance -= cfg.get("consumables", "flash_hit_penalty") if actor and (
-                    "FLASHED" in actor.statuses
-                ) else 0
-                chance = min(cfg.get("accuracy", "maximum"),
-                             max(cfg.get("accuracy", "minimum"), chance))
+                chance = hit_probability(
+                    cfg, params, moved=player.moved, hidden=player.hidden, cross_location=cross,
+                    smoke=bool(cross and (player.location in state.ga_smoke or
+                                         actor.location in state.ga_smoke)),
+                    flashed=bool(actor and "FLASHED" in actor.statuses),
+                )
                 grazed = not state.ga_rng.chance(f"{effect.effect_id}/{player.player_id}", chance,
                                                 actor_id=effect.actor_id)
             floor = min(remaining, math.ceil(amount * cfg.get("combat", "min_damage_ratio")))
@@ -162,47 +151,18 @@ def _resolve_target(
                 computed = remaining
             else:
                 vulnerability = cfg.get("status", "vulnerability") if (
-                    "VULNERABLE" in player.statuses
+                    "VULNERABLE" in player.statuses or "FEAR" in player.statuses
                 ) else 0
                 body = (remaining + vulnerability + sum(m.vulnerability for m in modifiers) -
                         player.flat_reduction - sum(m.reduction for m in modifiers))
-                candidates = []
-                for defense in player.defenses.values():
-                    if not defense.durability or defense.kind is not DefenseKind.ARMOR or (
-                        effect.damage_kind not in defense.accepted_damage_kinds or
-                        effect.scope not in defense.accepted_scopes
-                    ):
-                        continue
-                    if effect.attribute is DamageAttribute.MYSTERIOUS:
-                        nominal = min(defense.attribute_defense.values())
-                    else:
-                        nominal = defense.attribute_defense.get(effect.attribute, 0)
-                    nominal = math.floor(nominal * params.get("defense_coefficient", 1))
-                    price = max(defense.wear_price, params.get("wear_price", 1))
-                    affinity = player.armor_affinities.get(defense.defense_id)
-                    counters = {DamageAttribute.NORMAL: DamageAttribute.MAGIC,
-                                DamageAttribute.MAGIC: DamageAttribute.TECH,
-                                DamageAttribute.TECH: DamageAttribute.NORMAL}
-                    if counters.get(effect.attribute) is affinity and affinity is not None:
-                        price = max(price, cfg.get("combat", "counter_wear_price"))
-                    if effect.attribute is DamageAttribute.MYSTERIOUS:
-                        price = max(price, cfg.get("combat", "mysterious_wear_price"))
-                    reduction = min(nominal, max(0, body - floor),
-                                    -(-defense.durability // price))
-                    wear = min(defense.durability, price * reduction)
-                    candidates.append((-reduction, wear, -defense.durability,
-                                       defense.defense_id, defense))
-                chosen = min(candidates, key=lambda item: item[:4]) if candidates else None
-                computed = max(body + chosen[0] if chosen else body, floor)
-                if chosen:
-                    defense = chosen[4]
-                    ordinary = chosen[1]
-                    attached = min(params.get("attached_wear", 0), defense.durability - ordinary)
-                    after = defense.durability - ordinary - attached
-                    if ordinary or attached:
-                        armor_changes.append(ArmorChange(defense.defense_id, defense.durability,
-                                                         after, ordinary, attached))
-                        player.defenses[defense.defense_id] = replace(defense, durability=after)
+                computed, armor_change = armor_hit(
+                    cfg, effect, player.defenses, player.armor_affinities, body=body, floor=floor,
+                )
+                if armor_change is not None:
+                    armor_changes.append(armor_change)
+                    defense = player.defenses[armor_change.defense_id]
+                    player.defenses[defense.defense_id] = replace(
+                        defense, durability=armor_change.after)
             if outcome is HitOutcome.HIT:
                 for name in params.get("statuses", ()):
                     if put_status(player, cfg, state.current_round, name,
@@ -275,8 +235,8 @@ def resolve_batch(
     working = {}
     for effect in effects:
         _parameters(effect)
-        if effect.kind not in (EffectKind.DAMAGE, EffectKind.WEAR):
-            raise ContractError("effect.kind", "combat accepts only damage and wear")
+        if effect.kind not in (EffectKind.DAMAGE, EffectKind.WEAR, EffectKind.STATUS):
+            raise ContractError("effect.kind", "combat accepts only damage, wear and status")
         for owner in (effect.actor_id, effect.score_owner_id, effect.crime_owner_id):
             if owner is not None and owner not in units(state):
                 raise ContractError("effect.owner", "unregistered owner")

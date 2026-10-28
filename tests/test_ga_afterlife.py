@@ -248,8 +248,16 @@ def test_original_encore_borrows_core_not_passive_or_insurance(slot: str, operat
     state.players["a"].sp = 1
     state.players["b"].hp = 10
     turn(state, "a", stage)
-    if slot in ("T1", "T2"):
+    if slot == "T1":
         execute(state, operation, targets=("b",), weapon="knife")
+    elif slot == "T2":
+        before = state.players["a"].credits
+        execute(state, operation, purchase="buy_item", kind="thermal")
+        assert state.players["a"].inventory["thermal"] == 1
+        assert state.players["a"].credits == before
+        assert not state.players["a"].retain_stealth_attacks
+        assert not state.players["a"].inventory.get("cloak")
+        assert not state.players["a"].chapters
     elif slot == "T7":
         execute(state, operation, targets=("b",))
         assert state.ga_insurance is None and state.players["b"].hp == 13

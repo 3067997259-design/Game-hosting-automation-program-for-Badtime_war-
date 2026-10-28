@@ -66,10 +66,10 @@ def test_t2_repairs_same_template_only_not_similar_affinity_or_broken_armor() ->
     assert state.players["a"].defenses[shield].durability == 2
 
 
-def test_t2_shadow_step_two_uses_no_extra_slot_and_public_chases_melee() -> None:
+def test_t2_shadow_step_two_uses_no_extra_slot_and_no_retired_chase() -> None:
     state = ready({"a": "T2"})
     state.players["a"].sp = 2
-    state.ga_controllers["a"] = Decisions(shadow_step=["follow", "follow", "follow"])
+    state.ga_controllers["a"] = Decisions(shadow_step=["lock", "lock", "lock"])
     for location in ("magic", "hospital", "shop"):
         turn(state, "b")
         execute(state, "move", location=location)
@@ -78,8 +78,7 @@ def test_t2_shadow_step_two_uses_no_extra_slot_and_public_chases_melee() -> None
     assert state.players["a"].location == "hospital"
     assert not state.ga_pending_extras and not state.ga_pending_followups
     turn(state, "a")
-    execute(state, "t2_strike", targets=("b",), mode=Performance.PUBLIC, weapon="knife")
-    assert state.players["a"].location == "shop"
+    assert not any(a.operation == "t2_strike" for a in legal_actions(state))
     assert "chapter/2" in state.players["a"].chapters
 
 
@@ -89,9 +88,10 @@ def test_t2_effective_performances_in_two_real_rounds_unlock_final() -> None:
     for _ in range(2):
         state.players["a"].sp = 2
         turn(state, "a")
-        execute(state, "t2_strike", targets=("b",), mode=Performance.INSTANT, weapon="fist")
+        execute(state, "t2_take", mode=Performance.INSTANT, purchase="buy_armor", kind="shield")
         run_round(state, state.ga_controllers)
-    assert {"chapter/1", "chapter/3"} <= state.players["a"].chapters
+    assert "chapter/3" in state.players["a"].chapters
+    assert "chapter/1" not in state.players["a"].chapters
 
 
 def test_t3_jade_without_enemy_armor_still_creates_barrier_no_hp_loss() -> None:

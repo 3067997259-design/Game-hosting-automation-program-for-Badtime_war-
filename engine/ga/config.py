@@ -119,7 +119,7 @@ _WEAPON_SCHEMA = {
 _TALENT_SCHEMA: dict[str, Any] = {
     "T1": _positive("17.5", "multiplier", "core_multiplier wear_price"),
     "T2": {
-        **_ints("17.5", "hp", "performance_bonus"),
+        **_positive("11.2;17.5;DEC-051", "rounds", "chapter_performance_rounds"),
         **_positive("17.5", "hits", "armor_hits_per_repair"),
         **_positive("17.5", "durability", "repair_amount"),
         **_positive("17.5", "sp", "shadow_step_sp_cost"),

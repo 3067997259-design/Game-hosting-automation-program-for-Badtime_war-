@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 
 
 CONTROL_PRIORITY = {"SHOCKED": 1, "PETRIFIED": 2, "ACTION_SUPPRESSED": 3}
-STATUS_NAMES = frozenset({*CONTROL_PRIORITY, "DISORIENTED", "VULNERABLE", "WEAK", "FLASHED"})
+STATUS_NAMES = frozenset({*CONTROL_PRIORITY, "DISORIENTED", "VULNERABLE", "WEAK", "FLASHED",
+                          "FEAR"})
 
 
 def put_status(
@@ -33,6 +34,11 @@ def put_status(
         CONTROL_PRIORITY[previous.name] > CONTROL_PRIORITY[name]
     ):
         return False
+    if name == "FEAR":
+        timer = TimedEffect(f"{source_id}/{player.player_id}/{name}", player.player_id,
+                            global_round, 1, TimerUnit.SLOT)
+        player.statuses[name] = StatusEntry(name, timer, actor_id, score_owner_id, crime_owner_id)
+        return True
     ticks = config.get("status", "unconsumed_control_expiry_ticks") if name in (
         "SHOCKED", "ACTION_SUPPRESSED", "DISORIENTED"
     ) else config.get("status", "petrify_ticks" if name == "PETRIFIED" else "modifier_ticks")

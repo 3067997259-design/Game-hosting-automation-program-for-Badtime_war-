@@ -391,15 +391,18 @@ def test_ch11_t1_slash_damage_and_public_bypass() -> None:
     assert set(sharpened) == {9}
 
 
-def test_ch11_t2_performance_bonus() -> None:
-    """§11.2：偷袭用小刀是 4 + 1 = 5。"""
+def test_ch11_t2_free_acquisition_replaces_old_performance_bonus() -> None:
+    """§11.2作者重写：一SP免费拿商品，不再发出加伤攻击。"""
     from engine.ga.contracts import Performance
 
     state = ready({"a": "T2"})
-    strikes = [o.effects[0].amount for o in _options(state, "a", "t2_strike")
-               if o.request.parameters["weapon"] == "knife"
-               and o.request.performance is Performance.INSTANT]
-    assert strikes and set(strikes) == {5}
+    state.players["a"].credits = 0
+    options = _options(state, "a", "t2_take")
+    assert options and all(o.request.performance is Performance.INSTANT for o in options)
+    assert all(not o.effects and not o.hostile for o in options)
+    execute(state, "t2_take", purchase="buy_item", kind="thermal")
+    assert state.players["a"].inventory["thermal"] == 1
+    assert state.players["a"].credits == 0
 
 
 def test_ch11_t3_starfall_and_jade() -> None:

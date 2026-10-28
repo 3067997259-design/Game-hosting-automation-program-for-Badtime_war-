@@ -1,14 +1,20 @@
-"""T2剪刀手：未杀免罪、同名修甲、原地/追近演出与有限暗影步。"""
+"""T2慈爱的怪盗：免费取物、惧怖、有限跟随与指定实物偷窃。"""
 
 from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any, Mapping, TYPE_CHECKING
 
-from engine.ga.contracts import DeathOutcome, Performance, TurnStage
-from engine.ga.extensions import ask, chapter, units
-from engine.ga.talents.base import Talent, attack_choices, own_slot, weapon_option
-from engine.ga.state import touch
+from engine.ga.acquisition import take_options
+from engine.ga.contracts import (
+    ActionVerb, BarrierPolicy, DamageAttribute, DamageKind, DeathOutcome, DeathPolicy,
+    EffectKind, EffectSpec, HitPolicy, IsolationPolicy, Performance, TargetScope, TurnStage,
+)
+from engine.ga.events import EventKind
+from engine.ga.extensions import ask, chapter, high_impact, relocate
+from engine.ga.possessions import transferable_items, transfer_item
+from engine.ga.talents.base import Talent, ability, own_slot
+from engine.ga.state import emit, touch
 
 if TYPE_CHECKING:
     from engine.game_state import GameState
@@ -18,7 +24,7 @@ if TYPE_CHECKING:
 
 
 class T2(Talent):
-    """反应只移动与锁定，不制造T0/T2或额外槽。"""
+    """演出不再借普通攻击；如影随形不制造T0/T2或额外行动槽。"""
 
     talent_id = "T2"
 
@@ -29,11 +35,14 @@ class T2(Talent):
         self.shadow_uses = 0
         self.shadow_lock: str | None = None
         self.performance_rounds: set[int] = set()
+        self.starting_cloak_received = False
 
     def public(self) -> Mapping[str, Any]:
-        """有限资格可见。"""
-        return {"shadow_uses": self.shadow_uses, "armor_hits": self.armor_hits,
-                "performance_rounds": sorted(self.performance_rounds)}
+        """公开有限次数、跨回合锁定和已完成的演出轮次。"""
+        return {"shadow_uses": self.shadow_uses, "free_shadow": self.free_shadow,
+                "shadow_lock": self.shadow_lock, "armor_hits": self.armor_hits,
+                "performance_rounds": sorted(self.performance_rounds),
+                "starting_cloak_received": self.starting_cloak_received}
 
     def register(self, state: GameState) -> None:
         """免罪只豁免本人的非致死玩家伤害。"""
@@ -50,31 +59,41 @@ class T2(Talent):
     def options(
         self, state: GameState, grant: ActionGrant, stage: TurnStage,
     ) -> tuple[ActionOption, ...]:
-        """公演可以追到远处目标，普通即演仍要求原地。"""
+        """即演从当前地点取商品；公演只给同地其他玩家施加惧怖。"""
         if stage is not TurnStage.T1 or not own_slot(state, self.owner_id, grant):
             return ()
-        result = []
-        for original in attack_choices(state, grant, chase=True):
-            local = units(state)[original.request.target_ids[0]].location == state.players[
-                self.owner_id
-            ].location
-            for mode in (Performance.INSTANT, Performance.PUBLIC):
-                if mode is Performance.INSTANT and not local:
-                    continue
-                result.append(weapon_option(state, grant, original, "t2_strike", mode,
-                                            bonus=state.ga_config.get("talents", "T2",
-                                                                      "performance_bonus")))
+        result = list(take_options(state, grant, "t2_take"))
+        player = state.players[self.owner_id]
+        targets = tuple(key for key, target in state.players.items() if
+                        key != self.owner_id and target.alive and target.home_locked and
+                        target.location == player.location and
+                        target.isolation_id == player.isolation_id)
+        if targets:
+            candidate = ability(grant, stage, "t2_fear", mode=Performance.PUBLIC,
+                                targets=targets, hostile=True)
+            root = candidate.request.root_id
+            effect = EffectSpec(
+                f"{root}/fear", "t2_fear", root, f"{root}/fear", self.owner_id,
+                self.owner_id, self.owner_id, targets, EffectKind.STATUS, DamageKind.NONE, 0,
+                DamageAttribute.UNATTRIBUTED, TargetScope.LOCAL_AREA, HitPolicy.CERTAIN,
+                BarrierPolicy.RESPECT, IsolationPolicy.RESPECT, DeathPolicy.NORMAL,
+                {"statuses": ("FEAR",)},
+            )
+            result.append(replace(candidate, effects=(effect,)))
         return tuple(result)
 
     def filter_options(
         self, state: GameState, grant: ActionGrant, stage: TurnStage,
         options: tuple[ActionOption, ...],
     ) -> tuple[ActionOption, ...]:
-        """暗影步锁定只作用于相应目标，不借出额外小动作。"""
+        """跟随锁定留到真正攻击该目标；与本回合普通lock不叠加。"""
         if grant.actor_id != self.owner_id or self.shadow_lock is None:
             return options
         result = []
         for option in options:
+            if option.request.verb is not ActionVerb.ATTACK:
+                result.append(option)
+                continue
             effects = tuple(replace(e, parameters={
                 **dict(e.parameters), "ignore_move_evasion": True,
                 "hit_bonus": e.parameters.get("hit_bonus", 0) + state.ga_config.get(
@@ -82,48 +101,67 @@ class T2(Talent):
                 "defense_coefficient": min(e.parameters.get("defense_coefficient", 1),
                                             state.ga_config.get("accuracy",
                                                                 "lock_defense_coefficient")),
-            }) if self.shadow_lock in e.target_ids else e for e in option.effects)
+            }) if e.target_ids == (self.shadow_lock,) and e.kind is EffectKind.DAMAGE and
+                grant.locked_target != self.shadow_lock else e for e in option.effects)
             result.append(replace(option, effects=effects))
         return tuple(result)
 
-    def before_action(self, state: GameState, option: ActionOption, plan: ActionPlan) -> None:
-        """公演追近属于同根，不另发move行动或暗影反应。"""
-        request = plan.request
-        if request.actor_id == self.owner_id and request.operation == "t2_strike" and (
-            request.performance is Performance.PUBLIC
+    def record_performance(self, state: GameState) -> None:
+        """同轮多次生效只记一轮，跨两个真实轮次完成第三章。"""
+        self.performance_rounds.add(state.current_round)
+        if len(self.performance_rounds) >= state.ga_config.get(
+            "talents", "T2", "chapter_performance_rounds"
         ):
-            state.players[self.owner_id].location = units(state)[request.target_ids[0]].location
+            chapter(state, self.owner_id, 3)
 
     def after_action(self, state: GameState, option: ActionOption, plan: ActionPlan) -> None:
-        """目标主动离开时，明确选择是否支付一次有限跟随。"""
+        """开局赠品、演出记录和跟随选择都在实际动作成功后兑现。"""
         request = plan.request
         player = state.players[self.owner_id]
         if request.actor_id == self.owner_id:
-            if request.verb.value == "attack":
+            if request.operation == "wake" and not self.starting_cloak_received:
+                player.inventory["cloak"] = max(player.inventory.get("cloak", 0), 1)
+                self.starting_cloak_received = True
+                touch(state)
+            elif request.operation == "t2_take":
+                self.record_performance(state)
+            if request.verb is ActionVerb.ATTACK and self.shadow_lock in request.target_ids:
                 self.shadow_lock = None
             return
         meta = state.ga_action_meta[request.root_id]
         cfg = state.ga_config.get("talents", "T2")
-        if request.verb.value != "move" or not player.alive or self.shadow_uses >= cfg[
-            "shadow_step_uses"
-        ] or not self.free_shadow and player.sp < cfg["shadow_step_sp_cost"] or (
-            meta.get("from_location") != player.location):
+        target = state.players[request.actor_id]
+        if request.verb is not ActionVerb.MOVE or not player.alive or not player.awake or (
+            not target.alive or self.shadow_uses >= cfg["shadow_step_uses"] or
+            not self.free_shadow and player.sp < cfg["shadow_step_sp_cost"] or
+            meta.get("from_location") != player.location or
+            target.location == player.location or target.isolation_id != player.isolation_id or
+            player.isolation_id is not None
+        ):
             return
-        if state.players[request.actor_id].location == meta.get("from_location"):
+        items = transferable_items(state, request.actor_id, self.owner_id)
+        choice = ask(state, self.owner_id, self.owner_id,
+                     ("lock", *(f"steal:{item}" for item in items), "decline"), kind="shadow_step",
+                     context={"target": request.actor_id, "destination": target.location,
+                              "sp_cost": 0 if self.free_shadow else cfg["shadow_step_sp_cost"],
+                              "remaining_uses": cfg["shadow_step_uses"] - self.shadow_uses})
+        if choice == "decline":
             return
-        if state.players[request.actor_id].location == player.location:
-            return
-        if ask(state, self.owner_id, self.owner_id, ("follow", "decline"), kind="shadow_step",
-               context={"target": request.actor_id}) == "follow":
-            if not self.free_shadow:
-                player.sp -= cfg["shadow_step_sp_cost"]
-            self.free_shadow = False
-            from engine.ga.extensions import relocate
-            relocate(state, self.owner_id, state.players[request.actor_id].location)
-            self.shadow_uses += 1
+        if not self.free_shadow:
+            player.sp -= cfg["shadow_step_sp_cost"]
+        self.free_shadow = False
+        relocate(state, self.owner_id, target.location)
+        self.shadow_uses += 1
+        if choice == "lock":
             self.shadow_lock = request.actor_id
-            chapter(state, self.owner_id, 2)
-            touch(state)
+            target.revealed_to.add(self.owner_id)
+        else:
+            transfer_item(state, request.actor_id, self.owner_id, choice.removeprefix("steal:"))
+        chapter(state, self.owner_id, 2)
+        emit(state, EventKind.STATE_CHANGED, actor_id=self.owner_id, target_id=request.actor_id,
+             root_id=request.root_id, effective=True,
+             payload={"kind": "shadow_step", "choice": choice})
+        touch(state)
 
     def on_batch(self, state: GameState, records: tuple[ResolutionRecord, ...]) -> None:
         """修甲只认实际计费命中，不修破碎甲，不用擦伤次数代替。"""
@@ -135,10 +173,9 @@ class T2(Talent):
             meta = state.ga_action_meta.get(record.effect.root_id, {})
             if record.effective_hit and meta.get("hidden"):
                 chapter(state, self.owner_id, 1)
-            if record.effective_hit and record.effect.source_id == "t2_strike":
-                self.performance_rounds.add(state.current_round)
-                if len(self.performance_rounds) >= 2:
-                    chapter(state, self.owner_id, 3)
+            if record.applied_statuses and record.effect.source_id == "t2_fear":
+                self.record_performance(state)
+                high_impact(state, self.owner_id, record.effect.root_id, record.target_id)
             if record.armor_changes and any(c.ordinary_wear for c in record.armor_changes):
                 self.armor_hits += 1
                 if self.armor_hits % cfg["armor_hits_per_repair"] == 0:
@@ -151,9 +188,11 @@ class T2(Talent):
                             player.defenses[key] = replace(defense, durability=min(
                                 defense.max_durability, defense.durability + cfg["repair_amount"]))
                             break
-        if player.kills:
-            player.retain_stealth_attacks = False
-            player.hidden = False
+            if player.kills and record.death_outcome in (
+                DeathOutcome.DEAD, DeathOutcome.ABSOLUTE_DEAD
+            ):
+                player.retain_stealth_attacks = False
+                player.hidden = False
 
     def receive_poem(self, state: GameState, giver: str) -> None:
         """地火的再动仍走公共白名单，暗影步只赠一次免费支付。"""

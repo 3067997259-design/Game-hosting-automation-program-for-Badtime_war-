@@ -10,10 +10,11 @@ from engine.ga.combat import resolve_batch
 from engine.ga.contracts import (
     ActionRequest, BarrierPolicy, ContractError, DamageAttribute, DamageKind, DeathPolicy,
     EffectKind, EffectSpec, HitPolicy, IsolationPolicy, Performance, RoundPhase, TargetScope,
-    TerminalSnapshot, TurnStage,
+    ChoiceWindow, TerminalSnapshot, TurnStage,
 )
 from engine.ga.events import EventKind
-from engine.ga.gameplay import build_options, execute_action, legal_actions, validate_request
+from engine.ga.decisions import notify_action_result
+from engine.ga.gameplay import ActionOption, build_options, execute_action, validate_request
 from engine.ga.state import (
     ActionGrant, emit, finish_if_needed, next_id, observe, run_hooks, touch, trace,
 )
@@ -46,6 +47,18 @@ class Controller(Protocol):
         """槽开始的挣脱窗口不占T0，每次仍须支付SP。"""
         ...
 
+    def respond(
+        self, view: Mapping[str, Any], window: ChoiceWindow, context: Mapping[str, Any],
+    ) -> str | None:
+        """秘密承诺、接受及复合根内部选择，缺答保持显式失败。"""
+        ...
+
+    def choose_afterlife(
+        self, view: Mapping[str, Any], actions: tuple[ActionRequest, ...],
+    ) -> ActionRequest | None:
+        """往世窗口可明确跳过。"""
+        ...
+
 
 EXTRA_SOURCES = {"t4_or_yue": 0, "poem_earthfire": 1}
 
@@ -76,7 +89,7 @@ def queue_followup(state: GameState, actor_id: str, source_id: str) -> bool:
     return True
 
 
-def _public_actions(state: GameState, grant: ActionGrant) -> tuple[ActionRequest, ...]:
+def _public_options(state: GameState, grant: ActionGrant) -> tuple[ActionOption, ...]:
     """执行前重查SP、硬控、存活和实际演出候选。"""
     player = state.players[grant.actor_id]
     if state.ga_public_used or grant.started or not player.alive or (
@@ -87,7 +100,7 @@ def _public_actions(state: GameState, grant: ActionGrant) -> tuple[ActionRequest
     if control and control.name in ("ACTION_SUPPRESSED", "PETRIFIED"):
         return ()
     options = build_options(state, grant, TurnStage.T1)
-    return tuple(o.request for o in options if o.request.performance is Performance.PUBLIC and (
+    return tuple(o for o in options if o.request.performance is Performance.PUBLIC and (
         not control or control.name != "SHOCKED" or not o.hostile and o.request.verb.value in (
             "move", "interact"
         )
@@ -98,16 +111,18 @@ def _choose_stage(state: GameState, controller: Controller, stage: TurnStage) ->
     """T0一次、T1一次；非法控制器返回直接报错且不扣费。"""
     state.current_stage = stage
     while not state.game_over:
-        actions = legal_actions(state)
+        options = build_options(state, state.current_grant, stage)
         if stage is TurnStage.T1 and state.current_grant.must_public:
-            public = tuple(a for a in actions if a.performance is Performance.PUBLIC)
+            public = tuple(o for o in options if o.request.performance is Performance.PUBLIC)
             if public:
-                actions = public
+                options = public
+        actions = tuple(o.request for o in options)
         if not actions:
             if stage is TurnStage.T1 and state.current_grant.kind is GrantKind.STANDARD:
                 raise ContractError("turn", "standard slot has no legal primary action")
             return
-        request = controller.choose(observe(state, state.current_grant.actor_id), actions, stage)
+        request = controller.choose(observe(state, state.current_grant.actor_id, options=options),
+                                    actions, stage)
         if request is None and stage is TurnStage.T0 and state.players[
             state.current_grant.actor_id
         ].awake:
@@ -115,7 +130,9 @@ def _choose_stage(state: GameState, controller: Controller, stage: TurnStage) ->
         if request not in actions:
             raise ContractError("controller", "selection was not one of the supplied legal actions")
         plan = validate_request(state, request)
-        execute_action(state, plan)
+        receipt = execute_action(state, plan)
+        if getattr(controller, "on_action_result", None) is not None:
+            notify_action_result(controller, observe(state, request.actor_id), receipt)
         if plan.phase_claim is not None:
             return
 
@@ -170,6 +187,9 @@ def _play_grant(
     """不可被公演切开的完整槽；追击属于当前T2内收尾。"""
     state.current_grant = grant
     grant.started = True
+    if grant.kind in (GrantKind.STANDARD, GrantKind.EXTRA_TURN):
+        # 惧怖在下一完整回合开始转为该回合的移动禁令，跳槽也消费这一次。
+        grant.movement_blocked = state.players[grant.actor_id].statuses.pop("FEAR", None) is not None
     touch(state)
     trace(state, "slot_start", actor=grant.actor_id, kind=grant.kind.value,
           grant_id=grant.grant_id, source_id=grant.source_id)
@@ -212,6 +232,7 @@ def _play_grant(
             state.ga_followup_used.add(actor)
             followup = ActionGrant(next_id(state, "followup"), actor,
                                    GrantKind.STEP_FOLLOWUP, source)
+            followup.movement_blocked = actor == grant.actor_id and grant.movement_blocked
             _play_grant(state, controllers, followup)
             if state.game_over:
                 break
@@ -272,6 +293,7 @@ def _round_start(state: GameState, controllers: Mapping[str, Controller]) -> lis
         value += player.initiative_bonus
         values[actor] = value
     state.ga_initiative = values
+    state.ga_order_round = state.current_round
     state.ga_round_order = tuple(sorted(values, key=lambda actor: (-values[actor], actor)))
     state.ga_standard_grants = {
         actor: ActionGrant(f"round/{state.current_round}/standard/{actor}", actor,
@@ -280,8 +302,11 @@ def _round_start(state: GameState, controllers: Mapping[str, Controller]) -> lis
     }
     initial = []
     for actor in state.ga_round_order:
-        actions = _public_actions(state, state.ga_standard_grants[actor])
-        if actions and controllers[actor].wants_public(observe(state, actor), actions):
+        grant = state.ga_standard_grants[actor]
+        options = _public_options(state, grant)
+        if options and controllers[actor].wants_public(
+            observe(state, actor, options=options, grant=grant), tuple(o.request for o in options)
+        ):
             initial.append(actor)
     run_hooks(state, "R1")
     return initial
@@ -384,11 +409,12 @@ def run_round(state: GameState, controllers: Mapping[str, Controller]) -> None:
         first_boundary = False
         for actor in contenders:
             grant = state.ga_standard_grants[actor]
-            actions = _public_actions(state, grant)
-            willing = actor in initial or (actions and controllers[actor].wants_public(
-                observe(state, actor), actions
+            options = _public_options(state, grant)
+            willing = actor in initial or (options and controllers[actor].wants_public(
+                observe(state, actor, options=options, grant=grant),
+                tuple(o.request for o in options)
             ))
-            if actions and willing:
+            if options and willing:
                 selected = grant
                 selected.must_public = True
                 break

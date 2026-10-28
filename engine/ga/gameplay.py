@@ -232,6 +232,11 @@ def _raw_options(
                                    target.isolation_id == player.isolation_id and
                                    (ranged or target.location == player.location) and
                                    (weapon == "earthquake" or _visible(player, target, attribute))))
+            if weapon == "earthquake":
+                targets = tuple(sorted(set(targets) | {key for key, target in
+                    state.ga_units.items() if target.alive and
+                    target.owner_id != player.player_id and target.location == player.location and
+                    target.isolation_id == player.isolation_id}))
             costs = ()
             if weapon == "bow" and "infinite" not in player.modules:
                 costs = cost("ammo:bow", cfg.get("weapons", "bow", "ammo_per_attack"))
@@ -268,6 +273,11 @@ def _raw_options(
             add("charge", ActionVerb.SPECIAL)
         _location_options(state, player, add, cost)
         _throw_options(state, player, add, cost)
+        for index, option in enumerate(result):
+            if option.request.operation == "throw" and option.request.parameters["kind"] in (
+                "fragment", "molotov"
+            ):
+                result[index] = replace(option, effects=(_throw_effect(state, option.request),))
         if _lootable(state, player):
             add("loot", ActionVerb.INTERACT)
         add("forfeit", ActionVerb.SPECIAL)
@@ -398,12 +408,16 @@ def _throw_options(
                            and target.alive and target.home_locked and
                            target.location == player.location and
                            target.isolation_id == player.isolation_id))
+    area_targets = tuple(sorted((*targets, *(key for key, target in state.ga_units.items()
+        if target.alive and target.owner_id != player.player_id and
+        target.location == player.location and target.isolation_id == player.isolation_id))))
     for kind in TACTICAL_ITEMS:
-        if not player.inventory.get(kind, 0) or (kind != "smoke" and not targets):
+        declared = area_targets if kind in ("fragment", "molotov") else targets
+        if not player.inventory.get(kind, 0) or (kind != "smoke" and not declared):
             continue
         if kind == "smoke" and player.location in state.ga_smoke:
             continue
-        add("throw", ActionVerb.SPECIAL, targets=targets,
+        add("throw", ActionVerb.SPECIAL, targets=declared,
             costs=cost(f"item:{kind}", state.ga_config.get("consumables", "per_throw")),
             hostile=kind != "smoke", kind=kind)
 
@@ -419,6 +433,10 @@ def _context(state: GameState, grant: ActionGrant, stage: TurnStage) -> ActionCo
     verbs = frozenset({ActionVerb.MOVE, ActionVerb.ATTACK}) if grant.kind in (
         GrantKind.STEP_FOLLOWUP, GrantKind.REACTION
     ) else frozenset(ActionVerb)
+    parent = state.current_grant
+    if grant.movement_blocked or (grant.kind is GrantKind.ROOT_STEP and parent and
+                                 parent.actor_id == grant.actor_id and parent.movement_blocked):
+        verbs = verbs - {ActionVerb.MOVE}
     root = grant.root_id or f"{grant.grant_id}/{stage.value}"
     return ActionContext(grant.actor_id, grant.grant_id, root,
                          grant.kind, snapshot_id(state), resources,
@@ -456,6 +474,35 @@ def _request_key(request: ActionRequest, *, consumes_stage: bool) -> tuple[str, 
     """普通小动作共用阶段位；必要设置分别去重且不占用小动作。"""
     identity = "stage" if consumes_stage else json.dumps(request.to_dict(), sort_keys=True)
     return request.grant_id, request.stage.value, identity
+
+
+def describe_options(
+    state: GameState, grant: ActionGrant | None, options: tuple[ActionOption, ...],
+) -> tuple[dict[str, Any], ...]:
+    """说明来自同次枚举与正式预检；声明效果不冒充动态钩子之后的预计伤害。"""
+    from engine.ga.observation import public_value
+    if grant is None:
+        raise ContractError("candidates", "descriptions require the actual decision grant")
+    result = []
+    contexts: dict[TurnStage, ActionContext] = {}
+    for index, option in enumerate(options):
+        if option.request.stage not in contexts:
+            contexts[option.request.stage] = _context(state, grant, option.request.stage)
+        plan = precheck_action(option.request, contexts[option.request.stage],
+                               option.definition, state.ga_config)
+        if not plan.accepted:
+            raise ContractError("candidates", "cannot describe a rejected option as legal")
+        result.append({
+            "index": index, "request": option.request.to_dict(),
+            "costs": public_value(plan.costs), "phase_claim": public_value(plan.phase_claim),
+            "random_requirements": public_value(plan.random_requirements),
+            "hostile": option.hostile, "ordinary_attack": option.ordinary_attack,
+            "requires_confirmation": option.confirm is not None,
+            "has_continuation": option.after is not None,
+            "declared_effects": public_value(option.effects),
+            "effect_scope": "registered_before_runtime_hooks",
+        })
+    return tuple(result)
 
 
 def legal_actions(state: GameState) -> tuple[ActionRequest, ...]:
@@ -566,6 +613,8 @@ def execute_registered_step(state: GameState, option: ActionOption) -> ActionRec
     previous_meta = state.ga_action_meta.get(request.root_id)
     grant = ActionGrant(request.grant_id, request.actor_id, GrantKind.ROOT_STEP,
                         root_id=request.root_id)
+    if previous[0] and previous[0].actor_id == request.actor_id:
+        grant.movement_blocked = previous[0].movement_blocked
     state.ga_response_options[grant.grant_id] = (option,)
     state.current_grant, state.current_stage = grant, request.stage
     try:
@@ -577,7 +626,9 @@ def execute_registered_step(state: GameState, option: ActionOption) -> ActionRec
         state.current_grant, state.current_stage = previous
 
 
-def _apply_builtin(state: GameState, request: ActionRequest) -> None:
+def _apply_builtin(
+    state: GameState, request: ActionRequest, *, purchase_crime: bool = True,
+) -> None:
     """已通过唯一验证器的地点/准备操作；天赋效果由注册候选提供。"""
     player = state.players[request.actor_id]
     cfg = state.ga_config
@@ -673,13 +724,13 @@ def _apply_builtin(state: GameState, request: ActionRequest) -> None:
             player.charged = False
         elif params["weapon"] == "hook":
             player.hook_cooldown = cfg.get("weapons", "hook", "cooldown_standard_slots")
-    elif op == "throw":
+    elif op == "throw" and params["kind"] not in ("fragment", "molotov"):
         _throw(state, request)
     elif op == "loot":
         _loot(state, player)
     elif op == "forfeit":
         emit(state, EventKind.TURN_FORFEITED, actor_id=player.player_id, root_id=request.root_id)
-    if player.location == "military" and op in (
+    if purchase_crime and player.location == "military" and op in (
         "buy_armor", "buy_module", "buy_weapon", "buy_item"
     ) and kind != "black_market_pass":
         if player.inventory.get("black_market_pass", 0):
@@ -721,21 +772,31 @@ def _after_attack(state: GameState, request: ActionRequest) -> None:
                         ))
 
 
+def _throw_effect(state: GameState, request: ActionRequest) -> EffectSpec:
+    """范围投掷声明真实玩家及NPC伤害；公共候选与宏子步骤共用此纯构造。"""
+    kind = request.parameters["kind"]
+    cfg = state.ga_config
+    player = state.players[request.actor_id]
+    targets = tuple(sorted(set(request.target_ids) | {key for key, target in
+        state.ga_units.items() if target.alive and target.owner_id != request.actor_id and
+        target.location == player.location and target.isolation_id == player.isolation_id}))
+    return EffectSpec(
+        f"{request.root_id}/throw", kind, request.root_id, f"{request.root_id}/throw-batch",
+        request.actor_id, request.actor_id, request.actor_id, targets,
+        EffectKind.DAMAGE, DamageKind.NORMAL, cfg.get("consumables", f"{kind}_damage"),
+        DamageAttribute.MAGIC if kind == "molotov" else DamageAttribute.NORMAL,
+        TargetScope.LOCAL_AREA, HitPolicy.CERTAIN, BarrierPolicy.RESPECT,
+        IsolationPolicy.RESPECT, DeathPolicy.NORMAL,
+        {"burn_stacks": cfg.get("consumables", "molotov_burn")} if kind == "molotov" else {},
+    )
+
+
 def _throw(state: GameState, request: ActionRequest) -> None:
-    """零伤控制道具是明文状态事件，不制造保底伤害。"""
+    """零伤道具显式写状态；宏伤害投掷共用声明，公共投掷已由execute统一结算。"""
     kind = request.parameters["kind"]
     cfg = state.ga_config
     if kind in ("fragment", "molotov"):
-        effect = EffectSpec(
-            f"{request.root_id}/throw", kind, request.root_id, f"{request.root_id}/throw-batch",
-            request.actor_id, request.actor_id, request.actor_id, request.target_ids,
-            EffectKind.DAMAGE, DamageKind.NORMAL, cfg.get("consumables", f"{kind}_damage"),
-            DamageAttribute.MAGIC if kind == "molotov" else DamageAttribute.NORMAL,
-            TargetScope.LOCAL_AREA, HitPolicy.CERTAIN, BarrierPolicy.RESPECT,
-            IsolationPolicy.RESPECT, DeathPolicy.NORMAL,
-            {"burn_stacks": cfg.get("consumables", "molotov_burn")} if kind == "molotov" else {},
-        )
-        resolve_batch(state, (effect,))
+        resolve_batch(state, (_throw_effect(state, request),))
     elif kind == "smoke":
         location = state.players[request.actor_id].location
         state.ga_smoke[location] = TimedEffect(request.root_id, request.actor_id,

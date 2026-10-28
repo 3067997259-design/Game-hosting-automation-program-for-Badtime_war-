@@ -13,8 +13,9 @@ from engine.ga.contracts import (
     TargetScope, TurnStage,
 )
 from engine.ga.events import EventKind
+from engine.ga.decisions import notify_action_result
 from engine.ga.extensions import IncomingModifier, ask, units
-from engine.ga.gameplay import ActionOption, execute_action, legal_actions, validate_request
+from engine.ga.gameplay import ActionOption, build_options, execute_action, validate_request
 from engine.ga.state import ActionGrant, emit, next_id, observe, touch
 from engine.ga.status import cleanse_burns, heal
 from engine.ga.talents.base import (
@@ -196,18 +197,21 @@ class Afterlife:
                                                   GrantKind.AFTERLIFE)
                 state.current_stage = TurnStage.T0
                 while not state.game_over:
-                    actions = legal_actions(state)
+                    options = build_options(state, state.current_grant, TurnStage.T0)
+                    actions = tuple(o.request for o in options)
                     controller = state.ga_controllers.get(actor)
                     chooser = getattr(controller, "choose_afterlife", None)
                     request = None
                     if chooser and actions:
-                        request = chooser(observe(state, actor), actions)
+                        request = chooser(observe(state, actor, options=options), actions)
                     if request is None:
                         break
                     if request not in actions:
                         from engine.ga.contracts import ContractError
                         raise ContractError("afterlife", "selection not in supplied candidates")
-                    execute_action(state, validate_request(state, request))
+                    receipt = execute_action(state, validate_request(state, request))
+                    if getattr(controller, "on_action_result", None) is not None:
+                        notify_action_result(controller, observe(state, actor), receipt)
         finally:
             state.current_grant, state.current_stage = previous
 
@@ -423,19 +427,18 @@ class Afterlife:
         ledger = state.ga_afterlife
         for entry in ledger.borrowed.get(actor, ()):
             slot = entry["talent"]
-            if stage is TurnStage.T1 and slot in ("T1", "T2"):
-                for original in attack_choices(state, grant, melee=slot == "T1", local=True):
+            if stage is TurnStage.T1 and slot == "T2":
+                from engine.ga.acquisition import take_options
+                result.extend(self.borrow_tag(option, entry["id"]) for option in
+                              take_options(state, grant, "encore_T2"))
+            elif stage is TurnStage.T1 and slot == "T1":
+                for original in attack_choices(state, grant, melee=True, local=True):
                     candidate = weapon_option(state, grant, original, f"encore_{slot}",
                                               Performance.INSTANT,
                                               multiplier=state.ga_config.get("talents", "T1",
-                                                                              "core_multiplier") if
-                                              slot == "T1" else 1,
-                                              bonus=state.ga_config.get("talents", "T2",
-                                                                         "performance_bonus") if
-                                              slot == "T2" else 0,
+                                                                              "core_multiplier"),
                                               wear_price=state.ga_config.get("talents", "T1",
-                                                                              "wear_price") if
-                                              slot == "T1" else 1)
+                                                                              "wear_price"))
                     result.append(self.borrow_tag(candidate, entry["id"]))
             elif slot == "T3" and stage is TurnStage.T0:
                 result.append(self.borrow_tag(ability(grant, stage, "encore_T3",

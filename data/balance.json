@@ -839,7 +839,7 @@
         },
         "talents": {
             "T1": {"core_multiplier": 2, "wear_price": 2},
-            "T2": {"performance_bonus": 1, "armor_hits_per_repair": 2, "repair_amount": 1, "shadow_step_sp_cost": 1, "shadow_step_uses": 2},
+            "T2": {"chapter_performance_rounds": 2, "armor_hits_per_repair": 2, "repair_amount": 1, "shadow_step_sp_cost": 1, "shadow_step_uses": 2},
             "T3": {"barrier": 3, "barrier_ticks": 2, "shockwave_wear": 1, "starfall_damage": 4, "defense_coefficient": 0},
             "T4": {"pierce_damage": 6, "defense_coefficient": 0, "weapon_disable_ticks": 1, "stealth_ticks": 2, "public_target_cap": 2},
             "T6": {"hotline_price": 0},
