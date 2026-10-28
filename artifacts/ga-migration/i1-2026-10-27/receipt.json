@@ -1,0 +1,161 @@
+{
+  "batch": "I1-no-talent-complete-loop",
+  "completed_at_utc": "2026-10-27T02:13:37.886820+00:00",
+  "head_at_start": "c6e19a8882cffc60b163cc9407e70472feccc9e1",
+  "new_runtime_tests": 98,
+  "combined_tests_passed": 968,
+  "subtests_passed": 2,
+  "test_elapsed_seconds": 15.55,
+  "test_command": "python -B -m pytest -p no:cacheprovider tests/test_ga_config.py tests/test_ga_contracts.py tests/test_ga_events.py tests/test_ga_combat.py tests/test_ga_gameplay.py tests/test_ga_runtime.py tests/test_experiments.py tests/test_m4_gear.py tests/test_m9_combat.py -q --tb=short --basetemp artifacts/ga-migration/i1-2026-10-27/pytest-final-4",
+  "old_m9_smoke_passed": 8,
+  "game_state_entry": "engine.game_state.GameState.new_ga",
+  "candidate_cli": "python -B tools/ga_play.py --players 6 --seed 0",
+  "matrix": {
+    "games": 60,
+    "passed": 60,
+    "failures": 0,
+    "round_limit": 0,
+    "all_dead": 0,
+    "last_survivor": 60,
+    "by_players": {
+      "2": {
+        "games": 20,
+        "min_rounds": 6,
+        "max_rounds": 6,
+        "mean_rounds": 6.0
+      },
+      "4": {
+        "games": 20,
+        "min_rounds": 7,
+        "max_rounds": 9,
+        "mean_rounds": 8.1
+      },
+      "6": {
+        "games": 20,
+        "min_rounds": 8,
+        "max_rounds": 11,
+        "mean_rounds": 9.75
+      }
+    }
+  },
+  "matrix_protocol": "final-runtime/protocol.json",
+  "final_matrix_receipts": "final-runtime/matrix-{2,4,6}.jsonl",
+  "cli_replay": {
+    "terminal": true,
+    "score_winners": true,
+    "rounds": true,
+    "world_tick": true,
+    "events": true,
+    "random_draws": true,
+    "trace": true,
+    "choices": true
+  },
+  "audit": {
+    "python_checks": {
+      "engine/ga/state.py": {
+        "ast": true,
+        "utf8_without_bom": true,
+        "max_line_width": 100,
+        "annotations": true
+      },
+      "engine/ga/status.py": {
+        "ast": true,
+        "utf8_without_bom": true,
+        "max_line_width": 100,
+        "annotations": true
+      },
+      "engine/ga/combat.py": {
+        "ast": true,
+        "utf8_without_bom": true,
+        "max_line_width": 100,
+        "annotations": true
+      },
+      "engine/ga/gameplay.py": {
+        "ast": true,
+        "utf8_without_bom": true,
+        "max_line_width": 100,
+        "annotations": true
+      },
+      "engine/ga/runtime.py": {
+        "ast": true,
+        "utf8_without_bom": true,
+        "max_line_width": 100,
+        "annotations": true
+      },
+      "engine/ga/controllers.py": {
+        "ast": true,
+        "utf8_without_bom": true,
+        "max_line_width": 100,
+        "annotations": true
+      },
+      "tools/ga_play.py": {
+        "ast": true,
+        "utf8_without_bom": true,
+        "max_line_width": 100,
+        "annotations": true
+      },
+      "tests/test_ga_combat.py": {
+        "ast": true,
+        "utf8_without_bom": true,
+        "max_line_width": 100,
+        "annotations": true
+      },
+      "tests/test_ga_runtime.py": {
+        "ast": true,
+        "utf8_without_bom": true,
+        "max_line_width": 100,
+        "annotations": true
+      },
+      "tests/test_ga_gameplay.py": {
+        "ast": true,
+        "utf8_without_bom": true,
+        "max_line_width": 100,
+        "annotations": true
+      }
+    },
+    "protected_inputs_unchanged": {
+      "docs/v2.0-ga/manual_draft_v0.1.md": true,
+      "data/balance.json": true,
+      "engine/ga/config.py": true,
+      "engine/ga/contracts.py": true,
+      "engine/ga/actions.py": true,
+      "engine/ga/events.py": true
+    },
+    "documentation_links": true,
+    "default_profile": "legacy"
+  },
+  "manual_policy": {
+    "written_by_this_batch": false,
+    "concurrent_user_changes_allowed": true,
+    "unchanged_at_final_check": true
+  },
+  "models": {
+    "loaded": false,
+    "trained": false,
+    "copied": false,
+    "modified": false
+  },
+  "source_sha256": {
+    "engine/ga/state.py": "fb932d8272225e736229f175077884c259f771462c4b00af7bc2bdf9192061ed",
+    "engine/ga/status.py": "8421066fd8bafc052db1129d9f2bb805db16813a91bc16f8b4cc76444b2d6227",
+    "engine/ga/combat.py": "162d11365dd07773b1ef0135bd31166dfbf0b668dbfcafa66fd97c167caede7f",
+    "engine/ga/gameplay.py": "7d291a31f136a9f95ec74d3745e6d1bbc873701f08632cf1c84aa2c45573831e",
+    "engine/ga/runtime.py": "d75debe0ff0de31597b22699e1de4ab5bf722c72c9e9f744594702fe7c7b2c44",
+    "engine/ga/controllers.py": "b21da9bffc0ce0da4f9abd8ec9294b19bc86ede70be944850d7bef983ba48cf6",
+    "tools/ga_play.py": "c72094809a8edafcd587e04ac79ed4c54ba8dfdb5d73ae4d0776fc25f3d23982",
+    "tests/test_ga_combat.py": "240c6bd627ba093b0f4d7bd54688a9cf10733dfcc898db5cb21add4b7c5d3d62",
+    "tests/test_ga_runtime.py": "3a981a79c866d5f46ee16213609d4a53689452ea53ce51b7c7c97b4fe9928d92",
+    "tests/test_ga_gameplay.py": "d0cda84b98fe4284036a4f6aabf477a9f30243f6e47c4afa4b97dae63cf1c6be",
+    "engine/game_state.py": "7e1bbb6f349c70b58ed952991501ab58c32b4440ee2be443314081755084ce0e",
+    "docs/v2.0-ga/README.md": "8d29ed6ed8ecdb279d7c515bcd5e6154c79f3b254195b4bb1c5880ed5428079a",
+    "docs/v2.0-ga/implementation_contract_v0.1.md": "9c058151fb72d88ee53737e96e6e492c0c1e26b40d409115d8a73f002a54b9c2"
+  },
+  "baseline_and_originals": "baseline.json and originals/",
+  "limitations": [
+    "Native GA candidate runtime; main/network/RL defaults remain unswitched until I5",
+    "Police, afterlife and talent adapters are I2/I3 work; no legacy fallback",
+    "Public/extra/followup scheduling tested through registered effect fixtures; no invented talentless performance",
+    "Morph/insurance and all fourteen role chapter routes have not passed",
+    "60 minimal-strategy matches establish this no-talent runtime, not fourteen-role balance"
+  ]
+}

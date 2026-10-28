@@ -1,0 +1,27 @@
+{
+  "batch": "I0-parameters",
+  "source_sha256": "a49e463d4cb8f8b2c4851973bd3434b987efdc002428e347c2430a3b2e2725bc",
+  "live_n0_changed_during_batch": false,
+  "required_leaves": 625,
+  "parameter_fingerprint": "43e561d3b01cafe874bbf000dbb405350277a64794821fe7c0d3cda57c9cd34f",
+  "tests": {
+    "command": "python -B -m pytest -p no:cacheprovider tests/test_ga_config.py tests/test_experiments.py tests/test_m4_gear.py tests/test_m9_combat.py -q --tb=short --basetemp <fresh workspace path>",
+    "passed": 775,
+    "subtests_passed": 2,
+    "old_m9_smoke_scenarios_passed": 8
+  },
+  "old_config_blocks_unchanged": true,
+  "runtime_default": "legacy",
+  "files": {
+    "data/balance.json": "a0d585a52ea0bee6605842ddde41f19ea86971a1ac75280fbd632026e50213b9",
+    "engine/balance.py": "6357430070f388cdf9d6c739e05c9c47621faa0067cc3ab3be1a53301cc77c96",
+    "engine/ga/__init__.py": "0b1191808aaad2290f4df8cb71ff6575b4780c1771387ec66ed4aeeb3f735b28",
+    "engine/ga/config.py": "0fc3b824ed51367e82b7e04135fcaafb36196ff95609c419dd700a32ef80dce4",
+    "tests/test_ga_config.py": "330d143d957cb9ff1faba9890cf43e18ba6c9f96813e611a558cfe8c11885f02"
+  },
+  "limitations": [
+    "GA runtime is not wired yet",
+    "GA-001..040 gameplay fixtures have not run",
+    "No model loaded, trained or modified"
+  ]
+}

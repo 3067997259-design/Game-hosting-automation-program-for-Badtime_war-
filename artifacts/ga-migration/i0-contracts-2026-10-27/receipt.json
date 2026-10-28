@@ -1,0 +1,40 @@
+{
+  "batch": "I0-common-contracts",
+  "new_interface_tests": 95,
+  "combined_tests_passed": 870,
+  "subtests_passed": 2,
+  "old_m9_smoke_passed": 8,
+  "combined_test_command": "python -B -m pytest -p no:cacheprovider tests/test_ga_contracts.py tests/test_ga_events.py tests/test_ga_config.py tests/test_experiments.py tests/test_m4_gear.py tests/test_m9_combat.py -q --tb=short --basetemp <fresh workspace directory>",
+  "interface_smoke": {
+    "passed": true,
+    "scope": "typed precheck -> supplied resolution fixture -> atomic events -> one award -> sealed snapshot",
+    "gameplay_resolver_executed": false,
+    "event_kinds": [
+      "hp_damaged",
+      "armor_worn"
+    ],
+    "replay_new_payment": 0,
+    "parameter_fingerprint": "43e561d3b01cafe874bbf000dbb405350277a64794821fe7c0d3cda57c9cd34f"
+  },
+  "protected_inputs_unchanged": {
+    "data/balance.json": true,
+    "engine/balance.py": true,
+    "engine/ga/config.py": true,
+    "docs/v2.0-ga/manual_draft_v0.1.md": true
+  },
+  "manual_policy": "No manual write was performed; concurrent user edits are allowed",
+  "source_sha256": {
+    "engine/ga/contracts.py": "20623c8c08f2d0709b4b9b9bb4fe2838b2130635755c1911e766d40469ec35ee",
+    "engine/ga/actions.py": "3dca664bd4307bec8c8f86cc948d84e60737e209aded2b651c71b7d0237ea596",
+    "engine/ga/events.py": "00a23aa4a58b929e857cf150392d750400eb385e3b4c26885147f6dcc43d1401",
+    "tests/test_ga_contracts.py": "748e4ab5b544cadfb0ca378933383d079743e12685813aa9a6e8467c769ac4c8",
+    "tests/test_ga_events.py": "7251b4f1323475b3dc240d5d38f61bafe2fac117ee4e2557566318a35a83b72f"
+  },
+  "limitations": [
+    "No production GameState/scheduler integration",
+    "No GA combat resolver or complete matches yet",
+    "Awards are receipts; actual balances remain owned by GameState",
+    "GA-001..040 have not passed as full gameplay scenarios",
+    "No model loaded or trained"
+  ]
+}

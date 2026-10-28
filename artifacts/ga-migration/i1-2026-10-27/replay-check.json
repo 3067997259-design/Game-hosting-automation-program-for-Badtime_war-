@@ -1,0 +1,10 @@
+{
+  "terminal": true,
+  "score_winners": true,
+  "rounds": true,
+  "world_tick": true,
+  "events": true,
+  "random_draws": true,
+  "trace": true,
+  "choices": true
+}

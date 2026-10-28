@@ -44,6 +44,8 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+# GA 迁移收据里残留的 pytest 临时目录（当时 --basetemp 指进了 artifacts）
+artifacts/ga-migration/*/pytest-*/
 
 # ── 其他 ─────────────────────────────────────────────────
 *.log

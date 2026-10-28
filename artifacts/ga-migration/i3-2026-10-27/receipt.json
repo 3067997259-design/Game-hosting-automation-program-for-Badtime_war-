@@ -1,0 +1,489 @@
+{
+  "batch": "I3-five-complex-talents-and-fourteen-poems",
+  "completed_at_utc": "2026-10-27T10:46:22.915367+00:00",
+  "head_at_start": "c6e19a8882cffc60b163cc9407e70472feccc9e1",
+  "new_i3_tests": 85,
+  "combined_tests": {
+    "passed": 1152,
+    "subtests_passed": 2,
+    "seconds": 30.18,
+    "log": "pytest-final-3.log",
+    "command": [
+      "C:\\Users\\86130\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "-p",
+      "no:cacheprovider",
+      "tests\\test_ga_afterlife.py",
+      "tests\\test_ga_combat.py",
+      "tests\\test_ga_config.py",
+      "tests\\test_ga_contracts.py",
+      "tests\\test_ga_divine_i2.py",
+      "tests\\test_ga_events.py",
+      "tests\\test_ga_g2.py",
+      "tests\\test_ga_g3.py",
+      "tests\\test_ga_g5.py",
+      "tests\\test_ga_g6.py",
+      "tests\\test_ga_g7.py",
+      "tests\\test_ga_gameplay.py",
+      "tests\\test_ga_i2_round_traces.py",
+      "tests\\test_ga_i2_system_edges.py",
+      "tests\\test_ga_i3_edges.py",
+      "tests\\test_ga_i3_round_traces.py",
+      "tests\\test_ga_origins.py",
+      "tests\\test_ga_poems.py",
+      "tests\\test_ga_police.py",
+      "tests\\test_ga_runtime.py",
+      "tests/test_experiments.py",
+      "tests/test_m4_gear.py",
+      "tests/test_m9_combat.py",
+      "-q",
+      "--tb=short",
+      "--basetemp",
+      "artifacts\\ga-migration\\i3-2026-10-27\\pytest-final-3"
+    ]
+  },
+  "old_m9_smoke": {
+    "passed": 8,
+    "scope": "regression, not GA balance"
+  },
+  "matrix": {
+    "passed": 60,
+    "failures": 0,
+    "round_limit": 0,
+    "protocol": "final-runtime-3/protocol.json",
+    "by_players": {
+      "2": {
+        "games": 20,
+        "reasons": {
+          "last_survivor": 20
+        },
+        "rounds_min": 4,
+        "rounds_max": 14,
+        "rounds_mean": 7.35,
+        "seconds_max": 0.30993170000056125
+      },
+      "4": {
+        "games": 20,
+        "reasons": {
+          "last_survivor": 20
+        },
+        "rounds_min": 7,
+        "rounds_max": 20,
+        "rounds_mean": 10.7,
+        "seconds_max": 1.24734989999979
+      },
+      "6": {
+        "games": 20,
+        "reasons": {
+          "last_survivor": 20
+        },
+        "rounds_min": 9,
+        "rounds_max": 20,
+        "rounds_mean": 11.95,
+        "seconds_max": 2.3558246000002327
+      }
+    }
+  },
+  "cli_replay": {
+    "terminal": true,
+    "score_winners": true,
+    "rounds": true,
+    "world_tick": true,
+    "events": true,
+    "closure_display": true,
+    "random_draws": true,
+    "trace": true,
+    "choices": true,
+    "replay_inputs": true,
+    "scope": true
+  },
+  "cli_lineup": [
+    "G2",
+    "G3",
+    "G5",
+    "G6",
+    "G7",
+    "G1"
+  ],
+  "cli_seed": 2,
+  "recorded_actions": 72,
+  "source_matches_final_matrix": {
+    "engine/ga/actions.py": true,
+    "engine/ga/afterlife.py": true,
+    "engine/ga/combat.py": true,
+    "engine/ga/config.py": true,
+    "engine/ga/contracts.py": true,
+    "engine/ga/controllers.py": true,
+    "engine/ga/events.py": true,
+    "engine/ga/extensions.py": true,
+    "engine/ga/gameplay.py": true,
+    "engine/ga/poems.py": true,
+    "engine/ga/police.py": true,
+    "engine/ga/runtime.py": true,
+    "engine/ga/setup.py": true,
+    "engine/ga/state.py": true,
+    "engine/ga/status.py": true,
+    "engine/ga/world.py": true,
+    "engine/ga/__init__.py": true,
+    "engine/ga/talents/base.py": true,
+    "engine/ga/talents/g0.py": true,
+    "engine/ga/talents/g1.py": true,
+    "engine/ga/talents/g2.py": true,
+    "engine/ga/talents/g3.py": true,
+    "engine/ga/talents/g4.py": true,
+    "engine/ga/talents/g5.py": true,
+    "engine/ga/talents/g6.py": true,
+    "engine/ga/talents/g7.py": true,
+    "engine/ga/talents/t1.py": true,
+    "engine/ga/talents/t2.py": true,
+    "engine/ga/talents/t3.py": true,
+    "engine/ga/talents/t4.py": true,
+    "engine/ga/talents/t6.py": true,
+    "engine/ga/talents/t7.py": true,
+    "engine/ga/talents/__init__.py": true,
+    "engine/game_state.py": true,
+    "tools/ga_play.py": true
+  },
+  "python_audit": {
+    "engine/ga/actions.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/afterlife.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/combat.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/config.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/contracts.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/controllers.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/events.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/extensions.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/gameplay.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/poems.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/police.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/runtime.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/setup.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/state.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/status.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/world.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/__init__.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/base.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/g0.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/g1.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/g2.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/g3.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/g4.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/g5.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/g6.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/g7.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/t1.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/t2.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/t3.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/t4.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/t6.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/t7.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "engine/ga/talents/__init__.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "tools/ga_play.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "tests/test_ga_g2.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "tests/test_ga_g3.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "tests/test_ga_g5.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "tests/test_ga_g6.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "tests/test_ga_g7.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "tests/test_ga_poems.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "tests/test_ga_i3_edges.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "tests/test_ga_i3_round_traces.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    },
+    "tests/test_ga_i2_round_traces.py": {
+      "ast": true,
+      "annotations": true,
+      "utf8_without_bom": true,
+      "line_width_100": true
+    }
+  },
+  "protected_inputs_unchanged": {
+    "data/balance.json": true,
+    "engine/ga/config.py": true,
+    "engine/ga/contracts.py": true,
+    "engine/ga/events.py": true
+  },
+  "legacy_game_state_unchanged": true,
+  "manual": {
+    "written_by_this_batch": false,
+    "unchanged_at_final_check": true,
+    "concurrent_changes_allowed_and_preserved": true
+  },
+  "checkpoint_models": {
+    "loaded": false,
+    "trained": false,
+    "copied": false,
+    "modified": false
+  },
+  "worktree": {
+    "reset": false,
+    "cleaned": false,
+    "auto_committed": false,
+    "recoverable_originals_verified": true
+  },
+  "default_profile": "legacy",
+  "parameter_fingerprint": "43e561d3b01cafe874bbf000dbb405350277a64794821fe7c0d3cda57c9cd34f",
+  "source_sha256": {
+    "engine/ga/actions.py": "bf341f5ff3e8acea9591311574ae316fdbdd300b08600c87e4b6717d4981d34b",
+    "engine/ga/afterlife.py": "680e00dd66c72f8d3965fc651691e28b0dc90b34efb2eca77ee48024accd4938",
+    "engine/ga/combat.py": "c837b17fa776dbbe8496a560b95d7c9e7bea02b2cf33e6c0928ba61b0098fe3b",
+    "engine/ga/config.py": "0fc3b824ed51367e82b7e04135fcaafb36196ff95609c419dd700a32ef80dce4",
+    "engine/ga/contracts.py": "20623c8c08f2d0709b4b9b9bb4fe2838b2130635755c1911e766d40469ec35ee",
+    "engine/ga/controllers.py": "825ad1ce83032ead77da71733c1d41e83fb3f93623b9f48bbed226b54a6a9430",
+    "engine/ga/events.py": "00a23aa4a58b929e857cf150392d750400eb385e3b4c26885147f6dcc43d1401",
+    "engine/ga/extensions.py": "7cffe467c89e950eed500916e540fe74c64d7b6846933eafbb33e9be8d30137d",
+    "engine/ga/gameplay.py": "78dc254b3335d038b5894fcec65fd857d59028a3280e22fb50447fef3de56b45",
+    "engine/ga/poems.py": "a40a2f35db705af9dda7bc0e2bb555c7a1bed33ebce2f4449c679e956c8f0de8",
+    "engine/ga/police.py": "b6199ab1b79a01809ea64e484642b312cc6126cce66643289ce50015821ea6cb",
+    "engine/ga/runtime.py": "d571b31b6c6e0b1ab337bbf0bffa3ee3df12fbf4e21201a9a367adea3b61bc81",
+    "engine/ga/setup.py": "3811ae4006c8e593cf41bdd764302f1429a8119c70054972e75c2acef8237437",
+    "engine/ga/state.py": "74d8ac8bfd5274dcc0bfa2de9923310cfa7f033e1c108680eaec914ab390eee8",
+    "engine/ga/status.py": "11aa14a172ef2e8ba64e4fa3a79c7727c4806a07a76301935217145119d34749",
+    "engine/ga/world.py": "02c25e79b1e5c1407259415da7d018fd3fdedbe35d72b230e78acae02e080a56",
+    "engine/ga/__init__.py": "0b1191808aaad2290f4df8cb71ff6575b4780c1771387ec66ed4aeeb3f735b28",
+    "engine/ga/talents/base.py": "210ad9e3ded3a48203b2a7ef82fbdab6fbab79d4ec5f3bda1f04cb2b0e4dec45",
+    "engine/ga/talents/g0.py": "c09f1247e13323afb2ce3f555c1744bac6f2427f22d13fb2224eaac4affcad2f",
+    "engine/ga/talents/g1.py": "dfa06c3d56da6d1bf1a2df7ff7011de79e2840b45d629f809f6b58c3d81a4785",
+    "engine/ga/talents/g2.py": "5bf72088e140b22e53fe18a6e8f5be511984af477f58d07585caee92f9ddafdd",
+    "engine/ga/talents/g3.py": "799b6e210b57b0a0c9e19cdce09b075c778b0b12714373b5c88834123076ba7d",
+    "engine/ga/talents/g4.py": "81b6b7738a18b77923574f8844d33c4741f9546ae7aab91e9d70ba848f63dffd",
+    "engine/ga/talents/g5.py": "269e332f13c535c04cc0e6a462ce723b50bf35232ff20d582371ec3eb291b42d",
+    "engine/ga/talents/g6.py": "ccdc95a3bf459a0daa25f754c24920c2a5f9ebb15dff89af91ba4a6741da9d7b",
+    "engine/ga/talents/g7.py": "226715872ae66f11e2766e72e3b47f19b879167ca3af183be4364ca090420cf3",
+    "engine/ga/talents/t1.py": "c49b1ada2783576e60cca2e3f17190cbb396f7d8117795ac9b238d9af99dab68",
+    "engine/ga/talents/t2.py": "edad937b31300f6ea70f8ee3006348c1ad94aa733ee98c1b0c7434f7b9139e49",
+    "engine/ga/talents/t3.py": "dfe1ee94e8412fff20b87167f4018630a80593827dc264cfefa7e554295a671c",
+    "engine/ga/talents/t4.py": "8c860ba9a87e00a8461799c2555a96bb526b36b8e04f5e660530c561289a1dc0",
+    "engine/ga/talents/t6.py": "cb4c733d724e5e3d5b86b45d38ba20ae528de9f48ea1b258fb39b0a803c40834",
+    "engine/ga/talents/t7.py": "d2e93ba13cc5003cfc14f5f9f0799b8e29e32d7354eafddb93641d6f79eeb2f0",
+    "engine/ga/talents/__init__.py": "eb839a5e055cc545267ff2d209ead1f047d202b1f809dde0b8470c3dda3e87fb",
+    "tools/ga_play.py": "e46c2249586df9ad3762b16ad444250b834ca059fe4b344a4cf2c4bdb811ac15",
+    "tests/test_ga_g2.py": "44fcbaac25b7af29fe5bad3b575830deeb302ff079fc3808b989c469c3200004",
+    "tests/test_ga_g3.py": "0ccbd1815a167f2876c515356e2819b05b9349d20ac52857499dbaa509c20a81",
+    "tests/test_ga_g5.py": "d887c45cebbf58d64317436c88b528630387e4a3bd66b9af9428959a31e8e6e6",
+    "tests/test_ga_g6.py": "0f4f8215151491ffc15071e6777c9199c31c483f2ee592bd068bfef89da93e95",
+    "tests/test_ga_g7.py": "d93da07e238eb0800d5e8f8cd62ee3cf741a35aefa7e04886acb5eff1e7524cd",
+    "tests/test_ga_poems.py": "ec3eca39503ee3752009b1c0e556a22ade299c23bb0ce47f5214df3ca86c9fd8",
+    "tests/test_ga_i3_edges.py": "1627ca14876cf80f442c51e006d6ec8e4d4da98d0b4d703bb573e8dc097833c1",
+    "tests/test_ga_i3_round_traces.py": "8867bd6fa0a12f2faa63a082c5bd96c53ceccbfa212bfd016915fbb657429b6c",
+    "tests/test_ga_i2_round_traces.py": "9a3e1a0fe695104e471d508be0138b43a42832ac7e402a57f65555dec45cc585",
+    "docs/v2.0-ga/README.md": "5ea6b635138be526ef280777ebb06a917914e616b9d37510b696b6028f5fe96f",
+    "docs/v2.0-ga/implementation_contract_v0.1.md": "b74e91dfb64679bf9d216635ff96f9b5a94b1e2a33e6b425550ba45592cdd5ff"
+  },
+  "next": "I4: controllers, observation/action/reward semantics and model contracts",
+  "limits": [
+    "No balance claim",
+    "No default main/network/RL migration",
+    "Minimum candidate policy is not I4 BasicAI",
+    "Asynchronous UI response recovery deferred to I4"
+  ]
+}

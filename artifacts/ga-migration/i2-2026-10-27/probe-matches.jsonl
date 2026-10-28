@@ -1,0 +1,57 @@
+{"status": "passed", "players": 2, "seed": 0, "slots": ["T1", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.21794909999880474}
+{"status": "passed", "players": 2, "seed": 1, "slots": ["T1", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.2038027000016882}
+{"status": "passed", "players": 2, "seed": 2, "slots": ["T1", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.20581460000539664}
+{"status": "passed", "players": 2, "seed": 0, "slots": ["T2", "T6"], "rounds": 5, "reason": "last_survivor", "elapsed_seconds": 0.253169199997501}
+{"status": "passed", "players": 2, "seed": 1, "slots": ["T2", "T6"], "rounds": 5, "reason": "last_survivor", "elapsed_seconds": 0.2242428999961703}
+{"status": "passed", "players": 2, "seed": 2, "slots": ["T2", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.29193210000084946}
+{"status": "passed", "players": 2, "seed": 0, "slots": ["T3", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.26728559999901336}
+{"status": "passed", "players": 2, "seed": 1, "slots": ["T3", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.2682390999980271}
+{"status": "passed", "players": 2, "seed": 2, "slots": ["T3", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.2647978000022704}
+{"status": "passed", "players": 2, "seed": 0, "slots": ["T4", "T6"], "rounds": 8, "reason": "last_survivor", "elapsed_seconds": 0.36610140000266256}
+{"status": "passed", "players": 2, "seed": 1, "slots": ["T4", "T6"], "rounds": 8, "reason": "last_survivor", "elapsed_seconds": 0.3725685000026715}
+{"status": "passed", "players": 2, "seed": 2, "slots": ["T4", "T6"], "rounds": 8, "reason": "last_survivor", "elapsed_seconds": 0.34440729999914765}
+{"status": "passed", "players": 2, "seed": 0, "slots": ["T6", "T1"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.29233209999802057}
+{"status": "passed", "players": 2, "seed": 1, "slots": ["T6", "T1"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.3245478999961051}
+{"status": "passed", "players": 2, "seed": 2, "slots": ["T6", "T1"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.2952011000015773}
+{"status": "passed", "players": 2, "seed": 0, "slots": ["T7", "T6"], "rounds": 20, "reason": "all_dead", "elapsed_seconds": 0.9651805000030436}
+{"status": "passed", "players": 2, "seed": 1, "slots": ["T7", "T6"], "rounds": 19, "reason": "last_survivor", "elapsed_seconds": 0.9160660999987158}
+{"status": "passed", "players": 2, "seed": 2, "slots": ["T7", "T6"], "rounds": 19, "reason": "last_survivor", "elapsed_seconds": 0.9400712999995449}
+{"status": "passed", "players": 2, "seed": 0, "slots": ["G0", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.3276168000011239}
+{"status": "passed", "players": 2, "seed": 1, "slots": ["G0", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.28506670000206213}
+{"status": "passed", "players": 2, "seed": 2, "slots": ["G0", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.3196204000050784}
+{"status": "passed", "players": 2, "seed": 0, "slots": ["G1", "T6"], "rounds": 5, "reason": "last_survivor", "elapsed_seconds": 0.2665703000020585}
+{"status": "passed", "players": 2, "seed": 1, "slots": ["G1", "T6"], "rounds": 5, "reason": "last_survivor", "elapsed_seconds": 0.24108549999800744}
+{"status": "passed", "players": 2, "seed": 2, "slots": ["G1", "T6"], "rounds": 5, "reason": "last_survivor", "elapsed_seconds": 0.2516317999979947}
+{"status": "passed", "players": 2, "seed": 0, "slots": ["G4", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.29799959999945713}
+{"status": "passed", "players": 2, "seed": 1, "slots": ["G4", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.26514379999571247}
+{"status": "passed", "players": 2, "seed": 2, "slots": ["G4", "T6"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.27696100000321167}
+{"status": "passed", "players": 2, "seed": 0, "slots": ["T1", "T2"], "rounds": 5, "reason": "last_survivor", "elapsed_seconds": 0.36602639999910025}
+{"status": "passed", "players": 2, "seed": 1, "slots": ["T2", "T3"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.4464206999982707}
+{"status": "passed", "players": 2, "seed": 2, "slots": ["T3", "T4"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.2454628000050434}
+{"status": "passed", "players": 2, "seed": 3, "slots": ["T4", "T6"], "rounds": 8, "reason": "last_survivor", "elapsed_seconds": 0.3531943999987561}
+{"status": "passed", "players": 2, "seed": 4, "slots": ["T6", "T7"], "rounds": 12, "reason": "last_survivor", "elapsed_seconds": 0.5535268999956315}
+{"status": "passed", "players": 2, "seed": 5, "slots": ["T7", "G0"], "rounds": 12, "reason": "last_survivor", "elapsed_seconds": 0.6524740000022575}
+{"status": "passed", "players": 2, "seed": 6, "slots": ["G0", "G1"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.4451494999957504}
+{"status": "passed", "players": 2, "seed": 7, "slots": ["G1", "G4"], "rounds": 5, "reason": "last_survivor", "elapsed_seconds": 0.2877790999991703}
+{"status": "passed", "players": 2, "seed": 8, "slots": ["G4", "T1"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.3127567999981693}
+{"status": "passed", "players": 2, "seed": 9, "slots": ["T1", "T2"], "rounds": 6, "reason": "last_survivor", "elapsed_seconds": 0.4669763999991119}
+{"status": "passed", "players": 4, "seed": 0, "slots": ["T1", "T2", "T3", "T4"], "rounds": 10, "reason": "last_survivor", "elapsed_seconds": 1.1037260999946739}
+{"status": "passed", "players": 4, "seed": 1, "slots": ["T2", "T3", "T4", "T6"], "rounds": 10, "reason": "last_survivor", "elapsed_seconds": 1.2247566000005463}
+{"status": "passed", "players": 4, "seed": 2, "slots": ["T3", "T4", "T6", "T7"], "rounds": 20, "reason": "last_survivor", "elapsed_seconds": 2.0852079000032973}
+{"status": "passed", "players": 4, "seed": 3, "slots": ["T4", "T6", "T7", "G0"], "rounds": 14, "reason": "last_survivor", "elapsed_seconds": 1.5902293999970425}
+{"status": "passed", "players": 4, "seed": 4, "slots": ["T6", "T7", "G0", "G1"], "rounds": 9, "reason": "last_survivor", "elapsed_seconds": 1.1387811000022339}
+{"status": "passed", "players": 4, "seed": 5, "slots": ["T7", "G0", "G1", "G4"], "rounds": 9, "reason": "last_survivor", "elapsed_seconds": 1.155595899996115}
+{"status": "passed", "players": 4, "seed": 6, "slots": ["G0", "G1", "G4", "T1"], "rounds": 9, "reason": "last_survivor", "elapsed_seconds": 1.4787952000042424}
+{"status": "passed", "players": 4, "seed": 7, "slots": ["G1", "G4", "T1", "T2"], "rounds": 9, "reason": "last_survivor", "elapsed_seconds": 1.3651205999995}
+{"status": "passed", "players": 4, "seed": 8, "slots": ["G4", "T1", "T2", "T3"], "rounds": 9, "reason": "last_survivor", "elapsed_seconds": 1.3108659999998054}
+{"status": "passed", "players": 4, "seed": 9, "slots": ["T1", "T2", "T3", "T4"], "rounds": 10, "reason": "last_survivor", "elapsed_seconds": 1.1497477999946568}
+{"status": "passed", "players": 6, "seed": 0, "slots": ["T1", "T2", "T3", "T4", "T6", "T7"], "rounds": 20, "reason": "last_survivor", "elapsed_seconds": 3.8298594000007142}
+{"status": "passed", "players": 6, "seed": 1, "slots": ["T2", "T3", "T4", "T6", "T7", "G0"], "rounds": 10, "reason": "last_survivor", "elapsed_seconds": 2.4759354000052554}
+{"status": "passed", "players": 6, "seed": 2, "slots": ["T3", "T4", "T6", "T7", "G0", "G1"], "rounds": 9, "reason": "last_survivor", "elapsed_seconds": 1.9501713999998174}
+{"status": "passed", "players": 6, "seed": 3, "slots": ["T4", "T6", "T7", "G0", "G1", "G4"], "rounds": 10, "reason": "last_survivor", "elapsed_seconds": 2.3093368999980157}
+{"status": "passed", "players": 6, "seed": 4, "slots": ["T6", "T7", "G0", "G1", "G4", "T1"], "rounds": 9, "reason": "last_survivor", "elapsed_seconds": 2.0672188000025926}
+{"status": "passed", "players": 6, "seed": 5, "slots": ["T7", "G0", "G1", "G4", "T1", "T2"], "rounds": 11, "reason": "last_survivor", "elapsed_seconds": 3.676732700005232}
+{"status": "passed", "players": 6, "seed": 6, "slots": ["G0", "G1", "G4", "T1", "T2", "T3"], "rounds": 11, "reason": "last_survivor", "elapsed_seconds": 3.1543022000041674}
+{"status": "passed", "players": 6, "seed": 7, "slots": ["G1", "G4", "T1", "T2", "T3", "T4"], "rounds": 14, "reason": "last_survivor", "elapsed_seconds": 2.9140327999994042}
+{"status": "passed", "players": 6, "seed": 8, "slots": ["G4", "T1", "T2", "T3", "T4", "T6"], "rounds": 15, "reason": "last_survivor", "elapsed_seconds": 2.5568555999998352}
+{"status": "passed", "players": 6, "seed": 9, "slots": ["T1", "T2", "T3", "T4", "T6", "T7"], "rounds": 19, "reason": "last_survivor", "elapsed_seconds": 3.640645899999072}

@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "scope": "typed precheck -> supplied resolution fixture -> atomic events -> one award -> sealed snapshot",
+  "gameplay_resolver_executed": false,
+  "event_kinds": [
+    "hp_damaged",
+    "armor_worn"
+  ],
+  "replay_new_payment": 0,
+  "parameter_fingerprint": "43e561d3b01cafe874bbf000dbb405350277a64794821fe7c0d3cda57c9cd34f"
+}

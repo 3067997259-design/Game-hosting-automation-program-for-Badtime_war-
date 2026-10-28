@@ -1,0 +1,1442 @@
+--- before-i3/tests/test_ga_i2_round_traces.py
++++ after-i3/tests/test_ga_i2_round_traces.py
+@@ -171,7 +171,7 @@
+     assert all(p.awake and p.home_locked for p in state.players.values())
+ 
+ 
+-@pytest.mark.parametrize("slot", ["T5", "G2", "G3", "G5", "G6", "G7", "old_g6_template"])
++@pytest.mark.parametrize("slot", ["T5", "old_g6_template"])
+ def test_unimplemented_or_retired_slots_fail_without_legacy_fallback(slot: str) -> None:
+     with pytest.raises(ContractError, match="unimplemented GA talent"):
+         GameState.new_ga(["a", "b"], talents={"a": slot})
+--- before-i3/tools/ga_play.py
++++ after-i3/tools/ga_play.py
+@@ -1,4 +1,4 @@
+-"""I2候选GA运行/重放工具；尚不切换正式main/RL/联机默认入口。"""
++"""I3完整十四天赋GA运行/重放工具；尚不切换正式main/RL/联机默认入口。"""
+ 
+ from __future__ import annotations
+ 
+@@ -127,12 +127,14 @@
+         "rounds": state.current_round, "world_tick": state.world_tick,
+         "elapsed_seconds": time.perf_counter() - started,
+         "events": [event.to_dict() for event in state.ga_ledger.events],
++        "closure_display": thaw_json(state.ga_closure_display) if state.ga_closure_display
++        else None,
+         "random_draws": state.ga_rng.draws, "trace": state.ga_trace,
+         "choices": {actor: c.choices for actor, c in controllers.items()},
+         "replay_inputs": {actor: {"actions": c.choices, "responses": c.responses,
+                                    "afterlife": c.afterlife_choices}
+                           for actor, c in controllers.items()},
+-        "scope": "I2 police, afterlife and nine implemented talents; no legacy fallback",
++        "scope": "I3 fourteen talents, fourteen poems and native world laws; no legacy fallback",
+     }
+     if args.output:
+         args.output.parent.mkdir(parents=True, exist_ok=True)
+--- before-i3/engine/ga/actions.py
++++ after-i3/engine/ga/actions.py
+@@ -26,6 +26,7 @@
+     STEP_FOLLOWUP = "step_followup"
+     REACTION = "reaction"
+     AFTERLIFE = "afterlife"
++    ROOT_STEP = "root_step"
+ 
+ 
+ @dataclass(frozen=True)
+@@ -87,6 +88,7 @@
+     random_requirements: tuple[RandomRequirement, ...] = ()
+     consumes_stage: bool = True
+     meaningful: bool = True
++    performance_sp_override: int | None = None
+ 
+     def __post_init__(self) -> None:
+         require_id(self.operation, "definition.operation")
+@@ -102,6 +104,8 @@
+             raise ContractError("definition.maximum_targets", "below minimum_targets")
+         require_bool(self.consumes_stage, "definition.consumes_stage")
+         require_bool(self.meaningful, "definition.meaningful")
++        if self.performance_sp_override is not None:
++            require_int(self.performance_sp_override, "definition.performance_sp_override")
+         modes = checked_enums(
+             self.allowed_performances, Performance, "definition.allowed_performances"
+         )
+@@ -183,7 +187,12 @@
+                 "definition.costs", "performance SP is quoted from the shared config"
+             )
+         key = "instant_sp_cost" if request.performance is Performance.INSTANT else "public_sp_cost"
+-        costs = (*costs, CostEntry(request.actor_id, "sp", config.get("action", key)))
++        quoted_sp = config.get("action", key)
++        if definition.performance_sp_override is not None:
++            if definition.performance_sp_override > quoted_sp:
++                raise ContractError("definition.performance_sp_override", "exceeds base SP price")
++            quoted_sp = definition.performance_sp_override
++        costs = (*costs, CostEntry(request.actor_id, "sp", quoted_sp))
+     quoted_list: list[CostEntry] = []
+     for cost in _aggregate_costs(costs):
+         hp_floor = config.get("combat", "paid_hp_survival_floor") if (
+--- before-i3/engine/ga/afterlife.py
++++ after-i3/engine/ga/afterlife.py
+@@ -16,7 +16,7 @@
+ from engine.ga.extensions import IncomingModifier, ask, units
+ from engine.ga.gameplay import ActionOption, execute_action, legal_actions, validate_request
+ from engine.ga.state import ActionGrant, emit, next_id, observe, touch
+-from engine.ga.status import heal
++from engine.ga.status import cleanse_burns, heal
+ from engine.ga.talents.base import (
+     ability, attack_choices, barrier, packet, timer, weapon_option,
+ )
+@@ -328,7 +328,9 @@
+         for effect in effects:
+             owner = effect.score_owner_id
+             marks = state.ga_afterlife.marks.get(owner, ())
+-            if "spotlight" in marks and effect.damage_kind is DamageKind.NORMAL and effect.amount:
++            if "spotlight" in marks and effect.damage_kind is DamageKind.NORMAL and (
++                effect.amount and
++                not effect.parameters.get("fixed_pool")):
+                 effect = replace(effect, amount=effect.amount + state.ga_config.get(
+                     "encore", "spotlight_attack_bonus"))
+             result.append(effect)
+@@ -466,7 +468,8 @@
+                             result.append(self.borrow_tag(candidate, entry["id"]))
+                         break
+                     player = state.players[target]
+-                    if slot == "T7" and not (player.burns or player.statuses or player.healable and
++                    if slot == "T7" and not (any(not b.uncleansable for b in player.burns) or
++                                             player.statuses or player.healable and
+                                              player.hp < player.max_hp):
+                         continue
+                     candidate = ability(grant, stage, f"encore_{slot}",
+@@ -525,4 +528,4 @@
+             player = state.players[request.target_ids[0]]
+             heal(player, state.ga_config.get("talents", "T7", "prayer_heal"))
+             player.statuses.clear()
+-            player.burns.clear()
++            cleanse_burns(player)
+--- before-i3/engine/ga/combat.py
++++ after-i3/engine/ga/combat.py
+@@ -31,7 +31,7 @@
+     params = dict(effect.parameters)
+     integers = {"attached_wear", "wear_price", "burn_stacks"}
+     ratios = {"defense_coefficient", "hit_bonus"}
+-    flags = {"ignore_move_evasion", "ignore_range_penalty", "hostile"}
++    flags = {"ignore_move_evasion", "ignore_range_penalty", "hostile", "fixed_pool"}
+     if params.keys() - (integers | ratios | flags | {"armor_id", "statuses", "attack_side"}):
+         raise ContractError("effect.parameters", "unsupported combat parameter")
+     for key in integers & params.keys():
+@@ -79,7 +79,12 @@
+     modifiers = tuple(callback(state, effect, player) for callback in state.ga_incoming_modifiers)
+     ignored = frozenset(key for mod in modifiers for key in mod.ignored_defenses)
+     immune = any(mod.immune for mod in modifiers)
+-    if (immune or effect.damage_kind in player.immune_kinds) and (
++    if any(mod.substituted for mod in modifiers) and effect.damage_kind is not DamageKind.EXECUTION:
++        outcome = HitOutcome.SUBSTITUTED
++        remaining = 0
++    elif (immune or effect.damage_kind in player.immune_kinds or not player.targetable and (
++        effect.scope in (TargetScope.LOCAL_SINGLE, TargetScope.RANGED_SINGLE)
++    )) and (
+         effect.damage_kind is not DamageKind.EXECUTION
+     ):
+         outcome = HitOutcome.IMMUNE
+--- before-i3/engine/ga/extensions.py
++++ after-i3/engine/ga/extensions.py
+@@ -26,6 +26,7 @@
+     hp_ratio: float = 1.0
+     hp_reduction: int = 0
+     ignored_defenses: frozenset[str] = frozenset()
++    substituted: bool = False
+ 
+ 
+ @dataclass(frozen=True)
+@@ -123,12 +124,17 @@
+     return True
+ 
+ 
+-def relocate(state: GameState, actor_id: str, location: str, *, active: bool = False) -> None:
++def relocate(state: GameState, actor_id: str, location: str, *, active: bool = False) -> bool:
+     """通用位移，随身单位由订阅者同步，强制位移不生成移动闪避。"""
+     from engine.ga.state import LOCATIONS, touch
+     if location not in LOCATIONS or location in state.destroyed_locations:
+         raise ContractError("location", "not a standing public building")
+     actor = unit(state, actor_id)
++    if actor.isolation_id and location != actor.location:
++        return False
++    if active and actor.location != location and not all(callback(state, actor_id, location)
++                                                        for callback in state.ga_move_gates):
++        return False
+     actor.location = location
+     actor.home_locked = True
+     if active:
+@@ -138,6 +144,7 @@
+     for callback in tuple(state.ga_location_listeners):
+         callback(state, actor_id)
+     touch(state)
++    return True
+ 
+ 
+ def destroy_location(state: GameState, location: str) -> bool:
+--- before-i3/engine/ga/gameplay.py
++++ after-i3/engine/ga/gameplay.py
+@@ -19,7 +19,7 @@
+ from engine.ga.state import (
+     ActionGrant, LOCATIONS, add_armor, balance, emit, set_balance, snapshot_id, touch, trace,
+ )
+-from engine.ga.status import heal, put_status
++from engine.ga.status import cleanse_burns, heal, put_status
+ from engine.ga.extensions import units
+ 
+ if TYPE_CHECKING:
+@@ -38,6 +38,8 @@
+     after: Callable[[GameState, ActionPlan], None] | None = None
+     confirm: Callable[[GameState, ActionPlan], bool] | None = None
+     weapon_use: bool = False
++    allow_untargetable: bool = False
++    ordinary_attack: bool = False
+ 
+ 
+ @dataclass(frozen=True)
+@@ -412,11 +414,13 @@
+         "hp": p.hp, "sp": p.sp, "pp": p.pp, "credits": p.credits,
+         **{f"ammo:{name}": amount for name, amount in p.ammo.items()},
+         **{f"item:{name}": amount for name, amount in p.inventory.items()},
++        **{f"resource:{name}": amount for name, amount in p.resources.items()},
+     } for key, p in state.players.items()}
+     verbs = frozenset({ActionVerb.MOVE, ActionVerb.ATTACK}) if grant.kind in (
+         GrantKind.STEP_FOLLOWUP, GrantKind.REACTION
+     ) else frozenset(ActionVerb)
+-    return ActionContext(grant.actor_id, grant.grant_id, f"{grant.grant_id}/{stage.value}",
++    root = grant.root_id or f"{grant.grant_id}/{stage.value}"
++    return ActionContext(grant.actor_id, grant.grant_id, root,
+                          grant.kind, snapshot_id(state), resources,
+                          tuple(units(state)), verbs, frozenset(grant.occupied),
+                          not state.ga_public_used)
+@@ -430,6 +434,12 @@
+     raw = _raw_options(state, grant, stage)
+     for callback in tuple(state.ga_option_filters):
+         raw = callback(state, grant, stage, raw)
++    raw = tuple(o for o in raw if all(units(state)[target].isolation_id == state.players[
++        grant.actor_id].isolation_id for target in o.request.target_ids))
++    raw = tuple(o for o in raw if o.allow_untargetable or all(
++        units(state)[target].targetable or bool(o.effects) and all(e.scope in (
++            TargetScope.LOCAL_AREA, TargetScope.GLOBAL_AREA
++        ) for e in o.effects) for target in o.request.target_ids))
+     result = tuple(option for option in raw if precheck_action(
+         option.request, context, option.definition, state.ga_config
+     ).accepted and (option.definition.consumes_stage or _request_key(
+@@ -481,7 +491,8 @@
+     if not actual.accepted or actual != plan:
+         raise ContractError("action", "plan no longer matches authoritative validation")
+     grant = state.current_grant
+-    option = next(o for o in build_options(state, grant, plan.request.stage)
++    candidates = build_options(state, grant, plan.request.stage)
++    option = next(o for o in candidates
+                   if o.request == plan.request)
+     if option.confirm is not None and not option.confirm(state, plan):
+         receipt = ActionReceipt(plan.request, (), (), True)
+@@ -503,8 +514,9 @@
+         "hidden": state.players[grant.actor_id].hidden,
+         "parameters": dict(plan.request.parameters), "verb": plan.request.verb.value,
+         "grant_kind": grant.kind.value,
+-        "normal_attack": plan.request.operation == "attack" or option.weapon_use and
+-        plan.request.performance is Performance.NONE,
++        "legal_verbs": tuple(sorted({o.request.verb.value for o in candidates})),
++        "normal_attack": option.ordinary_attack or plan.request.operation == "attack" or (
++            option.weapon_use and plan.request.performance is Performance.NONE),
+     }
+     for callback in tuple(state.ga_before_action):
+         callback(state, option, plan)
+@@ -533,7 +545,7 @@
+             if state.game_over:
+                 break
+             callback(state, option, plan)
+-        if not state.game_over:
++        if not state.game_over and grant.kind is not GrantKind.ROOT_STEP:
+             emit(state, EventKind.ACTION_RESOLVED, root_id=plan.request.root_id,
+                  actor_id=grant.actor_id, payload={"operation": plan.request.operation,
+                                                   "parameters": plan.request.parameters})
+@@ -545,6 +557,24 @@
+           stage=plan.request.stage.value, performance=plan.request.performance.value)
+     touch(state)
+     return receipt
++
++
++def execute_registered_step(state: GameState, option: ActionOption) -> ActionReceipt:
++    """复合根内部仍走共同预检/支付，不再领取玩家槽、T0/T2或根收尾。"""
++    request = option.request
++    previous = state.current_grant, state.current_stage
++    previous_meta = state.ga_action_meta.get(request.root_id)
++    grant = ActionGrant(request.grant_id, request.actor_id, GrantKind.ROOT_STEP,
++                        root_id=request.root_id)
++    state.ga_response_options[grant.grant_id] = (option,)
++    state.current_grant, state.current_stage = grant, request.stage
++    try:
++        return execute_action(state, validate_request(state, request))
++    finally:
++        if previous_meta is not None:
++            state.ga_action_meta[request.root_id] = previous_meta
++        state.ga_response_options.pop(grant.grant_id, None)
++        state.current_grant, state.current_stage = previous
+ 
+ 
+ def _apply_builtin(state: GameState, request: ActionRequest) -> None:
+@@ -567,6 +597,7 @@
+         relocate(state, player.player_id, params["location"], active=True)
+     elif op == "lock":
+         state.current_grant.locked_target = request.target_ids[0]
++        player.locked_targets.add(request.target_ids[0])
+     elif op == "syringe":
+         heal(player, cfg.get("hospital", "syringe_heal"))
+     elif op == "sharpen":
+@@ -621,7 +652,7 @@
+         player.weapons.add(params["spell"])
+     elif op == "heal":
+         heal(player, cfg.get("hospital", "heal_amount"))
+-        player.burns.clear()
++        cleanse_burns(player)
+         player.hospital_heals += 1
+     elif op == "surgery":
+         player.surgery = kind
+--- before-i3/engine/ga/police.py
++++ after-i3/engine/ga/police.py
+@@ -73,7 +73,8 @@
+ 
+     def available(self, state: GameState) -> bool:
+         """停机/毁局不删案底，不复活阵亡者。"""
+-        return bool(self.live(state)) and "police" not in state.destroyed_locations and not (
++        return any(not state.ga_units[k].submerged_sources for k in self.live(state)) and (
++            "police" not in state.destroyed_locations) and not (
+             state.ga_police.stopped or state.ga_clock_paused
+         )
+ 
+@@ -160,7 +161,8 @@
+             return False
+         police.attack_round = state.current_round
+         live = self.live(state)
+-        shooters = [key for key in live if "control" not in state.ga_units[key].statuses]
++        shooters = [key for key in live if "control" not in state.ga_units[key].statuses and
++                    not state.ga_units[key].submerged_sources]
+         for key in live:
+             control = state.ga_units[key].statuses.get("control")
+             if control and control.name in ("SHOCKED", "ACTION_SUPPRESSED"):
+--- before-i3/engine/ga/runtime.py
++++ after-i3/engine/ga/runtime.py
+@@ -79,7 +79,9 @@
+ def _public_actions(state: GameState, grant: ActionGrant) -> tuple[ActionRequest, ...]:
+     """执行前重查SP、硬控、存活和实际演出候选。"""
+     player = state.players[grant.actor_id]
+-    if state.ga_public_used or grant.started or not player.alive:
++    if state.ga_public_used or grant.started or not player.alive or (
++        state.ga_public_blocked.get(grant.actor_id) == state.current_round
++    ):
+         return ()
+     control = player.statuses.get("control")
+     if control and control.name in ("ACTION_SUPPRESSED", "PETRIFIED"):
+@@ -172,8 +174,12 @@
+     trace(state, "slot_start", actor=grant.actor_id, kind=grant.kind.value,
+           grant_id=grant.grant_id, source_id=grant.source_id)
+     run_hooks(state, "slot_start")
++    if state.game_over:
++        return
+     controller = controllers[grant.actor_id]
+-    if not _start_control(state, controller, grant):
++    if not all(gate(state, grant) for gate in tuple(state.ga_slot_gates)) or not (
++        _start_control(state, controller, grant)
++    ):
+         if state.players[grant.actor_id].alive:
+             emit(state, EventKind.TURN_FORFEITED, actor_id=grant.actor_id,
+                  payload={"controlled": True})
+@@ -181,6 +187,11 @@
+         trace(state, "slot_end", actor=grant.actor_id, kind=grant.kind.value, controlled=True)
+         return
+     if grant.kind in (GrantKind.STANDARD, GrantKind.EXTRA_TURN):
++        if not grant.t0_disabled:
++            run_hooks(state, "T0")
++        if not grant.t0_disabled and build_options(state, grant, TurnStage.T0):
++            for callback in tuple(state.ga_t0_opportunities):
++                callback(state, grant)
+         _choose_stage(state, controller, TurnStage.T0)
+     if not state.game_over:
+         _choose_stage(state, controller, TurnStage.T1)
+@@ -206,6 +217,8 @@
+                 break
+         state.current_grant = grant
+     grant.finished = True
++    if not state.game_over:
++        run_hooks(state, "slot_end")
+     trace(state, "slot_end", actor=grant.actor_id, kind=grant.kind.value)
+     touch(state)
+ 
+@@ -215,11 +228,16 @@
+     cfg = state.ga_config
+     state.current_round += 1
+     state.current_phase = RoundPhase.R0
++    state.ga_previous_world_tick = state.world_tick
++    run_hooks(state, "before_clock")
++    if state.game_over:
++        return []
+     if state.current_round == 1:
+         state.world_tick = cfg.get("clock", "initial_tick")
+     elif not state.ga_clock_paused:
+         state.world_tick += cfg.get("clock", "reactor_step" if state.ga_clock_accelerated else
+                                     "normal_step")
++    run_hooks(state, "clock_advanced")
+     state.ga_public_used = False
+     state.ga_extra_used.clear()
+     state.ga_followup_used.clear()
+--- before-i3/engine/ga/setup.py
++++ after-i3/engine/ga/setup.py
+@@ -10,7 +10,14 @@
+ from engine.ga.police import Police
+ from engine.ga.talents.g0 import G0
+ from engine.ga.talents.g1 import G1
++from engine.ga.talents.g2 import G2
++from engine.ga.talents.g3 import G3
+ from engine.ga.talents.g4 import G4
++from engine.ga.talents.g5 import G5
++from engine.ga.talents.g6 import G6
++from engine.ga.talents.g7 import G7
++from engine.ga.poems import Poems
++from engine.ga.world import World
+ from engine.ga.talents.t1 import T1
+ from engine.ga.talents.t2 import T2
+ from engine.ga.talents.t3 import T3
+@@ -22,7 +29,8 @@
+     from engine.game_state import GameState
+ 
+ 
+-TALENTS = {role.talent_id: role for role in (T1, T2, T3, T4, T6, T7, G0, G1, G4)}
++TALENTS = {role.talent_id: role for role in (
++    T1, T2, T3, T4, T6, T7, G0, G1, G2, G3, G4, G5, G6, G7)}
+ 
+ 
+ def install(state: GameState, selected: Mapping[str, str] | None = None) -> None:
+@@ -33,9 +41,11 @@
+     for actor, slot in selection.items():
+         if slot not in TALENTS:
+             raise ContractError(f"talents.{actor}", f"unimplemented GA talent: {slot}")
++    World().register(state)
+     Police().register(state)
+     for actor in sorted(selection):
+         role = TALENTS[selection[actor]](actor)
+         state.ga_roles[actor] = role
+         role.register(state)
++    Poems().register(state)
+     Afterlife().register(state)
+--- before-i3/engine/ga/state.py
++++ after-i3/engine/ga/state.py
+@@ -37,6 +37,8 @@
+     score_owner_id: str | None = None
+     crime_owner_id: str | None = None
+     hits: int = 0
++    anchored: bool = False
++    uncleansable: bool = False
+ 
+ 
+ @dataclass
+@@ -92,6 +94,10 @@
+     status_immunities: frozenset[str] = frozenset()
+     disabled_weapons: dict[str, TimedEffect] = field(default_factory=dict)
+     retain_stealth_attacks: bool = False
++    resources: dict[str, int] = field(default_factory=dict)
++    locked_targets: set[str] = field(default_factory=set)
++    targetable: bool = True
++    submerged_sources: set[str] = field(default_factory=set)
+ 
+     @property
+     def alive(self) -> bool:
+@@ -107,6 +113,7 @@
+     actor_id: str
+     kind: GrantKind
+     source_id: str = "standard"
++    root_id: str | None = None
+     occupied: set[TurnStage] = field(default_factory=set)
+     started: bool = False
+     finished: bool = False
+@@ -174,6 +181,7 @@
+     state.player_order = list(ids)
+     state.current_round = 0
+     state.world_tick = 0
++    state.ga_previous_world_tick = 0
+     state.current_phase = RoundPhase.R0
+     state.current_stage = None
+     state.current_grant = None
+@@ -181,6 +189,7 @@
+     state.winner = None
+     state.score_winners = ()
+     state.terminal_snapshot = None
++    state.ga_closure_display = None
+     state.ga_revision = 0
+     state.ga_id_counter = 0
+     state.ga_rng = RecordedRandom(seed)
+@@ -197,14 +206,19 @@
+     state.ga_incoming_modifiers = []
+     state.ga_effect_filters = []
+     state.ga_pool_bonus_hooks = []
++    state.ga_attack_pool_hooks = []
+     state.ga_batch_listeners = []
+     state.ga_batch_finalizers = {}
+     state.ga_after_batch_queue = []
+     state.ga_event_listeners = []
+     state.ga_death_gates = []
+     state.ga_before_terminal = []
++    state.ga_slot_gates = []
++    state.ga_t0_opportunities = []
++    state.ga_public_blocked = {}
+     state.ga_units = {}
+     state.ga_location_listeners = []
++    state.ga_move_gates = []
+     state.ga_response_options = {}
+     state.ga_propagation_followups = set()
+     state.ga_controllers = {}
+@@ -304,6 +318,8 @@
+         return player.ammo.get(account[5:], 0)
+     if account.startswith("item:"):
+         return player.inventory.get(account[5:], 0)
++    if account.startswith("resource:"):
++        return player.resources.get(account[9:], 0)
+     raise ContractError("account", f"unsupported GA account: {account}")
+ 
+ 
+@@ -316,6 +332,8 @@
+         player.ammo[account[5:]] = amount
+     elif account.startswith("item:"):
+         player.inventory[account[5:]] = amount
++    elif account.startswith("resource:"):
++        player.resources[account[9:]] = amount
+     else:
+         raise ContractError("account", f"unsupported GA account: {account}")
+ 
+@@ -426,18 +444,20 @@
+     trace(state, "death", actor=actor_id, absolute=absolute)
+ 
+ 
+-def finish_if_needed(state: GameState, *, round_limit: bool = False) -> bool:
++def finish_if_needed(
++    state: GameState, *, round_limit: bool = False, reason: TerminalReason | None = None,
++) -> bool:
+     """完整目标批次后才检查终局，保存实际钱包，综合同分并列。"""
+     if state.game_over:
+         return True
+     survivors = tuple(sorted(key for key, p in state.players.items() if p.alive))
+-    if len(survivors) > 1 and not round_limit:
++    if len(survivors) > 1 and not round_limit and reason is None:
+         return False
+     for callback in tuple(state.ga_before_terminal):
+         callback(state, survivors)
+-    reason = TerminalReason.ROUND_LIMIT if len(survivors) > 1 else (
++    reason = reason or (TerminalReason.ROUND_LIMIT if len(survivors) > 1 else (
+         TerminalReason.LAST_SURVIVOR if survivors else TerminalReason.ALL_DEAD
+-    )
++    ))
+     cfg = state.ga_config
+     results = {}
+     for actor, player in state.players.items():
+@@ -474,15 +494,19 @@
+     return freeze_json({
+         "actor_id": actor_id, "round": state.current_round, "world_tick": state.world_tick,
+         "phase": state.current_phase.value, "public_used": state.ga_public_used,
++        "closure_display": state.ga_closure_display,
+         "players": {key: {
+             "hp": p.hp, "max_hp": p.max_hp, "credits": p.credits, "sp": p.sp, "pp": p.pp,
+             "location": p.location, "alive": p.alive, "awake": p.awake, "hidden": p.hidden,
+             "weapons": sorted(p.weapons), "ammo": p.ammo, "inventory": p.inventory,
++            "resources": p.resources, "isolation_id": p.isolation_id,
++            "targetable": p.targetable,
+             "defenses": {key: d.durability for key, d in p.defenses.items()},
+             "talent": state.ga_roles[key].talent_id if key in state.ga_roles else None,
+             "talent_state": state.ga_roles[key].public() if key in state.ga_roles else {},
+         } for key, p in state.players.items()},
+         "units": {key: {"hp": p.hp, "location": p.location, "kind": p.unit_kind,
++                         "submerged_sources": sorted(p.submerged_sources),
+                          "owner_id": p.owner_id, "alive": p.alive}
+                   for key, p in state.ga_units.items()},
+     })
+--- before-i3/engine/ga/status.py
++++ after-i3/engine/ga/status.py
+@@ -78,7 +78,7 @@
+ def effective_hit(player: GaPlayer, config: GaConfig) -> None:
+     """石化两次有效受伤解除；擦伤实际扣血也计一次。"""
+     control = player.statuses.get("control")
+-    if control and control.name == "PETRIFIED":
++    if control and control.name == "PETRIFIED" and not control.anchored:
+         hits = control.hits + 1
+         if hits >= config.get("status", "petrify_release_hits"):
+             del player.statuses["control"]
+@@ -129,3 +129,8 @@
+     actual = min(amount, player.max_hp - player.hp)
+     player.hp += actual
+     return actual
++
++
++def cleanse_burns(player: GaPlayer) -> None:
++    """普通净化不能取消明文献诗代价；死亡/复活仍可清理普通肉身状态。"""
++    player.burns = [entry for entry in player.burns if entry.uncleansable]
+--- before-i3/engine/ga/talents/base.py
++++ after-i3/engine/ga/talents/base.py
+@@ -34,7 +34,8 @@
+ ) -> ActionOption:
+     """费用由注册者声明，演出SP始终由公共预检统一报价。"""
+     params = dict(parameters or {})
+-    request = ActionRequest(grant.actor_id, grant.grant_id, f"{grant.grant_id}/{stage.value}",
++    root = grant.root_id or f"{grant.grant_id}/{stage.value}"
++    request = ActionRequest(grant.actor_id, grant.grant_id, root,
+                             stage, verb, operation, targets, params, mode)
+     definition = ActionDefinition(operation, stage, verb, frozenset({mode}), costs,
+                                   len(targets), len(targets), tuple(params))
+@@ -197,7 +198,8 @@
+         state.ga_event_listeners.append(self.on_events)
+         state.ga_death_gates.append(DeathGate(10, self.lethal, self.commit_lethal))
+         state.ga_before_terminal.append(self.terminal)
+-        for name in ("R0", "slot_start", "T2", "R4.dot_maintenance", "R4.recovery", "R4.expiry"):
++        for name in ("R0", "slot_start", "T2", "slot_end", "R4.dot_maintenance", "R4.recovery",
++                     "R4.expiry"):
+             callback = partial(self.dispatch_boundary, boundary=name)
+             state.ga_hooks.setdefault(name, []).append(callback)
+ 
+@@ -205,7 +207,7 @@
+         """同轮同边界幂等；每个真实槽仍有独立T2和开始维护。"""
+         grant = state.current_grant
+         key = (state.current_round, boundary,
+-               grant.grant_id if grant and boundary in ("slot_start", "T2") else None)
++               grant.grant_id if grant and boundary in ("slot_start", "T2", "slot_end") else None)
+         if key in self.completed_boundaries:
+             return
+         self.completed_boundaries.add(key)
+@@ -258,3 +260,8 @@
+ 
+     def terminal(self, state: GameState, survivors: tuple[str, ...]) -> None:
+         """成绩定格前的明确终章条件。"""
++
++    def receive_poem(self, state: GameState, giver: str) -> None:
++        """每个已注册角色必须显式实现自己的诗篇，不借其他天赋内部状态。"""
++        from engine.ga.contracts import ContractError
++        raise ContractError("poem", f"missing poem adapter for {self.talent_id}")
+--- before-i3/engine/ga/talents/g0.py
++++ after-i3/engine/ga/talents/g0.py
+@@ -50,6 +50,8 @@
+         self.crossfire_used = False
+         self.root_hp: dict[str, int] = {}
+         self.crossfire_roots: set[str] = set()
++        self.tomorrow = False
++        self.promise = False
+ 
+     @property
+     def drone_id(self) -> str:
+@@ -83,7 +85,8 @@
+     def drone_alive(self, state: GameState) -> bool:
+         """无人机必须确实仍有HP和持续期。"""
+         return bool(self.drone_timer and self.drone_timer.remaining and
+-                    self.drone_id in state.ga_units and state.ga_units[self.drone_id].alive)
++                    self.drone_id in state.ga_units and state.ga_units[self.drone_id].alive and
++                    not state.ga_units[self.drone_id].submerged_sources)
+ 
+     def options(
+         self, state: GameState, grant: ActionGrant, stage: TurnStage,
+@@ -116,7 +119,7 @@
+         for target in enemies(state, self.owner_id, local=False):
+             if not _visible(player, units(state)[target], DamageAttribute.NORMAL):
+                 continue
+-            for mode in ("point", "auto"):
++            for mode in (() if "ar" in player.disabled_weapons else ("point", "auto")):
+                 candidate = ability(grant, stage, "g0_ar", verb=ActionVerb.ATTACK,
+                                     targets=(target,), parameters={"fire_mode": mode},
+                                     costs=(CostEntry(self.owner_id, "ammo:ar",
+@@ -136,21 +139,30 @@
+                     state, candidate.request, max(0, amount), source="g0_ar", attribute=attribute,
+                     scope=TargetScope.RANGED_SINGLE, **params,
+                 ),)))
+-        cost = hp_cost(state, self.owner_id, cfg["crossfire_hp_ratio"], discount=discount)
++        cost = 0 if self.promise else hp_cost(state, self.owner_id, cfg["crossfire_hp_ratio"],
++                                             discount=discount)
+         targets = enemies(state, self.owner_id)
+         if drone and targets and cost is not None:
+-            for overload in ("none", *self.mounted):
++            choices = [(), *((key,) for key in self.mounted)]
++            if self.promise:
++                choices.extend(combinations(self.mounted, state.ga_config.get(
++                    "poems", "tomorrow_overloads")))
++            for overloaded in choices:
++                overload = overloaded[0] if overloaded else "none"
+                 damage = cfg["crossfire_damage"] * (cfg["overload_damage_multiplier"] if (
+-                    overload == "belt"
++                    "belt" in overloaded
+                 ) else 1)
++                parameters = {"destroy_relic": overload}
++                if self.promise:
++                    parameters["promise_relics"] = tuple(overloaded)
+                 candidate = ability(grant, stage, "g0_crossfire", mode=Performance.PUBLIC,
+-                                    targets=targets, parameters={"destroy_relic": overload},
++                                    targets=targets, parameters=parameters,
+                                     costs=(CostEntry(self.owner_id, "hp", cost),), hostile=True,
+                                     after=self.crossfire_end)
+                 result.append(replace(candidate, effects=(packet(
+                     state, candidate.request, damage, kind=DamageKind.DIRECT, certain=True,
+-                    scope=TargetScope.LOCAL_AREA, bypass=overload == "sight",
+-                    statuses=("SHOCKED",) if overload == "shield" else (),
++                    scope=TargetScope.LOCAL_AREA, bypass="sight" in overloaded,
++                    statuses=("SHOCKED",) if "shield" in overloaded else (),
+                 ),)))
+         if player.location == "shop" and player.ammo.get("ar", 0) < cfg["ammo_cap"]:
+             price = 0 if self.breath_timer else state.ga_config.get(
+@@ -207,12 +219,15 @@
+         self.crossfire_roots.add(plan.request.root_id)
+         player = state.players[self.owner_id]
+         relic = plan.request.parameters["destroy_relic"]
++        promised = "promise_relics" in plan.request.parameters
+         self.crossfire_used = True
+         self.drone_timer = None
+         state.ga_units[self.drone_id].hp = 0
+-        if relic != "none":
++        relics = plan.request.parameters["promise_relics"] if promised else (
++            (relic,) if relic != "none" else ())
++        for relic in relics:
+             self.seen_relics.add(relic)
+-            if plan.request.parameters.get("encore_waiver") != "destroy":
++            if not promised and plan.request.parameters.get("encore_waiver") != "destroy":
+                 self.relics.discard(relic)
+                 self.mounted = tuple(key for key in self.mounted if key != relic)
+             if relic == "shield":
+@@ -222,14 +237,37 @@
+             elif relic == "glasses":
+                 player.hp = max(player.hp, min(player.max_hp, state.ga_config.get(
+                     "talents", "G0", "overload_hp_floor")))
++        if promised:
++            self.promise = False
++            if self.breath_timer:
++                heal(player, state.ga_config.get("poems", "tomorrow_breath_heal"))
+         self.sync_shield(state)
+         self.check_final_chapter(state)
+         touch(state)
++
++    def filter_options(
++        self, state: GameState, grant: ActionGrant, stage: TurnStage,
++        options: tuple[ActionOption, ...],
++    ) -> tuple[ActionOption, ...]:
++        """明天消费减费只修正实际信用点报价，最低1，不返还旧账。"""
++        if not self.tomorrow or grant.actor_id != self.owner_id or state.players[
++            self.owner_id].location not in (
++            "shop", "hospital", "military"):
++            return options
++        return tuple(replace(o, definition=replace(o.definition, costs=tuple(replace(c, amount=max(
++            state.ga_config.get("poems", "tomorrow_min_price"), c.amount - state.ga_config.get(
++                "poems", "tomorrow_discount"))) if c.account == "credits" and c.amount else c
++                for c in o.definition.costs))) for o in options)
+ 
+     def check_final_chapter(self, state: GameState) -> None:
+         """四件均有经历且炮火已实际释放。"""
+         if set(RELICS) <= self.seen_relics and self.crossfire_used:
+             chapter(state, self.owner_id, 3)
++
++    def receive_poem(self, state: GameState, giver: str) -> None:
++        """永久打工/消费改造只设一次，下一炮火承诺重复刷新。"""
++        self.tomorrow = True
++        self.promise = True
+ 
+     def before_action(self, state: GameState, option: ActionOption, plan: ActionPlan) -> None:
+         """只记真实技能HP支付，不把弹药或被打伤当烧血。"""
+@@ -245,6 +283,9 @@
+         request = plan.request
+         if request.actor_id != self.owner_id:
+             return
++        if request.operation == "work" and self.tomorrow:
++            state.players[self.owner_id].credits += state.ga_config.get(
++                "poems", "tomorrow_work_bonus")
+         player = state.players[self.owner_id]
+         cfg = state.ga_config.get("talents", "G0")
+         if request.operation == "wake":
+--- before-i3/engine/ga/talents/g1.py
++++ after-i3/engine/ga/talents/g1.py
+@@ -39,6 +39,8 @@
+         self.round_form = "unarmored"
+         self.attacked_round = 0
+         self.ardent_serial = 0
++        self.rescued = False
++        self.firefly_safe = False
+ 
+     def public(self) -> Mapping[str, Any]:
+         """公开形态、失熵和有限资格。"""
+@@ -56,6 +58,8 @@
+         self, state: GameState, grant: ActionGrant, stage: TurnStage,
+     ) -> tuple[ActionOption, ...]:
+         """着装/卸甲占T0，完全燃烧占公演T1，超新星以move为根。"""
++        if self.rescued:
++            return ()
+         follow_move = (grant.actor_id == self.owner_id and self.form == "propagation" and
+                        grant.kind.value == "step_followup" and state.players[self.owner_id].alive)
+         if not own_slot(state, self.owner_id, grant) and not follow_move:
+@@ -131,8 +135,8 @@
+                 if effect.damage_kind is not DamageKind.NORMAL:
+                     effects.append(effect)
+                     continue
+-                form_bonus = cfg[f"{self.form}_attack"] if self.form != "unarmored" else cfg[
+-                    "unarmored_attack"]
++                form_bonus = cfg[f"{self.form}_attack"] if self.form != "unarmored" else (
++                    0 if self.rescued else cfg["unarmored_attack"])
+                 if effect.source_id == "g1_supernova":
+                     form_bonus = state.ga_config.get("status", "weakness") if (
+                         "WEAK" in state.players[self.owner_id].statuses
+@@ -143,7 +147,7 @@
+                         enemy.burns or "control" in enemy.statuses or "WEAK" in enemy.statuses
+                     ) else 0
+                     params = dict(effect.parameters)
+-                    if self.form == "unarmored":
++                    if self.form == "unarmored" and not self.rescued:
+                         params["hit_bonus"] = params.get("hit_bonus", 0) - cfg[
+                             "unarmored_hit_penalty"]
+                     effects.append(replace(effect, effect_id=f"{effect.effect_id}/{target}",
+@@ -215,7 +219,7 @@
+         reduction = cfg["armored_reduction"] if self.form != "unarmored" else 0
+         return IncomingModifier(reduction=reduction,
+                                 vulnerability=cfg["unarmored_incoming"] if self.form ==
+-                                "unarmored" else 0)
++                                "unarmored" and not self.rescued else 0)
+ 
+     def lethal(self, state: GameState, effect: EffectSpec, target: GaPlayer) -> Replacement | None:
+         """曾开启完全燃烧且当前着甲，才有一次繁育自身转折。"""
+@@ -323,9 +327,11 @@
+                 queue_followup(state, self.owner_id, "g1_burning")
+                 state.ga_propagation_followups.discard(self.owner_id)
+         elif boundary == "R4.dot_maintenance":
+-            if state.world_tick < state.ga_config.get("clock", "apocalypse_start") and (
++            if not self.rescued and not self.firefly_safe and (
++                state.world_tick < state.ga_config.get(
++                "clock", "apocalypse_start") and (
+                 self.form != "propagation"
+-            ):
++            )):
+                 name = self.round_form if self.round_form in (
+                     "unarmored", "sam", "full") else "full"
+                 gain = cfg[f"entropy_{name}_gain"]
+@@ -355,7 +361,9 @@
+                                                  kind=DamageKind.EXECUTION, certain=True),))
+                 else:
+                     self.form = "unarmored"
+-                    self.entropy_settlement(state)
++                    if not self.firefly_safe:
++                        self.entropy_settlement(state)
++                    self.firefly_safe = False
+                     if player.alive:
+                         chapter(state, self.owner_id, 3)
+         touch(state)
+@@ -364,3 +372,24 @@
+         """繁育先赢再计时；不因到期维护把已经赢的角色杀掉。"""
+         if survivors == (self.owner_id,) and self.form == "propagation":
+             chapter(state, self.owner_id, 3)
++
++    def receive_poem(self, state: GameState, giver: str) -> None:
++        """繁育救回是永久去机甲；普通赠诗只开启零失熵的有限安全窗口。"""
++        player = state.players[self.owner_id]
++        if self.form == "propagation":
++            self.rescued = True
++            self.form = "unarmored"
++            self.form_timer = None
++            self.entropy = self.overload = 0
++            player.status_immunities = frozenset()
++            player.initiative_bonus -= state.ga_config.get(
++                "talents", "G1", "propagation_initiative")
++            player.hp = min(player.max_hp, state.ga_config.get("poems", "firefly_rescue_hp"))
++            chapter(state, self.owner_id, 3)
++        elif not self.rescued:
++            self.form = "full"
++            self.full_opened = True
++            self.firefly_safe = True
++            self.form_timer = timer(state, self.owner_id, "firefly/safe", state.ga_config.get(
++                "poems", "firefly_ticks"))
++        touch(state)
+--- before-i3/engine/ga/talents/g4.py
++++ after-i3/engine/ga/talents/g4.py
+@@ -11,7 +11,7 @@
+     ActionVerb, DamageKind, DeathOutcome, Performance, TargetScope, TurnStage,
+ )
+ from engine.ga.events import EventKind
+-from engine.ga.extensions import Replacement, ask, chapter, high_impact, reveal_choices
++from engine.ga.extensions import Replacement, ask, chapter, high_impact, reveal_choices, units
+ from engine.ga.gameplay import build_options, execute_action, validate_request
+ from engine.ga.state import ActionGrant, next_id, touch, trace
+ from engine.ga.talents.base import (
+@@ -43,6 +43,8 @@
+         self.hostile_gain = 0
+         self.ruin_roots: set[str] = set()
+         self.splash_pending: str | None = None
++        self.burden = False
++        self.sun_roots: set[tuple[str, str]] = set()
+ 
+     def public(self) -> Mapping[str, Any]:
+         """余烬与本体分开展示，普通治疗不修余烬。"""
+@@ -54,6 +56,23 @@
+         """火种开局值来自集中参数。"""
+         super().register(state)
+         self.ember = state.ga_config.get("talents", "G4", "ember_initial")
++        state.ga_hooks.setdefault("T0", []).append(self.t0_boundary)
++
++    def t0_boundary(self, state: GameState) -> None:
++        """存在T0阶段便支付负世代价，不能用空菜单冒充没有T0。"""
++        self.burden_t0(state, state.current_grant)
++
++    def burden_t0(self, state: GameState, grant: ActionGrant) -> None:
++        """烈阳每个真实T0加一层不可普通净化的灼烧，不从硬控跳槽偷算T0。"""
++        if grant.actor_id != self.owner_id or self.form != "savior" or not self.burden:
++            return
++        from engine.ga.status import add_burns
++        player = state.players[self.owner_id]
++        source = f"burden/{grant.grant_id}"
++        add_burns(player, state.ga_config, state.current_round, state.ga_config.get(
++            "poems", "burden_self_burn_gain"), source_id=source, actor_id=self.owner_id)
++        player.burns = [replace(e, uncleansable=True) if e.timer.effect_id.startswith(source) else e
++                        for e in player.burns]
+ 
+     def options(
+         self, state: GameState, grant: ActionGrant, stage: TurnStage,
+@@ -183,6 +202,14 @@
+             self.hostile_round, self.hostile_gain = state.current_round, 0
+         for record in records:
+             effect = record.effect
++            key = effect.root_id, record.target_id
++            if self.burden and self.form == "savior" and effect.actor_id == self.owner_id and (
++                record.effective_hit and effect.source_id not in ("burden_fire", "burn") and
++                record.target_id != self.owner_id and key not in self.sun_roots):
++                self.sun_roots.add(key)
++                from functools import partial
++                state.ga_after_batch_queue.append(partial(self.sun, effect=effect,
++                                                         target=record.target_id))
+             if self.form == "human" and record.target_id == self.owner_id and (
+                 state.ga_record_context.get(record.resolution_id, {}).get(
+                     "talent_form") == "human" and
+@@ -331,7 +358,32 @@
+                 resolve_batch(state, (packet(state, request, state.ga_config.get(
+                     "talents", "G4", "splash_wear"), kind=DamageKind.PURE_WEAR,
+                     scope=TargetScope.LOCAL_AREA, certain=True),))
+-        elif boundary == "R4.expiry" and self.form_timer:
++        elif boundary == "R4.expiry" and self.form_timer and not self.burden:
+             self.form_timer = self.form_timer.on_r4(state.current_round)
+             if not self.form_timer.remaining:
+                 self.exit(state)
++
++    def sun(self, state: GameState, *, effect: EffectSpec, target: str) -> None:
++        """一次根对同一目标只附一份烈阳，不递归复制反击或固定总池。"""
++        if not units(state)[target].alive or self.form != "savior":
++            return
++        from engine.ga.contracts import (
++            BarrierPolicy, DamageAttribute, DeathPolicy, EffectKind, HitPolicy,
++        )
++        fire = replace(effect, effect_id=f"{effect.effect_id}/sun", source_id="burden_fire",
++            batch_id=f"{effect.batch_id}/sun/{target}", target_ids=(target,),
++            damage_kind=DamageKind.NORMAL,
++            amount=state.ga_config.get("poems", "burden_fire_damage"),
++            kind=EffectKind.DAMAGE, death_policy=DeathPolicy.NORMAL,
++            barrier_policy=BarrierPolicy.RESPECT,
++            attribute=DamageAttribute.MAGIC, hit_policy=HitPolicy.CERTAIN, parameters={})
++        resolve_batch(state, (fire,))
++
++    def receive_poem(self, state: GameState, giver: str) -> None:
++        """补充火种/毁伤可重复兑现，永久烈阳只装一次。"""
++        if self.form == "human":
++            self.ember = min(state.ga_config.get("talents", "G4", "ember_cap"), self.ember +
++                             state.ga_config.get("poems", "burden_resource_gain"))
++        else:
++            self.ruin += state.ga_config.get("poems", "burden_resource_gain")
++        self.burden = True
+--- before-i3/engine/ga/talents/t1.py
++++ after-i3/engine/ga/talents/t1.py
+@@ -5,12 +5,12 @@
+ from typing import TYPE_CHECKING
+ 
+ from engine.ga.contracts import Performance, TurnStage
+-from engine.ga.extensions import chapter, units
++from engine.ga.extensions import chapter, relocate, units
+ from engine.ga.talents.base import Talent, attack_choices, own_slot, weapon_option
+ 
+ if TYPE_CHECKING:
+     from engine.game_state import GameState
+-    from engine.ga.contracts import ResolutionRecord
++    from engine.ga.contracts import ActionPlan, ResolutionRecord
+     from engine.ga.gameplay import ActionOption
+     from engine.ga.state import ActionGrant
+ 
+@@ -19,6 +19,12 @@
+     """不恢复旧无视一半防御或破甲直灌算法。"""
+ 
+     talent_id = "T1"
++
++    def __init__(self, owner_id: str) -> None:
++        super().__init__(owner_id)
++        self.ranger = False
++        self.ranger_roots: set[str] = set()
++        self.refunded: set[str] = set()
+ 
+     def options(
+         self, state: GameState, grant: ActionGrant, stage: TurnStage,
+@@ -30,14 +36,34 @@
+         return tuple(weapon_option(state, grant, original, "t1_slash", mode,
+                                    multiplier=cfg["core_multiplier"], wear_price=cfg["wear_price"],
+                                    bypass=mode is Performance.PUBLIC)
+-                     for original in attack_choices(state, grant, melee=True, local=True)
++                     for original in attack_choices(state, grant, melee=True, local=not self.ranger,
++                                                    chase=self.ranger)
++                     if units(state)[original.request.target_ids[0]].location == state.players[
++                         self.owner_id].location or original.request.target_ids[0] in state.players[
++                             self.owner_id].locked_targets
+                      for mode in (Performance.INSTANT, Performance.PUBLIC))
++
++    def before_action(self, state: GameState, option: ActionOption, plan: ActionPlan) -> None:
++        """真实下一刀消费一次标记，追近不额外发行动槽。"""
++        if plan.request.actor_id == self.owner_id and plan.request.operation == (
++            "t1_slash") and self.ranger:
++            self.ranger = False
++            self.ranger_roots.add(plan.request.root_id)
++            relocate(state, self.owner_id, units(state)[plan.request.target_ids[0]].location)
+ 
+     def on_batch(self, state: GameState, records: tuple[ResolutionRecord, ...]) -> None:
+         """只监听本人的实际斩击，不靠空演出刷章。"""
+         for record in records:
+             if record.effect.actor_id != self.owner_id or record.effect.source_id != "t1_slash":
+                 continue
++            root = record.effect.root_id
++            if root in self.ranger_roots and root not in self.refunded and (
++                any(c.broken for c in record.armor_changes) or record.death_outcome.value in (
++                    "dead", "absolute_dead")):
++                player = state.players[self.owner_id]
++                player.sp = min(state.ga_config.get("action", "sp_cap"), player.sp +
++                                state.ga_config.get("poems", "ranger_sp_refund"))
++                self.refunded.add(root)
+             if record.effective_hit:
+                 chapter(state, self.owner_id, 1)
+             if any(change.broken for change in record.armor_changes):
+@@ -49,3 +75,7 @@
+                     units(state)[record.target_id].defenses.values())
+             ):
+                 chapter(state, self.owner_id, 3)
++
++    def receive_poem(self, state: GameState, giver: str) -> None:
++        """重复刷新下一刀标记，不叠出多份返还。"""
++        self.ranger = True
+--- before-i3/engine/ga/talents/t2.py
++++ after-i3/engine/ga/talents/t2.py
+@@ -24,6 +24,7 @@
+ 
+     def __init__(self, owner_id: str) -> None:
+         super().__init__(owner_id)
++        self.free_shadow = False
+         self.armor_hits = 0
+         self.shadow_uses = 0
+         self.shadow_lock: str | None = None
+@@ -105,13 +106,18 @@
+         cfg = state.ga_config.get("talents", "T2")
+         if request.verb.value != "move" or not player.alive or self.shadow_uses >= cfg[
+             "shadow_step_uses"
+-        ] or player.sp < cfg["shadow_step_sp_cost"] or meta.get("from_location") != player.location:
++        ] or not self.free_shadow and player.sp < cfg["shadow_step_sp_cost"] or (
++            meta.get("from_location") != player.location):
++            return
++        if state.players[request.actor_id].location == meta.get("from_location"):
+             return
+         if state.players[request.actor_id].location == player.location:
+             return
+         if ask(state, self.owner_id, self.owner_id, ("follow", "decline"), kind="shadow_step",
+                context={"target": request.actor_id}) == "follow":
+-            player.sp -= cfg["shadow_step_sp_cost"]
++            if not self.free_shadow:
++                player.sp -= cfg["shadow_step_sp_cost"]
++            self.free_shadow = False
+             from engine.ga.extensions import relocate
+             relocate(state, self.owner_id, state.players[request.actor_id].location)
+             self.shadow_uses += 1
+@@ -148,3 +154,11 @@
+         if player.kills:
+             player.retain_stealth_attacks = False
+             player.hidden = False
++
++    def receive_poem(self, state: GameState, giver: str) -> None:
++        """地火的再动仍走公共白名单，暗影步只赠一次免费支付。"""
++        from engine.ga.runtime import queue_extra_turn
++        self.shadow_uses = 0
++        self.free_shadow = True
++        state.players[self.owner_id].hidden = True
++        queue_extra_turn(state, self.owner_id, "poem_earthfire")
+--- before-i3/engine/ga/talents/t3.py
++++ after-i3/engine/ga/talents/t3.py
+@@ -12,7 +12,7 @@
+ 
+ if TYPE_CHECKING:
+     from engine.game_state import GameState
+-    from engine.ga.contracts import ActionPlan, ResolutionRecord
++    from engine.ga.contracts import ActionPlan, EffectSpec, ResolutionRecord
+     from engine.ga.gameplay import ActionOption
+     from engine.ga.state import ActionGrant
+ 
+@@ -21,6 +21,10 @@
+     """玉璋不是破碎整击特权盾；天星不是直达伤害。"""
+ 
+     talent_id = "T3"
++
++    def __init__(self, owner_id: str) -> None:
++        super().__init__(owner_id)
++        self.meteors = 0
+ 
+     def options(
+         self, state: GameState, grant: ActionGrant, stage: TurnStage,
+@@ -77,3 +81,36 @@
+                 "dead", "absolute_dead"
+             )):
+                 chapter(state, self.owner_id, 3)
++        primary = next((r.effect for r in records if r.effect.actor_id == self.owner_id and
++                        r.effect.source_id == "t3_starfall"), None)
++        if primary and self.meteors:
++            count, self.meteors = self.meteors, 0
++            from functools import partial
++            state.ga_after_batch_queue.append(partial(self.fall_meteors, effect=primary,
++                                                     count=count))
++
++    def fall_meteors(self, state: GameState, *, effect: EffectSpec, count: int) -> None:
++        """两颗独立流星，不把目标数乘入预算，不在终局后追加。"""
++        from engine.ga.contracts import HitPolicy
++        for index in range(count):
++            targets = enemies(state, self.owner_id, local=False)
++            if state.game_over or not targets:
++                return
++            target = targets[state.ga_rng.die("poem/stars", len(targets), actor_id=self.owner_id)-1]
++            meteor = replace(effect, effect_id=f"{effect.effect_id}/meteor/{index}",
++                batch_id=f"{effect.batch_id}/meteor/{index}", source_id="poem_stars",
++                target_ids=(target,), amount=state.ga_config.get("poems", "stars_damage"),
++                attribute=DamageAttribute.UNATTRIBUTED, scope=TargetScope.RANGED_SINGLE,
++                hit_policy=HitPolicy.CERTAIN, parameters={"defense_coefficient": 0})
++            resolve_batch(state, (meteor,))
++
++    def receive_poem(self, state: GameState, giver: str) -> None:
++        """已有石化锁定为只能主动挣脱/到期，免费玉璋不附赠磨甲攻击。"""
++        for player in units(state).values():
++            control = player.statuses.get("control")
++            if control and control.name == "PETRIFIED" and control.actor_id == self.owner_id:
++                player.statuses["control"] = replace(control, anchored=True)
++        cfg = state.ga_config.get("talents", "T3")
++        barrier(state, self.owner_id, f"t3/jade/{self.owner_id}", cfg["barrier"],
++                ticks=cfg["barrier_ticks"])
++        self.meteors = state.ga_config.get("poems", "stars_meteors")
+--- before-i3/engine/ga/talents/t4.py
++++ after-i3/engine/ga/talents/t4.py
+@@ -37,6 +37,7 @@
+         self.public_used = False
+         self.immunity_round = 0
+         self.confirmed: set[tuple[str, str, str]] = set()
++        self.yin_yang = 0
+ 
+     def public(self) -> Mapping[str, Any]:
+         """已完成卦象公开，不公开尚未收齐的秘密出拳。"""
+@@ -61,9 +62,20 @@
+ 
+     def cast(self, state: GameState, plan: ActionPlan) -> None:
+         """每个目标独立猜拳，双方完成后才揭示答案。"""
++        chosen = None
++        if self.yin_yang:
++            chosen = ask(state, self.owner_id, self.owner_id,
++                         tuple(name for name in HEXAGRAMS.values() if name != "extra"),
++                         kind="poem_hexagram")
++            self.yin_yang -= 1
+         for target in plan.request.target_ids:
+             if state.game_over:
+                 break
++            if chosen:
++                if self.apply(state, plan, target, chosen) and not state.game_over:
++                    self.confirm(state, plan.request.root_id, target, chosen,
++                                 plan.request.performance is Performance.PUBLIC)
++                continue
+             before = set(state.ga_choice_windows)
+             a = ask(state, self.owner_id, self.owner_id, ("rock", "paper", "scissors"),
+                     kind="hexagram", context={"opponent": target}, secret=True)
+@@ -152,6 +164,8 @@
+             player.hidden = True
+             player.revealed_to.clear()
+             player.hidden_timer = timer(state, self.owner_id, "t4/stealth", cfg["stealth_ticks"])
++            for other in state.players.values():
++                other.locked_targets.discard(player.player_id)
+             for grant in state.ga_standard_grants.values():
+                 if grant.locked_target == player.player_id:
+                     grant.locked_target = None
+@@ -175,3 +189,7 @@
+         player = state.players[self.owner_id]
+         if boundary == "R0" and self.immunity_round < state.current_round:
+             player.status_immunities = frozenset()
++
++    def receive_poem(self, state: GameState, giver: str) -> None:
++        """阴阳只刷新到两次发动，不钦定完整再动。"""
++        self.yin_yang = state.ga_config.get("poems", "yin_yang_uses")
+--- before-i3/engine/ga/talents/t6.py
++++ after-i3/engine/ga/talents/t6.py
+@@ -5,7 +5,7 @@
+ from typing import TYPE_CHECKING
+ 
+ from engine.ga.contracts import Performance, TurnStage
+-from engine.ga.extensions import chapter, high_impact
++from engine.ga.extensions import ask, chapter, high_impact
+ from engine.ga.police import Police
+ from engine.ga.talents.base import Talent, ability, own_slot
+ from engine.ga.state import touch
+@@ -91,3 +91,36 @@
+                 record.death_outcome.value in ("dead", "absolute_dead")
+             ):
+                 chapter(state, self.owner_id, 3)
++
++    def receive_poem(self, state: GameState, giver: str) -> None:
++        """律法重建同一编队，不能冲掉雨/倒流/Terror的独立停机来源。"""
++        police = state.ga_police
++        state.destroyed_locations.discard("police")
++        police.captain = None
++        police.guard_id = self.owner_id
++        police.location = state.players[self.owner_id].location
++        for player in state.players.values():
++            player.defenses.pop("police/wall", None)
++        cfg = state.ga_config.get("police")
++        for key in police.officer_ids:
++            npc = state.ga_units[key]
++            npc.hp = npc.max_hp = state.ga_config.get("poems", "law_officer_hp")
++            npc.absolute_dead = npc.exited = False
++            npc.statuses.clear()
++            npc.burns.clear()
++            npc.location = police.location
++            state.ga_death_cleaned.discard(key)
++        police.attack_upgrade = cfg["attack_upgrade_cap"]
++        police.wall_upgrade = cfg["wall_upgrade_cap"]
++        police.wall = len(police.officer_ids) * (cfg["wall_per_officer"] +
++                                                cfg["wall_upgrade_per_officer"])
++        state.ga_world.sync(state)
++        selected = ask(state, giver, self.owner_id, ("volley", "wall"), kind="poem_law")
++        if selected == "volley":
++            police.stance = "mobile"
++            Police().fire(state, owner=self.owner_id)
++        else:
++            police.stance = "wall"
++            police.immobile_round = state.current_round
++        Police().sync(state)
++        touch(state)
+--- before-i3/engine/ga/talents/t7.py
++++ after-i3/engine/ga/talents/t7.py
+@@ -8,7 +8,7 @@
+ from engine.ga.contracts import DeathOutcome, Performance, TurnStage
+ from engine.ga.extensions import DeathGate, Replacement, chapter, high_impact
+ from engine.ga.state import LOCATIONS, touch
+-from engine.ga.status import heal
++from engine.ga.status import cleanse_burns, heal
+ from engine.ga.talents.base import Talent, ability, own_slot
+ 
+ if TYPE_CHECKING:
+@@ -27,6 +27,8 @@
+         super().__init__(owner_id)
+         self.used = 0
+         self.capacity = 1
++        self.shore_boost = False
++        self.shore_rearmed = False
+ 
+     def public(self) -> Mapping[str, Any]:
+         """兑现次数是永久消耗，不由死亡或复活初始化。"""
+@@ -53,7 +55,8 @@
+         if state.ga_insurance is not None or self.used:
+             for target in targets:
+                 player = state.players[target]
+-                if player.burns or player.statuses or player.healable and player.hp < player.max_hp:
++                if any(not b.uncleansable for b in player.burns) or player.statuses or (
++                    player.healable and player.hp < player.max_hp):
+                     result.append(ability(grant, stage, "t7_prayer", mode=Performance.INSTANT,
+                                           targets=(target,), after=self.prayer))
+         return tuple(result)
+@@ -68,10 +71,10 @@
+     def prayer(self, state: GameState, plan: ActionPlan) -> None:
+         """净化只清普通状态，不清案底或不可逆形态。"""
+         player = state.players[plan.request.target_ids[0]]
+-        cleaned = bool(player.statuses or player.burns)
++        cleaned = bool(player.statuses or any(not b.uncleansable for b in player.burns))
+         healed = heal(player, state.ga_config.get("talents", "T7", "prayer_heal"))
+         player.statuses.clear()
+-        player.burns.clear()
++        cleanse_burns(player)
+         if cleaned or healed:
+             high_impact(state, self.owner_id, plan.request.root_id, plan.request.target_ids[0])
+             chapter(state, self.owner_id, 2)
+@@ -98,6 +101,16 @@
+                 loc for loc in LOCATIONS if loc not in state.destroyed_locations
+             )
+         target.sp = state.ga_config.get("talents", "T7", "revive_sp")
++        if self.shore_boost:
++            from engine.ga.state import add_armor
++            target.sp = state.ga_config.get("poems", "shore_revive_sp")
++            key = add_armor(state, target.player_id, "shield")
++            from dataclasses import replace
++            shield = target.defenses[key]
++            amount = state.ga_config.get("poems", "shore_shield_durability")
++            target.defenses[key] = replace(shield, durability=amount, max_durability=amount)
++            target.weapons.add("knife")
++            self.shore_boost = False
+         target.statuses.clear()
+         target.burns.clear()
+         self.used += 1
+@@ -112,6 +125,17 @@
+                                       for r in records):
+             state.ga_insurance = None
+ 
++    def receive_poem(self, state: GameState, giver: str) -> None:
++        """未兑现时增强一次；已经落幕后只允许重启一次并挂第二份保单。"""
++        if self.used == 0:
++            self.shore_boost = True
++        elif not self.shore_rearmed and self.used < 2:
++            self.shore_rearmed = True
++            self.capacity = 2
++            if state.ga_insurance is None:
++                state.ga_insurance = {"owner": self.owner_id, "target": self.owner_id}
++        touch(state)
++
+     def on_events(self, state: GameState, events: tuple[Any, ...]) -> None:
+         """目标体面退场时关闭失去承接对象的保单，不虚构兑现。"""
+         from engine.ga.events import EventKind
+--- before-i3/docs/v2.0-ga/implementation_contract_v0.1.md
++++ after-i3/docs/v2.0-ga/implementation_contract_v0.1.md
+@@ -1,6 +1,6 @@
+ # V2.0-GA 实施合同 v0.1
+ 
+-> 日期：2026-10-27。状态：I0～I2已完成；下一步I3复杂天赋与十四诗篇。
++> 日期：2026-10-27。状态：I0～I3已完成；下一步I4控制器与动作/观察/模型语义合同。
+ > 用户继续授权破坏性迁移；目标是一个 GA 运行规则集。既有未提交工作、模型与实验记录保留。
+ > 玩法权威：[DEC-001～050](README.md#已决记录2026-10-26)与各 RFC；
+ > 首轮数值：[手册 §17 N0](manual_draft_v0.1.md#十七首轮数值表-n02026-10-26)。
+@@ -133,7 +133,7 @@
+ 
+ ## 6. 最低验收场景
+ 
+-这些是分阶段转成可执行夹具的规格；**I1/I2实际覆盖见§7，不代表40项全部通过**。
++这些是分阶段转成可执行夹具的规格；**I1～I3实际覆盖见§7，不代表40项全部通过**。
+ 每例记录前置状态、输入序列、
+ 随机序列、状态差量、事件/资源账、预期终局与对应决议；失败保留seed与最小复现。
+ 
+@@ -304,7 +304,7 @@
+ 本批已完成原生GA运行链路：`GameState.new_ga(..., talents={actor: slot})`安装唯一警务、
+ 往世层和指定角色。动作仍走共同候选→预检→付费→效果解析，状态和NPC实体均由同一个
+ GameState持有；角色只在`engine/ga/talents/`注册通用钩子，没有将具名角色分支塞入核心。
+-`G2/G3/G5/G6/G7`与退役`T5`明确拒绝选择，不能静默借旧M9实现补齐。
++I2出批当时`G2/G3/G5/G6/G7`与退役`T5`明确拒绝选择；前五者已在下节I3接入，T5仍退役。
+ 
+ - 警务：固定三名真实HP6警员、共享盾墙与普通齐射额度；真实案底、现场目击/受害举报、
+   T6热线、申请及下一R2就任、协同/即时/R4射击、有限升级/补员/付费维修均可执行。
+@@ -360,3 +360,72 @@
+ 证据与可恢复原件在`artifacts/ga-migration/i2-2026-10-27/`，总回执为`receipt.json`。
+ 本批没有写入用户手册；已检测到的同期手册变化保留。没有加载、训练、复制或改写模型，
+ 没有重置或清理原有未提交工作。下一批I3实现G2/G3/G5/G6/G7与十四诗篇。
++
++### I3 五复杂天赋与十四诗篇（2026-10-27）
++
++本批已将G2/G3/G5/G6/G7加入唯一原生注册表，十四天赋均可由`GameState.new_ga`或
++`tools/ga_play.py --talents ...`选择；退役T5/旧模板继续明确拒绝。没有新建旧版本回退，
++没有把角色名字塞进核心调度/伤害分支。`World`统一法则来源，`Poems`统一接受权/爱愿，
++每个角色显式实现自己的诗篇适配器。
++
++- G2：两枚坐标共用一份肉身/背包/SP/行动；主控免费设置、光真实打工加值、影普攻加值、
++  A/B与双SP大即演、短溺音和键位均接入。世界推进几格记几键，不多tick；黄昏锁、
++  自身融合优先保险、正HP再腰斩、雨的NPC沉沦/结束与炉心永久加速/固定自耗退场可运行。
++  追光救回操控权，不逆转已发生腰斩、变雨或取消倍速；残影不能越过隔离搬出共享肉身。
++- G3：魔力/临时魔力使用正式资源账户，普通先付；投影/守势/圆环/见证复制/单通道收尾、
++  公演隔离/警员留外、真实锚点/普通武器与专用破界、有限维持均接入。连发逐段支付2/3/4，
++  免费首段不虚构耗魔，猎风按实际支付触发且阻止本轮受击夺台；同根可接有最低余魔门槛
++  的崩坏，双倍耐久计费。各出口幂等返回且不回滚既成战果，终局前完成章节与拆界。
++- G5：根级高光追忆、T0执笔、故事、阶段二当前追忆攻防、SP/追忆共同报价与支付、
++  有限星光箭和阶段二三轮献诗第三章可运行。升格不删除当轮其他槽，下一R0才倒放真实
++  历史标准根动词；合法性取支付前的实际候选，无同类合法动作免责。三档违逆惩罚、
++  NPC停机、被杀立停和炉心加速恢复均有运行接缝。到R1先存实际钱包/章节/战果快照，
++  再发布只读初始面板`closure_display`，不清成绩、不真循环。
++- G6：笑点根/轮实际额度、自己放弃/硬控不返成本、真实假币账户、多付款者卡账和按X
++  位置/视野借刀均接入；施术/战果归G6、案底可归X、反噬追G6。玩偶只吞首段单体攻击，
++  不吞AOE/DOT/环境，不返笑点。礼盒每人一份，持有者真正有可选T0才计机会；失神、
++  压制和Terror没有该机会。建立轮短窗口与未来R4分开，重复赠盒不刷新；六面奖惩、
++  有机会者代拆、欢愉群拆和读空飞偶可运行，群体同面效果各有独立段ID且共享真实根。
++- G7：真实组件单次融合、有限光环/一次续行、两次配发、更衣、午休/组件维修、弹匣/
++  备用弹/药物均接入。宏内部每一步仍走共同候选预检与支付，不生成T0/T2/新玩家槽，
++  零费装填不铸弹；Archer两次付费枪加一次免费枪总池11、只耗两发。残盾/正背面/完整承接
++  破盾当击、正面离开延迟、实际震荡破架、三种EX按实弹数结算。色彩/自我怀疑必须
++  完整跳下一标准槽，ExtraTurn不能代缴或抢首击；Terror尊重隔离、真正致死才绝对，
++  额外生命耗尽普通死亡，已获胜不追扣自耗；守夜人转换一次且不凭空造未融合盾。
++
++十四诗篇均通过真实`g5_poem`的费用/接受链路：先显示强化、爱愿与永久损失，拒绝不
++退资源/T1，未答明确保留待回答，绝不默认接受。爱愿不属于普通状态，双人豁免、
++献诗者攻击破碎、四未来R4计时均接入；永久改造不叠加，有限标记按各诗刷新。
++飞萤安全燃烧/永久去机甲救赎、追光救炉心、守夜人救Terror、明天双过载免毁物、
++负世冻结与不可普通净化自灼、六原初诗篇及彼岸最多两次均有实际差量测试。
++
++本批新增八个测试文件共**85项**：G2 7、G3 5、G5 7、G6 7、G7 10、十四诗篇26、
++跨系统边界17、真实轮次剧本6。联合I0～I2与已有相关回归为**1152 passed、2 subtests
++passed**；旧M9烟雾**8/8**只说明旧入口回归。五新角色都有按实际R0～R4推进的三章路线；
++G5可停第二阶段，G7采购剧本明示30信用前置预算，经真实菜单融合与宏操作，不冒称默认
++开局已自然攒够全部采购费。
++
++最终源码固定矩阵为2/4/6人×seeds 0～19，共**60/60**，阵容轮转全部十四槽位：
++0崩溃、0非法重选、0旧回退、0触发40轮兜底，全部最后存活者。轮数为4～14（均7.35）、
++7～20（均10.7）、9～20（均11.95）。六人五新角色混合样本约0.75秒，据此声明每局
++合作式15秒、每20局独立子进程外层120秒；首失败即停、不自动重试。早期G3屏障构造
++失败探针、此前通过的矩阵均保留；最终源码对应`final-runtime-3/`，没有覆盖旧证据。
++最小策略矩阵不是BasicAI策略或平衡结论，未运行500局风洞、checkpoint或训练。
++
++```bash
++python -B tools/ga_play.py --players 6 --seed 2 --talents G2,G3,G5,G6,G7,G1
++python -B tools/ga_play.py --players 2 --talents G5,G7 --human p0
++```
++
++六人独立进程原局/完整脚本重放的终局、事件、随机序列、阶段轨迹、72次动作选择与
++窗口响应逐字段一致。宏/连发/献诗仍复用同步响应窗口；异步UI恢复、正式BasicAI与
++RL动作/观察/奖励和模型语义合同留I4，默认入口切换与旧分派集中退役留I5。
++
++覆盖增量包括GA-004真实连段、017～019、021～022、025～027、029～030、032～036、
++038闭环与039十四人章节，以及040当前原生链路的去重重放；这是对应角色/通用路径的
++证据，不把控制器可达性、所有组合或40项全部登记通过。数据初值未调优。
++
++总回执`artifacts/ga-migration/i3-2026-10-27/receipt.json`保存最终源码/参数散列、逐局结果、
++命令/日志与保护审计；`originals/`和`existing-files.patch`可恢复本批覆盖前内容。用户手册
++未写入；N0配置与`contracts.py/events.py`未改，模型与原有未提交工作保留，没有重置、
++清理或自动提交。
+--- before-i3/docs/v2.0-ga/README.md
++++ after-i3/docs/v2.0-ga/README.md
+@@ -1,8 +1,8 @@
+ # V2.0-GA 文档中心（Clean Baseline）
+ 
+ > **Profile 代号**：`V2.0-GA`（General Availability）——设计会话中称「干净基线 / Clean Baseline」
+-> **状态**：I0～I2已完成；`tools/ga_play.py --talents ...`可跑九天赋、警务与往世层。
+-> main/联机/RL默认入口尚未切换；下一步I3其余五天赋与十四诗篇。
++> **状态**：I0～I3已完成；`tools/ga_play.py --talents ...`可跑十四天赋、十四诗篇与公共系统。
++> main/联机/RL默认入口尚未切换；下一步I4控制器、观察/动作与模型语义合同。
+ > **日期**：2026-10-27
+ > **来源**：2026-10-22 ~ 2026-10-25 设计会话（底层基线 + 神代 G0~G7 + 原初 T1~T4/T6~T7 + 十四诗篇 定稿 + G6 轻量定稿）
+ 
+@@ -22,8 +22,8 @@
+ 
+ ## 二、文档索引
+ 
+-下表记录已有主体方案；跨规则冲突与实现合同仍在复审，不能将「主体方案已定」理解为
+-仅剩数值校准。已决问题直接回写相应 RFC 与手册，进度见 §四。
++下表记录机制合同和当前实现；实际运行证据以实施合同§7各批次为准。
++I3完成不代表控制器适配、平衡或正式默认入口切换已经验收。
+ 
+ 阅读入口：[候选玩法手册](manual_draft_v0.1.md)。它包含行动入口表、状态处理、伤害算例、
+ 十四人剧情章、角色例外和常见问题；RFC 负责权威细节，手册不再并列展示被替代口径。
+@@ -35,18 +35,18 @@
+ 
+ | 文档 | 内容 | 完成度 |
+ |---|---|---|
+-| [implementation_contract_v0.1.md](implementation_contract_v0.1.md) | 复用/重写范围、公共接口、I0～I5、40项验收、工作区保全与退役边界 | I2完成；新增99项测试、60局混合矩阵，范围见§7 |
+-| [baseline_rfc_v0.1.md](baseline_rfc_v0.1.md) | 底层十诫、剧情章与验收边界 | N0 已填；待实现/实战校准 |
++| [implementation_contract_v0.1.md](implementation_contract_v0.1.md) | 复用/重写范围、公共接口、I0～I5、40项验收、工作区保全与退役边界 | I3完成；新增85项测试、60局十四槽位混合矩阵，范围见§7 |
++| [baseline_rfc_v0.1.md](baseline_rfc_v0.1.md) | 底层十诫、剧情章与验收边界 | 原生机制与十四人章节路线已接入；I4/I5与平衡验收待完成 |
+ | [g0_rfc_v0.1.md](g0_rfc_v0.1.md) | 黑子 AR、遗物、无人机、炮火、呼吸自救 | I2原生实现与三章场景通过；待平衡校准 |
+-| [g1_rfc_v0.1.md](g1_rfc_v0.1.md) | 流萤形态、失熵、繁育与单步再动 | I2原生实现与三章场景通过；诗篇转换待I3 |
+-| [g2_rfc_v0.1.md](g2_rfc_v0.1.md) | 歌者×凡人、键位、融合与双终局 | N0 已填；待实现/实战校准 |
+-| [g3_rfc_v0.1.md](g3_rfc_v0.1.md) | 士郎投影、剑丘、连发与幻想崩坏 | N0 已填；待实现/实战校准 |
+-| [g4_rfc_v0.1.md](g4_rfc_v0.1.md) | 白厄火种、升格、挑战响应与焚诏 | I2原生实现、固定池与三章场景通过；诗篇待I3 |
+-| [g5_rfc_v0.1.md](g5_rfc_v0.1.md) | 昔涟三阶段、献诗代付与下一轮倒流 | N0 已填；待实现/实战校准 |
+-| [g6_rfc_v0.1.md](g6_rfc_v0.1.md) | 欢愉笑点、付费当身、嫁祸与礼盒响应 | N0 已填；待实现/实战校准 |
+-| [g7_rfc_v0.1.md](g7_rfc_v0.1.md) | 星野防御、战术宏、SP/Cost 与 Terror | N0 已填；待实现/实战校准 |
+-| [origins_t1_t7_rfc_v0.1.md](origins_t1_t7_rfc_v0.1.md) | 原初六人、T6 个人进攻与 T7 保险/祝祷 | I2六人原生实现与三章场景通过；彼岸重启待I3 |
+-| [poems_rfc_v0.1.md](poems_rfc_v0.1.md) | 十四诗篇、接受权、永久改造与 Encore | I2完成Encore；十四诗篇与永久转换待I3 |
++| [g1_rfc_v0.1.md](g1_rfc_v0.1.md) | 流萤形态、失熵、繁育与单步再动 | I2角色与I3安全燃烧/永久救赎通过；待平衡校准 |
++| [g2_rfc_v0.1.md](g2_rfc_v0.1.md) | 歌者×凡人、键位、融合与双终局 | I3原生实现、双终局/追光与真实三章路线通过 |
++| [g3_rfc_v0.1.md](g3_rfc_v0.1.md) | 士郎投影、剑丘、连发与幻想崩坏 | I3原生隔离/魔力账/连发/崩坏与三章路线通过 |
++| [g4_rfc_v0.1.md](g4_rfc_v0.1.md) | 白厄火种、升格、挑战响应与焚诏 | I2角色与I3有限补充/永久烈阳/不可净化代价通过 |
++| [g5_rfc_v0.1.md](g5_rfc_v0.1.md) | 昔涟三阶段、献诗代付与下一轮倒流 | I3阶段成长、真实历史倒放与闭环快照通过 |
++| [g6_rfc_v0.1.md](g6_rfc_v0.1.md) | 欢愉笑点、付费当身、嫁祸与礼盒响应 | I3根级笑点、多付款者、礼盒机会与三章路线通过 |
++| [g7_rfc_v0.1.md](g7_rfc_v0.1.md) | 星野防御、战术宏、SP/Cost 与 Terror | I3融合/有限宏/三EX/Terror/守夜人与三章路线通过 |
++| [origins_t1_t7_rfc_v0.1.md](origins_t1_t7_rfc_v0.1.md) | 原初六人、T6 个人进攻与 T7 保险/祝祷 | I2六人与I3六首对应诗篇通过；彼岸最多两次 |
++| [poems_rfc_v0.1.md](poems_rfc_v0.1.md) | 十四诗篇、接受权、永久改造与 Encore | I3十四首实际付费/接受链路与救赎分支通过；待平衡校准 |
+ 
+ ## 三、已冻结清单
+ 

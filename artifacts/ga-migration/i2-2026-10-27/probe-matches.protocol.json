@@ -1,0 +1,38 @@
+{
+  "solo_seeds": [
+    0,
+    1,
+    2
+  ],
+  "solo_slots": [
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T6",
+    "T7",
+    "G0",
+    "G1",
+    "G4"
+  ],
+  "opponent": "T6 unless player is T6 then T1",
+  "mixed_players": [
+    2,
+    4,
+    6
+  ],
+  "mixed_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "per_game_timeout_seconds": 10,
+  "first_failure_stops": true
+}

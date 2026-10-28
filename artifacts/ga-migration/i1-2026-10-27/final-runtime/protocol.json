@@ -1,0 +1,49 @@
+{
+  "players": [
+    2,
+    4,
+    6
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+  ],
+  "games": 60,
+  "strategy": "MinimalController; no talents or police/afterlife",
+  "observed_six_player_seconds": 0.3601898999986588,
+  "per_game_cooperative_timeout_seconds": 10,
+  "per_group_outer_timeout_seconds": 30,
+  "max_actual_rounds": 40,
+  "no_retries": true,
+  "source_sha256": {
+    "engine\\ga\\actions.py": "3dca664bd4307bec8c8f86cc948d84e60737e209aded2b651c71b7d0237ea596",
+    "engine\\ga\\combat.py": "162d11365dd07773b1ef0135bd31166dfbf0b668dbfcafa66fd97c167caede7f",
+    "engine\\ga\\config.py": "0fc3b824ed51367e82b7e04135fcaafb36196ff95609c419dd700a32ef80dce4",
+    "engine\\ga\\contracts.py": "20623c8c08f2d0709b4b9b9bb4fe2838b2130635755c1911e766d40469ec35ee",
+    "engine\\ga\\controllers.py": "b21da9bffc0ce0da4f9abd8ec9294b19bc86ede70be944850d7bef983ba48cf6",
+    "engine\\ga\\events.py": "00a23aa4a58b929e857cf150392d750400eb385e3b4c26885147f6dcc43d1401",
+    "engine\\ga\\gameplay.py": "7d291a31f136a9f95ec74d3745e6d1bbc873701f08632cf1c84aa2c45573831e",
+    "engine\\ga\\runtime.py": "d75debe0ff0de31597b22699e1de4ab5bf722c72c9e9f744594702fe7c7b2c44",
+    "engine\\ga\\state.py": "fb932d8272225e736229f175077884c259f771462c4b00af7bc2bdf9192061ed",
+    "engine\\ga\\status.py": "8421066fd8bafc052db1129d9f2bb805db16813a91bc16f8b4cc76444b2d6227",
+    "engine\\ga\\__init__.py": "0b1191808aaad2290f4df8cb71ff6575b4780c1771387ec66ed4aeeb3f735b28"
+  }
+}

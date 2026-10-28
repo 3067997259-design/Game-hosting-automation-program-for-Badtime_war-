@@ -1,0 +1,36 @@
+{
+  "players": [
+    2,
+    4,
+    6
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+  ],
+  "games": 60,
+  "strategy": "MinimalController; no talents or police/afterlife",
+  "observed_six_player_seconds": 0.3601898999986588,
+  "per_game_cooperative_timeout_seconds": 10,
+  "per_group_outer_timeout_seconds": 30,
+  "max_actual_rounds": 40,
+  "no_retries": true
+}

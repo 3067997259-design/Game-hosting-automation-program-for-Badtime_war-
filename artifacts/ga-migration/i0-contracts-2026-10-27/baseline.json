@@ -1,0 +1,36 @@
+{
+  "head": "c6e19a8882cffc60b163cc9407e70472feccc9e1",
+  "status": " M CLAUDE.md\n M actions/shoot.py\n M actions/special_op.py\n M controllers/bots/__init__.py\n M data/balance.json\n M docs/ai/commands_mapping.md\n M docs/contradictions.md\n M docs/document_registry.json\nAM docs/m9/rl/m9_rl_next_steps.md\n M engine/action_enumerator.py\n M engine/action_turn.py\n M engine/balance.py\n M engine/bow_modules.py\n M engine/game_setup.py\n M engine/m9/police.py\n M engine/m9/talents/g2.py\n M engine/round_manager.py\n M locations/military_base.py\n M locations/shop.py\n M models/player.py\n M rl/action_space.py\n M rl/bc_collector.py\n M rl/bc_migrate.py\n M rl/bc_pretrain.py\n M rl/env.py\n M rl/export_torchscript.py\n M rl/obs_builder.py\n M rl/reward.py\n M rl/rl_controller.py\n M rl/self_play.py\n M rl/train.py\n M tests/test_m4_gear.py\n M tests/test_m9_talent_registry.py\n?? .agents/skills/j-space/\n?? .jspace/\n?? .mimosa/\n?? artifacts/\n?? controllers/bots/dummy_bot.py\n?? docs/m9/rl/bc_warm_start.md\n?? docs/m9/rl/m9_rl_roadmap.md\n?? docs/v2.0-ga/\n?? engine/ga/\n?? maskable-recurrent-ppo/\n?? rl/action_spec.py\n?? rl/curriculum.py\n?? rl/distill_student.py\n?? rl/expert_stack.py\n?? rl/maskable_recurrent/\n?? rl/obs_builder_m9.py\n?? rl/obs_compat.py\n?? rl/reward_m9.py\n?? rl/schema.py\n?? rl/winrate_eval.py\n?? tests/test_ga_config.py\n?? tests/test_maskable_recurrent_lib.py\n?? tests/test_rl_action_coverage.py\n?? tests/test_rl_action_spec.py\n?? tests/test_rl_curriculum_gate.py\n?? tests/test_rl_curriculum_police.py\n?? tests/test_rl_curriculum_rung0.py\n?? tests/test_rl_curriculum_talent.py\n?? tests/test_rl_expert_stack.py\n?? tests/test_rl_m9_active_victory.py\n?? tests/test_rl_m9_choose_visibility.py\n?? tests/test_rl_m9_contract_metrics.py\n?? tests/test_rl_m9_distill_collect.py\n?? tests/test_rl_m9_distill_train.py\n?? tests/test_rl_m9_lifecycle_contract.py\n?? tests/test_rl_m9_reward_drift.py\n?? tests/test_rl_m9_reward_ledger.py\n?? tests/test_rl_m9_special_visibility.py\n?? tests/test_rl_m9_talent_drills.py\n?? tests/test_rl_m9_talent_visibility.py\n?? tests/test_rl_obs_talent_block.py\n?? tools/m9_distill_collect.py\n?? tools/m9_distill_train.py\n?? tools/m9_eval_graduate.py\n?? tools/m9_recurrent_bc.py\n?? tools/m9_rl_contract_probe.py\n?? tools/m9_rl_train.py\n?? tools/m9_symmetrize_checkpoint.py\n?? tools/m9_talent_activation_probe.py\n?? tools/phase0_maskable_recurrent.py\n?? tools/phase1_legacy_compare.py\n?? tools/police_course_probe.py\n?? tools/probe_env_scaling.py\n?? tools/rung0_chain_probe.py\n?? tools/talent_course_probe.py\n",
+  "targets": {
+    "engine/ga/contracts.py": {
+      "existed": false,
+      "sha256": null
+    },
+    "engine/ga/actions.py": {
+      "existed": false,
+      "sha256": null
+    },
+    "engine/ga/events.py": {
+      "existed": false,
+      "sha256": null
+    },
+    "tests/test_ga_contracts.py": {
+      "existed": false,
+      "sha256": null
+    },
+    "tests/test_ga_events.py": {
+      "existed": false,
+      "sha256": null
+    }
+  },
+  "protected": {
+    "data/balance.json": "a0d585a52ea0bee6605842ddde41f19ea86971a1ac75280fbd632026e50213b9",
+    "engine/balance.py": "6357430070f388cdf9d6c739e05c9c47621faa0067cc3ab3be1a53301cc77c96",
+    "engine/ga/config.py": "0fc3b824ed51367e82b7e04135fcaafb36196ff95609c419dd700a32ef80dce4",
+    "docs/v2.0-ga/manual_draft_v0.1.md": "36eca43bfa9f33d6c7d822a6540a17a195e2e8b4bd84283e0073f905c8682693"
+  },
+  "documentation_targets": {
+    "docs/v2.0-ga/README.md": "83020eaa81673989cdb14741283e3c062d662843c810f44b10a6be6d9e8d6b9c",
+    "docs/v2.0-ga/implementation_contract_v0.1.md": "07a6c5a4e03d42f878356ef5e938016bd2b698ffeb53f0204e3f844757c2349e"
+  }
+}

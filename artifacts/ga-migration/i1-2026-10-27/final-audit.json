@@ -1,0 +1,74 @@
+{
+  "python_checks": {
+    "engine/ga/state.py": {
+      "ast": true,
+      "utf8_without_bom": true,
+      "max_line_width": 100,
+      "annotations": true
+    },
+    "engine/ga/status.py": {
+      "ast": true,
+      "utf8_without_bom": true,
+      "max_line_width": 100,
+      "annotations": true
+    },
+    "engine/ga/combat.py": {
+      "ast": true,
+      "utf8_without_bom": true,
+      "max_line_width": 100,
+      "annotations": true
+    },
+    "engine/ga/gameplay.py": {
+      "ast": true,
+      "utf8_without_bom": true,
+      "max_line_width": 100,
+      "annotations": true
+    },
+    "engine/ga/runtime.py": {
+      "ast": true,
+      "utf8_without_bom": true,
+      "max_line_width": 100,
+      "annotations": true
+    },
+    "engine/ga/controllers.py": {
+      "ast": true,
+      "utf8_without_bom": true,
+      "max_line_width": 100,
+      "annotations": true
+    },
+    "tools/ga_play.py": {
+      "ast": true,
+      "utf8_without_bom": true,
+      "max_line_width": 100,
+      "annotations": true
+    },
+    "tests/test_ga_combat.py": {
+      "ast": true,
+      "utf8_without_bom": true,
+      "max_line_width": 100,
+      "annotations": true
+    },
+    "tests/test_ga_runtime.py": {
+      "ast": true,
+      "utf8_without_bom": true,
+      "max_line_width": 100,
+      "annotations": true
+    },
+    "tests/test_ga_gameplay.py": {
+      "ast": true,
+      "utf8_without_bom": true,
+      "max_line_width": 100,
+      "annotations": true
+    }
+  },
+  "protected_inputs_unchanged": {
+    "docs/v2.0-ga/manual_draft_v0.1.md": true,
+    "data/balance.json": true,
+    "engine/ga/config.py": true,
+    "engine/ga/contracts.py": true,
+    "engine/ga/actions.py": true,
+    "engine/ga/events.py": true
+  },
+  "documentation_links": true,
+  "default_profile": "legacy"
+}

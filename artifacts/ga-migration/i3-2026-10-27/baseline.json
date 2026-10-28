@@ -1,0 +1,106 @@
+{
+  "head": "c6e19a8882cffc60b163cc9407e70472feccc9e1",
+  "status": " M CLAUDE.md\n M actions/shoot.py\n M actions/special_op.py\n M controllers/bots/__init__.py\n M data/balance.json\n M docs/ai/commands_mapping.md\n M docs/contradictions.md\n M docs/document_registry.json\nAM docs/m9/rl/m9_rl_next_steps.md\n M engine/action_enumerator.py\n M engine/action_turn.py\n M engine/balance.py\n M engine/bow_modules.py\n M engine/game_setup.py\n M engine/game_state.py\n M engine/m9/police.py\n M engine/m9/talents/g2.py\n M engine/round_manager.py\n M locations/military_base.py\n M locations/shop.py\n M models/player.py\n M rl/action_space.py\n M rl/bc_collector.py\n M rl/bc_migrate.py\n M rl/bc_pretrain.py\n M rl/env.py\n M rl/export_torchscript.py\n M rl/obs_builder.py\n M rl/reward.py\n M rl/rl_controller.py\n M rl/self_play.py\n M rl/train.py\n M tests/test_m4_gear.py\n M tests/test_m9_talent_registry.py\n?? .agents/skills/j-space/\n?? .jspace/\n?? .mimosa/\n?? artifacts/\n?? controllers/bots/dummy_bot.py\n?? docs/m9/rl/bc_warm_start.md\n?? docs/m9/rl/m9_rl_roadmap.md\n?? docs/v2.0-ga/\n?? engine/ga/\n?? maskable-recurrent-ppo/\n?? rl/action_spec.py\n?? rl/curriculum.py\n?? rl/distill_student.py\n?? rl/expert_stack.py\n?? rl/maskable_recurrent/\n?? rl/obs_builder_m9.py\n?? rl/obs_compat.py\n?? rl/reward_m9.py\n?? rl/schema.py\n?? rl/winrate_eval.py\n?? tests/ga_i2_helpers.py\n?? tests/test_ga_afterlife.py\n?? tests/test_ga_combat.py\n?? tests/test_ga_config.py\n?? tests/test_ga_contracts.py\n?? tests/test_ga_divine_i2.py\n?? tests/test_ga_events.py\n?? tests/test_ga_gameplay.py\n?? tests/test_ga_i2_round_traces.py\n?? tests/test_ga_i2_system_edges.py\n?? tests/test_ga_origins.py\n?? tests/test_ga_police.py\n?? tests/test_ga_runtime.py\n?? tests/test_maskable_recurrent_lib.py\n?? tests/test_rl_action_coverage.py\n?? tests/test_rl_action_spec.py\n?? tests/test_rl_curriculum_gate.py\n?? tests/test_rl_curriculum_police.py\n?? tests/test_rl_curriculum_rung0.py\n?? tests/test_rl_curriculum_talent.py\n?? tests/test_rl_expert_stack.py\n?? tests/test_rl_m9_active_victory.py\n?? tests/test_rl_m9_choose_visibility.py\n?? tests/test_rl_m9_contract_metrics.py\n?? tests/test_rl_m9_distill_collect.py\n?? tests/test_rl_m9_distill_train.py\n?? tests/test_rl_m9_lifecycle_contract.py\n?? tests/test_rl_m9_reward_drift.py\n?? tests/test_rl_m9_reward_ledger.py\n?? tests/test_rl_m9_special_visibility.py\n?? tests/test_rl_m9_talent_drills.py\n?? tests/test_rl_m9_talent_visibility.py\n?? tests/test_rl_obs_talent_block.py\n?? tools/ga_play.py\n?? tools/m9_distill_collect.py\n?? tools/m9_distill_train.py\n?? tools/m9_eval_graduate.py\n?? tools/m9_recurrent_bc.py\n?? tools/m9_rl_contract_probe.py\n?? tools/m9_rl_train.py\n?? tools/m9_symmetrize_checkpoint.py\n?? tools/m9_talent_activation_probe.py\n?? tools/phase0_maskable_recurrent.py\n?? tools/phase1_legacy_compare.py\n?? tools/police_course_probe.py\n?? tools/probe_env_scaling.py\n?? tools/rung0_chain_probe.py\n?? tools/talent_course_probe.py\n",
+  "existing": {
+    "engine/ga/actions.py": {
+      "sha256": "f730a0ed1059a51bbd4eaf8fec7357288bfe6bcdec7bba878b57cb1283b13f1a"
+    },
+    "engine/ga/afterlife.py": {
+      "sha256": "6024f5c9ffdc6383413a9458bec4ddc05bffa73ac7f0a3a61be113bfd38e5be7"
+    },
+    "engine/ga/combat.py": {
+      "sha256": "35e76f1d8f6c1aa2e4697737b452dba9a035203b4dabe19bf205876388cb673b"
+    },
+    "engine/ga/config.py": {
+      "sha256": "0fc3b824ed51367e82b7e04135fcaafb36196ff95609c419dd700a32ef80dce4"
+    },
+    "engine/ga/contracts.py": {
+      "sha256": "20623c8c08f2d0709b4b9b9bb4fe2838b2130635755c1911e766d40469ec35ee"
+    },
+    "engine/ga/controllers.py": {
+      "sha256": "825ad1ce83032ead77da71733c1d41e83fb3f93623b9f48bbed226b54a6a9430"
+    },
+    "engine/ga/events.py": {
+      "sha256": "00a23aa4a58b929e857cf150392d750400eb385e3b4c26885147f6dcc43d1401"
+    },
+    "engine/ga/extensions.py": {
+      "sha256": "d1b8977eb6aef47fc95974c04f0a9e1a2db4f6a79cbfe9f2d41a99b432d7e28d"
+    },
+    "engine/ga/gameplay.py": {
+      "sha256": "3b4da655cf7a6d8d5c84a979ff734ec5b19171b7b446ab399faa60f53f3a7cb7"
+    },
+    "engine/ga/police.py": {
+      "sha256": "62c4c14d0204907220e5577e5c758e76fad9d363703562adc229d8a91bf02900"
+    },
+    "engine/ga/runtime.py": {
+      "sha256": "95dded1334208b95ca9a013a50a1ab7289a8d17ac2fff78bdf6ff0f2c45883b2"
+    },
+    "engine/ga/setup.py": {
+      "sha256": "9c17f16a6d41aeef9c992f72a4400c29f86676f0f00b4c984603331e2e5c2c41"
+    },
+    "engine/ga/state.py": {
+      "sha256": "ae970fafcf372e2d624fb55b22909bd88bcee271745670048ed23196f3dba84a"
+    },
+    "engine/ga/status.py": {
+      "sha256": "7902fe11d2a99cc9fb171781d224408dc0189581f4c0dc1ec82b6a8a2006152c"
+    },
+    "engine/ga/__init__.py": {
+      "sha256": "0b1191808aaad2290f4df8cb71ff6575b4780c1771387ec66ed4aeeb3f735b28"
+    },
+    "engine/ga/talents/base.py": {
+      "sha256": "5f6b2f9e7b83026311ddc5b707829cbedb36d1c157a9737a37e781a0f271936f"
+    },
+    "engine/ga/talents/g0.py": {
+      "sha256": "cb1f3406d2ce21c9bc605981309a8d16ecd11055aa2eb9be35211185051352e3"
+    },
+    "engine/ga/talents/g1.py": {
+      "sha256": "59f0c14bee2f0b73653082b7e91be59b28e868f2cd5c9113fa093384ffe6d6e6"
+    },
+    "engine/ga/talents/g4.py": {
+      "sha256": "a089a077b5396cf2d25ca726cd07912f48d27ce376b6a19b005e127637129477"
+    },
+    "engine/ga/talents/t1.py": {
+      "sha256": "fb2defdc9b95538e01c7f4fd1b1333ae1dcdad7b4033bf470e9de48c5a88d10e"
+    },
+    "engine/ga/talents/t2.py": {
+      "sha256": "3b920e7e63b46c20cc5e8f2a3cbe1e70be4eb89e4ea709947e1bfd0d1c88a57c"
+    },
+    "engine/ga/talents/t3.py": {
+      "sha256": "9fbbb7711cec302540338231769ace4a7d1247338eecb1ad4f93c148ae63b8ad"
+    },
+    "engine/ga/talents/t4.py": {
+      "sha256": "d0decd87b9b227de47a9876041cbad4227acaae5bd0da2d9f2c3769352cb1666"
+    },
+    "engine/ga/talents/t6.py": {
+      "sha256": "458183bf27db45b63864a39ecd4149ce54cc49882a14ae56b20b36b2aaf358a5"
+    },
+    "engine/ga/talents/t7.py": {
+      "sha256": "be342a9b74004f7f77f89c534cf9acf45459cceb7eca02dbc56f1e026df2f5fa"
+    },
+    "engine/ga/talents/__init__.py": {
+      "sha256": "eb839a5e055cc545267ff2d209ead1f047d202b1f809dde0b8470c3dda3e87fb"
+    },
+    "engine/game_state.py": {
+      "sha256": "446d079de0a82de785ea6b72e60fda296df84abad8ebd592eaf7bfae52621413"
+    },
+    "tools/ga_play.py": {
+      "sha256": "377eabfed9f577d821a7234a82864fbb71653147f43369878539dbdc4eeb4ee7"
+    },
+    "docs/v2.0-ga/README.md": {
+      "sha256": "e3f47701be9a83b5815abc1f8407c870312ed45736ef2d4c1cd5ac149714940d"
+    },
+    "docs/v2.0-ga/implementation_contract_v0.1.md": {
+      "sha256": "455e55c2f5f4bfdd7e35461cdcf0dee12ea249382c7e95822526f944797a07cb"
+    },
+    "tests/test_ga_i2_round_traces.py": {
+      "sha256": "d7a0d5bc0e1e988ce0a89fefc3b2ea646b31fb69580f8cf125bf269f9519694d"
+    }
+  },
+  "protected": {
+    "docs/v2.0-ga/manual_draft_v0.1.md": "706e6e823322623b5018bc2990bd0aa9f956b538b000e5168af2d624239fbd43",
+    "data/balance.json": "a0d585a52ea0bee6605842ddde41f19ea86971a1ac75280fbd632026e50213b9",
+    "engine/ga/config.py": "0fc3b824ed51367e82b7e04135fcaafb36196ff95609c419dd700a32ef80dce4",
+    "engine/ga/contracts.py": "20623c8c08f2d0709b4b9b9bb4fe2838b2130635755c1911e766d40469ec35ee",
+    "engine/ga/events.py": "00a23aa4a58b929e857cf150392d750400eb385e3b4c26885147f6dcc43d1401"
+  }
+}

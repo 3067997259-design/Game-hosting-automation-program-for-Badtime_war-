@@ -1,0 +1,28 @@
+{
+  "games": 60,
+  "passed": 60,
+  "failures": 0,
+  "round_limit": 0,
+  "all_dead": 0,
+  "last_survivor": 60,
+  "by_players": {
+    "2": {
+      "games": 20,
+      "min_rounds": 6,
+      "max_rounds": 6,
+      "mean_rounds": 6.0
+    },
+    "4": {
+      "games": 20,
+      "min_rounds": 7,
+      "max_rounds": 9,
+      "mean_rounds": 8.1
+    },
+    "6": {
+      "games": 20,
+      "min_rounds": 8,
+      "max_rounds": 11,
+      "mean_rounds": 9.75
+    }
+  }
+}
