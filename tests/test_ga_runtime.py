@@ -181,7 +181,7 @@ def test_ga004_chain_and_followup_finish_before_public_then_extra() -> None:
     state.ga_action_providers.append(public_provider)
 
     def after(s: GameState, plan: ActionPlan) -> None:
-        assert queue_extra_turn(s, "a", "poem_earthfire")
+        assert queue_extra_turn(s, "a", "poem_nightwalk")
         assert queue_extra_turn(s, "a", "t4_or_yue")
         assert queue_followup(s, "a", "fixture-followup")
 
@@ -272,7 +272,7 @@ def test_extra_cannot_recurse_and_followup_has_no_t0_or_performance() -> None:
     def t2(s: GameState) -> None:
         grant = s.current_grant
         if grant.actor_id == "a":
-            results.append((grant.kind, queue_extra_turn(s, "a", "poem_earthfire")))
+            results.append((grant.kind, queue_extra_turn(s, "a", "poem_nightwalk")))
             queue_followup(s, "a", "fixture")
 
     state.ga_hooks["T2"] = [t2]

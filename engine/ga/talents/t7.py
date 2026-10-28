@@ -62,8 +62,9 @@ class T7(Talent):
         return tuple(result)
 
     def insure(self, state: GameState, plan: ActionPlan) -> None:
-        """只挂保单，不提前消费死亡替代次数。"""
-        state.ga_insurance = {"owner": self.owner_id, "target": plan.request.target_ids[0]}
+        """只挂复活，不提前消费死亡替代次数；公演挂的复活起身时满血。"""
+        state.ga_insurance = {"owner": self.owner_id, "target": plan.request.target_ids[0],
+                              "full": plan.request.performance is Performance.PUBLIC}
         high_impact(state, self.owner_id, plan.request.root_id, plan.request.target_ids[0])
         chapter(state, self.owner_id, 1)
         touch(state)
@@ -89,13 +90,17 @@ class T7(Talent):
             return None
         if self.used >= self.capacity:
             return None
-        hp = math.ceil(target.max_hp * state.ga_config.get("talents", "T7", "revive_hp_ratio"))
+        ratio = "public_revive_hp_ratio" if policy.get("full") else "revive_hp_ratio"
+        hp = math.ceil(target.max_hp * state.ga_config.get("talents", "T7", ratio))
         return Replacement(DeathOutcome.RESURRECTED, hp, "insurance", {})
 
     def insurance_commit(
         self, state: GameState, effect: EffectSpec, target: GaPlayer, result: Replacement,
     ) -> None:
-        """原地优先，医院其次，固定建筑再次；只兑现一个正HP替代。"""
+        """原地优先，医院其次，再按商店→魔法所→军事基地→警察局；只兑现一个正HP替代。
+
+        只清普通状态和灼烧；屏障、隐身和外甲耐久都保持原样。
+        """
         if target.location not in LOCATIONS or target.location in state.destroyed_locations:
             target.location = "hospital" if "hospital" not in state.destroyed_locations else next(
                 loc for loc in LOCATIONS if loc not in state.destroyed_locations
@@ -133,7 +138,8 @@ class T7(Talent):
             self.shore_rearmed = True
             self.capacity = 2
             if state.ga_insurance is None:
-                state.ga_insurance = {"owner": self.owner_id, "target": self.owner_id}
+                state.ga_insurance = {"owner": self.owner_id, "target": self.owner_id,
+                                      "full": False}
         touch(state)
 
     def on_events(self, state: GameState, events: tuple[Any, ...]) -> None:

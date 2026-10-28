@@ -267,7 +267,7 @@ def test_original_encore_borrows_core_not_passive_or_insurance(slot: str, operat
     assert not state.ga_afterlife.borrowed["a"] and "c" in state.ga_afterlife.encore_used
 
 
-def test_borrowed_hexagram_cannot_issue_extra_turn() -> None:
+def test_borrowed_hexagram_can_issue_extra_turn() -> None:
     state = ready({"c": "T4"}, count=4)
     kill(state, "c")
     window(state, "c")
@@ -276,4 +276,4 @@ def test_borrowed_hexagram_cannot_issue_extra_turn() -> None:
     state.ga_controllers["b"] = Decisions(encore_hexagram=["paper"])
     turn(state, "a")
     execute(state, "encore_T4", targets=("b",))
-    assert not state.ga_pending_extras
+    assert state.ga_pending_extras == {"a": "t4_or_yue"}

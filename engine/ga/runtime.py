@@ -60,7 +60,7 @@ class Controller(Protocol):
         ...
 
 
-EXTRA_SOURCES = {"t4_or_yue": 0, "poem_earthfire": 1}
+EXTRA_SOURCES = {"t4_or_yue": 0, "poem_nightwalk": 1}
 
 
 def queue_extra_turn(state: GameState, actor_id: str, source_id: str) -> bool:

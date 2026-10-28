@@ -12,6 +12,7 @@ from engine.ga.gameplay import legal_actions
 from engine.ga.police import Police
 from engine.ga.runtime import run_round
 from engine.ga.state import add_armor
+from engine.ga.status import put_status
 from engine.ga.talents.base import barrier
 from tests.ga_i2_helpers import Decisions, execute, ready, turn
 
@@ -170,6 +171,31 @@ def test_t7_insurance_death_owner_independent_no_armor_repair_and_prayer_after()
     assert state.players["b"].hp == 10 and state.players["b"].sp == 0
     assert state.players["b"].defenses[key].durability == 0
     assert state.ga_roles["a"].used == 1 and "chapter/3" in state.players["a"].chapters
+
+
+def test_t7_public_revive_restores_full_hp_and_keeps_barrier_and_stealth() -> None:
+    state = ready({"a": "T7"}, count=4)
+    state.players["a"].sp = 2
+    turn(state, "a")
+    execute(state, "t7_insure", targets=("b",), mode=Performance.PUBLIC)
+    assert state.ga_insurance == {"owner": "a", "target": "b", "full": True}
+    state.players["b"].hp = 1
+    turn(state, "c")
+    execute(state, "attack", targets=("b",), weapon="knife")
+    assert state.players["b"].alive and state.players["b"].hp == state.players["b"].max_hp
+    assert state.ga_roles["a"].used == 1 and state.ga_insurance is None
+    target = state.players["d"]
+    barrier(state, "d", "fixture/wall", 3)
+    target.hidden = True
+    put_status(target, state.ga_config, state.current_round, "WEAK", source_id="fixture")
+    role = state.ga_roles["a"]
+    role.used = 0
+    state.ga_insurance = {"owner": "a", "target": "d", "full": False}
+    result = role.insurance_preview(state, None, target)
+    assert result is not None and result.hp == 10
+    role.insurance_commit(state, None, target, result)
+    assert target.hidden and target.defenses["fixture/wall"].durability == 3
+    assert not target.statuses
 
 
 def test_t7_prayer_after_lament_remains_a_legal_paid_t1() -> None:

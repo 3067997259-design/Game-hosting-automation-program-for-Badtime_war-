@@ -1,4 +1,7 @@
-"""普通商品的免费获取核心；T2与Encore复用同一目录、容量和实际库存。"""
+"""普通商品的免费获取核心；T2与Encore复用同一目录、容量和实际库存。
+
+拿东西不引人注目：不登记关注，所以不会把即演的 SP 补回来。
+"""
 
 from __future__ import annotations
 
@@ -6,7 +9,6 @@ from dataclasses import replace
 from typing import Any, TYPE_CHECKING
 
 from engine.ga.contracts import ActionVerb, CostEntry, Performance, TurnStage
-from engine.ga.extensions import high_impact
 from engine.ga.gameplay import ActionOption, _apply_builtin, _location_options
 from engine.ga.state import touch
 from engine.ga.talents.base import ability
@@ -47,12 +49,11 @@ def take_options(
 
 
 def take_goods(state: GameState, plan: ActionPlan) -> None:
-    """只接受正式候选验证过的商品，实际扣库存并获得原品，不扣通行证。"""
+    """只接受正式候选验证过的商品，实际扣库存并获得原品，不扣通行证，也不给关注。"""
     params = plan.request.parameters
     purchase = params["purchase"]
     # 借用标记、代付标记等属于外层行动，不能混入普通商品的参数。
     selected = {key: params[key] for key in ("kind", "weapon", "spell") if key in params}
     _apply_builtin(state, replace(plan.request, operation=purchase, parameters=selected),
                    purchase_crime=False)
-    high_impact(state, plan.request.actor_id, plan.request.root_id)
     touch(state)

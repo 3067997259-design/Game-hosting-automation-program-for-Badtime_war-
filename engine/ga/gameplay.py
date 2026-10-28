@@ -75,6 +75,12 @@ def _visible(actor: GaPlayer, target: GaPlayer, attribute: DamageAttribute) -> b
                 (attribute is DamageAttribute.MAGIC and "detect_magic" in actor.weapons))
 
 
+def _visible_any(actor: GaPlayer, target: GaPlayer) -> bool:
+    """任一属性看得见就算看得见；普通 lock 与 T2 如影随形共用这一口径。"""
+    return any(_visible(actor, target, attr) for attr in (
+        DamageAttribute.NORMAL, DamageAttribute.TECH, DamageAttribute.MAGIC))
+
+
 def _bow_parameters(
     state: GameState, player: GaPlayer,
 ) -> tuple[int, DamageAttribute, dict[str, Any]]:
@@ -199,8 +205,7 @@ def _raw_options(
         for target in state.players.values():
             if target.player_id != player.player_id and target.alive and target.home_locked and (
                 player.isolation_id == target.isolation_id
-            ) and any(_visible(player, target, attr) for attr in
-                      (DamageAttribute.NORMAL, DamageAttribute.TECH, DamageAttribute.MAGIC)):
+            ) and _visible_any(player, target):
                 add("lock", ActionVerb.SPECIAL, targets=(target.player_id,))
         _module_options(state, player, add)
         if player.surgery == "furnace" and player.furnace_uses < cfg.get(

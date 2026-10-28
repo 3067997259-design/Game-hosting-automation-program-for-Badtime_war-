@@ -207,7 +207,7 @@ def test_shore_early_boost_and_late_single_rearm_never_produce_a_third_payout() 
     assert any(d.durability == 6 for d in state.players["b"].defenses.values())
     offer(state)
     role = state.ga_roles["b"]
-    assert role.capacity == 2 and state.ga_insurance == {"owner": "b", "target": "b"}
+    assert role.capacity == 2 and state.ga_insurance == {"owner": "b", "target": "b", "full": False}
     state.players["b"].defenses.clear()
     state.players["b"].hp = 1
     turn(state, "c")

@@ -12,6 +12,7 @@ from engine.ga.contracts import (
 )
 from engine.ga.events import EventKind
 from engine.ga.extensions import ask, chapter, high_impact, relocate
+from engine.ga.gameplay import _visible_any
 from engine.ga.possessions import transferable_items, transfer_item
 from engine.ga.talents.base import Talent, ability, own_slot
 from engine.ga.state import emit, touch
@@ -115,7 +116,10 @@ class T2(Talent):
             chapter(state, self.owner_id, 3)
 
     def after_action(self, state: GameState, option: ActionOption, plan: ActionPlan) -> None:
-        """开局赠品、演出记录和跟随选择都在实际动作成功后兑现。"""
+        """开局赠品、演出记录和跟随选择都在实际动作成功后兑现。
+
+        只有你看得见（口径同普通 lock）的人主动离开，才会触发如影随形。
+        """
         request = plan.request
         player = state.players[self.owner_id]
         if request.actor_id == self.owner_id:
@@ -136,7 +140,7 @@ class T2(Talent):
             not self.free_shadow and player.sp < cfg["shadow_step_sp_cost"] or
             meta.get("from_location") != player.location or
             target.location == player.location or target.isolation_id != player.isolation_id or
-            player.isolation_id is not None
+            player.isolation_id is not None or not _visible_any(player, target)
         ):
             return
         items = transferable_items(state, request.actor_id, self.owner_id)
@@ -154,7 +158,6 @@ class T2(Talent):
         self.shadow_uses += 1
         if choice == "lock":
             self.shadow_lock = request.actor_id
-            target.revealed_to.add(self.owner_id)
         else:
             transfer_item(state, request.actor_id, self.owner_id, choice.removeprefix("steal:"))
         chapter(state, self.owner_id, 2)
@@ -195,9 +198,9 @@ class T2(Talent):
                 player.hidden = False
 
     def receive_poem(self, state: GameState, giver: str) -> None:
-        """地火的再动仍走公共白名单，暗影步只赠一次免费支付。"""
+        """夜行的再动仍走公共白名单，如影随形只赠一次免费支付。"""
         from engine.ga.runtime import queue_extra_turn
         self.shadow_uses = 0
         self.free_shadow = True
         state.players[self.owner_id].hidden = True
-        queue_extra_turn(state, self.owner_id, "poem_earthfire")
+        queue_extra_turn(state, self.owner_id, "poem_nightwalk")

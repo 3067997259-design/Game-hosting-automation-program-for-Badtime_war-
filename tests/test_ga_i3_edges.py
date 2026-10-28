@@ -15,7 +15,7 @@ from tests.test_ga_g7 import Steps, fused
 from tests.test_ga_poems import offer
 
 
-def test_tomorrow_double_overload_costs_zero_hp_and_destroys_no_relic() -> None:
+def test_tomorrow_crossfire_costs_zero_hp_once_and_keeps_relics() -> None:
     state = ready({"a": "G5", "b": "G0"})
     offer(state)
     turn(state, "b", TurnStage.T0)
@@ -26,8 +26,7 @@ def test_tomorrow_double_overload_costs_zero_hp_and_destroys_no_relic() -> None:
     relics = set(state.ga_roles["b"].relics)
     state.players["b"].sp = 2
     turn(state, "b")
-    receipt = execute(state, "g0_crossfire", mode=Performance.PUBLIC,
-                      promise_relics=("belt", "sight"))
+    receipt = execute(state, "g0_crossfire", mode=Performance.PUBLIC)
     assert state.players["b"].hp == hp and state.ga_roles["b"].relics == relics
     assert not any(c.amount for c in receipt.costs if c.account == "hp")
     assert not state.ga_roles["b"].promise and state.ga_roles["b"].tomorrow

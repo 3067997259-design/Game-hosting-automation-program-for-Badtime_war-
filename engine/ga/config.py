@@ -140,6 +140,7 @@ _TALENT_SCHEMA: dict[str, Any] = {
     "T6": _ints("17.5", "credits", "hotline_price"),
     "T7": {
         **_ratios("17.5", "revive_hp_ratio", "ceil_hp"),
+        **_ratios("11.6;17.5;DEC-053", "public_revive_hp_ratio", "ceil_hp"),
         **_ints("17.5", "sp", "revive_sp"),
         **_positive("17.5", "hp", "prayer_heal"),
         **_positive("17.5", "uses", "insurance_uses poem_insurance_uses"),
@@ -149,17 +150,15 @@ _TALENT_SCHEMA: dict[str, Any] = {
         **_positive("17.6", "bullets", "ammo_cap point_ammo auto_ammo"),
         **_positive("17.6", "bullets_per_arrow", "arrow_conversion"),
         **_positive("17.6", "hp", "point_damage auto_damage splash_damage drone_hp "
-                    "drone_attack_bonus crossfire_damage overload_hp_floor breath_success_hp"),
+                    "drone_attack_bonus crossfire_damage breath_success_hp"),
         **_ints("17.6", "hp", "glasses_heal"),
-        **_positive("17.6", "durability", "auto_attached_wear shield_barrier synergy_barrier "
-                    "overload_barrier"),
+        **_positive("17.6", "durability", "auto_attached_wear shield_barrier synergy_barrier"),
         **_positive("17.6", "count", "relic_slots initial_relics glasses_heals_per_round "
                     "breath_uses"),
         **_positive("17.6", "future_r4_ticks", "drone_ticks breath_ticks"),
         **_positive("17.6", "sp", "drone_sp_cost crossfire_sp_cost"),
         **_ratios("17.6", "drone_hp_ratio crossfire_hp_ratio", "ceil_hp_cost_then_discount"),
         **_ratios("17.6", "breath_lifesteal_ratio", "floor_root_hp_total"),
-        **_positive("17.6", "multiplier", "overload_damage_multiplier"),
     },
     "G1": {
         **_ints("17.7", "hp_modifier", "unarmored_attack", minimum=-100),
@@ -450,10 +449,10 @@ _SCHEMA: dict[str, Any] = {
         **_positive("17.13", "future_r4_ticks", "love_ticks firefly_ticks burden_burn_ticks "
                     "joy_ticks"),
         **_ints("17.13", "credits", "tomorrow_work_bonus tomorrow_discount tomorrow_min_price"),
-        **_positive("17.13", "count", "tomorrow_overloads spotlight_white_keys "
+        **_positive("17.13", "count", "spotlight_white_keys "
                     "eternity_chain_extra burden_self_burn_gain burden_burn_cap "
-                    "ranger_refunds_per_mark wildfire_extra_turns wildfire_shadow_step_reset "
-                    "wildfire_free_steps stars_meteors yin_yang_uses law_roster shore_rearm_uses"),
+                    "ranger_refunds_per_mark nightwalk_extra_turns nightwalk_shadow_step_reset "
+                    "nightwalk_free_steps stars_meteors yin_yang_uses law_roster shore_rearm_uses"),
         **_positive("17.13", "hp", "tomorrow_breath_heal firefly_rescue_hp spotlight_reduction "
                     "spotlight_attack_bonus burden_fire_damage joy_missed_counter_damage "
                     "stars_damage law_officer_hp shore_knife_damage"),
@@ -614,7 +613,6 @@ def _cross_validate(data: Mapping[str, Any]) -> None:
         ("talents.G7.color_voluntary_threshold", "talents.G7.color_forced_threshold"),
         ("talents.G7.terror_hp_floor", "talents.G7.terror_hp_cap"),
         ("poems.joy_laugh_set", "talents.G6.laugh_cap"),
-        ("poems.tomorrow_overloads", "talents.G0.relic_slots"),
         ("poems.watchman_repaired_durability", "talents.G7.horus_durability"),
         ("talents.T2.shadow_step_sp_cost", "action.sp_cap"),
         ("talents.T7.revive_sp", "action.sp_cap"),
@@ -661,13 +659,13 @@ def _cross_validate(data: Mapping[str, Any]) -> None:
             "ga.talents.T7.poem_insurance_uses", "must include exactly one rearm budget"
         )
     for path in ("combat.min_damage_ratio", "talents.T7.revive_hp_ratio",
-                 "talents.G2.reactor_halving_ratio"):
+                 "talents.T7.public_revive_hp_ratio", "talents.G2.reactor_halving_ratio"):
         if at(path) <= 0:
             raise GaConfigError("ga." + path, "ratio must be greater than 0")
     for name in ("deploy_shield", "shoot", "hold_shield", "throw", "dash", "search", "lock"):
         le(f"talents.G7.macro_costs.{name}", "talents.G7.cost_cap")
     for left, right in (
-        ("poems.wildfire_shadow_step_reset", "talents.T2.shadow_step_uses"),
+        ("poems.nightwalk_shadow_step_reset", "talents.T2.shadow_step_uses"),
         ("poems.law_roster", "police.roster_cap"),
         ("poems.law_officer_hp", "police.officer_hp"),
         ("poems.shore_shield_durability", "armor.shield.durability"),

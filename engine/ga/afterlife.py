@@ -288,12 +288,8 @@ class Afterlife:
                         amount = max(0, costs[index].amount - discount)
                         costs[index] = replace(costs[index], amount=amount)
                         tags.append(mark)
-            if "tomorrow" in marks:
-                variants = tuple(name for name, valid in (
-                    ("hp", any(c.account == "hp" and c.amount for c in costs)),
-                    ("destroy", option.request.parameters.get("destroy_relic") not in (
-                        None, "none")),
-                ) if valid) or (None,)
+            if "tomorrow" in marks and any(c.account == "hp" and c.amount for c in costs):
+                variants: tuple[str | None, ...] = ("hp",)
             else:
                 variants = (None,)
             for waiver in variants:
@@ -419,7 +415,7 @@ class Afterlife:
     def borrowed_options(
         self, state: GameState, grant: ActionGrant, stage: TurnStage,
     ) -> tuple[ActionOption, ...]:
-        """借原初即演核心，不借被动、整套形态、保险或完整再动。"""
+        """借原初即演核心，不借被动、整套形态或挂复活；借来的六爻照常可能给额外回合。"""
         if grant.kind not in (GrantKind.STANDARD, GrantKind.EXTRA_TURN):
             return ()
         result = []
@@ -515,10 +511,6 @@ class Afterlife:
             pending = tuple(key for key in state.ga_choice_windows if key not in before)
             reveal_choices(state, pending)
             result = HEXAGRAMS[tuple(sorted((a, b)))]
-            if result == "extra":
-                allowed = tuple(name for name in HEXAGRAMS.values() if name != "extra")
-                index = state.ga_rng.die("encore/non-extra", len(allowed), actor_id=actor) - 1
-                result = allowed[index]
             T4(actor).apply(state, plan, target, result)
             if result == "immune":
                 state.ga_afterlife.temporary_immunity[actor] = state.current_round

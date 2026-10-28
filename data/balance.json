@@ -843,7 +843,7 @@
             "T3": {"barrier": 3, "barrier_ticks": 2, "shockwave_wear": 1, "starfall_damage": 4, "defense_coefficient": 0},
             "T4": {"pierce_damage": 6, "defense_coefficient": 0, "weapon_disable_ticks": 1, "stealth_ticks": 2, "public_target_cap": 2},
             "T6": {"hotline_price": 0},
-            "T7": {"revive_hp_ratio": 0.5, "revive_sp": 0, "prayer_heal": 3, "insurance_uses": 1, "poem_insurance_uses": 2},
+            "T7": {"revive_hp_ratio": 0.5, "public_revive_hp_ratio": 1.0, "revive_sp": 0, "prayer_heal": 3, "insurance_uses": 1, "poem_insurance_uses": 2},
             "G0": {
                 "initial_ammo": 15, "ammo_cap": 30, "arrow_conversion": 3,
                 "point_damage": 4, "point_ammo": 1, "auto_damage": 6, "auto_ammo": 3,
@@ -853,8 +853,7 @@
                 "drone_hp": 4, "drone_ticks": 3, "drone_sp_cost": 1,
                 "drone_hp_ratio": 0.2, "drone_attack_bonus": 1,
                 "crossfire_damage": 6, "crossfire_sp_cost": 2, "crossfire_hp_ratio": 0.3,
-                "overload_barrier": 6, "overload_damage_multiplier": 2,
-                "overload_hp_floor": 8, "breath_uses": 1, "breath_ticks": 2,
+                "breath_uses": 1, "breath_ticks": 2,
                 "breath_lifesteal_ratio": 0.5, "breath_success_hp": 6
             },
             "G1": {
@@ -994,7 +993,7 @@
         "poems": {
             "sp_cost": 2, "memory_per_missing_sp": 2, "love_ticks": 4,
             "tomorrow_work_bonus": 1, "tomorrow_discount": 1, "tomorrow_min_price": 1,
-            "tomorrow_overloads": 2, "tomorrow_breath_heal": 6,
+            "tomorrow_breath_heal": 6,
             "firefly_ticks": 2, "firefly_rescue_hp": 12,
             "spotlight_white_keys": 2, "spotlight_reduction": 2, "spotlight_attack_bonus": 2,
             "eternity_magic": 4, "eternity_chain_extra": 1, "eternity_first_cost": 0,
@@ -1003,8 +1002,8 @@
             "joy_laugh_set": 3, "joy_ticks": 4, "joy_missed_counter_damage": 3,
             "watchman_hp_repair_cost_cap": 2, "watchman_repaired_durability": 2,
             "ranger_sp_refund": 1, "ranger_refunds_per_mark": 1,
-            "wildfire_extra_turns": 1, "wildfire_shadow_step_reset": 2,
-            "wildfire_free_steps": 1, "stars_meteors": 2, "stars_damage": 2,
+            "nightwalk_extra_turns": 1, "nightwalk_shadow_step_reset": 2,
+            "nightwalk_free_steps": 1, "stars_meteors": 2, "stars_damage": 2,
             "yin_yang_uses": 2, "law_roster": 3, "law_officer_hp": 6,
             "shore_revive_sp": 2, "shore_shield_durability": 6, "shore_knife_damage": 4,
             "shore_rearm_uses": 1

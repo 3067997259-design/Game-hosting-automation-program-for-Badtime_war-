@@ -17,7 +17,10 @@ PHYSICAL_WEAPONS = frozenset({"bow", "knife", "electromagnetic_rifle", "gauss_ri
 
 
 def transferable_items(state: GameState, donor_id: str, receiver_id: str) -> tuple[str, ...]:
-    """枚举当前持有且受方装得下的一件实物；枚举不改库存或随机流。"""
+    """枚举当前持有且受方装得下的一件实物；枚举不改库存或随机流。
+
+    弹药不单独转移，只跟着它的武器走。
+    """
     donor, receiver = state.players[donor_id], state.players[receiver_id]
     cfg = state.ga_config
     choices = [f"weapon:{name}" for name in sorted(
@@ -33,16 +36,18 @@ def transferable_items(state: GameState, donor_id: str, receiver_id: str) -> tup
     for name in sorted(MODULE_SHOPS):
         if donor.inventory.get(f"module:{name}", 0) > 0 or name in donor.modules:
             choices.append(f"module:{name}")
-    for name in sorted(donor.ammo.keys() & {"bow", "electromagnetic_rifle", "gauss_rifle"}):
-        cap = cfg.get("start", "arrow_cap") if name == "bow" else cfg.get(
-            "weapons", name, "ammo_cap")
-        if donor.ammo[name] > 0 and receiver.ammo.get(name, 0) < cap:
-            choices.append(f"ammo:{name}")
     return tuple(choices)
 
 
+def ammo_cap(state: GameState, weapon: str) -> int:
+    """弓按箭矢上限，枪按各自弹药上限。"""
+    if weapon == "bow":
+        return state.ga_config.get("start", "arrow_cap")
+    return state.ga_config.get("weapons", weapon, "ammo_cap")
+
+
 def transfer_item(state: GameState, donor_id: str, receiver_id: str, item: str) -> None:
-    """扣除原持有者的一件再交付受方，护甲保持ID、属性与实际耐久。"""
+    """扣除原持有者的一件再交付受方，护甲保持ID、属性与实际耐久，武器连同弹药。"""
     if item not in transferable_items(state, donor_id, receiver_id):
         raise ContractError("transfer.item", "item is missing, exclusive or exceeds capacity")
     donor, receiver = state.players[donor_id], state.players[receiver_id]
@@ -64,6 +69,13 @@ def transfer_item(state: GameState, donor_id: str, receiver_id: str, item: str) 
                 donor.inventory[key] = donor.inventory.get(key, 0) + 1
             donor.modules = ()
             donor.bow_attribute = DamageAttribute.NORMAL
+        carried = donor.ammo.get(name, 0)
+        if carried:
+            # 弹药随武器转手；受方装不下的部分留在原主手里。
+            held = receiver.ammo.get(name, 0)
+            moved = max(0, min(carried, ammo_cap(state, name) - held))
+            receiver.ammo[name] = held + moved
+            donor.ammo[name] = carried - moved
     elif category == "armor":
         receiver.defenses[name] = donor.defenses.pop(name)
         receiver.armor_kinds[name] = donor.armor_kinds.pop(name)
@@ -83,8 +95,6 @@ def transfer_item(state: GameState, donor_id: str, receiver_id: str, item: str) 
                     DamageAttribute.NORMAL)
         receiver.inventory[key] = receiver.inventory.get(key, 0) + 1
     else:
-        origin = donor.ammo if category == "ammo" else donor.inventory
-        destination = receiver.ammo if category == "ammo" else receiver.inventory
-        origin[name] -= 1
-        destination[name] = destination.get(name, 0) + 1
+        donor.inventory[name] -= 1
+        receiver.inventory[name] = receiver.inventory.get(name, 0) + 1
     touch(state)

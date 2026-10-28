@@ -27,7 +27,7 @@ HEXAGRAMS = {("scissors", "scissors"): "pierce", ("rock", "rock"): "copy",
 
 
 class T4(Talent):
-    """金身止于下轮R0，不能靠重复回调或借用制造再动。"""
+    """金身止于下轮R0，不能靠重复回调制造再动。"""
 
     talent_id = "T4"
 

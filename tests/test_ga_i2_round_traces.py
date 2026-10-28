@@ -63,8 +63,7 @@ def test_g0_three_chapters_with_real_standard_turns_and_current_t1_public() -> N
             if rnd == 5:
                 return choose(actions, "g0_ar", target="b", fire_mode="point")
             if rnd == 6:
-                return choose(actions, "g0_crossfire", mode=Performance.PUBLIC,
-                              destroy_relic="none")
+                return choose(actions, "g0_crossfire", mode=Performance.PUBLIC)
             return choose(actions, "forfeit")
 
     state.ga_controllers["a"] = G0Script()

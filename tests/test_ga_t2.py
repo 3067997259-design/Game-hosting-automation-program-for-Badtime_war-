@@ -73,7 +73,7 @@ def test_stealth_source_does_not_have_an_affinity(source: str) -> None:
     ("military", "buy_armor", "kind", "at_field"),
     ("hospital", "buy_item", "kind", "syringe"),
 ])
-def test_take_goods_pays_only_sp_and_does_not_reveal_or_create_crime(
+def test_take_goods_pays_only_sp_and_does_not_reveal_create_crime_or_draw_attention(
     location: str, purchase: str, parameter: str, item: str,
 ) -> None:
     state = ready({"a": "T2"})
@@ -87,6 +87,8 @@ def test_take_goods_pays_only_sp_and_does_not_reveal_or_create_crime(
     turn(state, "a")
     receipt = execute(state, "t2_take", purchase=purchase, **{parameter: item})
     assert [(c.account, c.amount) for c in receipt.costs] == [("sp", 1)]
+    # 拿东西不给关注，即演花掉的 1 SP 不会被补回来。
+    assert player.sp == 0
     assert player.credits == 0 and player.hidden and not state.ga_crimes
     assert player.inventory["black_market_pass"] == 1
     if purchase == "buy_armor":
@@ -229,7 +231,7 @@ def test_shadow_lock_waits_for_selected_target_and_does_not_stack_with_normal_lo
     assert role.shadow_lock is None
 
 
-@pytest.mark.parametrize("category", ["armor", "weapon", "item", "module", "ammo"])
+@pytest.mark.parametrize("category", ["armor", "weapon", "item", "module"])
 def test_shadow_theft_transfers_one_real_item_and_does_not_add_turns(category: str) -> None:
     state = ready({"a": "T2"})
     donor, receiver = state.players["b"], state.players["a"]
@@ -245,9 +247,6 @@ def test_shadow_theft_transfers_one_real_item_and_does_not_add_turns(category: s
         donor.modules = ("fire", "pierce")
         donor.bow_attribute = DamageAttribute.MAGIC
         choice = "module:fire"
-    elif category == "ammo":
-        donor.ammo["bow"] = 8
-        choice = "ammo:bow"
     else:
         donor.inventory["fragment"] = 2
         choice = "item:fragment"
@@ -269,14 +268,46 @@ def test_shadow_theft_transfers_one_real_item_and_does_not_add_turns(category: s
         assert receiver.armor_kinds[key] == "ceramic"
     elif category == "weapon":
         assert "gauss_rifle" in receiver.weapons and "gauss_rifle" not in donor.weapons
-        assert donor.ammo["gauss_rifle"] == 4 and not receiver.ammo.get("gauss_rifle")
+        assert receiver.ammo["gauss_rifle"] == 4 and donor.ammo["gauss_rifle"] == 0
     elif category == "module":
         assert donor.modules == ("pierce",) and donor.bow_attribute is DamageAttribute.TECH
         assert receiver.inventory["module:fire"] == 1
-    elif category == "ammo":
-        assert donor.ammo["bow"] == 7 and receiver.ammo["bow"] == 6
     else:
         assert donor.inventory["fragment"] == receiver.inventory["fragment"] == 1
+
+
+def test_stolen_gun_carries_ammo_up_to_capacity_and_ammo_alone_is_not_offered() -> None:
+    state = ready({"a": "T2"})
+    donor, receiver = state.players["b"], state.players["a"]
+    cap = state.ga_config.get("weapons", "gauss_rifle", "ammo_cap")
+    donor.weapons.add("gauss_rifle")
+    donor.ammo["gauss_rifle"] = 4
+    receiver.ammo["gauss_rifle"] = cap - 1
+    items = transferable_items(state, "b", "a")
+    assert "weapon:gauss_rifle" in items
+    assert not any(item.startswith("ammo:") for item in items)
+    state.ga_controllers["a"] = Decisions(shadow_step=["steal:weapon:gauss_rifle"])
+    turn(state, "b")
+    execute(state, "move", location="magic")
+    assert "gauss_rifle" in receiver.weapons and receiver.ammo["gauss_rifle"] == cap
+    assert donor.ammo["gauss_rifle"] == 3
+
+
+def test_shadow_step_only_follows_players_it_can_see_and_lock_does_not_reveal() -> None:
+    state = ready({"a": "T2"})
+    role, follower, mover = state.ga_roles["a"], state.players["a"], state.players["b"]
+    state.ga_controllers["a"] = Decisions(shadow_step=["lock"])
+    mover.hidden = True
+    turn(state, "b")
+    execute(state, "move", location="magic")
+    assert follower.location == "shop" and role.shadow_uses == 0 and role.shadow_lock is None
+    mover.location = "shop"
+    follower.inventory["thermal"] = 1
+    touch(state)
+    turn(state, "b")
+    execute(state, "move", location="magic")
+    assert follower.location == "magic" and role.shadow_uses == 1 and role.shadow_lock == "b"
+    assert mover.hidden and "a" not in mover.revealed_to
 
 
 def test_theft_excludes_talent_resources_spells_and_over_capacity_goods() -> None:

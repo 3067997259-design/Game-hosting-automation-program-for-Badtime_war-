@@ -1,4 +1,4 @@
-"""G0：专属AR、四遗物、可攻击无人机、十字炮火与有限呼吸窗口。"""
+"""G0：专属AR、四件可挂载强化、可攻击无人机、十字炮火与有限呼吸窗口。"""
 
 from __future__ import annotations
 
@@ -106,7 +106,9 @@ class G0(Talent):
                     if mounted != self.mounted:
                         result.append(ability(grant, stage, "g0_mount", parameters={
                             "relics": mounted}, after=self.mount))
-            cost = hp_cost(state, self.owner_id, cfg["drone_hp_ratio"], discount=discount)
+            # 调整呼吸期间释放技能不扣 HP。
+            cost = 0 if self.breath_timer else hp_cost(state, self.owner_id,
+                                                       cfg["drone_hp_ratio"], discount=discount)
             if not self.drone_alive(state) and cost is not None:
                 result.append(ability(grant, stage, "g0_drone", mode=Performance.INSTANT,
                                       costs=(CostEntry(self.owner_id, "hp", cost),),
@@ -139,31 +141,17 @@ class G0(Talent):
                     state, candidate.request, max(0, amount), source="g0_ar", attribute=attribute,
                     scope=TargetScope.RANGED_SINGLE, **params,
                 ),)))
-        cost = 0 if self.promise else hp_cost(state, self.owner_id, cfg["crossfire_hp_ratio"],
-                                             discount=discount)
+        cost = 0 if self.promise or self.breath_timer else hp_cost(
+            state, self.owner_id, cfg["crossfire_hp_ratio"], discount=discount)
         targets = enemies(state, self.owner_id)
         if drone and targets and cost is not None:
-            choices = [(), *((key,) for key in self.mounted)]
-            if self.promise:
-                choices.extend(combinations(self.mounted, state.ga_config.get(
-                    "poems", "tomorrow_overloads")))
-            for overloaded in choices:
-                overload = overloaded[0] if overloaded else "none"
-                damage = cfg["crossfire_damage"] * (cfg["overload_damage_multiplier"] if (
-                    "belt" in overloaded
-                ) else 1)
-                parameters = {"destroy_relic": overload}
-                if self.promise:
-                    parameters["promise_relics"] = tuple(overloaded)
-                candidate = ability(grant, stage, "g0_crossfire", mode=Performance.PUBLIC,
-                                    targets=targets, parameters=parameters,
-                                    costs=(CostEntry(self.owner_id, "hp", cost),), hostile=True,
-                                    after=self.crossfire_end)
-                result.append(replace(candidate, effects=(packet(
-                    state, candidate.request, damage, kind=DamageKind.DIRECT, certain=True,
-                    scope=TargetScope.LOCAL_AREA, bypass="sight" in overloaded,
-                    statuses=("SHOCKED",) if "shield" in overloaded else (),
-                ),)))
+            candidate = ability(grant, stage, "g0_crossfire", mode=Performance.PUBLIC,
+                                targets=targets, costs=(CostEntry(self.owner_id, "hp", cost),),
+                                hostile=True, after=self.crossfire_end)
+            result.append(replace(candidate, effects=(packet(
+                state, candidate.request, cfg["crossfire_damage"], kind=DamageKind.DIRECT,
+                certain=True, scope=TargetScope.LOCAL_AREA,
+            ),)))
         if player.location == "shop" and player.ammo.get("ar", 0) < cfg["ammo_cap"]:
             price = 0 if self.breath_timer else state.ga_config.get(
                 "weapons", "bow", "refill_price")
@@ -173,7 +161,7 @@ class G0(Talent):
         return tuple(result)
 
     def mount(self, state: GameState, plan: ActionPlan) -> None:
-        """同轮卸装不补屏障；四遗物的挂载经历是永久记录。"""
+        """同轮卸装不补屏障；四件强化的挂载经历是永久记录。"""
         self.mounted = tuple(plan.request.parameters["relics"])
         self.seen_relics.update(self.mounted)
         self.sync_shield(state)
@@ -213,31 +201,15 @@ class G0(Talent):
                                 cfg["arrow_conversion"])
 
     def crossfire_end(self, state: GameState, plan: ActionPlan) -> None:
-        """无人机真实消失；绝唱只消耗选中的实物一次。"""
+        """无人机真实消失；明天的承诺只兑现给这一次炮火。"""
         if plan.request.root_id in self.crossfire_roots:
             return
         self.crossfire_roots.add(plan.request.root_id)
         player = state.players[self.owner_id]
-        relic = plan.request.parameters["destroy_relic"]
-        promised = "promise_relics" in plan.request.parameters
         self.crossfire_used = True
         self.drone_timer = None
         state.ga_units[self.drone_id].hp = 0
-        relics = plan.request.parameters["promise_relics"] if promised else (
-            (relic,) if relic != "none" else ())
-        for relic in relics:
-            self.seen_relics.add(relic)
-            if not promised and plan.request.parameters.get("encore_waiver") != "destroy":
-                self.relics.discard(relic)
-                self.mounted = tuple(key for key in self.mounted if key != relic)
-            if relic == "shield":
-                barrier(state, self.owner_id, "g0/overload", state.ga_config.get(
-                    "talents", "G0", "overload_barrier"), ticks=state.ga_config.get(
-                        "status", "temporary_barrier_ticks"))
-            elif relic == "glasses":
-                player.hp = max(player.hp, min(player.max_hp, state.ga_config.get(
-                    "talents", "G0", "overload_hp_floor")))
-        if promised:
+        if self.promise:
             self.promise = False
             if self.breath_timer:
                 heal(player, state.ga_config.get("poems", "tomorrow_breath_heal"))

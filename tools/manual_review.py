@@ -38,6 +38,8 @@ HEADING = re.compile(r"^(#{2,4})\s+(.+?)\s*$")
 CHAPTER = re.compile(r"^([一二三四五六七八九十]+)、")
 NUMBERED = re.compile(r"^(\d+(?:\.\d+)+)(?=\s|$)")
 TALENT_CODE = re.compile(r"(?<![A-Za-z])([TG]\d)(?!\d)")
+# 天赋小节的标题是“编号「名字」”；第三章“T1：主行动”这类阶段名不算天赋。
+TALENT_HEADING = re.compile(r"(?<![A-Za-z])([TG]\d)(?!\d)\s*「")
 NAME = re.compile(r"[「【]([^」】\n]{1,24})[」】]|\*\*([^*\n]{1,24})\*\*")
 SUFFIX = re.compile(r"（[^）]{1,8}）$")
 REF = re.compile(r"§(\d+(?:\.\d+)*)")
@@ -77,8 +79,14 @@ class Section:
 
     @property
     def code(self) -> str | None:
-        """标题里的天赋编号，如 T1、G7。"""
+        """标题里的天赋编号，如 T1、G7；数值表小节也算，用来认数字。"""
         match = TALENT_CODE.search(self.title)
+        return match.group(1) if match else None
+
+    @property
+    def talent_code(self) -> str | None:
+        """只认天赋本节的编号（编号后跟「名字」），阶段名 T0～T2 不算。"""
+        match = TALENT_HEADING.search(self.title)
         return match.group(1) if match else None
 
 
@@ -130,7 +138,8 @@ def match_sections(
             pending.append(section)
     for section in pending:
         candidates = [s for s in new if s.key not in used and s.level == section.level]
-        twin = next((s for s in candidates if section.code and s.code == section.code), None)
+        twin = next((s for s in candidates if section.talent_code and
+                     s.talent_code == section.talent_code), None)
         if twin is None and candidates:
             best = max(candidates, key=lambda s: SequenceMatcher(None, section.title,
                                                                  s.title).ratio())
@@ -378,7 +387,7 @@ def review(
             if places:
                 report["stale_names"].append((item["key"], name, places))
     for rule in rules.get("must_keep", []):
-        targets = [s for s in new_sections if s.level == 3 and s.code == rule["code"]]
+        targets = [s for s in new_sections if s.level == 3 and s.talent_code == rule["code"]]
         if not targets or not in_scope(targets[0].key, scope):
             continue
         body = section_text(new_sections, targets[0].key)

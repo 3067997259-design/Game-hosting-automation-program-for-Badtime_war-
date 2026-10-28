@@ -77,7 +77,7 @@ def test_g0_drone_mystery_shot_and_glasses_actual_paid_hp_recovery() -> None:
     assert {"chapter/1", "chapter/2"} <= state.players["a"].chapters
 
 
-def test_g0_crossfire_terminal_still_destroys_drone_relic_and_applies_safe_hp() -> None:
+def test_g0_crossfire_terminal_destroys_drone_keeps_relics_and_unlocks_final_chapter() -> None:
     state = ready({"a": "G0"}, count=2)
     turn(state, "a", TurnStage.T0)
     execute(state, "g0_mount", relics=("belt", "shield"))
@@ -89,10 +89,11 @@ def test_g0_crossfire_terminal_still_destroys_drone_relic_and_applies_safe_hp() 
     state.players["a"].sp = 2
     state.players["b"].hp = 1
     turn(state, "a")
-    execute(state, "g0_crossfire", mode=Performance.PUBLIC, destroy_relic="glasses")
+    execute(state, "g0_crossfire", mode=Performance.PUBLIC)
     assert state.game_over and state.winner == "a"
-    assert state.players["a"].hp == 8 and not state.ga_units["npc/drone/a"].alive
-    assert "glasses" not in state.ga_roles["a"].relics
+    # 10 → 无人机付 2 → 炮火付 3；不再有眼镜过载把 HP 抬回安全线。
+    assert state.players["a"].hp == 5 and not state.ga_units["npc/drone/a"].alive
+    assert state.ga_roles["a"].relics == {"shield", "belt", "sight", "glasses"}
     assert "chapter/3" in state.terminal_snapshot.results["a"].chapter_ids
 
 
@@ -116,6 +117,24 @@ def test_g0_breath_before_insurance_real_hp_lifesteal_no_barrier_or_overkill() -
     turn(state, "a")
     execute(state, "g0_ar", targets=("c",), fire_mode="point")
     assert state.players["a"].hp == 2
+
+
+def test_g0_breath_skills_cost_no_hp() -> None:
+    state = ready({"a": "G0"})
+    state.players["a"].hp = 1
+    turn(state, "b")
+    execute(state, "attack", targets=("a",), weapon="knife")
+    assert state.players["a"].hp == 1 and state.ga_roles["a"].breath_timer
+    turn(state, "a", TurnStage.T0)
+    receipt = execute(state, "g0_drone")
+    assert [(c.account, c.amount) for c in receipt.costs if c.account == "hp"] == [("hp", 0)]
+    assert state.players["a"].hp == 1
+    state.players["a"].sp = 2
+    turn(state, "a")
+    receipt = execute(state, "g0_crossfire", mode=Performance.PUBLIC)
+    assert not any(c.amount for c in receipt.costs if c.account == "hp")
+    # 炮火让 b、c 各掉 6，吸血按合计 12 的一半回 6。
+    assert state.players["a"].hp == 7 and not state.ga_roles["a"].drone_alive(state)
 
 
 def test_g0_failed_breath_is_exit_not_kill_or_afterlife() -> None:
@@ -145,7 +164,8 @@ def test_g0_breath_refill_free_but_ammo_still_needed_and_capacity_bounded() -> N
     execute(state, "g0_refill")
     assert state.players["a"].ammo["ar"] == 15
     turn(state, "a", TurnStage.T0)
-    assert not any(a.operation == "g0_drone" for a in legal_actions(state))
+    # 调整呼吸期间放技能不扣 HP，所以 1 HP 也能部署无人机。
+    assert any(a.operation == "g0_drone" for a in legal_actions(state))
 
 
 def test_g1_sam_t0_and_unarmor_discount_are_single_rule_paths() -> None:
