@@ -148,8 +148,8 @@ def relocate(state: GameState, actor_id: str, location: str, *, active: bool = F
 
 
 def destroy_location(state: GameState, location: str) -> bool:
-    """最后安全建筑保留；按先攻/ID驱逐，不回私人房间。"""
-    from engine.ga.state import LOCATIONS, emit, touch
+    """最后安全建筑保留；按先攻/ID驱逐，不回私人房间；再通知只记坐标的订阅者。"""
+    from engine.ga.state import LOCATIONS, emit, run_hooks, touch
     standing = tuple(loc for loc in LOCATIONS if loc not in state.destroyed_locations)
     if location not in standing or len(standing) <= 1:
         return False
@@ -162,6 +162,7 @@ def destroy_location(state: GameState, location: str) -> bool:
     for key, npc in sorted(state.ga_units.items()):
         if npc.alive and npc.location == location:
             relocate(state, key, destinations[0])
+    run_hooks(state, "location_destroyed")
     emit(state, EventKind.STATE_CHANGED, effective=True,
          payload={"kind": "location_destroyed", "location": location})
     touch(state)

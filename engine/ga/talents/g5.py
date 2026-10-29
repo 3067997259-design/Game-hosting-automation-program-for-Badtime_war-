@@ -159,7 +159,7 @@ class G5(Talent):
             target = state.players[request.target_ids[0]]
             heal(target, cfg["story_heal"])
             target.sp = cfg["story_target_sp"]
-            high_impact(state, self.owner_id, request.root_id)
+            # 讲故事不给自己关注（§17.11），否则 2 SP 的大即演实付只剩 1 SP。
             chapter(state, self.owner_id, 1)
         elif request.operation == "g5_poem":
             if request.target_ids == (self.owner_id,):

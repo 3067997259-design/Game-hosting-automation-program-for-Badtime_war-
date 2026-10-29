@@ -56,6 +56,7 @@ class G2(Talent):
         self.loneliness = state.ga_config.get("talents", "G2", "loneliness_initial")
         self.positions = dict.fromkeys(("light", "shadow"), state.players[self.owner_id].location)
         state.ga_hooks.setdefault("clock_advanced", []).append(self.beat)
+        state.ga_hooks.setdefault("location_destroyed", []).append(self.ruins)
         state.ga_location_listeners.append(self.location_changed)
         state.ga_slot_gates.append(self.slot_gate)
 
@@ -86,6 +87,10 @@ class G2(Talent):
                 player.home_locked
             ):
                 self.positions[key] = player.location
+
+    def ruins(self, state: GameState) -> None:
+        """残影所在建筑被摧毁时立即并回本体，不等本体下一次移动。"""
+        self.location_changed(state, self.owner_id)
 
     def slot_gate(self, state: GameState, grant: ActionGrant) -> bool:
         """炉心失去操控权，救回后自然恢复正常授予。"""

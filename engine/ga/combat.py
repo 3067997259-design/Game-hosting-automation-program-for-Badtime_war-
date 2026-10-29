@@ -170,11 +170,11 @@ def _resolve_target(
                                   score_owner_id=effect.score_owner_id,
                                   crime_owner_id=effect.crime_owner_id):
                         statuses.append(name)
-                if params.get("burn_stacks", 0):
-                    add_burns(player, cfg, state.current_round, params["burn_stacks"],
-                              source_id=effect.effect_id, actor_id=effect.actor_id,
-                              score_owner_id=effect.score_owner_id,
-                              crime_owner_id=effect.crime_owner_id)
+                if params.get("burn_stacks", 0) and add_burns(
+                    player, cfg, state.current_round, params["burn_stacks"],
+                    source_id=effect.effect_id, actor_id=effect.actor_id,
+                    score_owner_id=effect.score_owner_id, crime_owner_id=effect.crime_owner_id,
+                ):
                     statuses.append("BURN")
     if computed and effect.damage_kind is not DamageKind.EXECUTION:
         computed = max(0, math.ceil(computed * min((m.hp_ratio for m in modifiers), default=1)) -

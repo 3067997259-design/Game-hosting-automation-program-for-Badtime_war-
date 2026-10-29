@@ -11,7 +11,8 @@ from engine.ga.contracts import Performance, RoundPhase, TurnStage
 from engine.ga.gameplay import legal_actions
 from engine.ga.runtime import run_game, run_round
 from engine.ga.state import add_armor
-from engine.ga.talents.base import barrier
+from engine.ga.status import DEBUFFS, STATUS_NAMES, add_burns, put_status
+from engine.ga.talents.base import ability, barrier, packet
 from tests.ga_i2_helpers import Decisions, execute, ready, turn
 
 
@@ -263,6 +264,27 @@ def propagation(state: GameState) -> None:
     state.players["a"].hp = 1
     turn(state, "b")
     execute(state, "attack", targets=("a",), weapon="knife")
+
+
+def test_g1_propagation_clears_then_blocks_every_debuff_including_burn_and_shadow() -> None:
+    state = ready({"a": "G1"})
+    player = state.players["a"]
+    for name in ("VULNERABLE", "WEAK"):
+        put_status(player, state.ga_config, state.current_round, name, source_id=f"fixture/{name}")
+    add_burns(player, state.ga_config, state.current_round, 2, source_id="fixture/burn")
+    state.ga_world.vulnerability["a"] = (1, state.current_round)
+    propagation(state)
+    assert state.ga_roles["a"].form == "propagation" and player.status_immunities == DEBUFFS
+    assert not player.statuses and not player.burns
+    for name in sorted(STATUS_NAMES):
+        assert not put_status(player, state.ga_config, state.current_round, name,
+                              source_id=f"fixture/again/{name}")
+    assert not add_burns(player, state.ga_config, state.current_round, 1,
+                         source_id="fixture/burn/again")
+    turn(state, "b")
+    request = ability(state.current_grant, TurnStage.T1, "fixture/hit", targets=("a",)).request
+    effect = packet(state, request, 1, certain=True)
+    assert state.ga_world.incoming(state, effect, player).vulnerability == 0
 
 
 def test_g1_propagation_precedes_insurance_expiry_is_absolute_even_when_clock_paused() -> None:

@@ -253,9 +253,22 @@ class G7(Talent):
         self, state: GameState, grant: ActionGrant, stage: TurnStage,
         options: tuple[ActionOption, ...],
     ) -> tuple[ActionOption, ...]:
-        """Terror只留本命攻击/移动；架盾不能靠普通move溜走。"""
+        """起床时自选初始形态；Terror只留本命攻击/移动；架盾不能靠普通move溜走。"""
         if grant.actor_id != self.owner_id:
             return options
+        if stage is TurnStage.T0 and not self.body.awake:
+            result = []
+            for option in options:
+                if option.request.operation != "wake":
+                    result.append(option)
+                    continue
+                definition = replace(option.definition, required_parameters=(
+                    *option.definition.required_parameters, "form"))
+                for form in FORMS:
+                    request = replace(option.request,
+                                      parameters={**option.request.parameters, "form": form})
+                    result.append(replace(option, request=request, definition=definition))
+            return tuple(result)
         if self.form == "terror":
             return tuple(o for o in options if o.request.operation in ("g7_terror", "move"))
         if self.form == "doubt":
@@ -575,7 +588,9 @@ class G7(Talent):
                 count / cfg["shielder_ex_barrier_divisor"]))
         targets = enemies(state, self.owner_id)
         if self.form in ("swimsuit", "shielder"):
-            self.set_pose(state, "active", targets)
+            shield = self.body.defenses.get(self.shield_id)
+            if shield and shield.durability:
+                self.set_pose(state, "active", targets)
             if self.form == "swimsuit":
                 amount = cfg["swimsuit_ex_base"] + count // cfg["swimsuit_ex_ammo_divisor"]
             else:
@@ -721,11 +736,12 @@ class G7(Talent):
         self.halo(state, 0)
 
     def after_action(self, state: GameState, option: ActionOption, plan: ActionPlan) -> None:
-        """起床收益只有一次；每步完成后融合仍不生成额外主行动。"""
+        """起床选定初始形态并领该形态的收益，只有一次；每步完成后融合仍不生成额外主行动。"""
         if plan.request.actor_id != self.owner_id:
             return
         if plan.request.operation == "wake":
             from engine.ga.state import add_armor
+            self.form = self.old_form = plan.request.parameters["form"]
             if self.form == "swimsuit":
                 add_armor(state, self.owner_id, "shield")
             elif self.form == "shielder":

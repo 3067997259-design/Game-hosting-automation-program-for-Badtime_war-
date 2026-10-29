@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 CONTROL_PRIORITY = {"SHOCKED": 1, "PETRIFIED": 2, "ACTION_SUPPRESSED": 3}
 STATUS_NAMES = frozenset({*CONTROL_PRIORITY, "DISORIENTED", "VULNERABLE", "WEAK", "FLASHED",
                           "FEAR"})
+# 减益状态（手册 §3.7）：全部普通状态加灼烧；“免疫所有减益”就用这一组。
+DEBUFFS = STATUS_NAMES | {"BURN"}
 
 
 def put_status(
@@ -54,8 +56,10 @@ def add_burns(
     player: GaPlayer, config: GaConfig, global_round: int, count: int, *, source_id: str,
     actor_id: str | None = None, score_owner_id: str | None = None,
     crime_owner_id: str | None = None,
-) -> None:
-    """每层分别计时，满层后刷新最早到期者并保存新来源。"""
+) -> bool:
+    """每层分别计时，满层后刷新最早到期者并保存新来源；免疫灼烧时一层也不挂。"""
+    if "BURN" in player.status_immunities or count <= 0:
+        return False
     for index in range(count):
         timer = TimedEffect(f"{source_id}/{player.player_id}/burn/{index}", player.player_id,
                             global_round, config.get("status", "burn_ticks"),
@@ -68,6 +72,7 @@ def add_burns(
                 player.burns[i].timer.remaining, player.burns[i].timer.created_round, i
             ))
             player.burns[oldest] = entry
+    return True
 
 
 def apply_status(state: GameState, actor_id: str, name: str, *, source_id: str) -> bool:

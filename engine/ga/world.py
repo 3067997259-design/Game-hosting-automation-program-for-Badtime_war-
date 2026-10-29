@@ -113,6 +113,8 @@ class World:
         return amount
 
     def incoming(self, state: GameState, effect: EffectSpec, target: GaPlayer) -> IncomingModifier:
-        """短窗口易伤不复制普通状态；普通甲仍按新增减免付费。"""
+        """短窗口易伤不复制普通状态，但同样是脆弱，免疫脆弱的人不吃；普通甲仍按新增减免付费。"""
+        if "VULNERABLE" in target.status_immunities:
+            return IncomingModifier()
         value = self.vulnerability.get(target.player_id, (0, 0))[0]
         return IncomingModifier(vulnerability=value)

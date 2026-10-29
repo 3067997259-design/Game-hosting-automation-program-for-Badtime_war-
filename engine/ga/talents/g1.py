@@ -12,7 +12,7 @@ from engine.ga.contracts import (
 from engine.ga.extensions import IncomingModifier, Replacement, ask, chapter, high_impact, units
 from engine.ga.runtime import queue_followup
 from engine.ga.state import LOCATIONS, finish_if_needed, next_id, touch
-from engine.ga.status import CONTROL_PRIORITY, heal
+from engine.ga.status import DEBUFFS, cleanse_burns, heal
 from engine.ga.talents.base import Talent, ability, barrier, own_slot, packet, timer
 
 if TYPE_CHECKING:
@@ -240,9 +240,10 @@ class G1(Talent):
         self.propagation_used += 1
         self.form_timer = timer(state, self.owner_id, "g1/propagation", state.ga_config.get(
             "talents", "G1", "propagation_ticks"))
-        target.status_immunities = frozenset({*CONTROL_PRIORITY, "DISORIENTED"})
-        target.statuses.pop("control", None)
-        target.statuses.pop("DISORIENTED", None)
+        # 飞萤之火：清空并免疫全部减益状态（§3.7），含灼烧。
+        target.status_immunities = DEBUFFS
+        target.statuses.clear()
+        cleanse_burns(target)
         target.initiative_bonus += state.ga_config.get("talents", "G1", "propagation_initiative")
 
     def ardent(self, state: GameState) -> tuple[str, ...]:

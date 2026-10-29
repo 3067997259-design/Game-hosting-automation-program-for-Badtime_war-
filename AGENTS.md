@@ -20,7 +20,7 @@
 
 - **现在的正式入口仍跑旧规则**：`main.py`、`stats_runner.py`、联机、RL 默认 `legacy`，M9 需 `--profile m9-rfc`。
   GA 目前只能用 `tools/ga_play.py` 运行。
-- **玩法权威**：[GA 文档中心](docs/v2.0-ga/README.md) 的 DEC-001～051 与各 RFC；
+- **玩法权威**：[GA 文档中心](docs/v2.0-ga/README.md) 的 DEC 表与各 RFC；
   **阶段与验收**：[实施合同](docs/v2.0-ga/implementation_contract_v0.1.md)；
   **数值**：`data/balance.json` 的 `ga` 块（N0 初值，对应[玩家手册](docs/v2.0-ga/manual_draft_v0.1.md) §17）；
   **运行事实**：`engine/ga/` 与 `tests/test_ga_*.py`。

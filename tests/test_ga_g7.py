@@ -5,12 +5,34 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
+import pytest
+
 from engine.game_state import GameState
-from engine.ga.contracts import ChoiceWindow, Performance, TurnStage
+from engine.ga.contracts import ChoiceWindow, Performance, RoundPhase, TurnStage
 from engine.ga.gameplay import legal_actions
 from engine.ga.runtime import run_round
 from engine.ga.state import run_hooks
+from engine.ga.talents.g7 import FORMS
 from tests.ga_i2_helpers import Decisions, execute, ready, turn
+
+
+def woken(form: str) -> GameState:
+    """与 ready 相同的真实起床出门流程，只是 G7 起床时自选初始形态。"""
+    ids = ["a", "b", "c"]
+    state = GameState.new_ga(ids, seed=0, talents={"a": "G7"})
+    state.current_round = state.world_tick = 1
+    state.current_phase = RoundPhase.R3
+    state.ga_controllers = {actor: Decisions() for actor in ids}
+    state.ga_initiative = {actor: len(ids) - index for index, actor in enumerate(ids)}
+    state.ga_round_order = tuple(ids)
+    for actor in ids:
+        turn(state, actor, TurnStage.T0)
+        if actor == "a":
+            assert {a.parameters["form"] for a in legal_actions(state)} == set(FORMS)
+        execute(state, "wake", choice="knife", **({"form": form} if actor == "a" else {}))
+        state.current_stage = TurnStage.T1
+        execute(state, "move", location="shop")
+    return state
 
 
 def fused() -> GameState:
@@ -45,6 +67,38 @@ class Steps(Decisions):
             return next(str(i) for i, step in enumerate(context["steps"]) if
                         step["operation"] == operation)
         return super().respond(view, window, context)
+
+
+@pytest.mark.parametrize(("form", "shields", "halo"), [
+    ("swimsuit", 1, 2), ("archer", 0, 2), ("shielder", 0, 4),
+])
+def test_wake_picks_starting_form_and_grants_only_that_forms_bonus(
+    form: str, shields: int, halo: int,
+) -> None:
+    state = woken(form)
+    role = state.ga_roles["a"]
+    assert role.form == role.old_form == form and role.changes == 0
+    assert list(state.players["a"].armor_kinds.values()).count("shield") == shields
+    assert role.halo_value() == halo
+
+
+def test_ex_without_intact_iron_horus_keeps_shield_down_and_movement_open() -> None:
+    state = ready({"a": "G7"})
+    role = state.ga_roles["a"]
+    state.players["a"].credits = 30
+    state.players["a"].location = "military"
+    turn(state, "a")
+    execute(state, "buy_weapon", weapon="electromagnetic_rifle")
+    turn(state, "a")
+    execute(state, "buy_weapon", weapon="gauss_rifle")
+    state.players["a"].location = "shop"
+    assert role.gun_fused and not role.shield_fused and role.magazine
+    state.players["a"].sp = 2
+    turn(state, "a")
+    execute(state, "g7_ex", targets=("b",), mode=Performance.PUBLIC, location="shop")
+    assert role.pose == "passive"
+    turn(state, "a")
+    assert any(a.verb.value == "move" for a in legal_actions(state))
 
 
 def test_fusion_consumes_components_once_and_grants_two_supply_uses_only() -> None:

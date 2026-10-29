@@ -2,8 +2,11 @@
 
 from dataclasses import replace
 
+import pytest
+
 from engine.ga.combat import resolve_batch
 from engine.ga.contracts import DamageKind, Performance, TurnStage
+from engine.ga.extensions import destroy_location
 from engine.ga.gameplay import legal_actions
 from engine.ga.police import Police
 from engine.ga.runtime import run_round
@@ -23,6 +26,24 @@ def test_two_positions_share_body_and_free_control_does_not_consume_t0() -> None
     assert state.players["a"].location == "shop" and not state.current_grant.occupied
     assert len(state.players) == 3 and len(state.ga_units) == 3
     assert not any(a.operation == "g2_a" for a in legal_actions(state))
+
+
+@pytest.mark.parametrize(("operation", "parameters"), [
+    ("g2_control", {"control": "shadow"}), ("g2_a", {"mode": Performance.INSTANT}),
+])
+def test_ruined_afterimage_returns_at_once_so_switch_and_light_a_stay_legal(
+    operation: str, parameters: dict[str, object],
+) -> None:
+    state = ready({"a": "G2"})
+    role = state.ga_roles["a"]
+    state.players["a"].sp = 1
+    turn(state, "a")
+    execute(state, "move", location="magic")
+    assert destroy_location(state, "shop")
+    assert role.positions == {"light": "magic", "shadow": "magic"}
+    turn(state, "a", TurnStage.T0)
+    execute(state, operation, **parameters)
+    assert state.players["a"].location == "magic"
 
 
 def test_light_a_uses_one_t0_forces_only_move_and_major_never_claims_public() -> None:

@@ -12,7 +12,7 @@ from engine.ga.gameplay import legal_actions
 from engine.ga.police import Police
 from engine.ga.runtime import run_round
 from engine.ga.state import add_armor
-from engine.ga.status import put_status
+from engine.ga.status import add_burns, put_status
 from engine.ga.talents.base import barrier
 from tests.ga_i2_helpers import Decisions, execute, ready, turn
 
@@ -118,6 +118,18 @@ def test_t3_starfall_is_area_petrify_and_own_petrified_target_kill_unlocks() -> 
     turn(state, "a")
     execute(state, "attack", targets=("b",), weapon="knife")
     assert "chapter/3" in state.players["a"].chapters
+
+
+def test_t4_golden_body_blocks_burn_layers_like_every_other_debuff() -> None:
+    state = ready({"a": "T4"})
+    state.ga_controllers["a"] = Decisions(hexagram=["paper"])
+    state.ga_controllers["b"] = Decisions(hexagram=["paper"])
+    turn(state, "a")
+    execute(state, "t4_hexagram", targets=("b",), mode=Performance.INSTANT)
+    assert "immune" in state.ga_roles["a"].results
+    player = state.players["a"]
+    assert not add_burns(player, state.ga_config, state.current_round, 1, source_id="fixture/burn")
+    assert not player.burns
 
 
 @pytest.mark.parametrize("first,second,result", [

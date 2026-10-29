@@ -317,7 +317,7 @@ class G3(Talent):
             self.styles.add("dual")
 
     def chain(self, state: GameState, plan: ActionPlan) -> None:
-        """只在螺旋根内逐段重查；控制者明确停止/选目标，不自动花尽魔力。"""
+        """只在 g3_spiral 根（投影箭矢/伪·螺旋剑）内逐段重查；控制者明确停止/选目标，不自动花尽魔力。"""
         if not self.realm or state.game_over:
             return
         cfg = state.ga_config.get("talents", "G3")

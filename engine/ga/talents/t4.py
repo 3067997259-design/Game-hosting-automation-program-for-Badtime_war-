@@ -11,7 +11,7 @@ from engine.ga.contracts import DamageKind, Performance, TargetScope, TurnStage
 from engine.ga.extensions import IncomingModifier, ask, chapter, high_impact, reveal_choices, units
 from engine.ga.runtime import queue_extra_turn
 from engine.ga.state import LOCATIONS, next_id, touch
-from engine.ga.status import STATUS_NAMES, put_status
+from engine.ga.status import DEBUFFS, put_status
 from engine.ga.talents.base import Talent, ability, enemies, own_slot, packet, timer
 
 if TYPE_CHECKING:
@@ -146,7 +146,7 @@ class T4(Talent):
             if self.immunity_round == state.current_round:
                 return False
             self.immunity_round = state.current_round
-            player.status_immunities = STATUS_NAMES
+            player.status_immunities = DEBUFFS
         elif result == "disable":
             choices = tuple(sorted(enemy.weapons - {"fist"} - set(enemy.disabled_weapons)))
             if choices:

@@ -26,6 +26,10 @@ if TYPE_CHECKING:
     from engine.ga.state import ActionGrant, GaPlayer
 
 
+# 礼盒 5 号面只禁用、不报废的神器与融合武器：G0 的 AR、G7 的荷鲁斯之眼。
+ARTIFACT_WEAPONS = frozenset({"ar", "horus"})
+
+
 class G6(Talent):
     """盒子、笑点与假币都有真实额度；玩偶不是普通外甲。"""
 
@@ -295,14 +299,11 @@ class G6(Talent):
                 weapons = tuple(sorted(player.weapons - {"fist", "knife", "bow"}))
                 if weapons:
                     key = ask(state, self.owner_id, target, weapons, kind="gift_broken_weapon")
-                    if key == "horus":
+                    if key in ARTIFACT_WEAPONS:
                         player.disabled_weapons[key] = timer(state, target, "gift/disabled",
                                                             cfg["gift_artifact_disable_ticks"])
                     else:
                         player.weapons.discard(key)
-                elif "ar" in player.ammo:
-                    player.disabled_weapons["ar"] = timer(state, target, "gift/disabled",
-                                                         cfg["gift_artifact_disable_ticks"])
         else:
             choices = tuple(loc for loc in LOCATIONS if loc not in state.destroyed_locations and
                             loc != player.location)

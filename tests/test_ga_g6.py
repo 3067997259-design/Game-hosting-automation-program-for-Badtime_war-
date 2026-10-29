@@ -7,7 +7,7 @@ from engine.ga.contracts import Performance, TurnStage
 from engine.ga.gameplay import legal_actions, validate_request
 from engine.ga.runtime import run_round
 from engine.ga.state import run_hooks
-from engine.ga.status import put_status
+from engine.ga.status import expire_r4, put_status
 from engine.ga.talents.base import ability, packet
 from tests.ga_i2_helpers import Decisions, execute, ready, turn
 
@@ -86,6 +86,27 @@ def test_disoriented_target_gets_no_gift_opportunity_or_early_expiry() -> None:
     assert state.ga_gifts["b"][1].window_id == window_id
     run_round(state, state.ga_controllers)
     assert state.ga_gifts["b"][1].first_opportunity_round == state.current_round
+
+
+def test_gift_face_five_disables_g0_ar_for_two_rounds_instead_of_scrapping_it() -> None:
+    state = ready({"a": "G6", "b": "G0"})
+    state.players["a"].sp = 2
+    turn(state, "a")
+    execute(state, "g6_gifts", mode=Performance.PUBLIC)
+    run_round(state, state.ga_controllers)
+    turn(state, "a", TurnStage.T0)
+    execute(state, "g6_remote_box", targets=("b",), face=5)
+    player = state.players["b"]
+    assert "ar" in player.weapons and "ar" in player.disabled_weapons
+    turn(state, "b")
+    assert not any(a.operation == "g0_ar" for a in legal_actions(state))
+    opened = state.current_round
+    for round_number in (opened + 1, opened + 2):
+        state.current_round = round_number
+        expire_r4(state)
+    assert "ar" not in player.disabled_weapons
+    turn(state, "b")
+    assert any(a.operation == "g0_ar" for a in legal_actions(state))
 
 
 def test_gift_remote_requires_opportunity_and_two_future_r4s_after_it() -> None:

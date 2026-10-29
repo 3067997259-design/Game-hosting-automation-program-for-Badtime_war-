@@ -80,9 +80,10 @@ def test_g5_three_chapters_can_stay_stage2_three_distinct_rounds_of_accepted_poe
             rnd = view["round"]
             if stage is TurnStage.T0:
                 return choose(actions, "g5_stage2" if rnd == 6 else "g5_write")
-            if rnd in (2, 4):
+            # 讲故事不返还关注 SP，第 5 轮付不起第二次，改为攻击。
+            if rnd in (2, 4, 5):
                 return choose(actions, "attack", target="b", weapon="knife")
-            if rnd in (3, 5):
+            if rnd == 3:
                 return choose(actions, "g5_story", target="b", mode=Performance.MAJOR_INSTANT)
             return choose(actions, "g5_poem", target="c", mode=Performance.MAJOR_INSTANT,
                           paid_sp=0 if rnd == 7 else 1)

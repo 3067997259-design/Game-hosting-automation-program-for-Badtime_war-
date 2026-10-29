@@ -29,6 +29,7 @@ def test_story_sets_target_sp_zero_heals_and_uses_major_t1_without_public() -> N
     turn(state, "a")
     execute(state, "g5_story", targets=("b",), mode=Performance.MAJOR_INSTANT)
     assert state.players["b"].sp == 0 and state.players["b"].hp == 11
+    assert state.players["a"].sp == 0, "讲故事不给 G5 自己关注"
     assert state.ga_roles["a"].memory == 2 and not state.ga_public_used
     assert not legal_actions(state)
 
