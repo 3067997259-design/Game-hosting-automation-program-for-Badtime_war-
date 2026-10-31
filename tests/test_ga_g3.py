@@ -20,7 +20,7 @@ def test_rho_and_guard_cost_actual_magic_and_share_one_outside_channel_at_slot_e
     assert role.rho_id not in state.players["a"].defenses and role.guard
 
 
-def test_domain_captures_real_entities_excludes_police_and_external_attacks() -> None:
+def test_domain_captures_real_entities_has_no_anchor_and_ends_when_g3_falls() -> None:
     state = ready({"a": "G3"}, count=4)
     state.players["d"].location = "magic"
     state.players["a"].sp = 2
@@ -34,13 +34,12 @@ def test_domain_captures_real_entities_excludes_police_and_external_attacks() ->
     turn(state, "d")
     assert not any("a" in a.target_ids for a in legal_actions(state))
     turn(state, "b")
-    assert not any(a.verb.value in ("move", "interact") for a in legal_actions(state))
-    execute(state, "g3_break", targets=(role.anchor,))
-    assert state.ga_units[role.anchor].hp == 6
-    turn(state, "b")
-    execute(state, "g3_break", targets=(role.anchor,))
-    turn(state, "c")
-    execute(state, "g3_break", targets=(role.anchor,))
+    actions = legal_actions(state)
+    assert not any(a.verb.value in ("move", "interact") for a in actions)
+    assert not any(a.operation.startswith("g3_") for a in actions)
+    assert not any(unit.unit_kind == "anchor" for unit in state.ga_units.values())
+    state.players["a"].hp = 1
+    execute(state, "attack", targets=("a",), weapon="knife")
     assert role.realm is None and all(p.isolation_id is None for p in state.players.values())
 
 

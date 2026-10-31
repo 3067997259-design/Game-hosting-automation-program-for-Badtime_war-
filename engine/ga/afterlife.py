@@ -376,20 +376,22 @@ class Afterlife:
             marks = ledger.marks.get(owner, [])
             if "spotlight" in marks and effect.damage_kind is DamageKind.NORMAL and effect.amount:
                 marks.remove("spotlight")
-                actor = units(state).get(effect.actor_id)
-                if actor and not actor.is_player and actor.owner_id == owner and actor.alive:
-                    heal(actor, state.ga_config.get("encore", "spotlight_proxy_heal"))
+                if effect.actor_id == owner and state.players[owner].alive:
+                    heal(state.players[owner], state.ga_config.get("encore", "spotlight_heal"))
             if "stars" in marks and record.effective_hit and owner in state.players:
-                targets = tuple(key for key, p in units(state).items() if
-                                p.alive and p.home_locked and key != owner and
-                                p.owner_id != owner and
-                                p.isolation_id == state.players[owner].isolation_id)
-                ordered = tuple(key for key in targets if key != target) or targets
-                if ordered:
+                # 同一地点另一名随机敌人；没有就不触发，标记留着（DEC-061）。
+                place = units(state)[target].location
+                others = tuple(key for key, p in units(state).items() if
+                               p.alive and p.home_locked and key not in (owner, target) and
+                               p.owner_id != owner and p.location == place and
+                               p.isolation_id == state.players[owner].isolation_id)
+                if others:
                     marks.remove("stars")
+                    pick = others[state.ga_rng.die(f"{effect.effect_id}/encore-stars",
+                                                   len(others)) - 1]
                     grant = ActionGrant(next_id(state, "encore-stars"), owner, GrantKind.REACTION)
                     request = ability(grant, TurnStage.T1, "encore_stars",
-                                      targets=(ordered[0],)).request
+                                      targets=(pick,)).request
                     bounce = packet(state, request, state.ga_config.get("encore", "stars_damage"),
                                     attribute=DamageAttribute.UNATTRIBUTED,
                                     scope=TargetScope.RANGED_SINGLE, certain=True,

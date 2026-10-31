@@ -206,8 +206,7 @@ _TALENT_SCHEMA: dict[str, Any] = {
         **_positive("17.9", "hp", "spiral_damage enhanced_spiral_damage dual_attack_bonus "
                     "dual_guard_reduction instant_dual_bonus collapse_base_damage "
                     "collapse_per_style"),
-        **_positive("17.9", "durability", "instant_dual_wear rho_durability "
-                    "anchor_durability break_action_power"),
+        **_positive("17.9", "durability", "instant_dual_wear rho_durability"),
         **_positive("17.9", "future_r4_ticks", "rho_ticks max_barrier_ticks"),
         **_positive("17.9", "count", "array_blocks_per_round gale_per_target_barrier "
                     "collapse_style_cap"),
@@ -465,7 +464,7 @@ _SCHEMA: dict[str, Any] = {
     "encore": {
         **_positive("17.13", "count", "ranger_chases yin_yang_rerolls tomorrow_waivers"),
         **_positive("17.13", "hp", "stars_damage firefly_reduction spotlight_attack_bonus "
-                    "spotlight_proxy_heal"),
+                    "spotlight_heal"),
         **_positive("17.13", "resource", "eternity_discount"),
     },
 }

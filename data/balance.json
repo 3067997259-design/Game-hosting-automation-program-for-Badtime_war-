@@ -899,7 +899,6 @@
                 "rho_cost": 3, "rho_durability": 5, "rho_ticks": 2,
                 "copy_cost": 1, "outside_copy_ratio": 0.75, "inside_copy_ratio": 1.0,
                 "array_hit_bonus": 0.15, "array_blocks_per_round": 1,
-                "anchor_durability": 10, "break_action_power": 4,
                 "upkeep_cost": 1, "max_barrier_ticks": 3,
                 "chain_costs": [2, 3, 4], "poem_chain_costs": [0, 3, 4, 5],
                 "gale_threshold": 5, "gale_sp_loss": 1, "gale_per_target_barrier": 1,
@@ -1011,7 +1010,7 @@
         "encore": {
             "ranger_chases": 1, "stars_damage": 2, "yin_yang_rerolls": 1,
             "eternity_discount": 2, "firefly_reduction": 2,
-            "spotlight_attack_bonus": 1, "spotlight_proxy_heal": 1,
+            "spotlight_attack_bonus": 1, "spotlight_heal": 1,
             "tomorrow_waivers": 1
         }
     },

@@ -196,7 +196,7 @@ class G4(Talent):
                 self.ember = min(cfg["ember_cap"], self.ember + cfg["exit_ember_gain"])
 
     def on_batch(self, state: GameState, records: tuple[ResolutionRecord, ...]) -> None:
-        """受击火种、夺火和强化普攻毁伤各用自己的额度。"""
+        """受击火种、夺火和血棘渡亡毁伤各用自己的额度。"""
         cfg = state.ga_config.get("talents", "G4")
         if self.hostile_round != state.current_round:
             self.hostile_round, self.hostile_gain = state.current_round, 0
@@ -224,11 +224,11 @@ class G4(Talent):
                 self.ember = min(cfg["ember_cap"], self.ember + gain)
             if effect.actor_id != self.owner_id:
                 continue
-            hit = record.outcome.value == "hit" and record.remaining_damage
-            if self.form == "human" and effect.source_id == "g4_slash" and (
-                hit or any(c.broken for c in record.armor_changes)
-            ):
-                self.ember = min(cfg["ember_cap"], self.ember + cfg["slash_ember_gain"])
+            # 命中并造成有效伤害才拿火种/毁伤；第一章只要求有效伤害（§5.7，DEC-061）。
+            hit = record.outcome.value == "hit" and record.effective_hit
+            if self.form == "human" and effect.source_id == "g4_slash" and record.effective_hit:
+                if hit:
+                    self.ember = min(cfg["ember_cap"], self.ember + cfg["slash_ember_gain"])
                 chapter(state, self.owner_id, 1)
             meta = state.ga_action_meta.get(effect.root_id, {})
             if self.form == "savior" and meta.get("normal_attack") and (
@@ -237,9 +237,7 @@ class G4(Talent):
                 self.ruin_roots.add(effect.root_id)
                 self.ruin = min(cfg["ruin_cap"], self.ruin + cfg["attack_ruin_gain"])
                 self.splash_pending = record.target_id
-            if effect.source_id in ("g4_counter", "g4_judgment_pool") and (
-                record.hp_loss or record.barrier_changes or record.armor_changes
-            ):
+            if effect.source_id in ("g4_counter", "g4_judgment_pool") and record.effective_hit:
                 chapter(state, self.owner_id, 3)
 
     def judgment(self, state: GameState, plan: ActionPlan) -> None:
@@ -385,5 +383,6 @@ class G4(Talent):
             self.ember = min(state.ga_config.get("talents", "G4", "ember_cap"), self.ember +
                              state.ga_config.get("poems", "burden_resource_gain"))
         else:
-            self.ruin += state.ga_config.get("poems", "burden_resource_gain")
+            self.ruin = min(state.ga_config.get("talents", "G4", "ruin_cap"), self.ruin +
+                            state.ga_config.get("poems", "burden_resource_gain"))
         self.burden = True

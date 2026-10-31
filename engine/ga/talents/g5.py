@@ -185,9 +185,9 @@ class G5(Talent):
             chapter(state, self.owner_id, 3)
 
     def on_batch(self, state: GameState, records: tuple[ResolutionRecord, ...]) -> None:
-        """最后一箭击杀不会丢失已完成的献诗章节。"""
-        if any(r.effect.source_id == "g5_arrows" and r.effect.actor_id == self.owner_id and (
-            r.effective_hit or r.armor_changes or r.barrier_changes) for r in records):
+        """爱与记忆造成有效伤害（§5.7）才算献诗生效；最后一箭击杀不丢章节。"""
+        if any(r.effect.source_id == "g5_arrows" and r.effect.actor_id == self.owner_id and
+               r.effective_hit for r in records):
             self.record_poetry(state)
 
     def arrows(self, state: GameState, plan: ActionPlan) -> None:

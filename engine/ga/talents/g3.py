@@ -9,7 +9,7 @@ from typing import Any, Mapping, TYPE_CHECKING
 from engine.ga.combat import resolve_batch
 from engine.ga.contracts import (
     ActionVerb, BarrierPolicy, CostEntry, DamageAttribute, DamageKind, DefenseKind, DefenseSpec,
-    HitPolicy, Performance, TargetScope, TurnStage,
+    Performance, TargetScope, TurnStage,
 )
 from engine.ga.extensions import IncomingModifier, ask, chapter, high_impact, units
 from engine.ga.gameplay import _visible
@@ -37,7 +37,6 @@ class G3(Talent):
     def __init__(self, owner_id: str) -> None:
         super().__init__(owner_id)
         self.realm: str | None = None
-        self.anchor: str | None = None
         self.captured: dict[str, tuple[str, str | None]] = {}
         self.realm_timer: Any = None
         self.target: str | None = None
@@ -56,7 +55,7 @@ class G3(Talent):
 
     def public(self) -> Mapping[str, Any]:
         """公共资源由玩家账户公开，角色只展示结构身份与已见证兵装。"""
-        return {"realm": self.realm, "anchor": self.anchor, "main_target": self.target,
+        return {"realm": self.realm, "main_target": self.target,
                 "seen": sorted(self.seen), "styles": sorted(self.styles), "ideal": self.ideal}
 
     def register(self, state: GameState) -> None:
@@ -90,21 +89,8 @@ class G3(Talent):
     def options(
         self, state: GameState, grant: ActionGrant, stage: TurnStage,
     ) -> tuple[ActionOption, ...]:
-        """被困者有真实锚点攻击/破界，施术者有投影和公演。"""
+        """施术者有投影和公演；被困者没有专用出口，只能打倒施术者或等结界结束（DEC-061）。"""
         actor = state.players[grant.actor_id]
-        if self.realm and actor.isolation_id == self.realm and grant.actor_id != self.owner_id:
-            if stage is TurnStage.T1 and self.anchor and state.ga_units[self.anchor].alive:
-                result = [ability(grant, stage, "g3_break", targets=(self.anchor,),
-                                  after=self.break_anchor)]
-                for original in attack_choices(state, grant):
-                    if original.request.target_ids != (self.anchor,):
-                        continue
-                    candidate = weapon_option(state, grant, original, "g3_anchor_attack",
-                                              Performance.NONE)
-                    result.append(replace(candidate, effects=tuple(replace(
-                        e, hit_policy=HitPolicy.CERTAIN) for e in candidate.effects)))
-                return tuple(result)
-            return ()
         if not own_slot(state, self.owner_id, grant):
             return ()
         cfg = state.ga_config.get("talents", "G3")
@@ -193,12 +179,11 @@ class G3(Talent):
         self, state: GameState, grant: ActionGrant, stage: TurnStage,
         options: tuple[ActionOption, ...],
     ) -> tuple[ActionOption, ...]:
-        """结界内不向商店或外部编队伸手，锚点只接受明文入口。"""
+        """结界内不向商店或外部编队伸手。"""
         player = state.players[grant.actor_id]
         if self.realm and player.isolation_id == self.realm:
             options = tuple(o for o in options if o.request.verb not in (
-                ActionVerb.MOVE, ActionVerb.INTERACT) and not (o.request.operation == "npc_attack"
-                and self.anchor in o.request.target_ids) and o.request.parameters.get(
+                ActionVerb.MOVE, ActionVerb.INTERACT) and o.request.parameters.get(
                     "location", player.location) == player.location)
         if grant.actor_id == self.owner_id and self.realm:
             return tuple(replace(o, effects=tuple(replace(
@@ -250,11 +235,6 @@ class G3(Talent):
         player.resources["temporary_magic"] = min(cfg["temp_magic_cap"],
             player.resources["temporary_magic"] + cfg["public_temp_magic"])
         self.realm_timer = timer(state, self.owner_id, "realm", cfg["max_barrier_ticks"])
-        self.anchor = f"{self.realm}/anchor"
-        state.ga_units[self.anchor] = GaPlayer(
-            self.anchor, cfg["anchor_durability"], cfg["anchor_durability"], 0, 0, 0,
-            player.location, awake=True, home_locked=True, is_player=False,
-            unit_kind="anchor", owner_id=self.owner_id, isolation_id=self.realm)
         self.styles = {*self.seen, "array"}
         self.ideal = False
         self.gale_targets.clear()
@@ -287,8 +267,6 @@ class G3(Talent):
                     loc for loc in LOCATIONS if loc not in state.destroyed_locations)
                 for callback in tuple(state.ga_location_listeners):
                     callback(state, key)
-        if self.anchor:
-            state.ga_units[self.anchor].hp = 0
         p = state.players[self.owner_id]
         for key in (self.rho_id, f"g3/array/{self.owner_id}"):
             p.defenses.pop(key, None)
@@ -300,12 +278,6 @@ class G3(Talent):
         self.eternity_active = False
         trace(state, "realm_closed", realm=realm)
         touch(state)
-
-    def break_anchor(self, state: GameState, plan: ActionPlan) -> None:
-        """专用破界稳定扣结构耐久，普通攻击仍支付真实弹药。"""
-        resolve_batch(state, (packet(state, plan.request, state.ga_config.get(
-            "talents", "G3", "break_action_power"), certain=True,
-            attribute=DamageAttribute.UNATTRIBUTED, defense_coefficient=0),))
 
     def before_action(self, state: GameState, option: ActionOption, plan: ActionPlan) -> None:
         """实际付款驱动猎风，免费首段不伪造耗魔。"""
@@ -323,8 +295,7 @@ class G3(Talent):
         cfg = state.ga_config.get("talents", "G3")
         prices = cfg["poem_chain_costs"] if self.eternity_active else cfg["chain_costs"]
         for index, price in enumerate(prices[1:], 1):
-            targets = tuple(key for key in enemies(state, self.owner_id, local=False) if
-                            key != self.anchor)
+            targets = tuple(enemies(state, self.owner_id, local=False))
             if not targets or self.available(state) < price:
                 break
             selected = ask(state, self.owner_id, self.owner_id, ("stop", *targets),
@@ -407,12 +378,11 @@ class G3(Talent):
                 record.effective_hit
             ):
                 chapter(state, self.owner_id, 3)
-        if self.realm and (not player.alive or self.anchor and not state.ga_units[
-            self.anchor].alive):
+        if self.realm and not player.alive:
             self.close(state)
 
     def boundary(self, state: GameState, *, boundary: str) -> None:
-        """普通魔力唯一R0恢复；未来R4付维持，终焉/破界/死亡均幂等退出。"""
+        """普通魔力唯一R0恢复；未来R4付维持，终焉/到期/欠维持/死亡均幂等退出。"""
         player = state.players[self.owner_id]
         cfg = state.ga_config.get("talents", "G3")
         if boundary == "R0" and player.alive:

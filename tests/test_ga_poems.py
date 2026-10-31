@@ -181,6 +181,20 @@ def test_yin_yang_two_casts_choose_only_non_extra_results_without_opponent_rps()
     assert not any(context["kind"] == "hexagram" for context, _ in state.ga_controllers["c"].seen)
 
 
+def test_yin_yang_public_cast_on_two_players_spends_one_layer_each() -> None:
+    state = ready({"a": "G5", "b": "T4"}, count=4)
+    offer(state)
+    state.ga_controllers["b"] = Decisions(poem_hexagram=["pierce", "immune"])
+    state.players["b"].sp = 2
+    turn(state, "b")
+    execute(state, "t4_hexagram", targets=("c", "d"), mode=Performance.PUBLIC)
+    asked = [context for context, _ in state.ga_controllers["b"].seen
+             if context["kind"] == "poem_hexagram"]
+    assert len(asked) == 2 and state.ga_roles["b"].yin_yang == 0
+    assert not any(context["kind"] == "hexagram" for target in ("c", "d")
+                   for context, _ in state.ga_controllers[target].seen)
+
+
 def test_law_rebuilds_one_roster_but_preserves_active_rain_stop() -> None:
     state = ready({"a": "G5", "b": "T6", "c": "G2"})
     state.ga_roles["c"].fuse(state)

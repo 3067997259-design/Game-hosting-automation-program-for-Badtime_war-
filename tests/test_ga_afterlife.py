@@ -180,6 +180,23 @@ def test_stars_single_bounce_shares_root_and_does_not_recurse() -> None:
     assert "stars" not in state.ga_afterlife.marks["a"]
 
 
+def test_stars_needs_another_enemy_at_the_hit_location_and_keeps_the_mark_otherwise() -> None:
+    state = gifted("stars")
+    state.players["d"].location = "magic"
+    turn(state, "a")
+    execute(state, "attack", targets=("b",), weapon="knife")
+    assert state.players["b"].hp == 16 and state.players["d"].hp == 20
+    assert "stars" in state.ga_afterlife.marks["a"]
+
+
+def test_spotlight_heals_the_borrower_who_attacks_in_person() -> None:
+    state = gifted("spotlight")
+    state.players["a"].hp = 10
+    turn(state, "a")
+    execute(state, "attack", targets=("b",), weapon="knife")
+    assert state.players["b"].hp == 15 and state.players["a"].hp == 11
+
+
 def test_yin_yang_one_explicit_reroll_no_recursive_sampling() -> None:
     state = gifted("yin_yang")
     state.ga_controllers["a"] = Decisions(encore_reroll=["second"])

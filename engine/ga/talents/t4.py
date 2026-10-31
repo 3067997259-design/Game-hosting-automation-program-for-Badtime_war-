@@ -61,17 +61,15 @@ class T4(Talent):
         return tuple(result)
 
     def cast(self, state: GameState, plan: ActionPlan) -> None:
-        """每个目标独立猜拳，双方完成后才揭示答案。"""
-        chosen = None
-        if self.yin_yang:
-            chosen = ask(state, self.owner_id, self.owner_id,
-                         tuple(name for name in HEXAGRAMS.values() if name != "extra"),
-                         kind="poem_hexagram")
-            self.yin_yang -= 1
+        """每个目标独立猜拳，双方完成后才揭示答案；阴阳的天机按目标逐层消耗（DEC-061）。"""
         for target in plan.request.target_ids:
             if state.game_over:
                 break
-            if chosen:
+            if self.yin_yang:
+                chosen = ask(state, self.owner_id, self.owner_id,
+                             tuple(name for name in HEXAGRAMS.values() if name != "extra"),
+                             kind="poem_hexagram", context={"opponent": target})
+                self.yin_yang -= 1
                 if self.apply(state, plan, target, chosen) and not state.game_over:
                     self.confirm(state, plan.request.root_id, target, chosen,
                                  plan.request.performance is Performance.PUBLIC)
@@ -191,5 +189,5 @@ class T4(Talent):
             player.status_immunities = frozenset()
 
     def receive_poem(self, state: GameState, giver: str) -> None:
-        """阴阳只刷新到两次发动，不钦定完整再动。"""
+        """阴阳只刷新到两层，每个起卦目标用一层，不钦定完整再动。"""
         self.yin_yang = state.ga_config.get("poems", "yin_yang_uses")

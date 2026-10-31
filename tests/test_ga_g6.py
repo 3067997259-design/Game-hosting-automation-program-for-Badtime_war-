@@ -25,6 +25,21 @@ def test_self_forfeit_and_controlled_skip_do_not_refund_counter_cost() -> None:
     assert state.players["a"].resources["laugh"] == 1
 
 
+def test_laugh_points_pay_hospital_fees_but_never_the_wallet_clearing_surgery() -> None:
+    state = ready({"a": "G6"})
+    player = state.players["a"]
+    player.location, player.credits = "hospital", 6
+    player.hp -= 5
+    turn(state, "a")
+    actions = legal_actions(state)
+    surgery = validate_request(state, next(a for a in actions if a.operation == "surgery"))
+    clinic = validate_request(state, next(a for a in actions if a.operation == "heal"))
+    assert surgery.accepted and clinic.accepted
+    assert not any(c.account == "resource:laugh" and c.amount for c in surgery.costs)
+    assert [c.amount for c in surgery.costs if c.account == "credits"] == [6]
+    assert any(c.account == "resource:laugh" and c.amount for c in clinic.costs)
+
+
 def test_counter_intercepts_only_first_segment_and_no_laugh_refund() -> None:
     state = ready({"a": "G6"})
     turn(state, "a", TurnStage.T0)

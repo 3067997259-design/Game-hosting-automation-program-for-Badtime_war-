@@ -158,7 +158,8 @@ class G6(Talent):
             price = sum(c.amount for c in costs if c.account == "credits")
             theft = min(price, state.players[victim].credits,
                         state.ga_config.get("talents", "G6", "card_theft_cap"))
-            fake = min(price - theft, self.body.resources["laugh"])
+            fake = 0 if operation == "surgery" else min(price - theft,
+                                                        self.body.resources["laugh"])
             costs = (CostEntry(victim, "credits", theft),
                      CostEntry(self.owner_id, "resource:laugh", fake),
                      CostEntry(self.owner_id, "credits", price - theft - fake))
@@ -177,12 +178,14 @@ class G6(Talent):
         self, state: GameState, grant: ActionGrant, stage: TurnStage,
         options: tuple[ActionOption, ...],
     ) -> tuple[ActionOption, ...]:
-        """假币只能抵实际信用消费，不能创造负债或重复抵已经拆分的卡账。"""
+        """假币只能抵实际信用消费，不能创造负债或重复抵已经拆分的卡账；清空钱包的手术不收假币。"""
         if grant.actor_id != self.owner_id:
             return options
         result = []
         for option in options:
-            if option.request.verb is ActionVerb.INTERACT and option.request.operation != "g6_card":
+            if option.request.verb is ActionVerb.INTERACT and option.request.operation not in (
+                "g6_card", "surgery"
+            ):
                 remaining = self.body.resources["laugh"]
                 costs = []
                 for cost in option.definition.costs:

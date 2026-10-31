@@ -201,7 +201,7 @@ class G0(Talent):
                                 cfg["arrow_conversion"])
 
     def crossfire_end(self, state: GameState, plan: ActionPlan) -> None:
-        """无人机真实消失；明天的承诺只兑现给这一次炮火。"""
+        """无人机真实消失；「为了看到奇迹起始的明天」只兑现给这一次炮火。"""
         if plan.request.root_id in self.crossfire_roots:
             return
         self.crossfire_roots.add(plan.request.root_id)
@@ -221,14 +221,15 @@ class G0(Talent):
         self, state: GameState, grant: ActionGrant, stage: TurnStage,
         options: tuple[ActionOption, ...],
     ) -> tuple[ActionOption, ...]:
-        """明天消费减费只修正实际信用点报价，最低1，不返还旧账。"""
+        """明天消费减费只修正实际信用点报价，最低1，手术不打折，不返还旧账。"""
         if not self.tomorrow or grant.actor_id != self.owner_id or state.players[
             self.owner_id].location not in (
             "shop", "hospital", "military"):
             return options
-        return tuple(replace(o, definition=replace(o.definition, costs=tuple(replace(c, amount=max(
-            state.ga_config.get("poems", "tomorrow_min_price"), c.amount - state.ga_config.get(
-                "poems", "tomorrow_discount"))) if c.account == "credits" and c.amount else c
+        return tuple(o if o.request.operation == "surgery" else replace(
+            o, definition=replace(o.definition, costs=tuple(replace(c, amount=max(
+                state.ga_config.get("poems", "tomorrow_min_price"), c.amount - state.ga_config.get(
+                    "poems", "tomorrow_discount"))) if c.account == "credits" and c.amount else c
                 for c in o.definition.costs))) for o in options)
 
     def check_final_chapter(self, state: GameState) -> None:

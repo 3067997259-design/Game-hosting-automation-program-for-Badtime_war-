@@ -6,7 +6,7 @@ import pytest
 
 from engine.ga.actions import GrantKind
 from engine.ga.contracts import Performance, TurnStage
-from engine.ga.gameplay import legal_actions
+from engine.ga.gameplay import legal_actions, validate_request
 from engine.ga.runtime import run_round
 from engine.ga.state import run_hooks
 from engine.ga.status import put_status
@@ -52,6 +52,32 @@ def test_burden_burn_cannot_be_prayed_away_and_savior_timer_stays_frozen() -> No
     execute(state, "t7_prayer", targets=("b",), mode=Performance.INSTANT)
     assert "WEAK" not in state.players["b"].statuses and state.players["b"].burns
     assert state.ga_roles["b"].form_timer.remaining == 3
+
+
+def test_tomorrow_discount_leaves_the_wallet_clearing_surgery_at_full_price() -> None:
+    state = ready({"a": "G5", "b": "G0"})
+    offer(state)
+    player = state.players["b"]
+    player.location, player.credits = "hospital", 7
+    player.hp -= 5
+    turn(state, "b")
+    actions = legal_actions(state)
+    surgery = validate_request(state, next(a for a in actions if a.operation == "surgery"))
+    clinic = validate_request(state, next(a for a in actions if a.operation == "heal"))
+    assert [c.amount for c in surgery.costs if c.account == "credits"] == [7]
+    assert [c.amount for c in clinic.costs if c.account == "credits"] == [max(
+        1, state.ga_config.get("hospital", "heal_price") - 1)]
+
+
+def test_burden_ruin_from_repeated_poems_never_exceeds_the_cap() -> None:
+    state = ready({"a": "G5", "b": "G4"})
+    for _ in range(3):
+        offer(state)
+    turn(state, "b", TurnStage.T0)
+    execute(state, "g4_ascend")
+    for _ in range(2):
+        offer(state)
+    assert state.ga_roles["b"].ruin == state.ga_config.get("talents", "G4", "ruin_cap")
 
 
 def test_law_refills_actual_old_guard_wall_without_refreshing_attack_round_quota() -> None:
