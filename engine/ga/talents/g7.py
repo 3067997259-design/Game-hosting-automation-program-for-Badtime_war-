@@ -253,9 +253,15 @@ class G7(Talent):
         self, state: GameState, grant: ActionGrant, stage: TurnStage,
         options: tuple[ActionOption, ...],
     ) -> tuple[ActionOption, ...]:
-        """起床时自选初始形态；Terror只留本命攻击/移动；架盾不能靠普通move溜走。"""
+        """起床时自选初始形态；Terror只留本命攻击/移动；架盾不能靠普通move溜走。
+
+        铁之荷鲁斯不接受商店普通修甲，只能拆盾牌或 AT 力场修复（DEC-062）。
+        """
         if grant.actor_id != self.owner_id:
             return options
+        options = tuple(o for o in options if not (
+            o.request.operation == "repair" and
+            o.request.parameters.get("defense_id") == self.shield_id))
         if stage is TurnStage.T0 and not self.body.awake:
             result = []
             for option in options:

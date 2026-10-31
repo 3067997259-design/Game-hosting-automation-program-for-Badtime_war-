@@ -68,5 +68,19 @@
     "sha256": "7ed6e2d447417513fe42e2832c75c5962afc68af2f8b4307ad680e1d70c048f9",
     "created": "2026-10-31T11:07:14",
     "note": "作者10-31机制稿（1d0befe）+ 助手按 DEC-060/061 同步改名、勘误与删除锚点；文风待作者优化"
+  },
+  {
+    "label": "B5-front-author",
+    "file": "B5-front-author.md",
+    "sha256": "e82abe5ab1bbd6de6e762503aa03b0dc0c77af8a4f7240ba31c0d7cd838c6d34",
+    "created": "2026-10-31T15:13:26",
+    "note": "作者10-31重写手册前部分（未提交，e82abe5a），助手按审阅勘误前"
+  },
+  {
+    "label": "B5-front",
+    "file": "B5-front.md",
+    "sha256": "290c4575a5b25798b8bf95526ffc6930668592f8507a52bb13e163763680a63b",
+    "created": "2026-10-31T15:19:20",
+    "note": "作者10-31前半重写（B5-front-author）+ 助手按审阅最小勘误28处、DEC-062铁之荷鲁斯修复"
   }
 ]

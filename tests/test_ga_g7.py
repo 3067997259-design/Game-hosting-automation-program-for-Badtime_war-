@@ -184,6 +184,27 @@ def test_component_t1_repairs_zero_shield_but_does_not_redeploy_or_renew_supplie
     assert component not in state.players["a"].defenses and role.supply == 2
 
 
+def test_shop_repair_skips_horus_but_broken_component_still_repairs_it() -> None:
+    """DEC-062：商店普通修甲修不了铁之荷鲁斯；已破碎的盾牌照样能拆来修。"""
+    state = fused()
+    role = state.ga_roles["a"]
+    player = state.players["a"]
+    player.defenses[role.shield_id] = replace(player.defenses[role.shield_id], durability=5)
+    turn(state, "a")
+    execute(state, "buy_armor", kind="shield")
+    component = next(k for k, v in player.armor_kinds.items() if v == "shield")
+    player.defenses[component] = replace(player.defenses[component], durability=2)
+    turn(state, "a")
+    repairs = {a.parameters["defense_id"] for a in legal_actions(state) if a.operation == "repair"}
+    assert repairs == {component}
+    player.defenses[component] = replace(player.defenses[component], durability=0)
+    turn(state, "a")
+    assert not any(a.operation == "repair" for a in legal_actions(state))
+    execute(state, "g7_repair", component=component)
+    assert player.defenses[role.shield_id].durability == 9
+    assert component not in player.defenses
+
+
 def test_fatigue_once_nap_cancels_and_adrenaline_next_r0_overrides_once() -> None:
     state = fused()
     role = state.ga_roles["a"]
